@@ -77,6 +77,7 @@ import {
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
 import { HEARTBEAT_INTERVAL_CHOICES } from '../../../../src/runtime/shared/heartbeat-interval.mjs';
+import { type BrowserPermissionPolicy, normalizeBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -612,6 +613,7 @@ const CAPABILITY_ARITY = {
   transcribeAudio: [1, 1],
   prepareTranscription: [0, 0],
   resizeImage: [1, 1],
+  stageAttachmentOriginal: [1, 1],
   listMediaLanes: [0, 1],
   listMediaAssets: [0, 1],
   readMediaAsset: [1, 2],
@@ -1836,7 +1838,7 @@ export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecisi
     result.response = decision.response;
   }
   if (decision.remember !== undefined) {
-    if (!['once', 'agent', 'always'].includes(decision.remember)) throw new TypeError('decision.remember is invalid.');
+    if (!['once', 'session', 'agent', 'always'].includes(decision.remember)) throw new TypeError('decision.remember is invalid.');
     result.remember = decision.remember;
   }
   if (decision.scope !== undefined) {
@@ -2145,6 +2147,13 @@ export function requiredNotificationVolume(value: unknown): number {
     throw new TypeError('notification volume is invalid.');
   }
   return value as number;
+}
+
+export function requiredBrowserPermissionPolicy(value: unknown): BrowserPermissionPolicy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('browser permissions are invalid.');
+  }
+  return normalizeBrowserPermissionPolicy(value);
 }
 
 export function requiredSessionRetentionSetting(

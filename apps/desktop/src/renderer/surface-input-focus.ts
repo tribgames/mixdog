@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { registerElements } from './element-registry';
+import { isPhoneSurfaceMarked } from './mobile-surface';
 
 const SURFACE_INTERACTIVE_SELECTOR = [
   'a[href]',
@@ -47,6 +48,20 @@ const SURFACE_KEYBOARD_OWNER_SELECTOR = [
  *  tap on the field open the keyboard (user: 터치만 해도 키보드가 올라옴). */
 export function touchPrimaryPointer(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+/** A press on a composer button (send/stop) must not take focus from the
+ *  field it belongs to. On a phone the tap moves focus to the button, the soft
+ *  keyboard slides away, and the viewport resizes under the very frame in which
+ *  the draft clears, the field shrinks and the new row lands: the composer
+ *  rides the keyboard down and then settles (the visible jump). Cancelling the
+ *  press's mousedown keeps the field focused, so the keyboard neither closes
+ *  nor reopens; with the keyboard already closed nothing is focused and nothing
+ *  changes. The click still fires. Desktop pointers keep their focus grammar. */
+export function holdFieldFocusOnPress(event: ReactMouseEvent<HTMLButtonElement>): void {
+  if (!touchPrimaryPointer() && !isPhoneSurfaceMarked()) return;
+  const active = document.activeElement;
+  if (active instanceof HTMLTextAreaElement && event.currentTarget.form?.contains(active)) event.preventDefault();
 }
 
 export function shouldFocusSurfaceInput(

@@ -4,6 +4,7 @@
  * The host owns wiring; this owns what one command does once it runs.
  */
 import type { createBrowserActionApproval } from './action-approval';
+import { pageHasPaymentEvidence } from './payment-evidence';
 import { type createBrowserAutoSignIn, SAVED_SIGN_IN_DONE, SAVED_SIGN_IN_NEEDS_USER } from './auto-sign-in';
 import { browserActionHandler, type BrowserActionServices } from './actions';
 import { adoptResolvedTargets } from './actions/target';
@@ -232,7 +233,8 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
           }),
           signal,
           action === 'upload' ? uploadReceiver : undefined,
-          userWait
+          userWait,
+          () => pageHasPaymentEvidence((expression) => cdp.evaluate(guest, expression, signal))
         );
         approvedReceiver = approved?.receiver;
       }

@@ -13,18 +13,21 @@ import {
   fstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
+  rmSync,
   statSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { readdir, readFile as readFileAsync, stat, unlink } from 'node:fs/promises';
+import { readdir, readFile as readFileAsync, rm, stat, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { writeFileAtomicSync, writeJsonAtomicAsync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
+import { attachmentFileName } from './attachment-file-name.mjs';
 import {
   convertLegacyOfficeBuffer,
   isLegacyOfficeBuffer,
@@ -179,6 +182,72 @@ export function storeAttachmentBuffer(buffer) {
  *  the read tool recognizes PDFs and images there by their content). */
 export function attachmentFilePath(ref) {
   return attachmentPath(ref);
+}
+
+// Named copies live beside the content-addressed blobs, one folder per blob,
+// and go with the blob when the census sweeps it.
+function namedFilesDir(ref) {
+  return join(resolvePluginData(), 'prompt-attachments', 'files', ref);
+}
+
+/**
+ * A copy of the stored attachment under its original name and a matching
+ * extension, for programs that need a real file (a site's file chooser,
+ * office/pdf tools). Returns its path. The blob keeps its bare content
+ * address for everything that depends on it; without a `filename` an already
+ * named copy of the same bytes is reused.
+ */
+export function namedAttachmentFile(value, { filename = '', mimeType = '', original = null } = {}) {
+  const ref = typeof value === 'string' ? value : value?.attachmentRef;
+  let buffer = readAttachmentBuffer(ref);
+  // The stored blob may be a resized copy made for the model. When the picked
+  // file's own bytes were kept (`original: { attachmentRef, mimeType }`), the
+  // PC file is those, named by their own type and kept in a folder keyed by
+  // THEIR hash, so two originals that resize to the same bytes never share
+  // (or overwrite) a file. If they are gone, the stored copy stands in.
+  let keyRef = ref;
+  let typeForName = mimeType;
+  if (isAttachmentReference(original)) {
+    try {
+      buffer = readAttachmentBuffer(original.attachmentRef);
+      keyRef = original.attachmentRef;
+      typeForName = original.mimeType || mimeType;
+    } catch {}
+  }
+  const dir = namedFilesDir(keyRef);
+  let name;
+  if (filename) {
+    name = attachmentFileName(filename, typeForName);
+  } else {
+    let existing;
+    try {
+      existing = readdirSync(dir).find((entry) => !entry.includes('.mixdog-tmp-'));
+    } catch {}
+    name = existing || attachmentFileName('', mimeType, String(mimeType).startsWith('image/') ? 'image' : 'attachment');
+  }
+  const target = join(dir, name);
+  let current = null;
+  try {
+    current = readFileSync(target);
+  } catch {}
+  // A copy that is already there is never overwritten: the folder is keyed by
+  // these exact bytes, so it holds them unless someone is working on the file.
+  if (current === null) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileAtomicSync(target, buffer, { mode: 0o600 });
+  }
+  return target;
+}
+
+/** Delete a stored blob and its named copies (a staged original that was
+ *  evicted or expired). */
+export function removeAttachmentBlob(ref) {
+  const path = attachmentPath(ref);
+  try {
+    unlinkSync(path);
+  } catch {}
+  dropCachedAttachment(path);
+  rmSync(namedFilesDir(ref), { recursive: true, force: true });
 }
 
 export function isAttachmentReference(value) {
@@ -568,6 +637,17 @@ const MAX_MESSAGE_ATTACHMENTS = 64;
  * dropped the content part. Plain long prompt text (no `textKind`) is not an
  * attachment.
  */
+// The file the user picked, when the composer kept it beside the resized image
+// it sent the model and the store still holds it. The record names it under
+// `attachmentRef`, so the census keeps it as long as the message exists.
+function pickedOriginal(raw) {
+  const ref = String(raw?.originalRef || '');
+  if (!ATTACHMENT_REF_RE.test(ref) || !existsSync(attachmentPath(ref))) return {};
+  return {
+    original: { attachmentRef: ref, mimeType: String(raw.originalMediaType || '').slice(0, 100) },
+  };
+}
+
 export function attachmentsForIntake(prompt, options = {}) {
   const found = new Map();
   const add = (ref, info) => {
@@ -584,6 +664,7 @@ export function attachmentsForIntake(prompt, options = {}) {
     if (part.type === 'image') {
       const meta = pastedImages.find((raw) => raw.attachmentRef === part.attachmentRef);
       add(part.attachmentRef, {
+        ...pickedOriginal(meta),
         kind: 'image',
         name: named(meta || part, 'image'),
         mimeType: mimeType || String(meta?.mediaType || 'image/png'),
@@ -609,6 +690,7 @@ export function attachmentsForIntake(prompt, options = {}) {
   for (const raw of pastedImages) {
     if (!isAttachmentReference(raw)) continue;
     add(raw.attachmentRef, {
+      ...pickedOriginal(raw),
       kind: 'image',
       name: named(raw, 'image'),
       mimeType: String(raw.mediaType || 'image/png').slice(0, 100),
@@ -989,6 +1071,7 @@ export async function collectPromptAttachments({ now = Date.now(), minAgeMs = AT
         await unlink(path);
         dropCachedAttachment(path);
         deleted += 1;
+        await rm(namedFilesDir(entry.name), { recursive: true, force: true }).catch(() => {});
       } catch (error) {
         if (error?.code !== 'ENOENT') fresh += 1;
       }

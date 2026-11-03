@@ -1,4 +1,9 @@
-import { DESKTOP_IPC, MAIN_BROWSER_PAGE_PREFIX, type DesktopBrowserViewportConfig } from '../shared/contract';
+import {
+  DESKTOP_IPC,
+  MAIN_BROWSER_PAGE_PREFIX,
+  type DesktopBrowserViewportConfig,
+  type DesktopCookieAutoImportRequest,
+} from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
 import type { BrowserLoginPopup } from './browser/login-popup';
@@ -18,6 +23,9 @@ interface BrowserIpcOptions {
     BrowserHost,
     | 'browserImportSources'
     | 'browserImport'
+    | 'browserCookieAutoImportStatus'
+    | 'browserCookieAutoImportConfigure'
+    | 'browserCookieAutoImportForgetKey'
     | 'browserHistorySearch'
     | 'setGuestActive'
     | 'browserPanelShown'
@@ -41,6 +49,21 @@ interface BrowserIpcOptions {
   >;
   /** Login takeovers' sign-in windows (browser/login-popup.ts). */
   browserLogin?: Pick<BrowserLoginPopup, 'open' | 'status'>;
+}
+
+/** The automatic cookie import setting from 설정 › 인증 관리: on/off and one Chrome profile directory name. */
+function normalizeCookieAutoImportRequest(value: unknown): DesktopCookieAutoImportRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Automatic cookie import request is invalid.');
+  }
+  const { enabled, profileId } = value as Record<string, unknown>;
+  if (typeof enabled !== 'boolean' || typeof profileId !== 'string' || profileId.length > 120) {
+    throw new TypeError('Automatic cookie import request is invalid.');
+  }
+  if (/[\\/]/.test(profileId) || (enabled && !profileId)) {
+    throw new TypeError('Automatic cookie import needs a Chrome profile.');
+  }
+  return { enabled, profileId };
 }
 
 /** A saved-login id (the 24-hex derived from its site and username), or a
@@ -231,6 +254,18 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
   handle(DESKTOP_IPC.browserProfileImportStart, (_event, value) => {
     if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
     return browserHost.browserImport(normalizeBrowserImportRequest(value));
+  });
+  handle(DESKTOP_IPC.browserCookieAutoImportStatus, () => {
+    if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
+    return browserHost.browserCookieAutoImportStatus();
+  });
+  handle(DESKTOP_IPC.browserCookieAutoImportConfigure, (_event, value) => {
+    if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
+    return browserHost.browserCookieAutoImportConfigure(normalizeCookieAutoImportRequest(value));
+  });
+  handle(DESKTOP_IPC.browserCookieAutoImportForgetKey, () => {
+    if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
+    return browserHost.browserCookieAutoImportForgetKey();
   });
   handle(DESKTOP_IPC.browserHistorySearch, (_event, query) => {
     if (!browserHost) throw new Error('Browser history is unavailable in this app surface.');

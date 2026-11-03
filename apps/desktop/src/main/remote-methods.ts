@@ -260,7 +260,10 @@ export type RemoteHostRequestMethod =
   /** This PC's OS notifications: { supported, idleSeconds } (notification-center.ts). */
   | 'notificationStatus'
   /** One test notification on this PC: { ok, message? }. */
-  | 'notificationTest';
+  | 'notificationTest'
+  /** A handoff secret a paired phone typed: held in the window process's
+   *  one-shot slot (secret-input.ts); answers whether it was taken. */
+  | 'provideSecretInput';
 
 export type RemoteMethod = (params: unknown[]) => unknown;
 type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
@@ -1055,6 +1058,15 @@ function hostWindowRemoteMethods(
     checkForDesktopUpdate: () => requiredHostRequest()('updaterCheck', []) as Promise<DesktopUpdaterState>,
     showDesktopUpdate: (args) =>
       requiredHostRequest()('updaterInstall', [args[0] === true]) as Promise<DesktopUpdaterState>,
+    // The same entry the PC card uses (ipc-sessions provideSecretInput): this
+    // connection's decrypted frame -> the window process's slot for the
+    // runtime-minted request id, whose page/field binding the fill checks. The
+    // value is only forwarded: not validated further, kept, logged or answered.
+    provideSecretInput: async ([requestId, value]) =>
+      (await requiredHostRequest()('provideSecretInput', [
+        requiredString(requestId, 'secret request id', 120),
+        typeof value === 'string' ? value : '',
+      ])) === true,
     // The host window's theme + UI language: a browser with no choice of its own follows them.
     readHostDisplayPreferences: async () =>
       readHostDisplayPreferences(await requiredHostRequest()('displayPreferences', [])),
@@ -1213,6 +1225,8 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
  *  can echo one back inside its message, which would reach the client's logs
  *  and every relay-side frame trace. */
 function secretStringsOf(method: string, params: unknown[]): string[] {
+  // A phone's handoff secret: whole, whatever its length (a short code too).
+  if (method === 'provideSecretInput') return typeof params[1] === 'string' && params[1] ? [params[1]] : [];
   if (method !== 'invokeCapability') return [];
   const request = params[0] as { capability?: unknown; args?: unknown } | null;
   if (typeof request?.capability !== 'string' || !SECRET_CAPABILITY_NAMES.has(request.capability)) return [];

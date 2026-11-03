@@ -85,6 +85,70 @@ test('a one-time code field is found (autocomplete, numeric, its own boxes) and 
   }
 });
 
+test('a code split into boxes that carry no maxlength (length capped in script) is filled box by box', async () => {
+  const boxes = [1, 2, 3, 4, 5, 6]
+    .map((n) => `<input id="d${n}" type="text" aria-label="Verification code digit ${n}">`)
+    .join('');
+  const page = secretPage(`<form>${boxes}<input id="other" type="text" aria-label="Display name"></form>`);
+  page.dom.window.document.querySelector('#other').getBoundingClientRect = () => ({
+    left: 0,
+    top: 80,
+    right: 300,
+    bottom: 110,
+    width: 300,
+    height: 30,
+  });
+  try {
+    const hint = 'Verification code digit 1';
+    assert.deepEqual(await page.run({ form: 'otp', hint }), { form: 'otp', length: 6 });
+    assert.deepEqual(await page.run({ form: 'otp', hint, value: '960656' }), { filled: true });
+    assert.deepEqual(
+      [1, 2, 3, 4, 5, 6].map((n) => page.value(`#d${n}`)),
+      ['9', '6', '0', '6', '5', '6']
+    );
+    assert.equal(page.value('#other'), '', 'a field outside the row is never written');
+  } finally {
+    page.dom.window.close();
+  }
+});
+
+test('unrelated fields next to a code field are never part of its boxes', async () => {
+  for (const html of [
+    // explicit non-code purposes and labels
+    `<input id="code" type="text" aria-label="Verification code">
+     <input id="city" type="text" aria-label="City" autocomplete="address-level2">
+     <input id="state" type="text" autocomplete="address-level1">
+     <input id="zip" type="text" autocomplete="postal-code">`,
+    // no label or purpose, only an ordinary name
+    `<input id="code" type="text" aria-label="Verification code">
+     <input id="city" type="text" name="city"><input id="state" type="text" name="state">
+     <input id="zip" type="text" name="zip">`,
+  ]) {
+    const page = secretPage(`<form>${html}</form>`);
+    try {
+      assert.deepEqual(await page.run({ form: 'otp', hint: 'Verification code', value: '960656' }), { filled: true });
+      assert.equal(page.value('#code'), '960656');
+      for (const id of ['city', 'state', 'zip']) assert.equal(page.value(`#${id}`), '', id);
+    } finally {
+      page.dom.window.close();
+    }
+  }
+  // Boxes are one contiguous run: a field between them ends the run.
+  const page = secretPage(
+    `<form>${[1, 2, 3, 4]
+      .map((n) => `<input id="d${n}" type="text" aria-label="Verification code digit ${n}">`)
+      .join('')}<input id="city" type="text" aria-label="City">${[5, 6]
+      .map((n) => `<input id="d${n}" type="text" aria-label="Verification code digit ${n}">`)
+      .join('')}</form>`
+  );
+  try {
+    assert.deepEqual(await page.run({ form: 'otp', hint: 'Verification code digit 1' }), { form: 'otp', length: 4 });
+    assert.equal(page.value('#city'), '');
+  } finally {
+    page.dom.window.close();
+  }
+});
+
 test('only explicit signals make a code field: a verification email or a generic text field is never one', async () => {
   for (const html of [
     '<input name="verification_email" type="text">',

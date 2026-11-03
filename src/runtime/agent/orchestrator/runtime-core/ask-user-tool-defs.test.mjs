@@ -50,8 +50,10 @@ test('handoff_user is a deferred, Lead-only tool carrying the handoff rules', ()
   assert.equal(def.annotations.readOnlyHint, true);
   assert.match(
     def.description,
-    /A step only the user can do on a page or app \(CAPTCHA, human check, sign-in, 2FA, a password\) is a handoff here, never a request in plain chat\./
+    /Input only the user can supply .* is a handoff here, never a request in plain chat\./
   );
+  assert.match(def.description, /Never for authorization/);
+  assert.match(def.description, /never a takeover then a secret for the same login/);
   const handoff = def.inputSchema.properties.handoff;
   assert.deepEqual(def.inputSchema.required, ['handoff']);
   assert.deepEqual(handoff.required, ['kind', 'surface']);

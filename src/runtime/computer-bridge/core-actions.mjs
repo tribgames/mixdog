@@ -74,13 +74,13 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
     text: {
       type: 'string',
       maxLength: 30_000,
-      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action. Never a password or one-time code, even one shown on screen: saved_login or handoff_user.`,
+      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action. Never a password, or a code from SMS, an authenticator app or a passkey, even one shown on screen: saved_login or handoff_user. The one exception is a one-time code e-mailed for a sign-up or sign-in you started, read from a connected mailbox: type it yourself, never echo it.`,
     },
     value: {
       type: 'string',
       maxLength: 30_000,
       description:
-        'set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or one-time code, even one shown on screen: saved_login or handoff_user.',
+        'set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or a code; an e-mailed code is typed with text and delivery foreground (set_value fills only one box of a segmented code input).',
     },
     keys: {
       type: 'string',

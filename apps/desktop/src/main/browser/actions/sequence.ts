@@ -44,6 +44,7 @@ export const sequenceActions = defineBrowserActions({
               internalStep: true,
               session_id: command.session_id,
               turn_id: command.turn_id,
+              ...(command.session_life ? { session_life: command.session_life } : {}),
               ...(command.unattended_run === true
                 ? { unattended_run: true, unattended_agent: command.unattended_agent }
                 : {}),

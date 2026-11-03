@@ -89,7 +89,7 @@ import {
 import { createDesktopPet, type DesktopPet, type PetWindow } from './desktop-pet-window';
 import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 import { hostDeviceName } from './session-device';
-import { setBrowserApprovalHooks } from './browser/approval-dialog';
+import { endBrowserApprovalSession, setBrowserApprovalHooks } from './browser/approval-dialog';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
 import { createBrowserApprovalGrants } from './browser/approval-grants';
 import { boundedNotification } from './connections/server-notifier';
@@ -120,6 +120,7 @@ import { loginTakeoverOf } from './browser/login-takeover';
 import { createComputerHost, type ComputerHost } from './computer';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { TERMINAL_SHOWN_WAIT_MS } from '../shared/terminal-command';
+import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { createTerminalRunDispatch } from './terminal/run-dispatch';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { requiredVisualizeTabCommand } from './ipc-validation';
@@ -770,6 +771,8 @@ let browserControlEnabled = false;
 let browserAutoSignIn = true;
 // Sites may ask to connect a HID device (default off), read per request.
 let browserHidDevices = false;
+// Site permission defaults and exceptions of the built-in browser, read per request.
+let browserPermissionPolicy = defaultBrowserPermissionPolicy();
 let computerHost: ComputerHost | null = null;
 let computerUseOverlay: ComputerUseOverlay | null = null;
 let computerControlEnabled = false;
@@ -1073,6 +1076,7 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
   browserHost?.setBridgeEnabled(browserControlEnabled);
   browserAutoSignIn = settings.browserAutoSignIn !== false;
   browserHidDevices = settings.browserHidDevices === true;
+  browserPermissionPolicy = settings.browserPermissions;
 };
 // Computer use is opt-in and high risk, so the bridge (and thus the agent
 // `computer` tool) exists only while the setting is on. Toggling it starts or
@@ -1179,6 +1183,8 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
       browserHost?.releaseSession(event.sessionId, { restore: event.restore === true });
       // A session's secrets are redacted for its lifetime, then forgotten.
       if (event.restore !== true) secretInputs.forget(event.sessionId);
+      // What it was allowed "for this session" ends with it (a restorable release keeps the session).
+      if (event.restore !== true) endBrowserApprovalSession(event.sessionId);
     }
     return;
   }
@@ -1208,7 +1214,8 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
         request.method === 'captureFileSnapshot' ||
         request.method === 'localPageUrl' ||
         request.method === 'notificationStatus' ||
-        request.method === 'notificationTest')
+        request.method === 'notificationTest' ||
+        request.method === 'provideSecretInput')
     ) {
       const hostMethod = request.method;
       void (async () => {
@@ -1230,6 +1237,11 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             result = { supported: Notification.isSupported(), idleSeconds: powerMonitor.getSystemIdleTime() };
           } else if (hostMethod === 'notificationTest') {
             result = showTestNotification();
+          } else if (hostMethod === 'provideSecretInput') {
+            // A paired phone's value into the very slot the PC card fills
+            // (ipc-sessions provideSecretInput); only whether it was taken
+            // goes back, never the value.
+            result = secretInputs.provide(String(args[0] || ''), typeof args[1] === 'string' ? args[1] : '');
           } else if (hostMethod === 'visualizeState') {
             result = visualize.hostSnapshot();
           } else if (hostMethod === 'visualizeCommand') {
@@ -2394,6 +2406,21 @@ function installLocalWindowFeatures(
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     autoSignIn: () => browserAutoSignIn,
     hidDevices: () => browserHidDevices,
+    permissionPolicy: {
+      policy: () => browserPermissionPolicy,
+      save: (next) => {
+        browserPermissionPolicy = next;
+        void settingsStore.updateBrowserPermissions(next).catch((error: unknown) => {
+          diagnostics?.write('browser-permissions-save-failed', {
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+      },
+    },
+    cookieAutoImportSettings: {
+      read: () => settingsStore.readBrowserCookieAutoImport(),
+      write: (next) => settingsStore.updateBrowserCookieAutoImport(next),
+    },
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
     publishRemoteFrame: async (frame) => {

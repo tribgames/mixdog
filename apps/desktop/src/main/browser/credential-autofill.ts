@@ -199,6 +199,9 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
   // Words that name a one-time code, never a bare "verif" or "code": a
   // verification_email, a promo or postal code is no code to type here.
   const CODE_WORDS = /\b(?:otp|totp|hotp|mfa|2fa|pass ?code|one ?time ?(?:code|pass(?:word|code)?|pin)|sms ?(?:code|token)|(?:verification|verify|auth|authentication|login|two ?factor|two ?step|2 ?step) ?code)\b/;
+  const BOX_NAME_WORDS = new Set(['d', 'c', 'n', 'i', 'v', 'digit', 'char', 'character', 'box', 'cell', 'otp', 'totp', 'code',
+    'pin', 'input', 'field', 'num', 'number', 'segment', 'part', 'value', 'verification', 'verify', 'auth', 'sms', 'mfa',
+    'passcode', 'pass', 'one', 'time', 'token']);
   const CODE_LABEL = /인증 ?(?:번호|코드)|일회용 ?(?:비밀번호|코드)/;
   const short = (element) => maxLength(element) === 1 || (maxLength(element) >= 4 && maxLength(element) <= 8);
   // Only explicit signals make a code field: autocomplete one-time-code, a
@@ -267,10 +270,44 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
   }
   const kind = kindFor(field);
   const scope = field.form ? inputs.filter((element) => element.form === field.form) : inputs;
-  // A code split into one box per character: its boxes, in order.
-  const boxes = kind === 'otp' && maxLength(field) === 1
+  // A code split into one box per character: its boxes, in order. A box says
+  // so by maxlength 1, or by layout: 4–10 equally narrow inputs of one type
+  // on one row (boxes that cap their length in script have no maxlength). The
+  // siblings need not look like code fields themselves, only like the same row.
+  // Only inputs that could be a code box join: no explicit autocomplete purpose
+  // other than a code, and no name, id or label of an ordinary field (a label
+  // with no letters, a digit label or a code label are boxes). The group is the
+  // one contiguous run of such siblings around the bound field.
+  const boxLike = (element, box, rect) => {
+    if (!visible(element) || type(element) !== type(box) || maxLength(element) > 1) return false;
+    if (tokens(element).some((token) => !['on', 'off', 'one-time-code'].includes(token))) return false;
+    const label = words(labelText(element));
+    if (/\p{L}/u.test(label) && !CODE_WORDS.test(label) && !CODE_LABEL.test(labelText(element)) && !/\bdigit\b/.test(label)) {
+      return false;
+    }
+    // A name or id is a box's only when it is made of index and code words.
+    const named = words(String(element.name || '') + ' ' + String(element.id || '')).replace(/[0-9]/g, ' ');
+    if (!named.split(/\s+/).filter(Boolean).every((word) => BOX_NAME_WORDS.has(word))) return false;
+    const other = element.getBoundingClientRect();
+    return other.width <= 96 && Math.abs(other.width - rect.width) < 4 && Math.abs(other.top - rect.top) < 4;
+  };
+  const rowOf = (box) => {
+    const rect = box.getBoundingClientRect();
+    if (rect.width > 96 || !boxLike(box, box, rect)) return [];
+    const flat = scope.filter((element) => type(element) !== 'hidden');
+    const at = flat.indexOf(box);
+    let from = at;
+    let to = at;
+    while (from > 0 && boxLike(flat[from - 1], box, rect)) from -= 1;
+    while (to < flat.length - 1 && boxLike(flat[to + 1], box, rect)) to += 1;
+    return flat.slice(from, to + 1);
+  };
+  const row = kind === 'otp' ? rowOf(field) : [];
+  const boxes = kind === 'otp' && maxLength(field) === 1 && row.length < 4
     ? scope.filter((element) => visible(element) && kindOf(element) === 'otp' && maxLength(element) === 1)
-    : [field];
+    : kind === 'otp' && row.length >= 4 && row.length <= 10 && row.includes(field)
+      ? row
+      : [field];
   const username = kind === 'password' ? usernameIn(scope) : null;
   // The exact elements a fill will write, in the order it writes them.
   const form = kind === 'password' && username ? 'login' : kind;

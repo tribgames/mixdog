@@ -91,6 +91,8 @@ export function isSessionRetentionDays(key: SessionRetentionSettingKey, value: u
   return typeof value === 'number' && choices.includes(value);
 }
 
+import type { BrowserPermissionPolicy } from './browser-permission-policy';
+
 export type DesktopSettingKey =
   | 'autoClear'
   | 'autoCompact'
@@ -152,6 +154,9 @@ export interface DesktopSettings {
   /** Opt-in: a site in the built-in browser may ask to connect a HID device;
    *  a person picks the one device in the pane. Default off (refused). */
   browserHidDevices: boolean;
+  /** Site permissions in the built-in browser: a default per kind and
+   *  per-site exceptions. Changed with `setBrowserPermissions`. */
+  browserPermissions: BrowserPermissionPolicy;
   /** Save a login typed into a chat input card to the vault (설정 › 인증 관리).
    *  Default on; it is the input card's save default. */
   saveChatLogins: boolean;

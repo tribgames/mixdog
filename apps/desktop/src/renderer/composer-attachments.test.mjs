@@ -4,7 +4,10 @@ import { JSDOM } from 'jsdom';
 
 import { attachmentFromFile, remoteAttachmentLimitBytes, remoteAttachmentSizeError } from './composer-attachments.ts';
 
-function installBrowserImageHarness({ supportsWebp = true } = {}) {
+const ORIGINAL_REF = 'a'.repeat(64);
+
+function installBrowserImageHarness({ supportsWebp = true, stage = 'ok' } = {}) {
+  const staged = [];
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'https://mixdog.example/',
   });
@@ -26,7 +29,13 @@ function installBrowserImageHarness({ supportsWebp = true } = {}) {
   Object.defineProperty(dom.window, 'mixdogDesktop', {
     configurable: true,
     value: {
-      invokeCapability() {
+      invokeCapability(request) {
+        if (request.capability === 'stageAttachmentOriginal') {
+          staged.push(request.args[0]);
+          // A link that cannot carry the original refuses the call.
+          if (stage === 'refuse') return Promise.reject(new Error('payload too large for the relay'));
+          return Promise.resolve({ value: { originalRef: ORIGINAL_REF } });
+        }
         capabilityCalls += 1;
         throw new Error('browser attachments must not use resizeImage RPC');
       },
@@ -69,6 +78,7 @@ function installBrowserImageHarness({ supportsWebp = true } = {}) {
     dom,
     drawCalls,
     capabilityCalls: () => capabilityCalls,
+    staged,
     close() {
       dom.window.close();
       for (const [key, descriptor] of previous) {
@@ -98,6 +108,32 @@ test('web image attachments resize locally before appearing in the draft', async
       '[Image: source: mobile.png, 4000x1000, displayed at 1568x392. ' +
         'Multiply coordinates by 2.55 to map to the original image.]'
     );
+  } finally {
+    harness.close();
+  }
+});
+
+test('a resized phone image also hands its original bytes to the PC once, for the named file', async () => {
+  const harness = installBrowserImageHarness();
+  try {
+    const file = new harness.dom.window.File(['original'], 'KakaoTalk_1.jpg', { type: 'image/jpeg' });
+    const attachment = await attachmentFromFile(file, { id: 7 });
+    assert.equal(attachment?.data, 'cmVzaXplZA==', 'the model still gets the resized image');
+    assert.deepEqual(harness.staged, [{ data: 'b3JpZ2luYWw=', mimeType: 'image/jpeg' }]);
+    assert.equal(attachment?.originalRef, ORIGINAL_REF);
+    assert.equal(attachment?.originalMimeType, 'image/jpeg');
+  } finally {
+    harness.close();
+  }
+});
+
+test('an original the link cannot carry falls back to the resized copy without failing the attach', async () => {
+  const harness = installBrowserImageHarness({ stage: 'refuse' });
+  try {
+    const file = new harness.dom.window.File(['original'], 'big.jpg', { type: 'image/jpeg' });
+    const attachment = await attachmentFromFile(file, { id: 7 });
+    assert.equal(attachment?.data, 'cmVzaXplZA==');
+    assert.equal('originalRef' in attachment, false);
   } finally {
     harness.close();
   }

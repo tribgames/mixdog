@@ -283,6 +283,31 @@ export function alwaysAllowScope(agent: string, action: string): string {
   return t("With Always allow, {{agent}}'s {{action}} won't ask again", { agent, action });
 }
 
+/** What the scope line says "Allow for this session" changes. */
+export function sessionAllowScope(agent: string, action: string): string {
+  return t("For this session, {{agent}}'s {{action}} won't ask again, on any site", { agent, action });
+}
+
+/** What the scope line says "Allow for this session" changes on a tool's own card. */
+export function sessionAllowToolScope(action: string): string {
+  return t("For this session, {{action}} won't ask again", { action });
+}
+
+/** What the scope line says "Always allow (all conversations)" changes: a saved
+ *  allow of every agent's, listed (and revocable) in each agent's permissions. */
+export function sharedAllowScope(action: string): string {
+  return t("With Always allow, {{action}} won't ask again in any conversation", { action });
+}
+
+/** The same two lines for a choice keyed by an action kind, which covers that
+ *  kind whichever tool sends it (a Lead's hook ask on a classified call). */
+export function sessionAllowKindScope(action: string): string {
+  return t("For this session, {{action}} from any tool won't ask again", { action });
+}
+export function sharedAllowKindScope(action: string): string {
+  return t("With Always allow, {{action}} from any tool won't ask again in any conversation", { action });
+}
+
 function actionText(action: string): string {
   const texts: Record<string, string> = {
     comment: t('Posts the comment below.'),
@@ -424,6 +449,12 @@ export function approvalCardModel(approval: Approval) {
     editable: Array.isArray(outbound?.editable) ? outbound.editable.map(String) : [],
     details,
     remember: Array.isArray(approval.remember) && approval.remember.includes('agent'),
+    /** "Allow for this session" is offered (requests.mjs: only for an action kind that can be remembered). */
+    rememberSession: Array.isArray(approval.remember) && approval.remember.includes('session'),
+    /** "Always allow (all conversations)" is offered: a saved allow of every agent's (requests.mjs). */
+    rememberShared: Array.isArray(approval.remember) && approval.remember.includes('always'),
+    /** What a session or every-agent choice covers: an action kind or `tool:<name>` (requests.mjs). */
+    grantAction: typeof approval.grantAction === 'string' ? approval.grantAction : '',
     secretId: String(secret?.requestId || ''),
     /** The bound field (requests.mjs SECRET_FORMS): 아이디 + 비밀번호 for a
      *  sign-in, the code boxes for a one-time code ('' = one password box). */
@@ -585,9 +616,41 @@ export function approvalCardRows(
       { ...cancel, label: t('Deny') },
     ];
   }
-  const alwaysAllowTarget = model.action || !model.tool ? actionLabel(model.action) : connectorToolLabel(model.tool);
+  // What a session or every-agent choice covers: the request's own grant key (an
+  // action kind, or `tool:<name>`), else the card's kind, else its tool.
+  const grantKind = model.grantAction && !model.grantAction.startsWith('tool:') ? model.grantAction : '';
+  const grantTool = model.grantAction.startsWith('tool:') ? model.grantAction.slice('tool:'.length) : '';
+  const toolCard = !model.action && !grantKind && Boolean(grantTool || model.tool);
+  const alwaysAllowTarget = toolCard
+    ? connectorToolLabel(grantTool || model.tool)
+    : actionLabel(model.action || grantKind);
+  const keyedByKind = !model.action && Boolean(grantKind);
   return [
     { label: t('Allow just once'), decision: { approved: true }, edits: true },
+    ...(model.rememberSession
+      ? [
+          {
+            label: t('Allow for this session'),
+            desc: toolCard
+              ? sessionAllowToolScope(alwaysAllowTarget)
+              : keyedByKind
+                ? sessionAllowKindScope(alwaysAllowTarget)
+                : sessionAllowScope(agentName, alwaysAllowTarget),
+            decision: { approved: true, remember: 'session' as const },
+            edits: true,
+          },
+        ]
+      : []),
+    ...(model.rememberShared
+      ? [
+          {
+            label: t('Always allow (all conversations)'),
+            desc: keyedByKind ? sharedAllowKindScope(alwaysAllowTarget) : sharedAllowScope(alwaysAllowTarget),
+            decision: { approved: true, remember: 'always' as const },
+            edits: true,
+          },
+        ]
+      : []),
     ...(model.remember
       ? [
           {
@@ -1311,7 +1374,9 @@ function ToolApprovalCard({
   const [error, setError] = useState('');
   const resolvingRef = useRef(false);
   const edited = model.editable.length > 0 && text !== model.payload;
-  // A value is only ever handed to this PC; a paired phone has no such path.
+  // A value is only ever handed to the PC: by this window's IPC, or by a
+  // phone whose encrypted channel to a host that takes it provides the call
+  // (remote-shim-api.ts); any other client has no such path.
   const secretEntry = typeof window !== 'undefined' && typeof window.mixdogDesktop?.provideSecretInput === 'function';
   const owner = useOwnerChip(approval, hostSessionId, approvalChainLabel(approval.chain));
   const handsOver = model.kind === 'secret' || model.kind === 'takeover';
@@ -1393,9 +1458,16 @@ function ToolApprovalCard({
         const provide = window.mixdogDesktop?.provideSecretInput;
         // The sign-in's 아이디 and the save choice ride their own slots of
         // the request (main/secret-input.ts); the password is the request's own.
-        if (login && name) await provide?.(`${model.secretId}${SECRET_USERNAME_SUFFIX}`, name);
-        if (save) await provide?.(`${model.secretId}${SECRET_SAVE_SUFFIX}`, '1');
-        const held = await provide?.(model.secretId, value);
+        // A phone's call can fail on the way (the leg dropped, an older PC):
+        // the value is gone from the field, so say so instead of going quiet.
+        let held = false;
+        try {
+          if (login && name) await provide?.(`${model.secretId}${SECRET_USERNAME_SUFFIX}`, name);
+          if (save) await provide?.(`${model.secretId}${SECRET_SAVE_SUFFIX}`, '1');
+          held = (await provide?.(model.secretId, value)) === true;
+        } catch {
+          held = false;
+        }
         if (held) return void decide({ approved: true, response: 'provide-secret' });
         setError(t('This PC could not take the value. Please try again.'));
       })();
@@ -1428,7 +1500,12 @@ function ToolApprovalCard({
   // initial focus and of the card's own Enter.
   const isAlways = (row: CardRow) => {
     const decision = typeof row.decision === 'object' ? row.decision : null;
-    return decision?.remember === 'agent' || (Boolean(decision?.scope) && decision?.scope === permission.always?.id);
+    return (
+      decision?.remember === 'agent' ||
+      decision?.remember === 'always' ||
+      decision?.remember === 'session' ||
+      (Boolean(decision?.scope) && decision?.scope === permission.always?.id)
+    );
   };
   // A row's own description (what "Always allow" changes) is its tooltip; a
   // click-only allow's says it takes a click.

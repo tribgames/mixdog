@@ -135,6 +135,7 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
     routeAutoEffort: 1 as const,
     visualize: 1 as const,
     fileDownloads: 1 as const,
+    secretInput: 1 as const,
     browserWebrtc: REMOTE_WEBRTC_VERSION,
     browserFit: 1 as const,
     // Direct transport (docs/remote-transport.md §6): offered by default; it

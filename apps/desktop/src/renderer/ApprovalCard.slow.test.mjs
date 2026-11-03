@@ -930,6 +930,37 @@ test('the phone never takes a secret: "PC에서 입력하세요" with Cancel, no
   }
 });
 
+test('a phone whose secret call fails says so, keeps the card open and sends no decision', async () => {
+  const previous = dom.window.mixdogDesktop;
+  const attempts = [];
+  // The remote shim's provideSecretInput rejects when the leg drops or the PC is older.
+  dom.window.mixdogDesktop = {
+    provideSecretInput: async (requestId, value) => {
+      attempts.push([requestId, value]);
+      throw new Error('mixdog remote connection interrupted');
+    },
+    readSettings: async () => ({}),
+  };
+  const request = secretRequest('p2', { origin: 'https://bank.example.com', form: 'password' });
+  const c = card(request);
+  const ui = await mount(c.element);
+  try {
+    const field = ui.doc.querySelector('.approval-secret');
+    await ui.type(field, 'pw-123');
+    await ui.click(ui.button('Enter'));
+    assert.deepEqual(attempts, [[request.secret.requestId, 'pw-123']]);
+    assert.deepEqual(c.decisions, [], 'the agent is not told a value was provided');
+    assert.match(
+      ui.doc.querySelector('.error-notice, [role="alert"]')?.textContent || '',
+      /This PC could not take the value\. Please try again\./
+    );
+    assert.equal(field.value, '', 'the value is not kept in the field');
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
+});
+
 test('a sign-in secret asks 아이디 + 비밀번호 with the save box from saveChatLogins; values go only to the PC', async () => {
   const previous = dom.window.mixdogDesktop;
   for (const [settings, saves] of [

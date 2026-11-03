@@ -303,3 +303,54 @@ test('an older read answering after a newer one never restores its stale list ov
   assert.ok(doc.body.textContent.includes('vault unreadable'), 'the newer error stays');
   assert.equal(doc.querySelectorAll('.auth-row').length, 0, 'the older list is dropped');
 });
+
+test('automatic cookie import: toggle, status line and forget-key act on the host and stay hidden where it is unavailable', async (t) => {
+  let status = {
+    enabled: false,
+    profileId: '',
+    keySaved: true,
+    keyStorageAvailable: true,
+    running: false,
+    needsManualImport: false,
+  };
+  const configured = [];
+  let forgotten = 0;
+  const api = {
+    ...makeApi(),
+    browserProfileImportSources: async () => [
+      { id: 'chrome', name: 'Google Chrome', supports: { cookies: true }, profiles: [{ id: 'Default', name: 'Me' }] },
+    ],
+    browserCookieAutoImportStatus: async () => status,
+    browserCookieAutoImportConfigure: async (request) => {
+      configured.push(request);
+      status = { ...status, ...request };
+      return status;
+    },
+    browserCookieAutoImportForgetKey: async () => {
+      forgotten += 1;
+      status = { ...status, keySaved: false, needsManualImport: true };
+      return status;
+    },
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  const toggle = () => doc.querySelector('input[aria-label="Import cookies automatically"]');
+  assert.ok(toggle(), 'the setting is offered next to the import');
+  assert.equal(toggle().checked, false, 'off by default');
+  await act(async () => toggle().click());
+  await settle();
+  assert.deepEqual(configured, [{ enabled: true, profileId: 'Default' }], 'the first listed profile is used');
+  assert.equal(toggle().checked, true);
+  assert.ok(doc.body.textContent.includes('Chrome key saved on this PC'), 'the saved key is shown');
+  const forget = [...doc.querySelectorAll('.settings-action')].find((button) => button.textContent === 'Forget saved key');
+  await act(async () => forget.click());
+  await settle();
+  assert.equal(forgotten, 1);
+  assert.ok(doc.body.textContent.includes('Needs one manual import'), 'the status line asks for one manual import');
+  assert.ok(![...doc.querySelectorAll('.settings-action')].some((button) => button.textContent === 'Forget saved key'));
+});
+
+test('automatic cookie import is not offered where the host has no such setting', async (t) => {
+  const dom = await mount(t, makeApi());
+  assert.equal(dom.window.document.querySelector('input[aria-label="Import cookies automatically"]'), null);
+});

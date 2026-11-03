@@ -144,7 +144,8 @@ for (const [label, sessionId] of [
     assert.equal(asked.length, 1, 'the bot is asked on the outbound card');
     assert.equal(asked[0].kind, 'outbound');
     assert.equal(asked[0].agentId, 'mailer', 'with the bot as the requester');
-    assert.deepEqual(asked[0].remember, ['once', 'agent']);
+    // This-session only where a person attends (the home chat); a room seat is a run.
+    assert.deepEqual(asked[0].remember, sessionId === HOME ? ['once', 'session', 'agent'] : ['once', 'agent']);
     // "Don't ask again" was stored for the bot, shared by its home chat and its room seat.
     const [grant] = await store.listGrants({ agentId: 'mailer' });
     assert.deepEqual({ agentId: grant.agentId, action: grant.action }, { agentId: 'mailer', action: 'email' });

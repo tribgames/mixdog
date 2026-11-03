@@ -230,6 +230,9 @@ export interface BrowserCommand {
   unattended_run?: boolean;
   /** Runtime-set with `unattended_run`: the bot that owns the run ('' unknown). */
   unattended_agent?: string;
+  /** Runtime-set, never a tool argument: the life the session is in (it changes
+   *  when the session is cleared or replaced); "allow for this session" binds to it. */
+  session_life?: string;
   /** Runtime-set, never a tool argument: navigate's `url` is a link of a mail
    *  the runtime read for this session, so it may carry a token (url-policy.ts). */
   mail_link?: import('./url-policy').BrowserMailLink;

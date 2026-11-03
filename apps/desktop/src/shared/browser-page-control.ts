@@ -29,7 +29,8 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
       if (
         typeof input.accept !== 'boolean' ||
         (input.promptText !== undefined && (typeof input.promptText !== 'string' || input.promptText.length > 2000)) ||
-        (input.keepDefault !== undefined && typeof input.keepDefault !== 'boolean')
+        (input.keepDefault !== undefined && typeof input.keepDefault !== 'boolean') ||
+        (input.remember !== undefined && input.remember !== 'site' && input.remember !== 'all')
       ) {
         throw new TypeError('Browser dialog answer is invalid.');
       }
@@ -41,6 +42,7 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
         promptText: input.promptText,
         ...(input.keepDefault ? { keepDefault: true } : {}),
         ...(input.deviceId === undefined ? {} : { deviceId: text('deviceId', 200) }),
+        ...(input.remember === undefined ? {} : { remember: input.remember }),
       };
     }
     case 'choose-files': {

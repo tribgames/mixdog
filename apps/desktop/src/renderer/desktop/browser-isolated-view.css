@@ -153,6 +153,43 @@
   font-size: var(--mx-font-meta);
   text-align: center;
 }
+/* A permission prompt's "how long to remember" choice: label and select on
+   one line, wrapping under each other when the card is narrow. */
+.browser-page-prompt .mx-dialog-body .browser-permission-remember {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.browser-permission-remember > select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 160px;
+  min-height: 32px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  color: var(--mx-text);
+  font: inherit;
+  font-size: var(--mx-font-ui);
+}
+.browser-permission-remember > .browser-permission-remember-note {
+  flex: 1 0 100%;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+}
+.browser-permission-remember > select:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.browser-permission-remember > select:disabled {
+  opacity: 0.6;
+}
 .browser-page-prompt .mx-dialog-body .browser-device-note {
   margin-top: 10px;
   color: var(--mx-text-muted);

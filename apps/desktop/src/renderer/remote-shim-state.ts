@@ -159,6 +159,9 @@ export interface RemoteShimState {
   /** The current host advertised `fileDownloads`: it serves the host file
    *  download lane (shared/file-downloads.ts). Absent means an older host. */
   peerFileDownloads: boolean;
+  /** The current host advertised `secretInput`: it takes a handoff secret
+   *  typed on this device. Absent means an older host. */
+  peerSecretInput: boolean;
   /** The current host advertised `browserWebrtc` (shared/remote-webrtc.ts):
    *  its value when it is the version this client speaks, else 0. */
   peerBrowserWebrtc: number;
@@ -462,6 +465,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerRouteAutoEffort: false,
     peerVisualize: false,
     peerFileDownloads: false,
+    peerSecretInput: false,
     peerBrowserWebrtc: 0,
     peerBrowserFit: null,
     peerMediaE2ee: false,

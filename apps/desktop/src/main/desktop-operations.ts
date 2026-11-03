@@ -29,6 +29,7 @@ import { createServerFileOperations } from './server-file-operations';
 import { listListeningPorts } from './server-ports';
 
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
+import { normalizeBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
@@ -393,6 +394,7 @@ function settingsOperations(settingsStore: DesktopSettingsStore, emit: Emit): Re
     updateSetting: (args) =>
       settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true),
     updateNotificationVolume: (args) => settingsStore.updateNotificationVolume(Number(args[0])),
+    updateBrowserPermissions: (args) => settingsStore.updateBrowserPermissions(normalizeBrowserPermissionPolicy(args[0])),
     updateSessionRetention: (args) =>
       settingsStore.updateSessionRetention(
         args[0] as Parameters<DesktopSettingsStore['updateSessionRetention']>[0],

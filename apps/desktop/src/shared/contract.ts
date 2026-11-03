@@ -34,6 +34,7 @@ import type {
   DesktopCapabilityRequest,
   DesktopCapabilityResult,
 } from './contract-capabilities';
+import type { BrowserPermissionPolicy } from './browser-permission-policy';
 import type { DesktopSettingKey, DesktopSettings, SessionRetentionSettingKey } from './contract-settings';
 import type {
   DesktopPetAppLayout,
@@ -98,6 +99,8 @@ import type {
   DesktopBrowserImportRequest,
   DesktopBrowserImportResult,
   DesktopBrowserImportSource,
+  DesktopCookieAutoImportRequest,
+  DesktopCookieAutoImportStatus,
   DesktopBrowserOpenRequest,
   DesktopBrowserPageControl,
   DesktopBrowserPageFrame,
@@ -913,7 +916,8 @@ export interface DesktopApi {
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean>;
   /** Secret input card: hands the value to this PC's main process for the
    *  request id; it is filled into the target field and never leaves this
-   *  PC. Desktop only (absent on paired remote clients). */
+   *  PC. On a paired remote client it is present only over an encrypted
+   *  channel to a host that advertised `secretInput`. */
   provideSecretInput?(requestId: string, value: string): Promise<boolean>;
   /** Resolves true once the agent is stopped for takeover `id` (its commands
    *  refused, in-flight work drained), false when it ends first. Desktop only. */
@@ -947,6 +951,8 @@ export interface DesktopApi {
   setNotificationVolume?(volume: number): Promise<DesktopSettings>;
   /** Settings → General → Sessions: auto-archive / auto-delete days (0 = never). */
   setSessionRetention?(key: SessionRetentionSettingKey, days: number): Promise<DesktopSettings>;
+  /** Settings → Browser: the site-permission defaults and exceptions. */
+  setBrowserPermissions?(policy: BrowserPermissionPolicy): Promise<DesktopSettings>;
   /** Desktop-only: play the notification sound at the saved volume. */
   previewNotificationSound?(): Promise<string>;
   /** A desktop setting or the global Git identity was written (here or on the host). */
@@ -1095,7 +1101,10 @@ export interface DesktopApi {
             files?: Array<{ name: string; path: string; size: number; outside: boolean }>;
             /** Set when a standing "always allow" may be recorded for this bot
              *  and these kinds of step (`submit`, `post`, `upload`); null = it only asks once. */
-            remember: { kinds: Array<'submit' | 'post' | 'upload' | 'confirm'> } | null;
+            remember: { kinds: Array<'submit' | 'post' | 'upload' | 'confirm'>; session?: true } | null;
+            /** The page holds payment fields or a payment-processor frame: this
+             *  step asks once, every time (main/browser/payment-evidence.ts). */
+            payment?: true;
           }
     ) => void
   ): () => void;
@@ -1103,10 +1112,14 @@ export interface DesktopApi {
    *  the PC, now and after each change. Marks only; it is answered on the PC. */
   onBrowserApprovalSessions?(listener: (sessionIds: string[]) => void): () => void;
   /** `reason`: a denial's note for the asking agent (what to do instead). */
-  browserApprovalDecide?(id: string, decision: 'once' | 'always' | 'deny', reason?: string): Promise<void>;
+  browserApprovalDecide?(id: string, decision: 'once' | 'session' | 'always' | 'deny', reason?: string): Promise<void>;
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;
   browserProfileImportStart?(request: DesktopBrowserImportRequest): Promise<DesktopBrowserImportResult>;
   onBrowserProfileImportProgress?(listener: (progress: DesktopBrowserImportProgress) => void): () => void;
+  /** Automatic cookie import from Chrome (this PC only; absent in a paired remote client). */
+  browserCookieAutoImportStatus?(): Promise<DesktopCookieAutoImportStatus>;
+  browserCookieAutoImportConfigure?(request: DesktopCookieAutoImportRequest): Promise<DesktopCookieAutoImportStatus>;
+  browserCookieAutoImportForgetKey?(): Promise<DesktopCookieAutoImportStatus>;
   browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
   /** Current session's Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;

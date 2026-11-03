@@ -21,6 +21,12 @@ import {
   readActivityRailPinsState,
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
+import {
+  BROWSER_PERMISSION_MAX_SITES,
+  type BrowserPermissionPolicy,
+  normalizeBrowserPermissionPolicy,
+  storableBrowserPermissionPolicy,
+} from '../shared/browser-permission-policy';
 import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 export interface MixdogConfigModule {
@@ -81,6 +87,17 @@ function sessionRetentionFromConfig(
   return { sessionAutoArchiveDays, sessionAutoDeleteDays };
 }
 
+export interface BrowserCookieAutoImportSetting {
+  enabled: boolean;
+  profileId: string;
+}
+
+function cookieAutoImportFromConfig(value: unknown): BrowserCookieAutoImportSetting {
+  const stored = record(record(record(value).desktop).browserCookieAutoImport);
+  const profileId = typeof stored.profileId === 'string' ? stored.profileId : '';
+  return { enabled: stored.enabled === true && profileId !== '', profileId };
+}
+
 export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
   const config = record(value);
   const agent = record(config.agent);
@@ -112,6 +129,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     browserControl: desktop.browserControl === true,
     browserAutoSignIn: desktop.browserAutoSignIn !== false,
     browserHidDevices: desktop.browserHidDevices === true,
+    browserPermissions: normalizeBrowserPermissionPolicy(desktop.browserPermissions),
     saveChatLogins: desktop.saveChatLogins !== false,
     // Grandfather: a control that is already on predates the install marker.
     computerInstalled: desktop.computerInstalled === true || desktop.computerControl === true,
@@ -271,6 +289,32 @@ export class DesktopSettingsStore {
     return state;
   }
 
+  /** 설정 › 인증 관리: re-import cookies from this Chrome profile whenever Chrome is closed. Off by default. */
+  async readBrowserCookieAutoImport(): Promise<BrowserCookieAutoImportSetting> {
+    const config = await this.loadConfig();
+    return cookieAutoImportFromConfig(config.readConfig());
+  }
+
+  async updateBrowserCookieAutoImport(next: BrowserCookieAutoImportSetting): Promise<BrowserCookieAutoImportSetting> {
+    const { enabled, profileId } = next;
+    // A profile id is one directory name; the importer re-checks it against Chrome's profile list.
+    if (typeof enabled !== 'boolean' || typeof profileId !== 'string' || profileId.length > 120) {
+      throw new TypeError('Automatic cookie import setting is invalid.');
+    }
+    if (/[\\/]/.test(profileId) || (enabled && !profileId)) {
+      throw new TypeError('Automatic cookie import needs a Chrome profile.');
+    }
+    const config = await this.loadConfig();
+    const saved = await config.updateConfigAsync((current) => {
+      const desktop = { ...record(current.desktop) };
+      // Off with no profile is the default: nothing is stored.
+      if (!enabled && !profileId) delete desktop.browserCookieAutoImport;
+      else desktop.browserCookieAutoImport = { enabled, profileId };
+      return { ...current, desktop };
+    });
+    return cookieAutoImportFromConfig(saved);
+  }
+
   async update(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings> {
     const config = await this.loadConfig();
     const saved = await config.updateConfigAsync((current) => {
@@ -351,6 +395,28 @@ export class DesktopSettingsStore {
       // Storage holds only a value that differs from the code default.
       if (volume === NOTIFICATION_VOLUME_DEFAULT) delete desktop.notificationVolume;
       else desktop.notificationVolume = volume;
+      return { ...current, desktop };
+    });
+    return desktopSettingsFromConfig(saved);
+  }
+
+  /** Settings → Browser: the site-permission defaults and exceptions; storage holds only what differs from the built-in defaults. */
+  async updateBrowserPermissions(policy: BrowserPermissionPolicy): Promise<DesktopSettings> {
+    const config = await this.loadConfig();
+    const saved = await config.updateConfigAsync((current) => {
+      const desktop = { ...record(current.desktop) };
+      const next = normalizeBrowserPermissionPolicy(policy);
+      // Exceptions are never dropped silently: a list may only grow up to the limit
+      // (one already past it, from a hand edit, may still shrink).
+      const kept = normalizeBrowserPermissionPolicy(record(current.desktop).browserPermissions).sites.length;
+      if (next.sites.length > Math.max(BROWSER_PERMISSION_MAX_SITES, kept)) {
+        throw new RangeError(
+          `Site permissions hold at most ${BROWSER_PERMISSION_MAX_SITES} exceptions. Remove some sites first.`
+        );
+      }
+      const stored = storableBrowserPermissionPolicy(next);
+      if (stored) desktop.browserPermissions = stored;
+      else delete desktop.browserPermissions;
       return { ...current, desktop };
     });
     return desktopSettingsFromConfig(saved);

@@ -83,6 +83,7 @@ export function createPixelCapture(host: PixelCaptureHost, backendMemory?: Captu
         clientWidth: target.client.width,
         clientHeight: target.client.height,
         client: target.client,
+        compositedBounds: target.composited,
         maxWidth,
         preserveResolution: preserveOcrPixels,
         attempts: captureAttempts,

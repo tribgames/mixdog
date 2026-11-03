@@ -61,14 +61,14 @@ test('the host receives fill_saved_login, always on the foreground route', () =>
   );
   assert.match(
     text,
-    /One-time codes, passkeys, security keys and app approvals are the user's step: handoff_user takeover/
+    /Codes from SMS or an authenticator app, passkeys, security keys and app approvals are the user's step: handoff_user takeover\. An e-mailed code you can read from a connected mailbox is yours/
   );
-  // The typing tools steer secrets away from themselves.
-  assert.equal(
-    (text.match(/Never a password or one-time code, even one shown on screen: saved_login or handoff_user/g) || [])
-      .length >= 2,
-    true
+  // The typing tools steer secrets away from themselves, except a code e-mailed to a flow Mixdog started.
+  assert.match(
+    text,
+    /Never a password, or a code from SMS, an authenticator app or a passkey, even one shown on screen: saved_login or handoff_user\. The one exception is a one-time code e-mailed/
   );
+  assert.match(text, /Never a password or a code; an e-mailed code is typed with text and delivery foreground/);
 });
 
 test('a fill names its agent turn, and only the turn settlement retires it, even after an abort', {

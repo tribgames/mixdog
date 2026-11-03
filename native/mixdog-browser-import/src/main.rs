@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::Serialize;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 mod abe_client;
 mod cookies;
@@ -46,7 +46,20 @@ fn upstream_browser_name(browser: &str) -> Option<&'static str> {
     }
 }
 
-fn read_transport_key() -> Result<[u8; 32], ()> {
+fn has_flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|value| value == name)
+}
+
+/// One base64 line holding exactly 32 bytes, wiped on drop.
+fn decode_key(line: &str) -> Result<Zeroizing<Vec<u8>>, ()> {
+    let decoded = Zeroizing::new(BASE64_STANDARD.decode(line.trim()).map_err(|_| ())?);
+    (decoded.len() == 32).then_some(decoded).ok_or(())
+}
+
+/// Stdin carries the transport key as its first line and, only with
+/// `--v20-key-stdin`, a saved App-Bound key as its second. Keys never travel in
+/// arguments or the environment.
+fn read_stdin_keys(saved_key: bool) -> Result<([u8; 32], Option<Zeroizing<Vec<u8>>>), ()> {
     // Wiped on drop. Pre-sized to the read limit so reading never reallocates
     // and leaves an unwiped copy of the base64 key behind.
     let mut encoded = Zeroizing::new(String::with_capacity(MAX_KEY_INPUT_BYTES as usize));
@@ -54,15 +67,27 @@ fn read_transport_key() -> Result<[u8; 32], ()> {
         .take(MAX_KEY_INPUT_BYTES)
         .read_to_string(&mut encoded)
         .map_err(|_| ())?;
-    let mut decoded = BASE64_STANDARD.decode(encoded.trim()).map_err(|_| ())?;
-    if decoded.len() != 32 {
-        decoded.zeroize();
+    parse_stdin_keys(&encoded, saved_key)
+}
+
+fn parse_stdin_keys(encoded: &str, saved_key: bool) -> Result<([u8; 32], Option<Zeroizing<Vec<u8>>>), ()> {
+    let mut lines = encoded.lines();
+    let transport = decode_key(lines.next().ok_or(())?)?;
+    let saved = if saved_key {
+        Some(decode_key(lines.next().ok_or(())?)?)
+    } else {
+        None
+    };
+    if lines.any(|line| !line.trim().is_empty()) {
         return Err(());
     }
     let mut key = [0_u8; 32];
-    key.copy_from_slice(&decoded);
-    decoded.zeroize();
-    Ok(key)
+    key.copy_from_slice(&transport);
+    Ok((key, saved))
+}
+
+fn read_transport_key() -> Result<[u8; 32], ()> {
+    read_stdin_keys(false).map(|(key, _)| key)
 }
 
 fn seal<T: Serialize>(key: [u8; 32], value: &T) -> Result<String, ()> {
@@ -93,6 +118,12 @@ async fn main() {
     match args.first().map(String::as_str) {
         Some("import-passwords") => run_import_passwords(&args).await,
         Some("import-cookies") => run_import_cookies(&args).await,
+        // Lets the desktop detect a build that can reuse a saved App-Bound key;
+        // an older build rejects the command.
+        Some("capabilities") => {
+            print!(r#"{{"savedAppBoundKey":1}}"#);
+            std::process::exit(0);
+        }
         _ => fail("Invalid importer command.", 2),
     }
 }
@@ -132,31 +163,67 @@ async fn run_import_passwords(args: &[String]) -> ! {
     let admin_exe_path = admin_helper_path();
     let route = keys::V20Route {
         admin_exe: admin_exe_path.as_deref().and_then(Path::to_str),
+        saved_key: None,
+        allow_elevation: true,
     };
-    let credentials = logins::import_chrome_logins(&profile, &route)
-        .await
-        .unwrap_or_else(|error| fail(failure::user_message(&error), 1));
-
-    let envelope = seal(key, &credentials)
-        .unwrap_or_else(|_| fail("Chrome password import encryption failed.", 1));
-    print!("{envelope}");
-    std::process::exit(0);
+    let key = Zeroizing::new(key);
+    let outcome = match logins::import_chrome_logins(&profile, &route).await {
+        Ok(credentials) => {
+            let sealed = seal(*key, &credentials);
+            drop(credentials);
+            sealed.map_err(|_| "Chrome password import encryption failed.")
+        }
+        Err(error) => Err(failure::user_message(&error)),
+    };
+    // `process::exit` runs no destructors, so on success and failure alike the
+    // key material is wiped before leaving.
+    drop(route);
+    drop(key);
+    match outcome {
+        Ok(envelope) => {
+            print!("{envelope}");
+            std::process::exit(0);
+        }
+        Err(message) => fail(message, 1),
+    }
 }
 
 async fn run_import_cookies(args: &[String]) -> ! {
     let profile = parse_common(args, "import-cookies");
-    let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
+    let (key, saved_key) = read_stdin_keys(has_flag(args, "--v20-key-stdin"))
+        .unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
     let admin_exe_path = admin_helper_path();
     let route = keys::V20Route {
         admin_exe: admin_exe_path.as_deref().and_then(Path::to_str),
+        saved_key: saved_key.as_deref().map(Vec::as_slice),
+        // An automatic import passes --no-elevation: it never raises a UAC prompt.
+        allow_elevation: !has_flag(args, "--no-elevation"),
     };
-    let cookies = cookies::import_chrome_cookies(&profile, &route)
-        .await
-        .unwrap_or_else(|error| fail(failure::user_message(&error), 1));
-    let envelope =
-        seal(key, &cookies).unwrap_or_else(|_| fail("Chrome cookie import encryption failed.", 1));
-    print!("{envelope}");
-    std::process::exit(0);
+    let key = Zeroizing::new(key);
+    let outcome =
+        match cookies::import_chrome_cookies(&profile, &route, has_flag(args, "--return-v20-key"))
+            .await
+        {
+            Ok(cookies) => {
+                let sealed = seal(*key, &cookies);
+                // Wipes the cookie values and any key grant.
+                drop(cookies);
+                sealed.map_err(|_| "Chrome cookie import encryption failed.")
+            }
+            Err(error) => Err(failure::user_message(&error)),
+        };
+    // `process::exit` runs no destructors, so on success and failure alike
+    // (a rejected saved key included) the key material is wiped before leaving.
+    drop(route);
+    drop(saved_key);
+    drop(key);
+    match outcome {
+        Ok(envelope) => {
+            print!("{envelope}");
+            std::process::exit(0);
+        }
+        Err(message) => fail(message, 1),
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +255,34 @@ mod tests {
         }
         assert!(valid_profile_id(&"a".repeat(MAX_PROFILE_ID_LEN)));
         assert!(!valid_profile_id(&"a".repeat(MAX_PROFILE_ID_LEN + 1)));
+    }
+
+    #[test]
+    fn stdin_carries_a_saved_key_only_when_the_flag_announces_it() {
+        let transport = BASE64_STANDARD.encode([1_u8; 32]);
+        let saved = BASE64_STANDARD.encode([2_u8; 32]);
+        // The original single-key protocol is unchanged, with or without a newline.
+        for text in [transport.clone(), format!("{transport}\n")] {
+            let (key, none) = parse_stdin_keys(&text, false).expect("transport key");
+            assert_eq!(key, [1_u8; 32]);
+            assert!(none.is_none());
+        }
+        let (key, some) = parse_stdin_keys(&format!("{transport}\n{saved}"), true).expect("both keys");
+        assert_eq!(key, [1_u8; 32]);
+        assert_eq!(some.as_deref().map(Vec::as_slice), Some(&[2_u8; 32][..]));
+        // A key that was announced must be present and well-formed; one that
+        // was not announced must not appear.
+        for (text, announced) in [
+            (transport.clone(), true),
+            (format!("{transport}\n"), true),
+            (format!("{transport}\nnot-base64"), true),
+            (format!("{transport}\n{}", BASE64_STANDARD.encode([2_u8; 16])), true),
+            (format!("{transport}\n{saved}"), false),
+            (format!("{transport}\n{saved}\n{saved}"), true),
+            (String::new(), false),
+        ] {
+            assert!(parse_stdin_keys(&text, announced).is_err(), "{text:?} announced={announced}");
+        }
     }
 
     #[test]

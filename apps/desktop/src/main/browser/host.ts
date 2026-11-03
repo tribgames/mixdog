@@ -20,6 +20,8 @@ import type { BrowserWindow, WebContents } from 'electron';
 
 import type {
   DesktopBrowserImportProgress,
+  DesktopCookieAutoImportRequest,
+  DesktopCookieAutoImportStatus,
   DesktopRemoteBrowserTab,
   DesktopBrowserViewportConfig,
   DesktopBrowserPageFrame,
@@ -52,6 +54,7 @@ import { createBrowserCommandToolkit } from './command-toolkit';
 import type { BrowserCredentialFillResult } from './credential-autofill';
 import { createBrowserHostAgent } from './host-agent';
 import { createBrowserHostFoundation } from './host-foundation';
+import type { BrowserPermissionPolicyStore } from './permissions';
 import {
   createBrowserHostDisplayMethods,
   createBrowserHostLifecycleMethods,
@@ -67,7 +70,8 @@ import { createNewTabWaiters, type NewTabWatch } from './new-tab-waiters';
 import { createHandedOverPage } from './user-takes-page';
 import { takeoverRevealDetail } from './page-reveal';
 import { reclaimIdleUserSessions } from './page-power';
-import { createBrowserProfileHostMethods } from './profile-host-methods';
+import { createBrowserProfileHostMethods, createCookieAutoImporter } from './profile-host-methods';
+import type { CookieAutoImporterDeps } from './profile-import-auto';
 import type { BrowserSignedInSite } from './signed-in-sites';
 import type { VaultLoginSummary } from './credential-vault';
 import type { LinkedSignIn } from './linked-sign-in';
@@ -126,6 +130,11 @@ export interface BrowserHost {
   configureGuestViewport(sessionId: string, webContentsId: number, config: DesktopBrowserViewportConfig): Promise<void>;
   browserImportSources(): Promise<BrowserImportSource[]>;
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
+  /** 설정 › 인증 관리: the setting, saved-key state and last run of the automatic cookie import. */
+  browserCookieAutoImportStatus(): Promise<DesktopCookieAutoImportStatus>;
+  browserCookieAutoImportConfigure(request: DesktopCookieAutoImportRequest): Promise<DesktopCookieAutoImportStatus>;
+  /** Drop the saved Chrome key; the next import prompts once and saves it again. */
+  browserCookieAutoImportForgetKey(): Promise<DesktopCookieAutoImportStatus>;
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
   /** With `fillId`: a login takeover's card, into the page it was bound to. */
@@ -213,6 +222,12 @@ export function createBrowserHost(
     autoSignIn?: () => boolean;
     /** Sites may ask to connect a HID device (the `browserHidDevices` setting). */
     hidDevices?: () => boolean;
+    /** The saved site-permission defaults and exceptions, and where a
+     *  person's "remember" answer in the pane is kept. */
+    permissionPolicy?: BrowserPermissionPolicyStore;
+    /** Where the on/off and profile of the automatic cookie import are kept (the
+     *  desktop settings store); without it the feature does not exist. */
+    cookieAutoImportSettings?: CookieAutoImporterDeps['settings'];
     /** The WebRTC live view: a signal to one paired client, through the
      *  service, and where the sender renderer's page is. Absent: JPEG only. */
     remoteWebrtc?: {
@@ -232,6 +247,7 @@ export function createBrowserHost(
     onDiagnostic: options.onDiagnostic,
     requestApproval: options.requestApproval,
     hidDevices: options.hidDevices,
+    permissionPolicy: options.permissionPolicy,
   });
   const { state, sessions, cdp, display, sendToRenderer } = base;
   const { lifecycle, nativeViews, fullscreen, taskLifecycle, retainGuest } = createBrowserHostPages({
@@ -309,6 +325,19 @@ export function createBrowserHost(
     resumeAgentFollow: (sessionId) => sessions.resumeAgentFollow(sessionId),
   });
 
+  // Chrome's cookies are read from the Windows profile, so only Windows has it.
+  const cookieAutoImport =
+    options.cookieAutoImportSettings && process.platform === 'win32'
+      ? createCookieAutoImporter({
+          profileImporter: base.profileImporter,
+          settings: options.cookieAutoImportSettings,
+          onError: (error) =>
+            options.onDiagnostic?.('browser-cookie-auto-import-failed', {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+        })
+      : null;
+
   const browserHost: BrowserHost = {
     ...createBrowserHostDisplayMethods({
       sessions,
@@ -375,6 +404,7 @@ export function createBrowserHost(
     },
     ...createBrowserProfileHostMethods({
       profileImporter: base.profileImporter,
+      cookieAutoImport,
       signIns: base.signIns,
       vault: base.vault,
       linkedSignIns: base.linkedSignInStore,
@@ -466,6 +496,7 @@ export function createBrowserHost(
     releaseSession(sessionId, releaseOptions);
   };
   browserHost.dispose = async () => {
+    cookieAutoImport?.stop();
     newTabs.cancelAll();
     handedOver.dispose();
     // Screen sessions first, under the quit budget: their input is released
@@ -475,5 +506,10 @@ export function createBrowserHost(
     disposeSender();
     await Promise.all([screensStopped, dispose()]);
   };
+  void cookieAutoImport?.start().catch((error: unknown) =>
+    options.onDiagnostic?.('browser-cookie-auto-import-failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  );
   return browserHost;
 }

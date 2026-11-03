@@ -1,5 +1,4 @@
 import {
-  startTransition,
   useCallback,
   type Dispatch,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -28,7 +27,6 @@ import { AskUserRecord, askUserCardKey, splitAskUser } from './ask-user-record';
 import { PreviewedTurnChangesCard } from './transcript-visualize-card';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
-import { isMobileRemoteSurface } from './mobile-surface';
 
 /** The pane-local actions the composer is handed. They are wired once and
  *  address the pane's own route through refs, so a prop change never
@@ -138,12 +136,13 @@ export function useConversationComposerActions({
       setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
       armFollowOnSubmitRef.current();
     };
-    // Phone: the composer clears on the tap's own commit (a small render) and
-    // the pending row — a transcript-wide render — follows as a transition, so
-    // it never gates the tap's first frame. A host refusal below removes the
-    // row on the urgent lane, which the update queue's order still honours.
-    if (isMobileRemoteSurface()) startTransition(showPendingRow);
-    else showPendingRow();
+    // The composer's draft clear is queued on the same turn as this row, so
+    // both must commit together. Deferring the row as a transition (a phone
+    // optimisation) let the tap's own commit paint first: the composer shrank,
+    // the followed transcript slid down into the freed room, and only a frame
+    // or more later did the bubble land and shove the history back up — the
+    // sent prompt appeared to pop out of the composer.
+    showPendingRow();
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
     const acceptedStartedAt = performance.now();
     // The bubble owns the failed message (and its retry); the composer treats

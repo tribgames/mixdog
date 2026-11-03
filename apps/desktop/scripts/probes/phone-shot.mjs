@@ -47,7 +47,8 @@ const desktop = await puppeteer.connect({ browserURL: `http://127.0.0.1:${values
 const profile = await mkdtemp(join(tmpdir(), 'phone-shot-'));
 let browser;
 try {
-  const home = (await desktop.pages()).find((page) => /^http:\/\/127\.0\.0\.1:\d+\//.test(page.url()));
+  // The app page itself: a paired instance also hosts remote-transport-peer.html on the same origin.
+  const home = (await desktop.pages()).find((page) => /^http:\/\/127\.0\.0\.1:\d+\/(?:[?#].*)?$/.test(page.url()));
   if (!home) throw new Error(`No renderer page on CDP ${values.port}.`);
   // The first call activates remote access; the route exists once the relay registered the PC.
   let url;

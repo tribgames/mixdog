@@ -22,13 +22,26 @@ export interface AlwaysAllowedItem {
   revoke: { capability: 'setAgentPermission' | 'setAgentConnectorToolPermission'; args: unknown[] };
 }
 
-/** The host's two answers as rows: allowed action kinds, then allowed connector tools. */
+const TOOL_ACTION_PREFIX = 'tool:';
+
+/** A permission row's name: an action kind, or the tool a hook's ask was
+ *  allowed for (`tool:<name>`); a row whose allow is every agent's says so. */
+function permissionLabel(row: { action: string; shared?: unknown }): string {
+  const name = row.action.startsWith(TOOL_ACTION_PREFIX)
+    ? connectorToolLabel(row.action.slice(TOOL_ACTION_PREFIX.length))
+    : actionLabel(row.action);
+  return row.shared === true ? t('{{item}} (all conversations)', { item: name }) : name;
+}
+
+/** The host's two answers as rows: allowed action kinds and tools (those an
+ *  "Always allow (all conversations)" saved for every agent, marked as such),
+ *  then allowed connector tools. */
 export function alwaysAllowedItems(agentId: string, permissions: unknown, tools: unknown): AlwaysAllowedItem[] {
   const actions = (Array.isArray(permissions) ? permissions : [])
     .filter((row) => row && row.mode === 'allow' && typeof row.action === 'string')
     .map((row) => ({
       key: `action:${row.action}`,
-      label: actionLabel(String(row.action)),
+      label: permissionLabel(row),
       revoke: { capability: 'setAgentPermission' as const, args: [agentId, row.action, 'ask'] },
     }));
   const connectorTools = (Array.isArray(tools) ? tools : [])

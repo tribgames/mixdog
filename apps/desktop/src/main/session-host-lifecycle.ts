@@ -31,6 +31,7 @@ import { agentDescendantIds } from '../../../../src/runtime/agent/orchestrator/s
 import { MIXY_AGENT_ID } from '../shared/agent-contacts';
 import { agentGreetingKickoff } from '../shared/agent-greeting';
 import { createAgentHomeSessions, startSessionOver } from './agent-home-sessions';
+import { endBrowserApprovalSession } from './browser/approval-dialog';
 import { agentGreetingsFileStore, createAgentGreetings, resolveMixyCreated } from './mixy-first';
 import { createBranchMenuCache } from './branch-menu-cache';
 import { createInFlightJoin, createProviderModelsCache } from './provider-models-cache';
@@ -386,6 +387,8 @@ export class SessionHostLifecycle {
       throw new Error('The agent is running a turn; wait for it to finish before resetting the conversation.');
     }
     const { value } = await this.owner.invokeSession(sessionId, 'clear', [{ ...options, rebuildPrompt: true }]);
+    // A reset ends what the conversation was allowed "for this session".
+    if (value !== false) endBrowserApprovalSession(sessionId);
     if (value === false) throw new Error('The conversation could not be reset; try again in a moment.');
     if ((value as { promptRebuilt?: unknown } | null)?.promptRebuilt === false) {
       console.warn(`[mixdog-session] ${sessionId} was reset, but its prompt could not be rebuilt.`);
@@ -561,6 +564,7 @@ export class SessionHostLifecycle {
 
   /** A deleted session's local state: its subscription, views and records. */
   private async forgetDeletedSession(id: string): Promise<void> {
+    endBrowserApprovalSession(id);
     await this.unsubscribeQuietly(id);
     this.owner.visibleSessionIds.delete(id);
     for (const sessions of this.owner.visibleSessionSources.values()) sessions.delete(id);

@@ -600,6 +600,17 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   Object.defineProperty(api, 'remoteTermSizeOwner', { enumerable: true, get: () => ctx.peerTermSizeOwner === true });
   // Read per access: a reconnect may reach a host that predates `usageRequests`.
   Object.defineProperty(api, 'remoteUsageRequests', { enumerable: true, get: () => ctx.peerUsageRequests === true });
+  // A handoff secret typed on this phone (ApprovalCard). Present only over an
+  // encrypted channel to a host that advertised `secretInput`; otherwise the
+  // card keeps "Enter it on your PC" and the value is never sent. It rides the
+  // plain relay call: no grant-refresh wrapper, no retry, nothing retained.
+  Object.defineProperty(api, 'provideSecretInput', {
+    enumerable: true,
+    get: () =>
+      ctx.peerSecretInput === true && ctx.e2eePairing
+        ? (requestId: string, value: string) => relayCall<boolean>('provideSecretInput', [requestId, value])
+        : undefined,
+  });
   // Absent on a host that predates `hostDirectories`, so the folder browser
   // keeps its legacy fallback.
   Object.defineProperty(api, 'listHostDirectories', {

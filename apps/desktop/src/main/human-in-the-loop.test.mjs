@@ -21,6 +21,88 @@ const REQUEST = 'secret_0123456789abcdef';
 /** What secret_bind records for a page: its main-frame document and the exact element. */
 const BOUND = { document: 'main:L1', targets: [{ node: 7, type: 'password' }] };
 
+test('secret input: a segmented code input (one digit per box) is filled completely', async () => {
+  const CODE = '960656';
+  const inputs = createSecretInputs();
+  inputs.provide(REQUEST, CODE);
+  inputs.bindComputer(REQUEST, { sessionId: 's1', windowId: 'hwnd:0x2', ref: 'e7' });
+  /** A window of `count` code boxes, live-like: the bound ref names box 1; a
+   *  find retires every ref (the next ones embed the new generation) and marks
+   *  the element the named ref pointed at; typing by a retired ref is stale. */
+  const windowOf = ({ isPassword }) => {
+    const boxes = Array(6).fill('');
+    let generation = 1;
+    const sent = [];
+    const execute = async (command) => {
+      if (command.action === 'find') {
+        const bound = command.ref === `s${generation}:e0`;
+        generation += 1;
+        return {
+          elements: boxes.map((value, at) => ({
+            ref: `s${generation}:e${at}`,
+            value,
+            ...(bound && at === 0 ? { bound_ref: true, is_password: isPassword } : {}),
+          })),
+        };
+      }
+      if (command.ref !== `s${generation}:e0`) throw new Error(`ref ${command.ref} is stale or invalid`);
+      sent.push({ delivery: command.delivery || 'background', ref: command.ref, window_id: command.window_id });
+      const digits = [...String(command.text)];
+      // Foreground keystrokes land in the focused box and advance focus; a
+      // background write sets the control's value, which holds one digit.
+      if (command.delivery === 'foreground') digits.forEach((digit, at) => (boxes[at] = digit));
+      else boxes[0] = digits[0];
+      return { text: 'ok' };
+    };
+    return { boxes, sent, execute };
+  };
+  const run = (page) => {
+    inputs.provide(REQUEST, CODE);
+    inputs.bindComputer(REQUEST, { sessionId: 's1', windowId: 'hwnd:0x2', ref: 's1:e0' });
+    return typeComputerSecret({ session_id: 's1', request_id: REQUEST }, page.execute, inputs, () => {});
+  };
+
+  // A code box that is positively not a password is filled completely, by the
+  // element's identity and the fresh ref, confined to the bound window.
+  const code = windowOf({ isPassword: false });
+  assert.deepEqual(await run(code), { text: 'entered' });
+  assert.equal(code.boxes.join(''), CODE);
+  assert.deepEqual(code.sent, [
+    { delivery: 'background', ref: 's1:e0', window_id: 'hwnd:0x2' },
+    { delivery: 'foreground', ref: 's2:e0', window_id: 'hwnd:0x2' },
+  ]);
+
+  // The same one-character reading from a password field (an MSAA box that is
+  // PROTECTED reports the same) is never typed as keystrokes: the write's own
+  // result stands.
+  const password = windowOf({ isPassword: true });
+  assert.deepEqual(await run(password), { text: 'entered' });
+  assert.deepEqual(
+    password.sent.map((step) => step.delivery),
+    ['background']
+  );
+
+  // The re-read is best effort: one that finds nothing, fails, or does not
+  // positively classify the field (no is_password answer) sends no keystrokes
+  // and leaves the write's result.
+  for (const reread of [
+    async () => ({ elements: [] }),
+    async () => {
+      throw new Error('find timed out');
+    },
+    async () => ({ elements: [{ ref: 's2:e0', value: '9', bound_ref: true }] }),
+  ]) {
+    const page = windowOf({ isPassword: false });
+    const write = page.execute;
+    page.execute = async (command) => (command.action === 'find' ? reread() : write(command));
+    assert.deepEqual(await run(page), { text: 'entered' });
+    assert.deepEqual(
+      page.sent.map((step) => step.delivery),
+      ['background']
+    );
+  }
+});
+
 test('secret input: one-shot slot, only the target field receives it, replies are redacted', async () => {
   const inputs = createSecretInputs();
   assert.equal(inputs.provide('not-an-id', SENTINEL), false);
@@ -31,13 +113,23 @@ test('secret input: one-shot slot, only the target field receives it, replies ar
     { session_id: 's1', request_id: REQUEST, window_id: 'hwnd:0x2', ref: 'e7' },
     async (command) => {
       typed.push(command);
+      // A re-read retires every ref (new ones embed the next generation); the
+      // bound field is marked by identity, and a password field reads back masked.
+      if (command.action === 'find') {
+        return { elements: [{ ref: 's2:e0', value: '••••', bound_ref: true, is_password: true }] };
+      }
       return { text: `field now shows ${SENTINEL}` };
     },
     inputs,
     () => {}
   );
   assert.deepEqual(reply, { text: 'entered' }, 'the reply says only entered');
-  assert.deepEqual(typed, [{ action: 'type', text: SENTINEL, session_id: 's1', ref: 'e7', window_id: 'hwnd:0x2' }]);
+  // A password goes in only by the background value write: the field read back
+  // after it is not a one-character box, so no keystrokes follow.
+  assert.deepEqual(
+    typed.filter((command) => command.action === 'type'),
+    [{ action: 'type', text: SENTINEL, session_id: 's1', ref: 'e7', window_id: 'hwnd:0x2' }]
+  );
   assert.equal(inputs.take(REQUEST), '', 'the value is gone after one use');
   assert.deepEqual(
     await typeComputerSecret({ session_id: 's1', request_id: REQUEST }, async () => assert.fail('no value'), inputs),

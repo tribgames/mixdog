@@ -12,15 +12,22 @@
 //                own: the card names the tool, its current level and the one
 //                asked for, and the person picks the level (`scope`: one of
 //                `choices`) or denies. Answered once, never remembered.
-// A response is one of RESPONSES_BY_KIND for its kind plus a `remember` scope; a policy lists
-// the scopes it allows and can leave out `always`. Nothing here ever carries a
+// A response is one of RESPONSES_BY_KIND for its kind plus a `remember` scope
+// (once / session / agent / always); a policy lists the scopes it allows. Only
+// a request that names what a standing choice would be for (an outbound card's
+// action kind, or an approval's `grantAction`, the per-tool key of a hook ask)
+// offers `session` or `always` (every agent); a payment, a permanent delete and
+// every secret, takeover, permission and connector request are answered
+// once. Nothing here ever carries a
 // secret value: a decision that names one is stripped to its verdict.
+
+import { isRememberableAction } from './outbound-policy.mjs';
 
 const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secret', 'takeover', 'permission', 'connector']);
 /** The levels a connector card may raise a tool to. */
 export const CONNECTOR_WIDEN_LEVELS = Object.freeze(['needs_approval', 'auto']);
 const CONNECTOR_LEVELS = ['disabled', ...CONNECTOR_WIDEN_LEVELS];
-const REMEMBER_SCOPES = Object.freeze(['once', 'agent', 'always']);
+const REMEMBER_SCOPES = Object.freeze(['once', 'session', 'agent', 'always']);
 export const SECRET_REQUEST_TIMEOUT_MS = 120_000;
 /** What a secret's bound field is: a sign-in form (아이디 + 비밀번호), a lone
  *  password, a new password, or a one-time code; '' when unknown (computer). */
@@ -96,6 +103,24 @@ function rememberScopes(value) {
   return ['once', ...new Set(listed.filter((scope) => scope !== 'once'))];
 }
 
+/** What a standing choice on this request would be for: an outbound card's own
+ *  category, an approval's `grantAction` (the per-tool key of a hook ask); ''
+ *  for every other request. */
+const grantActionOf = (input) => {
+  if (input?.kind === 'outbound') return text(input.outbound?.category);
+  return input?.kind === 'approval' ? text(input.grantAction) : '';
+};
+
+/** The scopes a request may offer: a session or every-agent allow is for an
+ *  action kind or tool, so a request with none offers neither, and one that is
+ *  never remembered (a payment, a permanent delete) is answered once. */
+function offeredScopes(input) {
+  const scopes = rememberScopes(input.remember);
+  const action = grantActionOf(input);
+  if (action && !isRememberableAction(action)) return ['once'];
+  return action ? scopes : scopes.filter((scope) => scope !== 'session' && scope !== 'always');
+}
+
 /** The kind-specific fields of a request, whitelisted, plus the connector
  *  `account` a tool call is bound to (any kind; the card names it). Spread
  *  onto the presented request; `args` is replaced for a secret so no value
@@ -104,9 +129,13 @@ export function humanRequestFields(input = {}) {
   const bound = text(input?.account) ? { account: text(input.account) } : {};
   const kind = input?.kind;
   if (!HUMAN_REQUEST_KINDS.includes(kind)) return bound;
-  const fields = { ...bound, remember: rememberScopes(input.remember) };
+  const fields = { ...bound, remember: offeredScopes(input) };
   // The agent the request acts for (its name on the card and the remembered grant).
   if (text(input.agentId)) fields.agentId = text(input.agentId);
+  // What a session or every-agent choice on an approval covers: an action kind or
+  // `tool:<name>`, so the card words its choices by it.
+  const grantAction = kind === 'approval' ? grantActionOf(input) : '';
+  if (grantAction && isRememberableAction(grantAction)) fields.grantAction = grantAction;
   if (kind === 'outbound' && isRecord(input.outbound)) {
     const outbound = input.outbound;
     const details = isRecord(outbound.details) ? outbound.details : {};

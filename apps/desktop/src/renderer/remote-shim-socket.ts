@@ -300,6 +300,7 @@ const openSocketAttempt = (
     ctx.peerRouteAutoEffort = false;
     ctx.peerVisualize = false;
     ctx.peerFileDownloads = false;
+    ctx.peerSecretInput = false;
     ctx.peerBrowserWebrtc = 0;
     // Known once the host's challenge is read; a host without E2EE has none.
     ctx.peerBrowserFit = ctx.e2eePairing ? null : false;
@@ -396,6 +397,7 @@ const openSocketAttempt = (
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
         ctx.peerVisualize = clear.visualize === 1;
         ctx.peerFileDownloads = clear.fileDownloads === 1;
+        ctx.peerSecretInput = clear.secretInput === 1;
         ctx.peerBrowserWebrtc = clear.browserWebrtc === REMOTE_WEBRTC_VERSION ? REMOTE_WEBRTC_VERSION : 0;
         ctx.peerBrowserFit = clear.browserFit === 1;
         // The previous leg's media session ended with it.

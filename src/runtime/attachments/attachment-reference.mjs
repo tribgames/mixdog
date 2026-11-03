@@ -11,7 +11,13 @@
  * names them.
  */
 import { inlineFileKind } from '../shared/inline-file-kind.mjs';
-import { attachmentFilePath, isAttachmentReference, storeInlineDocumentPart, storeInlineImagePart } from './store.mjs';
+import {
+  attachmentFilePath,
+  isAttachmentReference,
+  namedAttachmentFile,
+  storeInlineDocumentPart,
+  storeInlineImagePart,
+} from './store.mjs';
 
 /** Up to this many pages per read call; the read tool enforces the same cap. */
 export const READ_PDF_MAX_PAGES_PER_CALL = 20;
@@ -102,7 +108,7 @@ export function isMediaReferencePart(part) {
  * The reference text part standing for one media part, or null when the part
  * cannot travel by reference (a URL image, a non-PDF file, a store failure).
  */
-export function mediaPartToReference(part) {
+export function mediaPartToReference(part, record = null) {
   let stored;
   try {
     stored = storedMediaPart(part);
@@ -116,17 +122,86 @@ export function mediaPartToReference(part) {
   const info = {
     attachmentRef: stored.attachmentRef,
     kind,
-    filename: String(part.filename || part.title || part.name || stored.filename || ''),
+    filename: String(part.filename || part.title || part.name || stored.filename || record?.name || ''),
     mimeType: String(stored.mimeType || stored.mediaType || (kind === 'pdf' ? 'application/pdf' : 'image/png')),
     sizeBytes: Number(stored.sizeBytes) || 0,
     ...(pageCount > 0 ? { pageCount } : {}),
     ...(Number.isFinite(Number(textPagesRaw)) && textPagesRaw !== null ? { textPages: Number(textPagesRaw) } : {}),
   };
-  const path = attachmentFilePath(info.attachmentRef);
+  // The named copy is the file the model hands to a file chooser or an office
+  // tool; the bare blob path is only the fallback when the copy cannot be made.
+  let path;
+  try {
+    path = namedAttachmentFile(info.attachmentRef, {
+      filename: info.filename,
+      mimeType: info.mimeType,
+      original: record?.original,
+    });
+  } catch {
+    path = attachmentFilePath(info.attachmentRef);
+  }
   return {
     type: 'text',
     text: kind === 'pdf' ? pdfReferenceText(info, path) : imageReferenceText(info, path),
     attachmentReference: info,
+  };
+}
+
+/**
+ * The text part that tells the model where a submission's attached files live
+ * on this PC, whether they travel inline or by reference: each under its
+ * original name and extension, so the model can pass the path to a site's file
+ * chooser, an office/pdf tool or a copy. Pasted text is not a file and is left
+ * out. Like a media reference it is model-facing only (the bubble draws the
+ * chips), and its nested `attachmentRef`s keep the blobs for the census.
+ * Null when there is nothing to name.
+ *
+ * @param prompt      materialized prompt content
+ * @param options     materialized submission options (`pastedTexts`)
+ * @param attachments `attachmentsForIntake(prompt, options)`
+ */
+export function attachedFilesNote(prompt, options, attachments) {
+  const pasted = new Set();
+  for (const part of Array.isArray(prompt) ? prompt : []) {
+    if (part?.type === 'text' && part.textKind === 'paste' && isAttachmentReference(part)) pasted.add(part.attachmentRef);
+  }
+  for (const raw of Object.values(options?.pastedTexts || {})) {
+    if (raw && raw.source !== 'file' && isAttachmentReference(raw)) pasted.add(raw.attachmentRef);
+  }
+  const files = [];
+  for (const record of attachments) {
+    if (pasted.has(record.attachmentRef)) continue;
+    let path;
+    try {
+      path = namedAttachmentFile(record.attachmentRef, {
+        filename: record.name,
+        mimeType: record.mimeType,
+        original: record.original,
+      });
+    } catch {
+      continue;
+    }
+    files.push({
+      attachmentRef: record.attachmentRef,
+      name: record.name,
+      mimeType: record.mimeType,
+      sizeBytes: record.size,
+      path,
+    });
+  }
+  if (!files.length) return null;
+  const lines = files.map(
+    (file) => `- ${quotedName(file.name, 'attachment')} (${file.mimeType}, ${sizeLabel(file.sizeBytes)}): ${file.path}`
+  );
+  return {
+    type: 'text',
+    text: [
+      '[Files attached to this message are saved on this PC as ordinary files under their original names. ' +
+        'Use these paths to upload, open or copy them:',
+      ...lines,
+      ']',
+    ].join('\n'),
+    attachmentReference: { kind: 'files', files },
   };
 }
 
@@ -139,9 +214,14 @@ export function mediaPartToReference(part) {
 export function referenceMessageMedia(message) {
   if (message?.role !== 'user' || !Array.isArray(message.content)) return message;
   let changed = false;
+  // The message's own attachment records name each file as picked.
+  const records = Array.isArray(message.meta?.transcript?.attachments) ? message.meta.transcript.attachments : [];
   const content = message.content.map((part) => {
     if (!isReferencableMediaPart(part)) return part;
-    const reference = mediaPartToReference(part);
+    const reference = mediaPartToReference(
+      part,
+      records.find((record) => record?.attachmentRef === part.attachmentRef) ?? null
+    );
     if (!reference) return part;
     changed = true;
     return reference;

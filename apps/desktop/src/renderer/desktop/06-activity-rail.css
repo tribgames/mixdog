@@ -39,6 +39,12 @@
   width: 22px;
   height: 22px;
 }
+/* Lucide's message-square is a solid 20-unit block that fills its box, so at
+   the shared 22px it reads a size larger than the airier rail glyphs. */
+.activity-rail .workbench-side-icon-bar.is-vertical > button[data-side-view="sessions"] > svg {
+  width: 20px;
+  height: 20px;
+}
 /* Outrank Monaco's global codicon font shorthand even when its lazy CSS loads
    after the rail, so Settings keeps the same 22px tier as the SVG destinations. */
 .activity-rail .codicon[class*="codicon-"] {

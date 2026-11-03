@@ -31,6 +31,11 @@ async function loadVoiceTranscription() {
   });
 }
 
+export async function stageOriginal(base64) {
+  const { stageOriginalAttachment } = await import('../../../runtime/attachments/staged-originals.mjs');
+  return (await stageOriginalAttachment(Buffer.from(base64, 'base64'))).attachmentRef;
+}
+
 export function createSessionMediaApi(bag) {
   const { runtime, getState, set, pushNotice, setProgressHint, routeState } = bag;
 
@@ -85,11 +90,24 @@ export function createSessionMediaApi(bag) {
           provider: routeState().provider || '',
         }
       );
+      // The resized copy is what the model gets; when it differs, the picked
+      // file's own bytes are kept so the PC copy of the attachment is the
+      // original (see attachments/store.mjs namedAttachmentFile).
+      const originalRef = attachment.content === base64 ? null : await stageOriginal(base64).catch(() => null);
       return {
         data: attachment.content,
         mimeType: attachment.mediaType,
         metadataText: attachment.metadataText || '',
+        ...(originalRef ? { originalRef } : {}),
       };
+    },
+    // A device that resizes locally (a phone) hands the picked file's bytes on
+    // here once, for the same purpose. Returns { originalRef }.
+    stageAttachmentOriginal: async ({ data } = {}) => {
+      const base64 = String(data || '');
+      if (!base64) throw new Error('stageAttachmentOriginal: payload is required');
+      if (base64.length > 40_000_000) throw new Error('stageAttachmentOriginal: file too large');
+      return { originalRef: await stageOriginal(base64) };
     },
     claimSetupRequest: (id, owner) => runtime.claimSetupRequest(id, owner),
     isSetupRequestActive: (id, owner) => runtime.isSetupRequestActive(id, owner),

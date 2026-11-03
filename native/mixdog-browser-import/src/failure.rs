@@ -21,6 +21,10 @@ pub enum Failure {
     DecryptionFailed,
     /// The elevated helper was unavailable, declined, or failed.
     ElevationFailed,
+    /// A saved App-Bound key was supplied but decrypts nothing in this profile.
+    SavedKeyRejected,
+    /// The App-Bound key is needed, elevation is not allowed and none was saved.
+    SavedKeyRequired,
 }
 
 impl Failure {
@@ -31,6 +35,8 @@ impl Failure {
             Self::DataUnreadable => "Chrome data could not be read.",
             Self::DecryptionFailed => "Chrome data decryption failed.",
             Self::ElevationFailed => "Elevation was cancelled or failed.",
+            Self::SavedKeyRejected => "The saved Chrome key was rejected.",
+            Self::SavedKeyRequired => "A saved Chrome key is required.",
         }
     }
 }
@@ -101,6 +107,8 @@ mod tests {
             Failure::DataUnreadable,
             Failure::DecryptionFailed,
             Failure::ElevationFailed,
+            Failure::SavedKeyRejected,
+            Failure::SavedKeyRequired,
         ];
         let messages: std::collections::HashSet<_> = all.iter().map(|f| f.message()).collect();
         assert_eq!(messages.len(), all.len());

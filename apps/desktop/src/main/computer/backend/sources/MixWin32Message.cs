@@ -204,6 +204,43 @@ public partial class MixWin32
         }
         return p;
     }
+    [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+    [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint dpiX, out uint dpiY);
+    /// The point a target's own pointer messages carry. This per-monitor aware
+    /// host reads physical client pixels, but a window that is not per-monitor
+    /// aware sees a scaled monitor through DPI virtualization and reads its
+    /// messages in its own DPI, as Windows converts real input for it.
+    static POINT MessagePoint(IntPtr target, int screenX, int screenY)
+    {
+        POINT p = ClientPoint(target, screenX, screenY);
+        uint monitorDpi, unusedDpi;
+        if (GetDpiForMonitor(MonitorFromWindow(target, 2), 0, out monitorDpi, out unusedDpi) != 0 || monitorDpi == 0)
+        {
+            throw new InvalidOperationException("background_message_rejected|could not read the target monitor DPI");
+        }
+        return LogicalClientPoint(p, GetDpiForWindow(target), monitorDpi);
+    }
+    [DllImport("user32.dll")] static extern bool PhysicalToLogicalPointForPerMonitorDPI(IntPtr h, ref POINT p);
+    /// The screen point a wheel message carries, in the target's own DPI: for a
+    /// window that is not per-monitor aware, the virtualized screen coordinates
+    /// Windows gives it for real input at that physical point.
+    public static POINT MessageScreenPoint(IntPtr target, int screenX, int screenY)
+    {
+        POINT p = new POINT(); p.x = screenX; p.y = screenY;
+        if (!PhysicalToLogicalPointForPerMonitorDPI(target, ref p))
+        {
+            throw new InvalidOperationException("background_message_rejected|could not map point into target window DPI");
+        }
+        return p;
+    }
+    public static POINT LogicalClientPoint(POINT physical, uint windowDpi, uint monitorDpi)
+    {
+        POINT p = new POINT();
+        p.x = (int)Math.Round(physical.x * (double)windowDpi / monitorDpi);
+        p.y = (int)Math.Round(physical.y * (double)windowDpi / monitorDpi);
+        return p;
+    }
     static IntPtr MessageTargetAtPoint(IntPtr top, int screenX, int screenY)
     {
         if (!IsWindowHandle(top))
@@ -276,7 +313,7 @@ public partial class MixWin32
       IntPtr top, int screenX, int screenY, string kind, string modifiers)
     {
         IntPtr target = MessageTargetAtPoint(top, screenX, screenY);
-        POINT p = ClientPoint(target, screenX, screenY);
+        POINT p = MessagePoint(target, screenX, screenY);
         IntPtr point = PointParam(p.x, p.y);
         uint flags = PointerModifiers(modifiers);
         string action = (kind ?? "").ToLowerInvariant();
@@ -353,7 +390,7 @@ public partial class MixWin32
         }
         IntPtr target = MessageTargetAtPoint(top, screenX[0], screenY[0]);
         for (int index = 1; index < screenX.Length; index++) MessageTargetAtPoint(top, screenX[index], screenY[index]);
-        POINT start = ClientPoint(target, screenX[0], screenY[0]);
+        POINT start = MessagePoint(target, screenX[0], screenY[0]);
         uint flags = PointerModifiers(modifiers);
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(start.x, start.y));
         AnnounceBackgroundTarget(screenX[0], screenY[0]);
@@ -376,7 +413,7 @@ public partial class MixWin32
                   {
                       lastX = fromX + (screenX[leg] - fromX) * step / 12;
                       lastY = fromY + (screenY[leg] - fromY) * step / 12;
-                      last = ClientPoint(target, lastX, lastY);
+                      last = MessagePoint(target, lastX, lastY);
                       SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags | MK_LBUTTON), PointParam(last.x, last.y));
                       ReportPointer(lastX, lastY, true);
                       System.Threading.Thread.Sleep(20);
@@ -415,12 +452,13 @@ public partial class MixWin32
               "background_unsupported|the scroll point is covered by another window, so a background wheel would be dropped or reach that window; no input sent");
         }
         uint flags = PointerModifiers(modifiers);
-        POINT client = ClientPoint(target, screenX, screenY);
+        POINT client = MessagePoint(target, screenX, screenY);
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(client.x, client.y));
         AnnounceBackgroundTarget(screenX, screenY);
         int delta = Math.Max(-12000, Math.Min(12000, clicks * 120));
         uint packed = ((uint)(delta & 0xFFFF) << 16) | flags;
-        SendMessageChecked(target, horizontal ? WM_MOUSEHWHEEL : WM_MOUSEWHEEL, new UIntPtr(packed), PointParam(screenX, screenY));
+        POINT wheel = MessageScreenPoint(target, screenX, screenY);
+        SendMessageChecked(target, horizontal ? WM_MOUSEHWHEEL : WM_MOUSEWHEEL, new UIntPtr(packed), PointParam(wheel.x, wheel.y));
         ReportPointer(screenX, screenY, false, "scroll");
         return WindowId(target);
     }

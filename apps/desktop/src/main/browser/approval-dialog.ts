@@ -12,10 +12,21 @@ import {
 } from './action-approval';
 import { type ApprovalRequester, ownBotOfSession } from './approval-requester';
 import { redactBrowserUrl } from './redaction';
+import { createSessionGrants } from '../../../../../src/runtime/agent/orchestrator/session/human-gate/session-grants.mjs';
 
 /** Approvals wait here for the in-app card's answer (never an OS dialog),
  *  keyed to the one renderer the card was sent to. */
-type Decision = 'once' | 'always' | 'deny';
+type Decision = 'once' | 'session' | 'always' | 'deny';
+
+/** "Allow for this session" answers, in memory: per session and kind of step
+ *  (never per page), ended with the session (endBrowserApprovalSession) or after
+ *  the registry's time limit. A schedule/webhook run never reaches them. */
+const sessionGrants = createSessionGrants();
+
+/** The session ended or was reset: what it was allowed for this session is gone. */
+export function endBrowserApprovalSession(sessionId: string): void {
+  sessionGrants.end(sessionId);
+}
 const pending = new Map<
   string,
   { owner: WebContents; sessionIds: string[]; finish: (decision: Decision, reason?: string) => void }
@@ -137,6 +148,7 @@ export function decideBrowserApproval(sender: WebContents, id: unknown, decision
   const entry = pending.get(id);
   if (entry?.owner !== sender) return;
   if (decision === 'always') entry.finish('always');
+  else if (decision === 'session') entry.finish('session');
   else if (decision === 'once') entry.finish('once');
   else entry.finish('deny', typeof reason === 'string' ? reason.trim().slice(0, 4_000) : '');
 }
@@ -170,6 +182,8 @@ async function allowsAllActions(): Promise<boolean> {
   }
 }
 
+const PAYMENT_IN_RUN =
+  "Browser Use step refused: payments aren't allowed in schedule/webhook runs; nothing was dispatched";
 const BLOCKED_BY_PERMISSION = "Browser Use step blocked by this bot's permission; nothing was dispatched";
 
 export async function requestBrowserApproval(
@@ -187,7 +201,8 @@ export async function requestBrowserApproval(
   const ownBot = ownBotOfSession(request.sessionId);
   if (!ownBot && request.unattended !== true) return !signal?.aborted;
   const requester = await requesterOf(request.sessionId);
-  const actions = grantActions(request.kinds);
+  // A payment step (payment-evidence.ts) has no standing allow of any kind.
+  const actions = request.payment === true ? null : grantActions(request.kinds);
   const bot = actions ? ownBot : '';
   const audit = (decision: string) => {
     if (bot && actions) void (async () => hooks.audit?.(bot, actions, decision))().catch(() => undefined);
@@ -195,6 +210,8 @@ export async function requestBrowserApproval(
   // A schedule or webhook run (and the work it started) never asks: saving the
   // routine was the user's grant. The bot's own `block` still applies, and an
   // operator-confirmed action (`confirm`) always asks.
+  // A payment is never done in a run, as everywhere else (human-gate/run-policy.mjs).
+  if (request.unattended === true && request.payment === true) throw new Error(PAYMENT_IN_RUN);
   if (request.unattended === true && !request.kinds.includes('confirm')) {
     // The run's owning bot is the one recorded for the run (never the
     // requester, whose lookup can time out or name no bot for a task session).
@@ -219,7 +236,8 @@ export async function requestBrowserApproval(
   // rule above): the bot's submits, posts and uploads run unasked, and so does
   // an operator `confirm`, which is never remembered. The bot's `block` still
   // stops the step, read for every kind of it that has a store action.
-  if (ownBot && request.unattended !== true && (await allowsAllActions())) {
+  // A payment step is a floor: not skipped here, never covered by a grant.
+  if (ownBot && request.unattended !== true && request.payment !== true && (await allowsAllActions())) {
     const stepActions = kindActions(request.kinds);
     const auditAs = (decision: string) => {
       if (stepActions.length) {
@@ -235,6 +253,21 @@ export async function requestBrowserApproval(
   }
   if (bot && actions && (await standingAllow(bot, actions))) {
     audit('remembered');
+    return !signal?.aborted;
+  }
+  // This session's own allowance for every kind of the step (never a run's: the
+  // unattended branch above returned already). A `block` still wins.
+  // It is bound to the session's life mark (runtime-set): a cleared or replaced
+  // session has another one, so its allowance no longer counts. No mark, no allowance.
+  const life = request.sessionLife || '';
+  if (
+    bot &&
+    actions &&
+    life &&
+    actions.every((action) => sessionGrants.has({ sessionId: request.sessionId, agentId: bot, action, mark: life })) &&
+    !(await blockedBy(bot, actions))
+  ) {
+    audit('session-remembered');
     return !signal?.aborted;
   }
   // The card waits until the person answers: no timer ends it. Deny, the
@@ -273,6 +306,12 @@ export async function requestBrowserApproval(
         if (decision === 'deny' && reason) reject(new Error(browserNotApproved(reason)));
         else resolve(decision !== 'deny');
         audit(decision === 'deny' ? 'deny' : 'approve');
+        if (decision === 'session' && bot && actions && life) {
+          const stored = actions.map((action) =>
+            sessionGrants.grant({ sessionId: request.sessionId, agentId: bot, action, mark: life })
+          );
+          if (stored.every(Boolean)) audit('session-granted');
+        }
         if (decision === 'always' && bot && actions) {
           // Not saved (store unreachable): this action ran once, the next asks
           // again, and the person is told so.
@@ -304,7 +343,8 @@ export async function requestBrowserApproval(
           ? { origin: originOfUrl(request.url), receiverOrigin: request.receiverOrigin || '', files }
           : {}),
         // What "always allow" would change, or why this one only asks once.
-        remember: bot ? { kinds: request.kinds } : null,
+        remember: bot ? { kinds: request.kinds, ...(life ? { session: true } : {}) } : null,
+        ...(request.payment === true ? { payment: true } : {}),
       });
       if (!window.isDestroyed() && !window.isFocused()) {
         hooks.notify?.(window, { sessionId: request.sessionId, name: requester.name || ownBot });
