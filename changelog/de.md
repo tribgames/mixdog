@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.4.5 - 2026-11-03
+
 Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich „Sitzungen“ nach Projekt und Branch, führt Studio-Boards ein und verbessert die Stabilität bei paralleler Arbeit.
 
 ### Neue Funktionen

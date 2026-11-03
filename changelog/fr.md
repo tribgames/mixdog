@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.4.5 - 2026-11-03
+
 Cette version accélère les conversations Claude en cours, organise le panneau Sessions par projet et branche, et introduit les tableaux Studio, tout en améliorant la stabilité lors du travail en parallèle.
 
 ### Nouvelles fonctionnalités
