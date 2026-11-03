@@ -352,26 +352,29 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 .transcript-virtual-row-content[data-step-before="true"] {
   padding-top: 8px;
 }
-/* A finished turn's work, folded into one row above its final answer. */
+/* A finished turn's work, folded into one row above its final answer. It reads
+   like a tool group's summary line (13-tool-cards.css .tool-activity-header):
+   quiet muted words starting at the text edge, the chevron right after them. */
 .transcript-work-fold {
   box-sizing: border-box;
-  width: 100%;
-  min-height: 36px;
-  display: flex;
+  max-width: 100%;
+  min-height: 24px;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
+  gap: 6px;
+  padding: 0;
+  border: 0;
   background: transparent;
   color: var(--mx-text-muted);
   font: inherit;
   font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-ui);
   text-align: left;
   cursor: pointer;
 }
 .transcript-work-fold:hover {
-  background: var(--mx-hover);
+  color: var(--mx-text);
 }
 .transcript-work-fold-label {
   min-width: 0;
@@ -381,7 +384,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 }
 .transcript-work-fold-chevron {
   display: inline-flex;
-  margin-left: auto;
+  flex: 0 0 auto;
   transition: transform 0.2s ease;
 }
 .transcript-work-fold[aria-expanded="true"] .transcript-work-fold-chevron {
