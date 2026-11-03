@@ -164,7 +164,22 @@ async function mount(t, comment, shown = tab) {
   await act(async () => root.render(React.createElement(Harness)));
   const frame = host.querySelector('iframe');
   const toPage = [];
-  frame.contentWindow.postMessage = (message) => toPage.push(message);
+  const onPost = new Set();
+  frame.contentWindow.postMessage = (message) => {
+    toPage.push(message);
+    for (const seen of onPost) seen();
+  };
+  /** Resolves once the page has been told to show its marks again after the last shot. */
+  const marksShown = () =>
+    new Promise((resolve) => {
+      const check = () => {
+        if (toPage.findLast((message) => message.type === 'hide' || message.type === 'show')?.type !== 'show') return;
+        onPost.delete(check);
+        resolve();
+      };
+      onPost.add(check);
+      check();
+    });
   t.after(async () => {
     await act(async () => root.unmount());
     host.remove();
@@ -174,7 +189,7 @@ async function mount(t, comment, shown = tab) {
     await act(async () => window.dispatchEvent(new window.MessageEvent('message', { data: tagged(message), source })));
     await settle();
   };
-  return { host, frame, toPage, fromPage, exits };
+  return { host, frame, toPage, fromPage, exits, marksShown };
 }
 
 test('a page cannot make a pin: unsolicited answers and old-style pins are dropped, untrusted clicks ask nothing', async (t) => {
@@ -469,13 +484,33 @@ test('a reloaded page that declares no tweaks keeps its own values: nothing is p
   assert.deepEqual(visualizePaneTweaks('s1', 'v1', 0), []);
 });
 
-/** Waits out a pin's crop attempt (the page answers nothing here, so no crop). */
-const cropSettled = () => act(async () => new Promise((resolve) => setTimeout(resolve, 900)));
+/** Waits, inside act, for a pin's crop attempt to end (`ended` resolves at its
+ *  last step), then one turn for what that step leaves queued. */
+const cropSettled = (ended) =>
+  act(async () => {
+    await ended;
+    await new Promise((resolve) => realSetTimeout(resolve, 0));
+  });
+/** Resolves when a crop asks the desktop for its window shot (there is none
+ *  here, so no crop): the last step of a picture or video pin's attempt. */
+function shotAsked(t) {
+  t.after(() => delete window.mixdogDesktop.visualizeCaptureRect);
+  return new Promise((resolve) => {
+    Object.defineProperty(window.mixdogDesktop, 'visualizeCaptureRect', {
+      configurable: true,
+      get() {
+        delete window.mixdogDesktop.visualizeCaptureRect;
+        resolve();
+        return undefined;
+      },
+    });
+  });
+}
 const card = (host) => host.querySelector('.visualize-region-note');
 const button = (host, text) => [...card(host).querySelectorAll('button')].find((node) => node.textContent === text);
 
 test('an element click opens a card with a human title and crumbs that widen the target; the pin keeps no selector label', async (t) => {
-  const { host, frame, toPage, fromPage } = await mount(t, true);
+  const { host, frame, toPage, fromPage, marksShown } = await mount(t, true);
   const layer = host.querySelector('.visualize-region-layer');
   sized(layer, 0, 0, 400, 300);
   sized(frame, 0, 0, 400, 300);
@@ -530,7 +565,7 @@ test('an element click opens a card with a human title and crumbs that widen the
     { type: 'element', selector: '#card', html: undefined, styles: undefined, box: save.box, path: [] }
   );
   assert.equal(card(host), null);
-  await cropSettled();
+  await cropSettled(marksShown());
   assert.equal(visualizeFeedbackFor('s1').pins[0].image, undefined, 'no capture here: the pin stays, without a crop');
 
   // Clicking the pinned element reopens its card: edit, then delete.
@@ -555,7 +590,7 @@ test('an element click opens a card with a human title and crumbs that widen the
 });
 
 test('a drag on an HTML pane is a region: it counts the elements inside and makes no pick', async (t) => {
-  const { host, frame, toPage, fromPage } = await mount(t, true);
+  const { host, frame, toPage, fromPage, marksShown } = await mount(t, true);
   const layer = host.querySelector('.visualize-region-layer');
   sized(layer, 0, 0, 400, 300);
   sized(frame, 0, 0, 400, 300);
@@ -581,7 +616,7 @@ test('a drag on an HTML pane is a region: it counts the elements inside and make
   const [pin] = visualizeFeedbackFor('s1').pins;
   assert.equal(pin.label, 'Region · 2 elements');
   assert.deepEqual(pin.target, { type: 'region', view: { x: 0.1, y: 0.1, width: 0.5, height: 0.3333 }, elements: 2 });
-  await cropSettled();
+  await cropSettled(marksShown());
 
   // The region's number is drawn by the layer; clicking it reopens the card.
   assert.equal(host.querySelector('.visualize-region-box .visualize-region-number').textContent, '1');
@@ -591,7 +626,7 @@ test('a drag on an HTML pane is a region: it counts the elements inside and make
 });
 
 test('an HTML region keeps the element it lies in: the page draws it, its number and its card reopen it where it is now', async (t) => {
-  const { host, frame, toPage, fromPage } = await mount(t, true);
+  const { host, frame, toPage, fromPage, marksShown } = await mount(t, true);
   const layer = host.querySelector('.visualize-region-layer');
   sized(layer, 0, 0, 400, 300);
   sized(frame, 0, 0, 400, 300);
@@ -608,7 +643,7 @@ test('an HTML region keeps the element it lies in: the page draws it, its number
   });
   await type(card(host).querySelector('textarea'), 'Tighter');
   await act(async () => button(host, 'Add').click());
-  await cropSettled();
+  await cropSettled(marksShown());
   const [pin] = visualizeFeedbackFor('s1').pins;
   assert.deepEqual(pin.target.anchor, { selector: '#card', rect, path: ['Section · Settings'] });
 
@@ -764,8 +799,9 @@ test('a video pane pauses for comments, keeps the pin time and shows it on the t
   await userDrag(layer, [100, 200], [300, 260]);
   assert.equal(card(host).querySelector('.visualize-region-note-label').textContent, 'Video 0:12 · Region');
   await type(card(host).querySelector('textarea'), 'Move the subtitle up');
+  const asked = shotAsked(t);
   await act(async () => button(host, 'Add').click());
-  await cropSettled();
+  await cropSettled(asked);
   const [pin] = visualizeFeedbackFor('s1').pins;
   assert.equal(pin.paneKind, 'video');
   assert.equal(pin.target.time, 12.4);
@@ -990,8 +1026,9 @@ for (const kind of ['image', 'video']) {
     // Picture: 400×200 at y 50. The drag covers (100,100)-(300,200).
     await userDrag(layer, [100, 100], [300, 200]);
     await type(card(host).querySelector('textarea'), 'Here');
+    const asked = shotAsked(t);
     await act(async () => button(host, 'Add').click());
-    await cropSettled();
+    await cropSettled(asked);
     const [pin] = visualizeFeedbackFor('s1').pins;
     assert.deepEqual(pin.target.image, { x: 250, y: 125, width: 500, height: 250 }, 'kept in picture pixels');
     const drawn = () => {
@@ -1227,7 +1264,7 @@ test('Comment mode shows no hint strip; its hints are a one-time toast', async (
 });
 
 test('an HTML layer tags a hovered region, forwards other hovers and the wheel, and its keys close or save the card', async (t) => {
-  const { host, frame, toPage } = await mount(t, true);
+  const { host, frame, toPage, marksShown } = await mount(t, true);
   const layer = host.querySelector('.visualize-region-layer');
   sized(layer, 0, 0, 400, 300);
   sized(frame, 10, 20, 400, 300);
@@ -1290,7 +1327,7 @@ test('an HTML layer tags a hovered region, forwards other hovers and the wheel, 
   await userDrag(layer, [250, 150], [350, 250]);
   await type(card(host).querySelector('textarea'), 'Here');
   await key(card(host).querySelector('textarea'), { key: 'Enter' });
-  await cropSettled();
+  await cropSettled(marksShown());
   assert.equal(visualizeFeedbackFor('s1').pins.length, 2);
   const marks = toPage.filter((message) => message.type === 'hide' || message.type === 'show').map((m) => m.type);
   assert.deepEqual(marks, ['hide', 'show']);
@@ -1324,6 +1361,10 @@ test('a cropped pin: the page marks come back and the image is stored before any
     delete window.mixdogDesktop.visualizeCaptureRect;
   });
   const order = [];
+  let marksBack;
+  const shown = new Promise((resolve) => {
+    marksBack = resolve;
+  });
   frame.contentWindow.postMessage = (message) => {
     if (message.type === 'measure') {
       setTimeout(() =>
@@ -1337,13 +1378,14 @@ test('a cropped pin: the page marks come back and the image is stored before any
     } else if (message.type === 'show') {
       order.push('show');
       queueMicrotask(() => order.push(visualizeFeedbackFor('s1').pins[0]?.image ? 'microtask: stored' : 'microtask'));
+      marksBack();
     }
   };
 
   await userDrag(layer, [40, 30], [240, 130]);
   await type(card(host).querySelector('textarea'), 'Shot');
   await act(async () => button(host, 'Add').click());
-  await cropSettled();
+  await cropSettled(shown);
   assert.equal(visualizeFeedbackFor('s1').pins[0].image?.data, 'UE5H');
   assert.deepEqual(order, ['show', 'microtask: stored']);
 });
