@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { t } from './i18n';
-import { callCapability, type MediaKind, type StudioApi } from './studio-support';
+import { callCapability, type StudioApi } from './studio-support';
 
 // Studio boards: user-named collections of results, kept by the runtime's
 // media store. One board is open at a time ('' = "전체", every result): the
@@ -11,8 +11,6 @@ export interface StudioBoard {
   name: string;
   createdAt: number;
   count: number;
-  /** The board's latest result, its row thumbnail. */
-  cover: { id: string; kind: MediaKind } | null;
 }
 
 interface StudioBoardsState {
@@ -59,7 +57,7 @@ function snapshot(): StudioBoardsState {
   return state;
 }
 
-/** Re-reads the board list (counts, covers, total). A read in flight may have
+/** Re-reads the board list (counts, total). A read in flight may have
  *  been answered before a mutation landed, so by default the new read queues
  *  behind it (several callers share one queued read); `join` only for callers
  *  that want any current list, such as a view becoming visible. */

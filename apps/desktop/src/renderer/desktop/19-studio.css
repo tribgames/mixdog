@@ -275,6 +275,14 @@ html[data-mixdog-mobile-tabs] .studio-panel .studio-board-count {
 .studio-panel .studio-all-row .session-row-copy {
   padding-right: 28px;
 }
+/* Board and "전체" glyphs sit in the Sessions slot (name at slot + 22); the
+   open one's glyph lifts to soft ink like its name. */
+.studio-panel .session-row-main:has(> .session-row-slot) {
+  gap: 6px;
+}
+.studio-panel .session-row.selected .session-row-slot {
+  color: var(--mx-text-soft);
+}
 /* A new board's row is only its name field. */
 .studio-panel .studio-board-row.editing {
   position: relative;
@@ -1004,12 +1012,6 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.studio-board-trigger-thumb.studio-panel-thumb {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  border-radius: 4px;
 }
 /* Opens upward from the trigger, like the model picker. */
 .studio-board-menu {

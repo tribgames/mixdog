@@ -297,31 +297,23 @@ function boardName(name) {
   return text;
 }
 
-/** Boards newest first, each with its result count and latest result (the
- *  row thumbnail), plus the catalog total for "전체". */
+/** Boards newest first, each with its result count, plus the catalog total
+ *  for "전체". */
 export function listMediaBoards() {
   ensureDirs();
   const assets = readIndex();
-  const stats = new Map();
+  const counts = new Map();
   for (const entry of assets) {
-    if (!entry.boardId) continue;
-    const stat = stats.get(entry.boardId) || { count: 0, cover: null };
-    stat.count += 1;
-    if (!stat.cover || Number(entry.createdAt) > Number(stat.cover.createdAt)) stat.cover = entry;
-    stats.set(entry.boardId, stat);
+    if (entry.boardId) counts.set(entry.boardId, (counts.get(entry.boardId) || 0) + 1);
   }
   const boards = [...readBoards()]
     .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
-    .map((board) => {
-      const stat = stats.get(board.id);
-      return {
-        id: board.id,
-        name: board.name,
-        createdAt: board.createdAt,
-        count: stat?.count || 0,
-        cover: stat?.cover ? { id: stat.cover.id, kind: stat.cover.kind } : null,
-      };
-    });
+    .map((board) => ({
+      id: board.id,
+      name: board.name,
+      createdAt: board.createdAt,
+      count: counts.get(board.id) || 0,
+    }));
   return { total: assets.length, boards };
 }
 

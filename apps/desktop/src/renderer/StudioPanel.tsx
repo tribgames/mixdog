@@ -13,7 +13,7 @@ import {
   useStudioBoards,
   type StudioBoard,
 } from './studio-boards';
-import { StudioBoardNameInput, StudioBoardThumb, useStudioBoardThumbs } from './studio-board-components';
+import { StudioBoardIcon, StudioBoardNameInput } from './studio-board-components';
 import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { SidebarPanelHeaderSlot, toggleHeading } from './session-sidebar-sections';
 import { SessionRowStatusIcon } from './session-status-mark';
@@ -44,7 +44,6 @@ export function StudioPanel({
 }) {
   const { boards, total, openId, loaded } = useStudioBoards(api, active);
   const { jobs } = useStudioPanelState();
-  const { thumbUrl, onThumbError } = useStudioBoardThumbs(api, active, boards);
   const slot = useContext(SidebarPanelHeaderSlot);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -167,7 +166,7 @@ export function StudioPanel({
             setRenamingId(board.id);
           }}
         >
-          <StudioBoardThumb board={board} src={thumbUrl(board)} onError={onThumbError} />
+          <StudioBoardIcon />
           <span className="session-row-copy">
             <b>{board.name}</b>
           </span>
@@ -205,7 +204,7 @@ export function StudioPanel({
               onClick={() => open('')}
             >
               <span className="session-row-slot" aria-hidden="true">
-                <LayoutGrid size={15} />
+                <LayoutGrid size={16} strokeWidth={1.75} />
               </span>
               <span className="session-row-copy">
                 <b>{t('All')}</b>

@@ -105,7 +105,6 @@ function studioApi(calls = []) {
             return {
               ...board,
               count: members.length,
-              cover: members[0] ? { id: members[0].id, kind: members[0].kind } : null,
             };
           }),
         });
@@ -222,7 +221,7 @@ test('the Studio entry picks the focused pane’s shown Studio tab, then any Stu
   assert.equal(findStudioTab([{ id: 'l', tabs: [{ kind: 'session', id: 's' }], activeKey: 'session:s' }], 'l'), null);
 });
 
-test('the panel lists "All" with the total, then each board with thumbnail, name and count; a row opens it', async () => {
+test('the panel lists "All" with the total, then each board with its icon, name and count; a row opens it', async () => {
   reset();
   let shown = 0;
   const view = await mount(
@@ -237,10 +236,7 @@ test('the panel lists "All" with the total, then each board with thumbnail, name
   const gacha = boardRow(host, 'b-gacha');
   assert.equal(gacha.querySelector('.session-row-copy b').textContent, 'Gacha sprites');
   assert.equal(gacha.querySelector('.studio-board-count').textContent, '2');
-  assert.ok(
-    gacha.querySelector('.studio-panel-thumb .studio-thumbnail-image, .studio-panel-thumb img'),
-    'the latest result leads the row'
-  );
+  assert.ok(gacha.querySelector('.session-row-slot.studio-board-icon svg'), 'the board icon leads the row');
   assert.equal(boardRow(host, 'b-icons').querySelector('.studio-board-count').textContent, '0');
 
   await act(async () => gacha.querySelector('.session-row-main').click());
@@ -359,6 +355,7 @@ test('an open board shows only its results by day, takes results from All, and n
     'the board is read from the store'
   );
   assert.equal(host.querySelector('.studio-board-trigger-label').textContent, 'Gacha sprites');
+  assert.ok(host.querySelector('.studio-board-trigger .studio-board-icon svg'), 'the picker shows the board icon');
 
   // Moving a result out of the open board drops it from the view.
   const fox = host.querySelector('.studio-tile[data-studio-asset-id="today-1"] .studio-tile-open');
@@ -385,38 +382,6 @@ test('an open board shows only its results by day, takes results from All, and n
   });
   assert.ok(boardRow(host, '').classList.contains('selected'));
   assert.deepEqual(tiles().slice(-4), ['today-1', 'yesterday-1', 'week-1', 'earlier-1']);
-  await view.unmount();
-});
-
-test('a board thumbnail the byte lane cannot serve yet is filled by the renderer fallback, not left blank', async () => {
-  reset();
-  const calls = [];
-  const view = await mount(
-    React.createElement(StudioPanel, { active: true, api: studioApi(calls), onShowStudio() {} })
-  );
-  const { host } = view;
-  const thumb = () => boardRow(host, 'b-gacha').querySelector('.studio-panel-thumb img');
-  // The desktop lane only serves renditions that exist: a cold cover 404s.
-  const direct = [...host.querySelectorAll('.studio-panel-thumb img')].find((img) =>
-    img.src.startsWith('mixdog-media:')
-  );
-  if (direct) {
-    await act(async () => {
-      direct.dispatchEvent(new window.Event('error'));
-      await settle();
-    });
-  }
-  await act(async () => settle(50));
-  assert.ok(thumb(), 'the cover still shows a picture');
-  assert.match(thumb().src, /^data:image\/png;base64,/, 'read through the renderer fallback');
-  assert.ok(
-    calls.some((call) => call.capability === 'readMediaAsset' && call.args[0] === 'today-1'),
-    'the cover was read for its thumbnail'
-  );
-  assert.ok(
-    calls.some((call) => call.capability === 'cacheMediaThumbnail' && call.args[0] === 'today-1'),
-    'and cached so the byte lane serves it next time'
-  );
   await view.unmount();
 });
 
