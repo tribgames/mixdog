@@ -4,6 +4,36 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn ra, sắp xếp bảng Phiên theo dự án và nhánh, đồng thời ra mắt bảng Studio cùng các cải tiến về độ ổn định cho công việc song song.
+
+### Tính năng mới
+
+- **Bảng Studio** — Nhóm các sản phẩm tạo trong Studio thành bảng từ menu khung soạn thảo và duyệt lại các tác phẩm trước bằng tính năng tìm kiếm trên thanh bên trái.
+- **Dự án trong Phiên** — Gom nhóm các phiên theo dự án trong bảng Phiên, kèm danh mục con cho từng nhánh khi một dự án có nhiều nhánh.
+- **Cài đặt màn hình bắt đầu** — Chọn nội dung mở ra khi tạo cửa sổ mới trong phần cài đặt, mặc định bắt đầu một phiên mới không gắn dự án mà không tích tụ các thẻ trống (#312).
+- **Phản hồi Claude nhanh hơn** — Các cuộc trò chuyện Claude đang diễn ra giờ đây chỉ gửi tin nhắn mới sau lượt đầu tiên, giúp tăng tốc câu trả lời và tự động gửi lại toàn bộ khi cần.
+- **Thiết bị HID trong trình duyệt tích hợp** — Các trang web trong trình duyệt tích hợp giờ đây có thể kết nối với phần cứng HID bạn chọn (#250).
+- **Thao tác trang trong Visualize** — Agent giờ đây có thể nhấp chuột, nhập liệu và cuộn trang bên trong các trang HTML đang mở trong Visualize để tự mình kiểm tra giao diện.
+
+### Thay đổi
+
+- Thay đổi bảng Phiên để bắt đầu tác vụ từ nút + ở tiêu đề và hiển thị bot dưới dạng hàng cùng trạng thái tương ứng.
+- Thay đổi Nhật ký yêu cầu để hiển thị thời lượng tính bằng giây, mô hình yêu cầu và mô hình phản hồi cho các yêu cầu thay thế (#306), cùng giá niêm yết API gói thuê bao.
+- Thay đổi thông báo ở góc trên bên phải để cảnh báo về các lượt cài đặt, cập nhật ứng dụng, tạm dừng do giới hạn mức dùng, đăng nhập hết hạn và cuộc trò chuyện chưa lưu.
+- Thay đổi danh sách việc cần làm để theo dõi các bước đang chờ, đang thực hiện, đã hoàn thành và đã bỏ qua, đồng thời không để bước bị chặn biến vòng tiến trình thành màu đỏ.
+- Điều chỉnh các bảng bên và bộ sưu tập Studio để dùng chung khoảng cách nhất quán, kiểu trạng thái trống và hiệu ứng mờ dần ở cạnh trên và dưới.
+
+### Sửa lỗi
+
+- Sửa lỗi ứng dụng bị đơ, giật hoặc gặp sự cố do đột biến bộ nhớ trong các tác vụ nặng như tìm kiếm mã nguồn (#308).
+- Sửa lỗi quá trình cài đặt bản cập nhật ứng dụng làm gián đoạn tác vụ đang chạy (#308).
+- Sửa lỗi Claude bỏ qua tin nhắn gửi sau một lượt kết thúc mà không có phản hồi, vì nhầm đó là kết quả từ công cụ.
+- Sửa lỗi quá trình kiểm tra worktree chạy nền mất tới hai phút trên Windows sau mỗi lần khởi chạy ứng dụng.
+- Sửa lỗi cập nhật plugin hoàn tất trong im lặng mà không hiển thị thông báo hoàn thành nào (#307).
+- Sửa lỗi popover ngữ cảnh bị che khuất trên màn hình điện thoại (#309) và dấu thời gian quá dài tràn khỏi cột trong Nhật ký yêu cầu (#310).
+- Sửa lỗi nhấn phím `F2` trong khung soạn thảo phiên không đổi được tên của phiên đang mở.
+- Sửa lỗi số lượng kết quả tìm kiếm hiển thị đường dẫn đầy đủ thay vì đường dẫn tương đối trong các thư mục có tên chứa số và dấu gạch nối (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Đã thêm thẻ Nhật ký yêu cầu trong Mức dùng, bảng bên trực tiếp cho sub-agent, lịch sử điều hướng phiên và các tùy chọn nâng cao cho nhà cung cấp tùy chỉnh.

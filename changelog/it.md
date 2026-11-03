@@ -4,6 +4,36 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Questa versione velocizza le conversazioni Claude in corso, organizza il pannello Sessioni per progetto e branch e introduce le lavagne di Studio, insieme a miglioramenti della stabilità per il lavoro parallelo.
+
+### Nuove funzionalità
+
+- **Lavagne di Studio** — Raggruppa le creazioni di Studio in lavagne dal menu del compositore ed esplora i lavori passati con la ricerca dalla barra laterale sinistra.
+- **Progetti in Sessioni** — Raggruppa le sessioni per progetto nel pannello Sessioni, con sottocategorie per ciascun branch quando un progetto ne ha più di uno.
+- **Impostazione schermata iniziale** — Scegli nelle impostazioni cosa aprire in una nuova finestra desktop, avviando per impostazione predefinita una sessione senza progetto senza accumulare schede vuote (#312).
+- **Risposte di Claude più rapide** — Le conversazioni Claude in corso ora inviano solo i nuovi messaggi dopo il turno iniziale, accelerando le risposte e ricorrendo a una richiesta completa se necessario.
+- **Dispositivi HID nel browser integrato** — I siti web nel browser integrato possono ora connettersi all'hardware HID selezionato (#250).
+- **Azioni sulla pagina in Visualize** — Gli agenti possono ora fare clic, digitare e scorrere all'interno delle pagine HTML aperte in Visualize per verificare direttamente le interfacce.
+
+### Modifiche
+
+- Modificato il pannello Sessioni per avviare attività con un pulsante + nell'intestazione e mostrare i bot come righe con il rispettivo stato.
+- Modificato il Registro richieste per mostrare le durate in secondi, i modelli richiesti e rispondenti per le richieste sostituite (#306) e i prezzi di listino dell'API per gli abbonamenti.
+- Modificate le notifiche in alto a destra per segnalare installazioni, aggiornamenti dell'app, pause per limite di utilizzo, accessi scaduti e conversazioni non salvate.
+- Modificate le liste di cose da fare per tracciare attività in sospeso, in corso, completate e scartate, evitando che un passaggio bloccato renda rosso l'anello di avanzamento.
+- Ottimizzati i pannelli laterali e la galleria di Studio per condividere spaziatura coerente, stili di stato vuoto e sfumature ai bordi superiore e inferiore.
+
+### Correzioni di bug
+
+- Risolti blocchi, rallentamenti o arresti anomali dell'app dovuti a picchi di memoria durante operazioni gravose come la ricerca nel codice (#308).
+- Risolto un problema per cui l'installazione di un aggiornamento dell'app interrompeva attività ancora in esecuzione (#308).
+- Risolto un problema per cui Claude ignorava un messaggio inviato dopo un turno terminato senza risposta, scambiandolo per l'output di uno strumento.
+- Risolto il problema per cui i controlli dei worktree in background richiedevano due minuti su Windows dopo ogni avvio dell'app.
+- Risolto il problema degli aggiornamenti dei plugin che si completavano silenziosamente senza mostrare alcun avviso (#307).
+- Risolto il problema dei popover di contesto coperti sugli schermi mobili (#309) e dei timestamp lunghi che fuoriuscivano dalla colonna nel Registro richieste (#310).
+- Risolto il problema per cui premendo `F2` nel compositore della sessione non veniva rinominata la sessione attiva.
+- Risolto il problema dei conteggi di ricerca che mostravano percorsi assoluti anziché relativi nelle cartelle con numeri e trattini nel nome (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo reale per i subagenti, cronologia di navigazione delle sessioni e opzioni avanzate per i provider personalizzati.
