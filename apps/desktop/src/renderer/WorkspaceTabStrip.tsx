@@ -8,7 +8,7 @@ import { confirmSessionOpen, prepareSessionOpen, useSessionOpenIntent } from './
 import { createPortal } from 'react-dom';
 import { explorerAbsolutePath } from './explorer-tree-model';
 import { isRemoteHostRenderer } from './remote-ui-projection';
-import { FileText, FileDiff, Folder, Globe, MessageCircle, Plus, Sparkles, Terminal, X } from 'lucide-react';
+import { FileText, FileDiff, Folder, Globe, MessageSquare, Plus, Sparkles, Terminal, X } from 'lucide-react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionAttention, type SessionAttention } from '../shared/session-attention';
@@ -114,7 +114,7 @@ function TabStatusMark({
  *  chat carries the bot's face, every other chat the bubble. */
 export function sessionTabGlyph(sessionId: string, size = 14) {
   if (isAgentChatSession(sessionId)) return <AgentChatTabFace sessionId={sessionId} />;
-  return <MessageCircle size={size} />;
+  return <MessageSquare size={size} />;
 }
 
 function tabGlyph(tab: WorkspaceTab, size = 14) {
@@ -135,7 +135,7 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
       return sessionTabGlyph(tab.selection.id, size);
     default:
       // Chat/new-task tabs keep the bubble icon (user: 탭 앞 아이콘은 롤백).
-      return <MessageCircle size={size} />;
+      return <MessageSquare size={size} />;
   }
 }
 

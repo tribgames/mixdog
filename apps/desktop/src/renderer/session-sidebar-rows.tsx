@@ -5,7 +5,7 @@ import {
   ChevronUp,
   CornerDownRight,
   GitFork,
-  MessageCircle,
+  MessageSquare,
   Star,
   Trash2,
   X,
@@ -426,7 +426,7 @@ const SessionRow = React.memo(function SessionRow({
             <DeletedBotFace agentId={deletedBot} />
           ) : (
             // The tab strip's session icon (WorkspaceTabStrip sessionTabGlyph).
-            <MessageCircle className="session-row-chat-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
+            <MessageSquare className="session-row-chat-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
           )}
         </span>
         <span className="session-row-copy">
