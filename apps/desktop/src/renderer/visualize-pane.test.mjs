@@ -177,8 +177,9 @@ test('the Visualize pill scales the content, Ctrl+0 resets, and the shared toggl
 test('pages and documents scale like browser zoom: laid out at 1/scale, then scaled up', async () => {
   const { visualizeZoomStyle } = await import('./visualize-zoom.ts');
   assert.equal(visualizeZoomStyle(1, 'html'), undefined);
-  assert.deepEqual(visualizeZoomStyle(2, 'html'), { width: '50%', height: '50%', transform: 'scale(2)' });
-  assert.deepEqual(visualizeZoomStyle(0.5, 'pdf'), { width: '200%', height: '200%', transform: 'scale(0.5)' });
+  const placed = { position: 'absolute', top: 0, left: 0 };
+  assert.deepEqual(visualizeZoomStyle(2, 'html'), { ...placed, width: '50%', height: '50%', transform: 'scale(2)' });
+  assert.deepEqual(visualizeZoomStyle(0.5, 'pdf'), { ...placed, width: '200%', height: '200%', transform: 'scale(0.5)' });
   // An image also scales its own drawn size, so one smaller than the pane zooms too.
   assert.deepEqual(visualizeZoomStyle(1.5, 'image'), {
     width: '150%',
