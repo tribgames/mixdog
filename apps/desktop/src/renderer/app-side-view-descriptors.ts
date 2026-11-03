@@ -8,7 +8,7 @@ import {
   IdCard,
   Image,
   Layers3,
-  MessageCircle,
+  MessageSquare,
   Network,
   Package,
   PanelsTopLeft,
@@ -29,7 +29,7 @@ export function createAppSideViewDescriptors(
   onFocusStudio: () => void
 ): ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor> {
   return new Map([
-    ['sessions', { id: 'sessions', label: t('Sessions'), icon: MessageCircle }],
+    ['sessions', { id: 'sessions', label: t('Sessions'), icon: MessageSquare }],
     // Selecting it also brings Studio forward in the centre.
     [
       'studio',
