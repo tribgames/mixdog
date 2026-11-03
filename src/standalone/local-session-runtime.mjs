@@ -127,6 +127,7 @@ export function createRuntimePulse({
   routeState,
   agentStatusState,
   syncContextStats,
+  liveWorkspace = () => routeState().workspace,
 }) {
   const publishChanged = (patch) => {
     const draftState = getState();
@@ -161,7 +162,7 @@ export function createRuntimePulse({
   /** Publishes just the workspace (a HEAD change): no stats or agent recompute. */
   pulse.publishWorkspace = () => {
     if (flags.disposed || flags.pendingSessionReset) return;
-    publishChanged({ workspace: routeState().workspace });
+    publishChanged({ workspace: liveWorkspace() });
   };
   return pulse;
 }
@@ -345,9 +346,12 @@ export async function createLocalSessionRuntime({
     routeState,
     agentStatusState,
     syncContextStats,
+    // routeState()'s workspace field, without recomputing the whole route.
+    liveWorkspace: () => runtime.getLiveWorkspace?.() ?? runtime.getWorkspace?.() ?? null,
   });
-  // A `git switch` from any terminal reaches the island within ~a frame; the
-  // pulse retargets the watch when the session's folder moves.
+  // A `git switch` from any terminal reaches the island within ~a frame. HEAD
+  // is read from the shared per-repository cache; the pulse's retarget only
+  // re-resolves when the session's folder moved (a committed workspace change).
   const headWatch = createGitHeadWatcher({
     getCwd: () => runtime.getLiveWorkspace?.()?.cwd || runtime.cwd,
     onChange: runtimePulse.publishWorkspace,
