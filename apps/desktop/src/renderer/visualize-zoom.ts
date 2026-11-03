@@ -71,7 +71,18 @@ export function visualizeZoomStyle(scale: number, kind: string): CSSProperties |
       '--visualize-zoom': scale,
     } as CSSProperties;
   }
-  return { width: `${100 / scale}%`, height: `${100 / scale}%`, transform: `scale(${scale})` };
+  // Out of flow (the pane is positioned): a flex item's untransformed 1/scale
+  // box also counts as scrollable overflow, so zoomed out (scale < 1) the pane
+  // scrolled on into empty space past the shrunken page. The scaled box alone
+  // sets the scroll range here, and it never exceeds the pane.
+  return {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: `${100 / scale}%`,
+    height: `${100 / scale}%`,
+    transform: `scale(${scale})`,
+  };
 }
 
 interface ScrollAnchor {
