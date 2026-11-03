@@ -260,8 +260,13 @@ test('a HID device connects only with the setting on and only the one device a p
   const guest = page('https://launcher.test/app');
   const frame = { origin: 'https://launcher.test', processId: 1, routingId: 1, isDestroyed: () => false };
   guests.set(frame, guest);
-  const keyboard = { deviceId: 'hid-1', name: 'Keyboard' };
-  const deck = { deviceId: 'hid-2', name: 'Stream Deck' };
+  // The chooser lists devices with a `deviceId`; Electron's device permission
+  // handler is given the same device without one (name, ids, serial or guid).
+  const keyboard = { deviceId: 'hid-1', name: 'Keyboard', vendorId: 1, productId: 1, serialNumber: 'K1' };
+  const deck = { deviceId: 'hid-2', name: 'Stream Deck', vendorId: 4057, productId: 96, serialNumber: 'DECK-A' };
+  const otherDeck = { deviceId: 'hid-3', name: 'Stream Deck', vendorId: 4057, productId: 96, serialNumber: 'DECK-B' };
+  const pad = { deviceId: 'hid-4', name: '', vendorId: 7, productId: 7, guid: 'pad-guid' };
+  const reported = ({ deviceId, ...device }) => (device.name ? device : { ...device, serialNumber: undefined });
   const request = (deviceList) => {
     const outcome = { prevented: false, calls: [] };
     session.emit(
@@ -272,7 +277,8 @@ test('a HID device connects only with the setting on and only the one device a p
     );
     return outcome;
   };
-  const granted = (device, origin = 'https://launcher.test') => handlers.device({ deviceType: 'hid', origin, device });
+  const granted = (device, origin = 'https://launcher.test') =>
+    handlers.device({ deviceType: 'hid', origin, device: reported(device) });
 
   // Off (the default): the page cannot use HID and a request is refused unasked.
   assert.equal(handlers.check(guest, 'hid', 'https://launcher.test', {}), false);
@@ -302,7 +308,26 @@ test('a HID device connects only with the setting on and only the one device a p
   assert.equal(permissions.pending(guest), undefined);
   assert.equal(granted(deck), true, 'the picked device is granted to that site');
   assert.equal(granted(keyboard), false, 'another device is not');
+  assert.equal(granted(otherDeck), false, 'another unit of the same model is not');
   assert.equal(granted(deck, 'https://other.test'), false, 'another site is not');
+  assert.equal(
+    handlers.device({ deviceType: 'hid', origin: 'https://launcher.test', device: { vendorId: 4057, productId: 96 } }),
+    false,
+    'vendor and product alone grant nothing'
+  );
+
+  // A device without a serial number is identified by its guid.
+  const padAsked = request([pad]);
+  session.emit('hid-device-added', {}, { device: otherDeck, frame });
+  assert.equal(permissions.answer(guest, permissions.pending(guest).id, true, 'hid-3'), true, 'a hot-added pick');
+  assert.deepEqual(padAsked.calls, [['hid-3']]);
+  assert.equal(granted(otherDeck), true, 'a device added while the chooser was open is granted');
+  assert.equal(granted(deck), true);
+  const padPicked = request([pad]);
+  permissions.answer(guest, permissions.pending(guest).id, true, 'hid-4');
+  assert.deepEqual(padPicked.calls, [['hid-4']]);
+  assert.equal(granted(pad), true, 'a device without a serial is granted by guid');
+  assert.equal(granted({ ...pad, guid: 'other-guid' }), false);
   assert.equal(handlers.device({ deviceType: 'usb', origin: 'https://launcher.test', device: deck }), false);
 
   // A pick is never remembered as a site decision: the next request asks again.
