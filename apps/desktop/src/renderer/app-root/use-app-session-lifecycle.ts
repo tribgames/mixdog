@@ -17,6 +17,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     applySnapshot,
     startupFocusedPaneSelection,
     startupNavigationSelection,
+    startFresh,
     snapshot,
     snapshotHydrated,
   } = shell;
@@ -92,7 +93,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     setCommandSurface,
     setCommandSurfaceSessionId,
   });
-  const { setTabs, activateSelection } = taskLifecycle;
+  const { setTabs, activateSelection, startProjectlessTask } = taskLifecycle;
 
   const {
     state: updaterState,
@@ -116,6 +117,8 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     restoredFromStorage: paneWorkspace.restoredFromStorage,
     startupFocusedPaneSelection,
     startupNavigationSelection,
+    startFresh,
+    startProjectlessTask,
     projectCatalogReady,
     snapshot,
     // Hydration owns readiness. A first-run profile legitimately hydrates to

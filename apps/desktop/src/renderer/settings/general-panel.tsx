@@ -13,8 +13,9 @@ import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-pr
 import { getQuestionConfirm, setQuestionConfirm, subscribeQuestionConfirm } from '../question-confirm-preference';
 import { ComposerStyleGroup } from './composer-style-preview';
 import { record } from '../record-utils';
+import { getStartupView, setStartupView, type StartupView } from '../startup-view-preference';
 import { getTimeFormat, setTimeFormat, subscribeTimeFormat, type TimeFormat } from '../time-format-preference';
-import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
+import { isNativeDesktopWindow, isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
   getSidePanelMode,
   getSidePanelPosition,
@@ -164,6 +165,34 @@ function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
   );
 }
 
+/** What a launch opens; applies the next time the app starts. */
+function StartupViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
+  const [view, setView] = useState<StartupView>(() => getStartupView());
+  const [error, setError] = useState('');
+  return (
+    <>
+      <SelectRow
+        title={t('Start screen')}
+        value={view}
+        disabled={Boolean(pending)}
+        options={[
+          { value: 'last', label: t('Last working position') },
+          { value: 'new-projectless', label: t('New session') },
+        ]}
+        onChange={(next) => {
+          if (!setStartupView(next as StartupView)) {
+            setError(t('The setting could not be saved.'));
+            return;
+          }
+          setError('');
+          setView(next as StartupView);
+        }}
+      />
+      {error && <p role="alert">{error}</p>}
+    </>
+  );
+}
+
 function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const configuredMode = useSyncExternalStore(subscribeSidePanelMode, getSidePanelMode, () => 'close-both');
   const narrow = window.matchMedia?.(NARROW_SHELL_QUERY).matches === true;
@@ -226,6 +255,7 @@ export function DisplayPanel({ pending }: PanelContext) {
         <TimeFormatChoice pending={pending} />
       </Group>
       <Group title={t('Windows and panels')}>
+        {isNativeDesktopWindow() && <StartupViewChoice pending={pending} />}
         <SidePanelChoices pending={pending} />
         <LinkPreviewToggle pending={pending} />
         {!remoteSurface && <MarkdownDefaultViewChoice pending={pending} />}

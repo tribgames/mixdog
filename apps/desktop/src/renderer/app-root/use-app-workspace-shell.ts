@@ -37,7 +37,7 @@ export function useAppWorkspaceShell() {
   // File editors are normal tabs in the focused pane. The focused leaf is the
   // single source of truth for the Files highlight and tab shortcuts; a
   // separate global editor key made a file take over the whole main panel.
-  const { focusedPaneSelection, startupNavigationSelection } = useStartupPaneSelection(paneWorkspace);
+  const { focusedPaneSelection, startupNavigationSelection, startFresh } = useStartupPaneSelection(paneWorkspace);
   const startupFocusedPaneSelection = focusedPaneSelection;
   const editorState = useAppEditorState({ paneWorkspace, startupFocusedPaneSelection, bottomPanel });
 
@@ -68,6 +68,7 @@ export function useAppWorkspaceShell() {
     focusedPaneSelection,
     startupNavigationSelection,
     startupFocusedPaneSelection,
+    startFresh,
     editorState,
     paneLeavesRef,
     focusedLeafIdRef,
