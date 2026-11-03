@@ -952,7 +952,7 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.request-log-table td:not(.request-log-session, .request-log-model) {
+.request-log-table td:not(.request-log-session, .request-log-model, .request-log-time) {
   overflow: visible;
   text-overflow: clip;
 }
