@@ -85,8 +85,15 @@ export function insertRecord(record) {
   });
 }
 
+/**
+ * Replace a record. `existingBranch` never turns false again for the same
+ * worktree (same id and txId): once its branch is not Mixdog's to delete, no
+ * write from an older read gives it back (the caller's record is updated too).
+ */
 export function putRecord(record) {
   return mutateRegistry((doc) => {
+    const prior = doc.entries[record.id];
+    if (prior?.existingBranch === true && prior.txId === record.txId) record.existingBranch = true;
     doc.entries[record.id] = { ...record, updatedAt: Date.now() };
   });
 }

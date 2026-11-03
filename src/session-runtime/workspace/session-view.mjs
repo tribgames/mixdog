@@ -58,7 +58,26 @@ export function createSessionWorkspaceView({
   let liveWorkspace = null;
 
   /**
-   * The workspace the session publishes: a worktree-bound record as stored; a
+   * A worktree-bound record with the branch its checkout has now (a
+   * `git branch -m` inside it), from the shared HEAD cache. A detached HEAD
+   * (a rebase, bisect, `switch --detach`) keeps the branch last shown for this
+   * record: a worktree-bound workspace always names one.
+   */
+  function boundWorkspace(recorded) {
+    const head = readGitHead(recorded.cwd);
+    const shown =
+      liveWorkspace?.worktreeId === recorded.worktreeId && liveWorkspace.revision === recorded.revision
+        ? liveWorkspace.branch
+        : recorded.branch;
+    const branch = head && samePath(head.repoCommonDir, recorded.repoCommonDir) ? (head.branch ?? shown) : recorded.branch;
+    const next = branch === recorded.branch ? recorded : { ...recorded, branch };
+    if (!liveWorkspace || !isDeepStrictEqual(liveWorkspace, next)) liveWorkspace = next;
+    return liveWorkspace;
+  }
+
+  /**
+   * The workspace the session publishes: a worktree-bound record with its
+   * checkout's branch (boundWorkspace); a
    * project-folder session (never moved, back from a worktree, or carrying a
    * transition stub) with the folder's checked-out branch / detached commit and
    * repoCommonDir read straight from HEAD — no git process. Null outside a git
@@ -67,7 +86,7 @@ export function createSessionWorkspaceView({
   function getLiveWorkspace() {
     const session = getSession();
     const stored = readSessionWorkspace(session);
-    if (isWorktreeBound(stored)) return session.workspace;
+    if (isWorktreeBound(stored)) return boundWorkspace(session.workspace);
     let base;
     try {
       base = stored ?? currentWorkspace(session);
@@ -117,7 +136,9 @@ export function createSessionWorkspaceView({
     // record), and a detached checkout shows branch null with the commit in
     // baseCommit — never mistaken for "not a repository".
     let view = workspace;
-    if (!isWorktreeBound(workspace)) {
+    if (isWorktreeBound(workspace)) {
+      view = boundWorkspace(workspace);
+    } else {
       const project = await inspectProject(workspace.cwd);
       const checkedOut = project.currentBranch ?? null;
       view = {

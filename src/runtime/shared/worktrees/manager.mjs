@@ -99,10 +99,12 @@ import {
   entryView,
   getRecord,
   insertRecord,
+  mutateRegistry,
   putRecord,
   readRegistry,
   registryPath,
 } from './registry.mjs';
+import { readGitHead } from './git-head.mjs';
 import { normalizeWorktreeSettings } from './settings.mjs';
 import { slugFromHint, uniqueSlug } from './slug.mjs';
 
@@ -987,6 +989,43 @@ async function finishDeletion(record) {
   };
 }
 
+/**
+ * A ready branch worktree's record follows the branch its checkout has now
+ * (a `git branch -m` or switch inside it), read from the shared HEAD cache;
+ * a change is persisted compare-and-set on the old name and applied to
+ * `record`. Deletion ownership never moves with the name: git cannot prove
+ * the new branch is the one Mixdog made (a user branch can pass through the
+ * recorded name), so it is marked existingBranch and no removal or cleanup
+ * deletes it; a renamed Mixdog branch is left behind, its commits intact.
+ * A detached HEAD (a rebase, bisect, `switch --detach`) keeps the recorded
+ * branch: the work stays named by it. The write is a field patch under the
+ * repository lock, like every registry writer, so no whole-record write
+ * whose read came before it lands after it. Returns `record`.
+ */
+async function followCheckedOutBranch(record) {
+  if (!record?.branch || record.kind === WORKTREE_SNAPSHOT_KIND || record.state !== 'ready') return record;
+  const checkedOut = () => {
+    const head = readGitHead(record.path);
+    return head?.branch && samePath(head.topLevel, record.path) ? head.branch : null;
+  };
+  const seen = checkedOut();
+  if (!seen || seen === record.branch) return record;
+  return withRepoLock(record.repoCommonDir, async () => {
+    // HEAD again: it may have moved while the lock was awaited.
+    const branch = checkedOut();
+    if (!branch) return record;
+    let stored = null;
+    await mutateRegistry((doc) => {
+      const entry = doc.entries[record.id];
+      if (entry?.txId !== record.txId || entry.state !== 'ready') return;
+      if (entry.branch !== branch) Object.assign(entry, { branch, existingBranch: true, updatedAt: Date.now() });
+      stored = { branch: entry.branch, existingBranch: entry.existingBranch === true };
+    });
+    // The caller acts on what the registry now holds, never on its older read.
+    return stored ? Object.assign(record, stored) : record;
+  });
+}
+
 function findRecord(doc, predicate) {
   return Object.values(doc.entries).find(predicate) || null;
 }
@@ -1009,7 +1048,7 @@ export async function getSessionWorktree(sessionId) {
   if (typeof sessionId !== 'string' || !sessionId) return null;
   const records = Object.values((await readRegistry()).entries).filter((record) => record.ownerSessionId === sessionId);
   const record = records.find((item) => item.state === 'ready') || records[0];
-  return record ? entryView(record) : null;
+  return record ? entryView(await followCheckedOutBranch(record)) : null;
 }
 
 /** The managed worktree at `path` (canonical, case-insensitive on Windows), or null. */
@@ -1017,7 +1056,7 @@ export async function getWorktreeByPath(path) {
   if (typeof path !== 'string' || !path.trim()) return null;
   const key = pathKey(path);
   const record = Object.values((await readRegistry()).entries).find((item) => pathKey(item.path) === key);
-  return record ? entryView(record) : null;
+  return record ? entryView(await followCheckedOutBranch(record)) : null;
 }
 
 /**
@@ -1126,7 +1165,7 @@ export async function forgetSharedWorktreeSession(sessionId) {
 export async function findWorktreeContaining(path) {
   if (typeof path !== 'string' || !path.trim()) return null;
   const record = Object.values((await readRegistry()).entries).find((item) => isWithin(item.path, path));
-  return record ? entryView(record) : null;
+  return record ? entryView(await followCheckedOutBranch(record)) : null;
 }
 
 /** File-host seam, not a user capability. Persist the host-owned scope before
@@ -2228,6 +2267,7 @@ export async function mergeWorktreeIntoProject({ entryId, target, confirmed, pro
         projectPath,
       });
     }
+    await followCheckedOutBranch(current);
     const result = await mergeBranchIntoCheckout({
       git: gitStatusRunner,
       cwd: current.projectPath,
@@ -2312,6 +2352,7 @@ function assertNotShared(record, sessionId = record.ownerSessionId) {
 export async function assertWorktreeRemovable({ entryId, force = false, sessionId } = {}) {
   const record = await getRecord(entryId);
   if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  await followCheckedOutBranch(record);
   assertNotShared(record, sessionId);
   await assertRecoveryStoresClear(record);
   if (record.state !== 'ready') return;
@@ -2383,6 +2424,7 @@ async function removeLocked(
   { force, sessionId, preserveBranch = false, safeOnly = false, automatic = false }
 ) {
   assertNotShared(current, sessionId);
+  await followCheckedOutBranch(current);
   // A deleted session's leftover (cleanupDeletedSessionWorktree): the
   // verified automatic path, never a forced or recursive one.
   if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
@@ -2492,6 +2534,7 @@ export async function listManagedWorktrees({
   const retained = new Set(retainedSessionIds);
   const rows = [];
   for (const record of Object.values((await readRegistry()).entries)) {
+    await followCheckedOutBranch(record);
     const { ownerLive, retained: isRetained, removable } = await retentionOf(record, live, retained);
     const row = {
       ...entryView(record),
@@ -2863,6 +2906,7 @@ export async function reconcileManagedWorktrees({
                 report.kept.push({ id: record.id, reason: 'budget' });
                 continue;
               }
+              await followCheckedOutBranch(record);
               const outcome = await removeAutomatically(record, {
                 inUse,
                 preserveBranch,
