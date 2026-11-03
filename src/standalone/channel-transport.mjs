@@ -43,6 +43,9 @@ export function createChannelTransport({
   // Asked before every register/call/agent dispatch; false answers 503 (the
   // daemon's owner lease is not held — daemon-owner.mjs).
   admitWork = () => true,
+  // Why admitWork refused: retry-later (with retryAfterMs) while it may serve
+  // again shortly, else fenced (daemon-refusal.mjs).
+  workRefusal,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -122,6 +125,7 @@ export function createChannelTransport({
     registry,
     dispatch,
     admitWork,
+    workRefusal,
   });
 
   function beginDrain(reason = 'daemon replacement') {

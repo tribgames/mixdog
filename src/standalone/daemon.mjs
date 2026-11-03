@@ -60,6 +60,7 @@ import {
   readDiscoveryAsync,
   startOwnerLivenessListener,
 } from './daemon-owner.mjs';
+import { DAEMON_FENCED, DAEMON_RETRY_LATER } from './daemon-refusal.mjs';
 import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
 import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
@@ -718,6 +719,20 @@ function admitOwnerWorkAsync() {
   return ownerHeartbeat ? ownerHeartbeat.admitAsync() : true;
 }
 
+/** Why admitOwnerWorkAsync just refused, for the front doors' 503. A lease
+ *  still active but re-verifying may come back (its refresh is retried every
+ *  tick); a fenced, superseded or stopped one never does. */
+function ownerWorkRefusal() {
+  if (shuttingDown || ownerHeartbeat?.state !== 'active') {
+    return { code: DAEMON_FENCED, message: 'daemon owner lease is not held' };
+  }
+  return {
+    code: DAEMON_RETRY_LATER,
+    message: 'daemon owner lease is not held (being re-verified)',
+    retryAfterMs: daemonOwnerTimings().tickMs,
+  };
+}
+
 /** This process no longer holds (or is about to lose) the owner lease: refuse
  *  new work at once, unpublish its endpoint so launchers stop finding it, then
  *  shut down within the shutdown budget — before a contender may reclaim. */
@@ -835,6 +850,7 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
     handleCall: channelsRuntime.handleCall,
     agentBroker: agentDispatchBroker,
     admitWork: admitOwnerWorkAsync,
+    workRefusal: ownerWorkRefusal,
     log,
     // The durable channel link lives in this file. Without it a restart loses
     // the pinned session (nothing to restore) and every catalog reports Remote
@@ -1179,6 +1195,7 @@ async function main() {
     onUpgradeRequested: requestDaemonReplacement,
     workGate: daemonWorkGate,
     admitWork: admitOwnerWorkAsync,
+    workRefusal: ownerWorkRefusal,
   });
   const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
   const modelProxyEndpoint = await startModelProxyBridge(bootPhases);

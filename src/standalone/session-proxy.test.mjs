@@ -173,6 +173,22 @@ test('a lost transport re-attaches, recovers the projection and retries the call
   await view.dispose();
 });
 
+test('a retry-later refusal asks again on the same transport under the same call id', async () => {
+  const daemon = fakeDaemon();
+  const view = await openView(daemon);
+  daemon.failNextCall(
+    Object.assign(new Error('not ready'), { code: 'EDAEMON_RETRY_LATER', retryable: true, retryAfterMs: 20 })
+  );
+  const accepted = await view.submitAsync('while busy', { id: 'sub-3' });
+  assert.equal(accepted, true);
+  assert.equal(daemon.attachments.length, 1, 'no re-attach');
+  const submits = daemon.calls.filter((c) => c.name === 'session.submit');
+  assert.equal(submits.length, 2);
+  assert.equal(submits[0].callId, submits[1].callId);
+  assert.deepEqual(view.getState().items, ['while busy']);
+  await view.dispose();
+});
+
 test('dispose unsubscribes the last local view, closes the idle transport and rejects later calls', async () => {
   const daemon = fakeDaemon();
   const view = await openView(daemon);

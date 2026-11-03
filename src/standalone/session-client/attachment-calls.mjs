@@ -4,6 +4,8 @@
 // different outcomes — and the deregistration that ends the attachment. The
 // frame-stream half lives in ./stream-link.mjs. The HTTP `request` is injected
 // so this module stays a wire-shape concern only.
+import { DAEMON_RETRY_LATER } from '../daemon-refusal.mjs';
+
 const URGENT_CALLS = new Set([
   'session.submit',
   'session.abort',
@@ -29,9 +31,14 @@ export function createAttachmentCalls({ request, port, serverToken, clientToken,
         urgent: URGENT_CALLS.has(name),
       });
     } catch (err) {
-      // Transport death (daemon restarted/unreachable) is recoverable by
-      // re-attaching; a session error comes back as a 200 {error} envelope.
-      err.daemonTransportError = true;
+      // A daemon answering retry-later (busy, not ready) serves again
+      // shortly: the caller asks again on this attachment under the same
+      // callId, after `retryAfterMs`. Anything else — transport death (daemon
+      // restarted or unreachable), a fenced or draining daemon, a client token
+      // it no longer knows — is recoverable only by re-attaching; a session
+      // error comes back as a 200 {error} envelope.
+      if (err?.code === DAEMON_RETRY_LATER) err.retryable = true;
+      else err.daemonTransportError = true;
       throw err;
     }
     if (out?.error) {

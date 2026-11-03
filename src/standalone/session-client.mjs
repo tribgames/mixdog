@@ -26,6 +26,7 @@ import { IN_TREE_DAEMON_STOP_GRACE_MS } from './daemon-stop-budget.mjs';
 import { createAttachmentCalls } from './session-client/attachment-calls.mjs';
 import { daemonUnavailableError } from './session-client/daemon-unavailable.mjs';
 import { createLeaseHeartbeat } from './session-client/lease-heartbeat.mjs';
+import { DAEMON_RETRY_LATER, replyRetryAfterMs } from './daemon-refusal.mjs';
 import { clampLeaseMs } from './session-transport/client-registry/client-grace.mjs';
 import {
   EVENT_STREAM_LIVENESS_TIMEOUT_MS,
@@ -141,6 +142,9 @@ function request({
           if (res.statusCode && res.statusCode >= 400) {
             const err = new Error(parsed?.error || data || `HTTP ${res.statusCode}`);
             err.statusCode = res.statusCode;
+            if (parsed?.code) err.code = String(parsed.code);
+            const retryAfterMs = replyRetryAfterMs(parsed, res.headers['retry-after']);
+            if (retryAfterMs) err.retryAfterMs = retryAfterMs;
             reject(err);
             return;
           }
@@ -515,10 +519,14 @@ export async function ensureDaemon({
 }
 
 /** Registers this client with the daemon. Transport failures are retried
- *  briefly; a 4xx is the daemon's verdict and is not. */
+ *  briefly; a 4xx is the daemon's verdict and is not. A daemon answering
+ *  retry-later is asked again when its Retry-After says, within
+ *  REGISTER_VERIFY_BUDGET_MS, without spending a transport retry. */
+const REGISTER_VERIFY_BUDGET_MS = 60_000;
 async function registerSessionClient({ port, serverToken, body }) {
   let registrationError = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const verifyDeadline = Date.now() + REGISTER_VERIFY_BUDGET_MS;
+  for (let attempt = 0; attempt < 3; ) {
     try {
       return await request({
         port,
@@ -532,7 +540,16 @@ async function registerSessionClient({ port, serverToken, body }) {
     } catch (error) {
       registrationError = error;
       if (Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 500) throw error;
-      if (attempt < 2) await delay(100 * (attempt + 1));
+      if (error?.code === DAEMON_RETRY_LATER) {
+        const waitMs = error.retryAfterMs || 250;
+        if (Date.now() + waitMs >= verifyDeadline) throw error;
+        await delay(waitMs);
+        // A late timer (the loop stalled) must not ask past the budget.
+        if (Date.now() >= verifyDeadline) throw error;
+        continue;
+      }
+      attempt += 1;
+      if (attempt < 3) await delay(100 * attempt);
     }
   }
   throw registrationError || new Error('session registration failed');
