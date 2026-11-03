@@ -1,4 +1,4 @@
-// Gemini fixes shared by the API-key (SDK + cached REST) and Antigravity paths:
+// Gemini fixes shared by the API-key (uncached + cached REST) and Antigravity paths:
 // thought relay and usage, the default output ceiling, whole-functionCall ends
 // without a finishReason, the empty-STOP re-ask, and leak-guard fence state.
 import test, { mock } from 'node:test';
@@ -20,9 +20,7 @@ mock.module(catalogUrl, {
   },
 });
 
-const { consumeGeminiRestStreamResponse, consumeGeminiSdkStream, createGeminiTextLeakGuard } = await import(
-  './gemini-stream.mjs'
-);
+const { consumeGeminiRestStreamResponse, createGeminiTextLeakGuard } = await import('./gemini-stream.mjs');
 const { GeminiProvider } = await import('./gemini.mjs');
 const { AntigravityOAuthProvider } = await import('./antigravity-oauth.mjs');
 const { antigravityModelCache } = await import('./antigravity-oauth-catalog.mjs');
@@ -40,19 +38,6 @@ const protocols = [
         options
       ),
   },
-  {
-    name: 'SDK',
-    consume: (chunks, options) =>
-      consumeGeminiSdkStream(
-        {
-          stream: (async function* () {
-            yield* chunks;
-          })(),
-          response: Promise.resolve({}),
-        },
-        options
-      ),
-  },
 ];
 
 const chunkOf = (parts, finishReason) => ({
@@ -62,29 +47,21 @@ const USAGE = { promptTokenCount: 11, candidatesTokenCount: 5, thoughtsTokenCoun
 const HELLO = [{ role: 'user', content: 'Hello.' }];
 
 // ── Harnesses ──
-// API-key provider on the SDK path: attempt N streams `attempts[N]`.
-function sdkProvider(attempts) {
+// API-key provider without a cached prefix: attempt N streams `attempts[N]`.
+function uncachedProvider(attempts) {
   const configs = [];
   let attempt = 0;
   const provider = new GeminiProvider({
     apiKey: 'fixture-key',
     preconnectFn: () => {},
     sleepFn: async () => {},
-    genAI: {
-      getGenerativeModel(config) {
-        configs.push(config);
-        return {
-          async generateContentStream() {
-            const chunks = attempts[Math.min(attempt++, attempts.length - 1)];
-            return {
-              stream: (async function* () {
-                yield* chunks;
-              })(),
-              response: Promise.resolve({}),
-            };
-          },
-        };
-      },
+    fetchFn: async (url, init) => {
+      const body = JSON.parse(init.body);
+      configs.push({ ...body, model: /\/models\/([^:]+):/.exec(url)[1] });
+      const chunks = attempts[Math.min(attempt++, attempts.length - 1)];
+      return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join(''), {
+        headers: { 'content-type': 'text/event-stream' },
+      });
     },
   });
   provider._ensureGeminiCache = async () => null;
@@ -99,7 +76,6 @@ function restProvider(attempts) {
     apiKey: 'fixture-key',
     preconnectFn: () => {},
     sleepFn: async () => {},
-    genAI: { getGenerativeModel: () => ({}) },
     fetchFn: async (_url, init) => {
       bodies.push(JSON.parse(init.body));
       const chunks = attempts[Math.min(attempt++, attempts.length - 1)];
@@ -150,8 +126,8 @@ for (const { name, consume } of protocols) {
   });
 }
 
-test('API-key SDK send relays thoughts through onReasoningDelta, not the answer', async () => {
-  const { provider } = sdkProvider([[chunkOf([{ text: 'thinking...', thought: true }, { text: 'Done.' }], 'STOP')]]);
+test('API-key uncached send relays thoughts through onReasoningDelta, not the answer', async () => {
+  const { provider } = uncachedProvider([[chunkOf([{ text: 'thinking...', thought: true }, { text: 'Done.' }], 'STOP')]]);
   const reasoning = [];
   const result = await provider.send(HELLO, 'gemini-3.1-pro', [], { onReasoningDelta: (d) => reasoning.push(d) });
   assert.deepEqual(reasoning, ['thinking...']);
@@ -306,17 +282,17 @@ test('the Antigravity send carries the maxOutputTokens its catalog row declared'
   antigravityModelCache.save([]);
 });
 
-test('the sent request carries a catalogued ceiling, and none otherwise, on the SDK, cached REST and Antigravity wires', async () => {
+test('the sent request carries a catalogued ceiling, and none otherwise, on the uncached REST, cached REST and Antigravity wires', async () => {
   const ok = () => [[chunkOf([{ text: 'ok' }], 'STOP')]];
   const sentCaps = async () => {
-    const sdk = sdkProvider(ok());
-    await sdk.provider.send(HELLO, 'gemini-9.9-flash-fixture', [], {});
+    const uncached = uncachedProvider(ok());
+    await uncached.provider.send(HELLO, 'gemini-9.9-flash-fixture', [], {});
     const rest = restProvider(ok());
     await rest.provider.send(HELLO, 'gemini-9.9-flash-fixture', [], {});
     const ag = antigravityProvider(ok());
     await ag.provider.send(HELLO, 'gemini-9.9-flash-fixture', [], {});
     return [
-      sdk.configs[0].generationConfig.maxOutputTokens,
+      uncached.configs[0].generationConfig.maxOutputTokens,
       rest.bodies[0].generationConfig.maxOutputTokens,
       ag.bodies[0].request.generationConfig.maxOutputTokens,
     ];
@@ -345,8 +321,8 @@ test('Antigravity ends a tool-use turn that arrived without a finishReason', asy
   assert.equal(dispatched.length, 1);
 });
 
-test('API-key SDK and cached REST end a tool-use turn that arrived without a finishReason', async () => {
-  for (const make of [sdkProvider, restProvider]) {
+test('API-key uncached and cached REST end a tool-use turn that arrived without a finishReason', async () => {
+  for (const make of [uncachedProvider, restProvider]) {
     const { provider, attemptsMade } = make([[chunkOf([callPart])]]);
     const result = await provider.send(HELLO, 'gemini-3.1-pro', TOOLS, {});
     assert.equal(attemptsMade(), 1);
@@ -401,8 +377,8 @@ test('Antigravity empty STOP that never recovers fails after the bounded re-asks
   assert.equal(attemptsMade(), 4);
 });
 
-test('API-key SDK re-asks an empty STOP and discards the thinking the dead attempt showed', async () => {
-  const { provider, attemptsMade } = sdkProvider([
+test('API-key uncached re-asks an empty STOP and discards the thinking the dead attempt showed', async () => {
+  const { provider, attemptsMade } = uncachedProvider([
     [chunkOf([{ text: 'first thoughts', thought: true }]), chunkOf([], 'STOP')],
     answer,
   ]);
@@ -421,7 +397,7 @@ const billedEmptyStop = [{ ...chunkOf([], 'STOP'), usageMetadata: USAGE }];
 const billedUsageOf = (entry) => entry.usage.outputTokens;
 const reaskHarnesses = [
   { name: 'Antigravity', make: antigravityProvider, model: 'gemini-3-flash', wireModel: (h) => h.bodies[0].model },
-  { name: 'API-key SDK', make: sdkProvider, model: 'gemini-3.1-pro', wireModel: (h) => h.configs[0].model },
+  { name: 'API-key uncached', make: uncachedProvider, model: 'gemini-3.1-pro', wireModel: (h) => h.configs[0].model },
   { name: 'API-key REST', make: restProvider, model: 'gemini-3.1-pro', wireModel: () => 'gemini-3.1-pro' },
 ];
 

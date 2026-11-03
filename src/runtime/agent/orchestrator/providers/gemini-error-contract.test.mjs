@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GoogleGenerativeAIFetchError } from '@google/generative-ai';
 import { geminiErrorContract, geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 import { geminiRestError } from './gemini.mjs';
-import { normalizeGeminiSdkError } from './gemini-stream.mjs';
 import { antigravityError } from './antigravity-transport.mjs';
 import { geminiIncompleteError } from './gemini-response.mjs';
 import { providerErrorKind } from './provider-error-kind.mjs';
@@ -32,7 +30,7 @@ test('contract reads RetryInfo, QuotaFailure scope and ErrorInfo reason from det
   assert.ok(Math.abs(fields.resetAt - (Date.now() + 34_070)) < 2_000);
 });
 
-test('contract reads SDK errorDetails, falls back to the Google status and keeps retry uncapped', () => {
+test('contract reads errorDetails, falls back to the Google status and keeps retry uncapped', () => {
   const fields = geminiErrorContract({
     errorDetails: [quotaFailure('GenerateRequestsPerDayPerProjectPerModel'), retryInfo({ seconds: '90000', nanos: 0 })],
     googleStatus: 'RESOURCE_EXHAUSTED',
@@ -77,19 +75,6 @@ test('geminiRestError lowercases the Google status when no ErrorInfo is present'
     'Gemini'
   );
   assert.equal(err.code, 'unavailable');
-});
-
-test('normalizeGeminiSdkError reads errorDetails off the SDK fetch error', () => {
-  const sdkErr = new GoogleGenerativeAIFetchError('[429 Too Many Requests] quota', 429, 'Too Many Requests', [
-    errorInfo('RATE_LIMIT_EXCEEDED'),
-    quotaFailure('GenerateRequestsPerMinutePerProjectPerModel'),
-    retryInfo('12s'),
-  ]);
-  const err = normalizeGeminiSdkError(sdkErr, 'Gemini SDK');
-  assert.equal(err.status, 429);
-  assert.equal(err.code, 'rate_limit_exceeded');
-  assert.equal(err.quotaScope, 'minute');
-  assert.equal(err.retryAfterMs, 12_000);
 });
 
 test('antigravityError extracts ErrorInfo reason, quotaResetDelay and quotaResetTimeStamp', () => {

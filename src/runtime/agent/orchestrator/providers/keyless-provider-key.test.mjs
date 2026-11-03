@@ -36,9 +36,9 @@ function memoryCache() {
 }
 
 function geminiFetch(urls) {
-  return async (url) => {
-    urls.push(String(url));
-    if (String(url).includes('generativelanguage.googleapis.com/v1beta/models')) {
+  return async (url, init = {}) => {
+    urls.push({ url: String(url), key: init.headers?.['x-goog-api-key'] });
+    if (String(url).includes('generativelanguage.googleapis.com/v1beta/models?')) {
       return new Response(
         JSON.stringify({
           models: [
@@ -59,7 +59,6 @@ function geminiFetch(urls) {
 
 test('keyless-constructed Gemini refreshes and lists the catalog with the stored key', async () => {
   await withEnv({ GEMINI_API_KEY: 'stored-gemini' }, async () => {
-    const created = [];
     for (const method of ['_refreshModelCache', 'listModels']) {
       const urls = [];
       const modelCache = memoryCache();
@@ -68,10 +67,6 @@ test('keyless-constructed Gemini refreshes and lists the catalog with the stored
         fetchFn: geminiFetch(urls),
         modelCache,
         preconnectFn: () => {},
-        createGenAI: (key) => {
-          created.push(key);
-          return {};
-        },
       });
       const models = await provider[method]();
       assert.ok(
@@ -79,30 +74,21 @@ test('keyless-constructed Gemini refreshes and lists the catalog with the stored
         method
       );
       assert.ok(
-        urls.some((u) => u.includes('key=stored-gemini')),
+        urls.some((u) => u.key === 'stored-gemini' && !u.url.includes('key=')),
         method
       );
       assert.ok(modelCache.state.saved?.length, `${method} saved the catalog`);
     }
-    assert.ok(created.every((key) => key === 'stored-gemini'));
   });
 });
 
-test('Gemini rebuilds its SDK client once a key appears after keyless construction', async () => {
+test('Gemini sends a key that appears after keyless construction', async () => {
   await withEnv({}, async () => {
-    const created = [];
-    const provider = new GeminiProvider({
-      enabled: true,
-      preconnectFn: () => {},
-      createGenAI: (key) => {
-        created.push(key);
-        return { getGenerativeModel: () => ({}) };
-      },
-    });
+    const urls = [];
+    const provider = new GeminiProvider({ enabled: true, preconnectFn: () => {}, fetchFn: geminiFetch(urls) });
     process.env.GEMINI_API_KEY = 'late-key';
-    provider._currentGenAI();
-    assert.equal(created.length, 2);
-    assert.equal(created[1], 'late-key');
+    await provider._restGenerateContent('gemini-9.0-flash', provider._getApiKey(), {}, null).catch(() => {});
+    assert.equal(urls[0].key, 'late-key');
   });
 });
 
@@ -113,7 +99,6 @@ test('Gemini _refreshModelCache rejects on fetch failure', async () => {
       fetchFn: async () => new Response('nope', { status: 500 }),
       modelCache: memoryCache(),
       preconnectFn: () => {},
-      createGenAI: () => ({}),
     });
     await assert.rejects(() => provider._refreshModelCache(), /gemini list_models 500/);
   });
@@ -203,7 +188,6 @@ test('a keyless Gemini refresh does not stay memoized once a key appears', async
       fetchFn: geminiFetch(urls),
       modelCache,
       preconnectFn: () => {},
-      createGenAI: () => ({}),
     });
     // Proxy client mode hides every stored credential: a genuinely keyless refresh.
     process.env.MIXDOG_MODEL_PROXY = 'client';
@@ -217,6 +201,6 @@ test('a keyless Gemini refresh does not stay memoized once a key appears', async
     process.env.GEMINI_API_KEY = 'late-gemini';
     const models = await provider._refreshModelCache();
     assert.ok(models?.some((m) => m.id === 'gemini-9.0-flash'));
-    assert.ok(urls.some((u) => u.includes('key=late-gemini')));
+    assert.ok(urls.some((u) => u.key === 'late-gemini'));
   });
 });

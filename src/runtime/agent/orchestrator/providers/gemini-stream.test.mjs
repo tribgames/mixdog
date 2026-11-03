@@ -1,10 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  consumeGeminiRestStreamResponse,
-  consumeGeminiSdkStream,
-  createGeminiTextLeakGuard,
-} from './gemini-stream.mjs';
+import { consumeGeminiRestStreamResponse, createGeminiTextLeakGuard } from './gemini-stream.mjs';
 
 const protocols = [
   {
@@ -12,20 +8,6 @@ const protocols = [
     consume(chunks, options) {
       return consumeGeminiRestStreamResponse(
         new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')),
-        options
-      );
-    },
-  },
-  {
-    name: 'SDK',
-    consume(chunks, options) {
-      return consumeGeminiSdkStream(
-        {
-          stream: (async function* () {
-            yield* chunks;
-          })(),
-          response: Promise.resolve({}),
-        },
         options
       );
     },

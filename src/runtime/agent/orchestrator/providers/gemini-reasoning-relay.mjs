@@ -18,6 +18,11 @@ export function createGeminiReasoningRelay(opts) {
             opts.onReasoningDelta(text);
           }
         : null,
+    // A finished long-decode hop is part of the answer: a later hop's retry
+    // must not retract the thinking it showed.
+    commit() {
+      relayed = false;
+    },
     retract() {
       if (!relayed) return;
       relayed = false;

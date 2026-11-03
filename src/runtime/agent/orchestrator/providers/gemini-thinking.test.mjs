@@ -57,21 +57,6 @@ test('Gemini sends selected thinking configuration with and without cachedConten
       const provider = new GeminiProvider({
         apiKey: 'fixture-key',
         preconnectFn: () => {},
-        genAI: {
-          getGenerativeModel(config) {
-            captured = config;
-            return {
-              async generateContentStream() {
-                return {
-                  stream: (async function* () {
-                    yield payload;
-                  })(),
-                  response: Promise.resolve(payload),
-                };
-              },
-            };
-          },
-        },
         fetchFn: async (_url, init) => {
           captured = JSON.parse(init.body);
           return new Response(`data: ${JSON.stringify(payload)}\n\n`, {

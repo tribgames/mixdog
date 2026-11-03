@@ -4,7 +4,7 @@ import test, { after } from 'node:test';
 import { join } from 'node:path';
 import { UsageLedger, closeUsageLedgers } from '../../../shared/llm/usage-ledger.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
-import { consumeGeminiRestStreamResponse, consumeGeminiSdkStream } from './gemini-stream.mjs';
+import { consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
 import { geminiFailureUsage } from './gemini-response.mjs';
 import { createAntigravityStreamCollector } from './antigravity-stream.mjs';
 import { createStreamSink } from './cursor-wire-stream-sink.mjs';
@@ -41,12 +41,6 @@ const withUsage = {
 const withoutUsage = { candidates: [{ content: { parts: [{ text: 'partial' }] } }] };
 
 const sseBody = (chunks) => new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join(''));
-const sdkStream = (chunks) => ({
-  stream: (async function* () {
-    yield* chunks;
-  })(),
-  response: Promise.resolve({}),
-});
 const antigravityConsume = (chunks) => {
   const collector = createAntigravityStreamCollector({ tools: [], useModel: model });
   collector.beginAttempt();
@@ -58,8 +52,6 @@ const consumers = {
       label: 'rest',
       failureUsage: geminiFailureUsage({}, null, model),
     }),
-  'Gemini SDK': (chunks) =>
-    consumeGeminiSdkStream(sdkStream(chunks), { label: 'sdk', failureUsage: geminiFailureUsage({}, null, model) }),
   Antigravity: antigravityConsume,
 };
 

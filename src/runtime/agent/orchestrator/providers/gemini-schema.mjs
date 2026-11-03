@@ -3,7 +3,15 @@
  * FunctionDeclarationSchema, tool/tool-config mapping, message → content
  * mapping, tool-call parsing/emission, and grounding-source collection.
  */
-import { SchemaType } from '@google/generative-ai';
+// The Gemini Schema `type` values, as the v1beta wire spells them.
+const SchemaType = Object.freeze({
+  STRING: 'string',
+  NUMBER: 'number',
+  INTEGER: 'integer',
+  BOOLEAN: 'boolean',
+  ARRAY: 'array',
+  OBJECT: 'object',
+});
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import {
   normalizeContentForGeminiParts,
@@ -89,7 +97,6 @@ function splitGeminiToolContent(content) {
 
 /**
  * Convert JSON Schema type string to Gemini SchemaType.
- * Gemini SDK uses its own enum instead of plain strings.
  */
 function toSchemaType(t) {
   const map = {
@@ -1107,10 +1114,8 @@ export function parseGeminiTextPartMetadata(parts) {
 export function parseToolCalls(parts) {
   const calls = parts.filter((p) => 'functionCall' in p && !!p.functionCall);
   if (!calls.length) return undefined;
-  // The @google/generative-ai 0.24.1 SDK predates Gemini 3 thinking — its
-  // FunctionCall type only declares { name, args }. The runtime object,
-  // however, retains whatever the wire response carried, which means the
-  // signature may sit under any of:
+  // A FunctionCall part retains whatever the wire response carried, which
+  // means the signature may sit under any of:
   //   • part.functionCall.thoughtSignature   (camelCase, expected)
   //   • part.functionCall.thought_signature  (snake_case, raw protobuf)
   //   • part.thoughtSignature / part.thought_signature (sibling on Part)
