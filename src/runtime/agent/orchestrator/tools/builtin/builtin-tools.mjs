@@ -44,7 +44,7 @@ export function buildShellRoutingRules(kind = _defaultShellKind) {
     kind === 'powershell'
       ? 'Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch'
       : 'cat/head/tail/less→read; ls/tree→list; find→glob/find; grep/rg/ag→grep; file authoring via sed/awk/echo >/tee/heredoc→edit/apply_patch';
-  return `Never use shell commands/scripts for work other tools cover: ${pairs}; git→git (-C <dir> for other folders); code structure→code_graph.`;
+  return `Never use shell commands/scripts for work other tools cover: ${pairs}; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph.`;
 }
 
 function buildShellDescription(kind) {
