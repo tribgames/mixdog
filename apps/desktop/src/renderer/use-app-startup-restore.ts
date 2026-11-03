@@ -21,6 +21,23 @@ export function startupRestoreCatalogPending({
   return !projectCatalogReady && Boolean(storedSessionId || storedProjectPath);
 }
 
+/** The stored last session is not in the catalog yet and the host's catalog
+ *  has not answered. The phone keeps no catalog cache between loads (its
+ *  conversation content is memory-only), so its catalog is empty until the
+ *  relay lists sessions; judging the stored id before that dropped it and
+ *  landed on a blank task. */
+export function startupRestoreSessionPending({
+  sessionCatalogReady,
+  storedSessionId,
+  storedSessionKnown,
+}: {
+  sessionCatalogReady: boolean;
+  storedSessionId: string;
+  storedSessionKnown: boolean;
+}): boolean {
+  return !sessionCatalogReady && Boolean(storedSessionId) && !storedSessionKnown;
+}
+
 export function useAppStartupRestore({
   restorePending,
   restoredFromStorage,
@@ -32,6 +49,7 @@ export function useAppStartupRestore({
   snapshot,
   snapshotReady,
   sessions,
+  sessionCatalogReady,
   selectionRef,
   viewedSessionRef,
   unreadViewedSessionRef,
@@ -58,6 +76,8 @@ export function useAppStartupRestore({
   snapshot: Snapshot;
   snapshotReady: boolean;
   sessions: DesktopSessionSummary[];
+  /** The host has answered the first session listing. */
+  sessionCatalogReady: boolean;
   selectionRef: MutableRefObject<NavigationSelection>;
   viewedSessionRef: MutableRefObject<string>;
   unreadViewedSessionRef: MutableRefObject<string>;
@@ -138,10 +158,12 @@ export function useAppStartupRestore({
       })
     )
       return;
+    const storedSessionKnown = Boolean(storedSessionId && sessions.some((session) => session.id === storedSessionId));
+    if (startupRestoreSessionPending({ sessionCatalogReady, storedSessionId, storedSessionKnown })) return;
     restoredStartupNavigation.current = true;
     const plan = startupRestorePlan({
       storedSessionId,
-      storedSessionKnown: Boolean(storedSessionId && sessions.some((session) => session.id === storedSessionId)),
+      storedSessionKnown,
       engineSessionId: String(snapshot.sessionId || ''),
     });
     if (plan.clearStored) {
@@ -206,6 +228,7 @@ export function useAppStartupRestore({
     restorePending,
     restoredFromStorage,
     selectionRef,
+    sessionCatalogReady,
     sessions,
     setNewTaskDeferred,
     setSelection,

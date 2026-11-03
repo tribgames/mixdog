@@ -879,6 +879,46 @@ test('start screen preference opens a projectless new conversation over both sta
   }
 });
 
+test('startup restore waits for the first session listing before dropping the stored session (phone has no catalog cache)', async (t) => {
+  const view = harness(t);
+  const { useAppStartupRestore } = await import('./use-app-startup-restore.ts');
+  window.localStorage.setItem('test-session', 's-last');
+  window.localStorage.removeItem('test-project');
+  const calls = [];
+  const base = {
+    restorePending: false,
+    restoredFromStorage: false,
+    startupFocusedPaneSelection: null,
+    startupNavigationSelection: null,
+    projectCatalogReady: true,
+    snapshot: {},
+    snapshotReady: true,
+    selectionRef: { current: { kind: 'new' } },
+    viewedSessionRef: { current: '' },
+    unreadViewedSessionRef: { current: '' },
+    setSelection() {},
+    setStartupSettled() {},
+    activateSelection: (selection) => calls.push(`activate:${selection.kind}`),
+    openSessionRef: { current: async (id) => calls.push(`resume:${id}`) },
+    lastNewTaskPrefs: { current: null },
+    effectiveDraftProjectPath: (path) => path,
+    preferredDraftProjectPath: '',
+    setNewTaskDeferred() {},
+    resetNewTaskDraft() {},
+    lastSessionStorageKey: 'test-session',
+    lastProjectStorageKey: 'test-project',
+  };
+  function Probe({ sessions, sessionCatalogReady }) {
+    useAppStartupRestore({ ...base, sessions, sessionCatalogReady });
+    return null;
+  }
+  await view.render(React.createElement(Probe, { sessions: [], sessionCatalogReady: false }));
+  assert.deepEqual(calls, [], 'no blank task while the relay has not listed sessions');
+  assert.equal(window.localStorage.getItem('test-session'), 's-last', 'the stored session survives the wait');
+  await view.render(React.createElement(Probe, { sessions: [{ id: 's-last' }], sessionCatalogReady: true }));
+  assert.deepEqual(calls, ['resume:s-last']);
+});
+
 test('usage pin paints cached rows in its first render, before the settings read lands', async (t) => {
   const view = harness(t);
   window.mixdogDesktop.readSettings = () => new Promise(() => {});
