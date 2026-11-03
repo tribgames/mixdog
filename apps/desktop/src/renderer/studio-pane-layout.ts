@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
+import { t } from './i18n';
 import type { StudioMediaJob } from './studio-media-state';
+import { groupStudioAssets } from './studio-panel-model';
 import {
+  type JustifiedTile,
   justifiedRows,
   type MediaAsset,
   type MediaKind,
@@ -42,15 +45,30 @@ export function useStudioGridRows({
     }
     return next;
   }, [frameRatiosSource, visibleAssets]);
-  // Rows are solved against the MEASURED width so the last tile lands exactly
-  // on the right edge at every window size.
-  const layoutRows = useMemo(() => {
-    const tiles = pendingJobs.length
-      ? [...pendingJobs.map((entry) => ({ id: entry.id, kind: entry.kind }) as unknown as MediaAsset), ...visibleAssets]
-      : visibleAssets;
+  // Results are grouped by day (Today, Yesterday, This week, Earlier), runs in
+  // flight leading Today. Each day's rows are solved against the MEASURED
+  // width so the last tile lands exactly on the right edge at every size.
+  const layoutSections = useMemo((): StudioGridSection[] => {
     const tileRatios = { ...frameRatios };
     for (const entry of pendingJobs) tileRatios[entry.id] = mediaFrameRatio(entry);
-    return justifiedRows(tiles, tileRatios, gridWidth, rowHeight, STUDIO_GRID_GAP, STUDIO_GRID_MAX_WIDTH);
+    const groups = groupStudioAssets(visibleAssets);
+    if (pendingJobs.length) {
+      const pending = pendingJobs.map((entry) => ({ id: entry.id, kind: entry.kind }) as unknown as MediaAsset);
+      const today = groups[0]?.id === 'today' ? groups[0] : null;
+      if (today) today.assets.unshift(...pending);
+      else groups.unshift({ id: 'today', label: t('Today'), assets: pending });
+    }
+    return groups.map((group) => ({
+      id: group.id,
+      label: group.label,
+      rows: justifiedRows(group.assets, tileRatios, gridWidth, rowHeight, STUDIO_GRID_GAP, STUDIO_GRID_MAX_WIDTH),
+    }));
   }, [pendingJobs, visibleAssets, frameRatios, gridWidth, rowHeight]);
-  return { layoutRows, pendingJobs };
+  return { layoutSections, pendingJobs };
+}
+
+export interface StudioGridSection {
+  id: string;
+  label: string;
+  rows: JustifiedTile[][];
 }

@@ -5978,5 +5978,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Eine Unterhaltung konnte nicht auf der Festplatte gespeichert werden. Neuere Nachrichten gehen möglicherweise verloren, wenn Mixdog geschlossen wird. Überprüfen Sie den freien Speicherplatz und die Ordnerberechtigungen.",
   "{{count}} agent tasks running. Installing now stops them.": "{{count}} Agent-Aufgaben laufen. Eine Installation jetzt beendet sie.",
   "Could not check whether agent tasks are running. Installing now may stop them.": "Es konnte nicht geprüft werden, ob Agent-Aufgaben laufen. Eine Installation jetzt kann sie beenden.",
-  "Install anyway": "Trotzdem installieren"
+  "Install anyway": "Trotzdem installieren",
+  "Board name": "Board-Name",
+  "No board": "Kein Board",
+  "Board: {{name}}": "Board: {{name}}",
+  "Board for new results": "Board für neue Ergebnisse",
+  "Boards": "Boards",
+  "New board": "Neues Board",
+  "Delete board \"{{name}}\"? Its results stay in All.": "Board „{{name}}“ löschen? Die Ergebnisse bleiben unter „Alle“.",
+  "Delete board": "Board löschen",
+  "Search boards": "Boards durchsuchen",
+  "No boards yet.": "Noch keine Boards.",
+  "Move to board": "In Board verschieben",
+  "Add to board": "Zu Board hinzufügen",
+  "Remove from board": "Aus Board entfernen"
 }

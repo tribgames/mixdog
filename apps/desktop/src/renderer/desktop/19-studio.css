@@ -244,6 +244,41 @@
   flex: 0 0 auto;
   min-width: 0;
 }
+/* Day headings (Today, Yesterday, …) above each day's rows. */
+.studio-day-heading {
+  margin: 8px 0 -4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: 20px;
+}
+.studio-day-heading:first-child {
+  margin-top: 0;
+}
+/* Studio panel: "전체" and the boards share the Sessions row; the count sits
+   on the trailing line where a running row shows its spinner. */
+.studio-panel .studio-board-count {
+  position: absolute;
+  z-index: 2;
+  right: calc(var(--mx-rail-trailing-center, 20px) - 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+html[data-mixdog-mobile-tabs] .studio-panel .studio-board-count {
+  right: 14px;
+}
+.studio-panel .studio-board-row .session-row-copy,
+.studio-panel .studio-all-row .session-row-copy {
+  padding-right: 28px;
+}
+/* A new board's row is only its name field. */
+.studio-panel .studio-board-row.editing {
+  position: relative;
+}
 .studio-tile .studio-tile-open {
   height: 100%;
 }
@@ -722,6 +757,22 @@
   z-index: 5;
   display: grid;
   gap: 6px;
+  /* The whole bottom band (card + controls line) is opaque, edge to edge of
+     the pane, so the line never floats over thumbnails. */
+  padding-top: 8px;
+}
+.studio-dock::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 -100vmax;
+  background: var(--mx-workspace-sheet);
+  pointer-events: none;
+}
+/* Mica and skins clear the sheet to transparent (03-titlebar.css); the band
+   keeps the deep paper instead so it stays opaque there too. */
+html:is([data-window-material="mica"], [data-mixdog-skin]) .studio-dock::before {
+  background: var(--mx-bg-deep);
 }
 /* PC: the chat composer's floor (agent-chat.css: 2px under the line, the
    line 4px under the card), so a Studio tab and a chat tab put their cards
@@ -866,7 +917,8 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
   background: var(--mx-text);
   box-shadow: none;
 }
-.studio-model-trigger {
+.studio-model-trigger,
+.studio-board-trigger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -890,7 +942,9 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
   cursor: default;
 }
 .studio-model-trigger:hover:not(:disabled),
-.studio-model-trigger[aria-expanded="true"]:not(:disabled) {
+.studio-model-trigger[aria-expanded="true"]:not(:disabled),
+.studio-board-trigger:hover,
+.studio-board-trigger[aria-expanded="true"] {
   color: var(--mx-text);
   background: var(--mx-hover);
 }
@@ -930,6 +984,81 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
 .studio-composer-controls > * {
   flex: 0 0 auto;
 }
+/* Board on the left, model on the right. */
+.studio-composer-controls > .studio-composer-controls-gap {
+  flex: 1 1 0;
+}
+.studio-board-picker {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.studio-board-trigger {
+  color: var(--mx-text-soft, var(--mx-text));
+}
+.studio-board-trigger > svg {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.studio-board-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-board-trigger-thumb.studio-panel-thumb {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 4px;
+}
+/* Opens upward from the trigger, like the model picker. */
+.studio-board-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 200px;
+  max-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow:
+    inset 0 0 0 1px var(--mx-border-muted),
+    var(--mx-composer-lift);
+  display: grid;
+  gap: 1px;
+}
+.studio-board-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm, 6px);
+  color: var(--mx-text);
+  background: none;
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.studio-board-menu-item:hover,
+.studio-board-menu-item:focus-visible {
+  background: var(--mx-hover);
+  outline: none;
+}
+.studio-board-menu-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-board-menu-item > svg {
+  flex: none;
+  color: var(--mx-text-muted);
+}
 @media (max-width: 700px) {
   /* The desktop trigger is a fixed 156px slot so pills never shift; a phone
      has no room for that — truncate the model name instead. */
@@ -943,10 +1072,12 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
    its media contract changes. */
 .studio-composer-bar,
 .studio-model-trigger,
+.studio-board-trigger,
 .studio-kind button {
   font-family: var(--mx-font-sans);
 }
 .studio-model-trigger,
+.studio-board-trigger,
 .studio-kind button {
   transition: none;
 }

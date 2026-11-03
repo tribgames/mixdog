@@ -248,9 +248,151 @@ export function saveMediaAsset({ kind, lane, model, prompt, options = {}, mime, 
   return entry;
 }
 
-export function listMediaAssets({ limit = 60, offset = 0, kind = null } = {}) {
+// ---- Boards: user-named collections of Studio results. The board list lives
+// in boards.json; membership is the asset entry's `boardId` (one board per
+// result), so a result never leaves the catalog ("전체") by joining a board.
+
+function boardsPath() {
+  return join(mediaDir(), 'boards.json');
+}
+
+function catalogBoards(parsed) {
+  if (!parsed || !Array.isArray(parsed.boards)) throw new Error(`media boards are malformed: ${boardsPath()}`);
+  return parsed.boards;
+}
+
+function readBoards() {
+  return readJsonStateSync(boardsPath(), { validate: catalogBoards, fallback: [] });
+}
+
+/** As `mutateIndex`: a damaged boards.json is set aside and its backup
+ *  restored BEFORE the write, so a mutation never reads it as an empty list
+ *  and writes that over both the catalog and its good .bak. */
+function mutateBoards(mutate) {
+  mkdirSync(mediaDir(), { recursive: true });
+  readBoards();
+  let written = null;
+  updateJsonAtomicSync(
+    boardsPath(),
+    (current) => {
+      const next = mutate(current == null ? [] : catalogBoards(current));
+      if (!next) return undefined;
+      written = next;
+      return { version: 1, boards: next };
+    },
+    { backup: true }
+  );
+  return written;
+}
+
+function boardIdText(id) {
+  if (typeof id !== 'string' || !id || id.length > 128) throw new TypeError('board id must be a string');
+  return id;
+}
+
+function boardName(name) {
+  if (typeof name !== 'string') throw new TypeError('board name must be a string');
+  const text = name.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!text) throw new Error('board name is required');
+  return text;
+}
+
+/** Boards newest first, each with its result count and latest result (the
+ *  row thumbnail), plus the catalog total for "전체". */
+export function listMediaBoards() {
   ensureDirs();
-  const all = readIndex().filter((entry) => (kind ? entry.kind === kind : true));
+  const assets = readIndex();
+  const stats = new Map();
+  for (const entry of assets) {
+    if (!entry.boardId) continue;
+    const stat = stats.get(entry.boardId) || { count: 0, cover: null };
+    stat.count += 1;
+    if (!stat.cover || Number(entry.createdAt) > Number(stat.cover.createdAt)) stat.cover = entry;
+    stats.set(entry.boardId, stat);
+  }
+  const boards = [...readBoards()]
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
+    .map((board) => {
+      const stat = stats.get(board.id);
+      return {
+        id: board.id,
+        name: board.name,
+        createdAt: board.createdAt,
+        count: stat?.count || 0,
+        cover: stat?.cover ? { id: stat.cover.id, kind: stat.cover.kind } : null,
+      };
+    });
+  return { total: assets.length, boards };
+}
+
+export function createMediaBoard(name) {
+  const board = { id: randomUUID(), name: boardName(name), createdAt: Date.now() };
+  mutateBoards((boards) => [board, ...boards]);
+  return board;
+}
+
+export function renameMediaBoard(id, name) {
+  boardIdText(id);
+  const next = boardName(name);
+  let renamed = null;
+  mutateBoards((boards) => {
+    const board = boards.find((row) => row.id === id);
+    if (!board) return null;
+    renamed = { ...board, name: next };
+    return boards.map((row) => (row === board ? renamed : row));
+  });
+  if (!renamed) throw new Error('board not found');
+  return renamed;
+}
+
+/** Deletes the board only; its results stay in the catalog without a board. */
+export function deleteMediaBoard(id) {
+  boardIdText(id);
+  let removed = false;
+  mutateBoards((boards) => {
+    if (!boards.some((row) => row.id === id)) return null;
+    removed = true;
+    return boards.filter((row) => row.id !== id);
+  });
+  mutateIndex((assets) => {
+    if (!assets.some((row) => row.boardId === id)) return null;
+    return assets.map((row) => {
+      if (row.boardId !== id) return row;
+      const { boardId: _drop, ...rest } = row;
+      return rest;
+    });
+  });
+  return { id, removed };
+}
+
+/** Moves results into a board; only `null` takes them out of any board. */
+export function setMediaAssetBoard(ids, boardId) {
+  const list = Array.isArray(ids) ? ids : [ids];
+  if (list.some((id) => typeof id !== 'string' || !id)) throw new TypeError('asset ids must be strings');
+  const idSet = new Set(list);
+  const target = boardId === null ? '' : boardIdText(boardId);
+  if (target && !readBoards().some((row) => row.id === target)) throw new Error('board not found');
+  ensureDirs();
+  let moved = [];
+  mutateIndex((assets) => {
+    moved = [];
+    const next = assets.map((row) => {
+      if (!idSet.has(row.id) || (row.boardId || '') === target) return row;
+      moved.push(row.id);
+      if (target) return { ...row, boardId: target };
+      const { boardId: _drop, ...rest } = row;
+      return rest;
+    });
+    return moved.length ? next : null;
+  });
+  return { ids: moved, boardId: target };
+}
+
+export function listMediaAssets({ limit = 60, offset = 0, kind = null, boardId = '' } = {}) {
+  ensureDirs();
+  const all = readIndex().filter(
+    (entry) => (kind ? entry.kind === kind : true) && (boardId ? entry.boardId === boardId : true)
+  );
   const start = Math.max(0, Math.trunc(Number(offset) || 0));
   const count = Math.min(200, Math.max(1, Math.trunc(Number(limit) || 60)));
   const assets = all.slice(start, start + count);
@@ -452,7 +594,15 @@ export function deleteMediaAsset(id) {
  * `dryRun` answers the matching ids without deleting: the Studio confirms that
  * exact list, then deletes it by id.
  */
-export function deleteMediaAssets({ ids, kind = null, before, missing = false, all = false, dryRun = false } = {}) {
+export function deleteMediaAssets({
+  ids,
+  kind = null,
+  boardId = '',
+  before,
+  missing = false,
+  all = false,
+  dryRun = false,
+} = {}) {
   const idSet = Array.isArray(ids) ? new Set(ids.map(String)) : null;
   const cutoff = Number(before);
   const hasCutoff = Number.isFinite(cutoff) && cutoff > 0;
@@ -462,6 +612,7 @@ export function deleteMediaAssets({ ids, kind = null, before, missing = false, a
   ensureDirs();
   const matches = (entry) => {
     if (kind && entry.kind !== kind) return false;
+    if (boardId && entry.boardId !== boardId) return false;
     if (idSet && !idSet.has(entry.id)) return false;
     if (hasCutoff && !(Number(entry.createdAt || 0) < cutoff)) return false;
     if (missing) {

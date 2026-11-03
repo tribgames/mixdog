@@ -18,6 +18,7 @@ import {
 export function createStudioGenerationActions({
   activeModel,
   api,
+  boardId,
   controls,
   kind,
   lane,
@@ -31,6 +32,8 @@ export function createStudioGenerationActions({
 }: {
   activeModel: string;
   api: StudioApi | undefined;
+  /** The open board, which new runs join ('' = none). */
+  boardId: string;
   controls: ReturnType<typeof modelControls>;
   kind: MediaKind;
   lane: MediaLane | null;
@@ -80,11 +83,14 @@ export function createStudioGenerationActions({
     await addFiles(images);
   };
 
-  const startQueuedRequest = async (request: QueuedMediaRequest): Promise<boolean> => {
+  const startQueuedRequest = async (queued: QueuedMediaRequest): Promise<boolean> => {
     setError('');
+    // A run joins the board it was queued for; a fresh one, the open board.
+    const request = { ...queued, boardId: queued.boardId ?? boardId };
     try {
       const started = (await callCapability(api, 'startMediaJob', [
         {
+          ...(request.boardId ? { boardId: request.boardId } : {}),
           lane: request.lane,
           kind: request.kind,
           model: request.model,

@@ -108,6 +108,8 @@ export interface MediaAsset {
   bytes: number;
   createdAt: number;
   durationSeconds?: number;
+  /** The Studio board holding this result, absent when none. */
+  boardId?: string;
 }
 
 export interface StudioOptions {

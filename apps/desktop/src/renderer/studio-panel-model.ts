@@ -31,12 +31,6 @@ export function groupStudioAssets(assets: readonly MediaAsset[], now = Date.now(
   return groups.filter((group) => group.assets.length > 0);
 }
 
-/** The works whose prompt contains `query` (case-insensitive); all when it is blank. */
-export function filterStudioAssets(assets: readonly MediaAsset[], query: string): MediaAsset[] {
-  const needle = query.trim().toLowerCase();
-  return needle ? assets.filter((asset) => asset.prompt.toLowerCase().includes(needle)) : [...assets];
-}
-
 /** The Studio tab a rail click brings forward: the focused pane's active
  *  Studio tab, else a pane's active one, else the focused pane's newest, else
  *  any pane's newest. Null when no Studio tab is open. */

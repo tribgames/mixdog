@@ -626,6 +626,11 @@ const CAPABILITY_ARITY = {
   cancelMediaJob: [1, 1],
   deleteMediaAsset: [1, 1],
   deleteMediaAssets: [1, 1],
+  listMediaBoards: [0, 0],
+  createMediaBoard: [1, 1],
+  renameMediaBoard: [2, 2],
+  deleteMediaBoard: [1, 1],
+  setMediaAssetBoard: [2, 2],
   openMediaAsset: [1, 1],
   openMediaFolder: [0, 1],
   ...WORKTREE_CAPABILITY_ARITY,
@@ -1371,6 +1376,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   validateLocalProviderCapabilityArgs(capability, args);
   validateCredentialCapabilityArgs(capability, args);
   validateTurnCapabilityArgs(capability, args);
+  validateMediaBoardCapabilityArgs(capability, args);
   if (capability === 'getProviderSetup' && args[0] !== undefined) {
     const options = optionalPlainRecord(args[0]);
     if (
@@ -1432,7 +1438,19 @@ function validateUsageRequestsArgs(options: unknown): void {
   if (!request) throw new TypeError('request log options must be an object.');
   requireAllowedKeys(
     request,
-    new Set(['view', 'anchor', 'startDay', 'endDay', 'startTime', 'endTime', 'status', 'model', 'cursor', 'limit', 'asOf']),
+    new Set([
+      'view',
+      'anchor',
+      'startDay',
+      'endDay',
+      'startTime',
+      'endTime',
+      'status',
+      'model',
+      'cursor',
+      'limit',
+      'asOf',
+    ]),
     'request log options'
   );
   // The first page's time, pinned for later pages. Shape only: the runtime that
@@ -1525,6 +1543,27 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
     }
   }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
+}
+
+const MEDIA_BOARD_NAME_MAX = 120;
+const MEDIA_ID_MAX = 128;
+const MEDIA_BOARD_MOVE_MAX = 10_000;
+
+function validateMediaBoardCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
+  if (capability === 'createMediaBoard') requiredString(args[0], 'board name', MEDIA_BOARD_NAME_MAX);
+  if (capability === 'renameMediaBoard' || capability === 'deleteMediaBoard') {
+    requiredString(args[0], 'board id', MEDIA_ID_MAX);
+  }
+  if (capability === 'renameMediaBoard') requiredString(args[1], 'board name', MEDIA_BOARD_NAME_MAX);
+  if (capability === 'setMediaAssetBoard') {
+    const ids = args[0];
+    if (!Array.isArray(ids) || !ids.length || ids.length > MEDIA_BOARD_MOVE_MAX) {
+      throw new TypeError('asset ids must be a non-empty array.');
+    }
+    for (const id of ids) requiredString(id, 'asset id', MEDIA_ID_MAX);
+    // Only null takes results out of a board; anything else names one.
+    if (args[1] !== null) requiredString(args[1], 'board id', MEDIA_ID_MAX);
+  }
 }
 
 function validateLocalProviderCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {

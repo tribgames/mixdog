@@ -33,6 +33,7 @@ function snapshot(job) {
     model: job.model,
     prompt: job.prompt,
     options: job.options,
+    boardId: job.boardId,
     progress: job.progress,
     assetId: job.assetId,
     error: job.error,
@@ -101,6 +102,7 @@ async function beginMediaJob({
   references = [],
   sessionId = '',
   sourceType = '',
+  boardId = '',
 } = {}) {
   const text = String(prompt || '').trim();
   if (!text) throw mediaError('prompt is required', 'MEDIA_PROMPT_REQUIRED');
@@ -143,6 +145,8 @@ async function beginMediaJob({
     model: resolved.model,
     prompt: text,
     options: { ...options },
+    // The Studio board the result joins when it lands ('' = none).
+    boardId: typeof boardId === 'string' ? boardId.slice(0, 64) : '',
     progress: 0,
     assetId: null,
     error: null,
@@ -209,6 +213,7 @@ async function runJob(job, resolved, { requestModel, options, references, sessio
       mime: result.mime,
       bytes: result.bytes,
       meta: {
+        ...(job.boardId ? { boardId: job.boardId } : {}),
         ...(result.revisedPrompt ? { revisedPrompt: result.revisedPrompt } : {}),
         ...(result.durationSeconds ? { durationSeconds: result.durationSeconds } : {}),
       },

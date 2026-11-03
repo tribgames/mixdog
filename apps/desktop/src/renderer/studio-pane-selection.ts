@@ -10,6 +10,7 @@ import { callCapability, errorText, type MediaAsset, type MediaKind, type Studio
 // opening the detail.
 export function useStudioSelection({
   api,
+  boardId,
   kind,
   referenceStore,
   reloadAssetKind,
@@ -20,6 +21,8 @@ export function useStudioSelection({
   setSelected,
 }: {
   api: StudioApi | undefined;
+  /** The open board: selection and cleanup stay inside it ('' = every result). */
+  boardId: string;
   kind: MediaKind;
   referenceStore: StudioReferenceStore | undefined;
   reloadAssetKind: (assetKind: MediaKind, removedIds: readonly string[]) => Promise<unknown>;
@@ -45,9 +48,9 @@ export function useStudioSelection({
    *  deleting a loaded-only selection let the next page refill the grid. */
   const selectAll = async () => {
     try {
-      const preview = (await callCapability(api, 'deleteMediaAssets', [{ all: true, kind, dryRun: true }])) as
-        | { ids?: string[] }
-        | undefined;
+      const preview = (await callCapability(api, 'deleteMediaAssets', [
+        { all: true, kind, ...(boardId ? { boardId } : {}), dryRun: true },
+      ])) as { ids?: string[] } | undefined;
       setCheckedIds(new Set(Array.isArray(preview?.ids) ? preview.ids : []));
     } catch (reason) {
       setError(errorText(reason));
@@ -58,9 +61,9 @@ export function useStudioSelection({
   const cleanUp: StudioCleanupRequest = async (filter, confirmText) => {
     setHoverId('');
     try {
-      const preview = (await callCapability(api, 'deleteMediaAssets', [{ ...filter, kind, dryRun: true }])) as
-        | { ids?: string[] }
-        | undefined;
+      const preview = (await callCapability(api, 'deleteMediaAssets', [
+        { ...filter, kind, ...(boardId ? { boardId } : {}), dryRun: true },
+      ])) as { ids?: string[] } | undefined;
       const ids = Array.isArray(preview?.ids) ? preview.ids : [];
       if (!ids.length) {
         await alertAction(t('No items to delete.'));

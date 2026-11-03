@@ -6110,5 +6110,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Не удалось сохранить диалог на диск. Недавние сообщения могут быть потеряны при закрытии Mixdog. Проверьте свободное место на диске и права доступа к папке.",
   "{{count}} agent tasks running. Installing now stops them.": "Выполняется задач агентов: {{count}}. Установка сейчас остановит их.",
   "Could not check whether agent tasks are running. Installing now may stop them.": "Не удалось проверить, выполняются ли задачи агентов. Установка сейчас может остановить их.",
-  "Install anyway": "Всё равно установить"
+  "Install anyway": "Всё равно установить",
+  "Board name": "Название доски",
+  "No board": "Без доски",
+  "Board: {{name}}": "Доска: {{name}}",
+  "Board for new results": "Доска для новых результатов",
+  "Boards": "Доски",
+  "New board": "Новая доска",
+  "Delete board \"{{name}}\"? Its results stay in All.": "Удалить доску «{{name}}»? Результаты останутся во «Всё».",
+  "Delete board": "Удалить доску",
+  "Search boards": "Поиск досок",
+  "No boards yet.": "Досок пока нет.",
+  "Move to board": "Переместить на доску",
+  "Add to board": "Добавить на доску",
+  "Remove from board": "Убрать с доски"
 }
