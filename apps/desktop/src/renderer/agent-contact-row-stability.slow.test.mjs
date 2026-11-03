@@ -152,16 +152,31 @@ test('a working bot row keeps its height and its face, name and preview stay put
         })),
       });
     }
-    const [first, ...rest] = frames;
-    for (const frame of rest) {
-      for (const key of ['row', 'avatar', 'title', 'preview', 'time']) {
+    // The row and the face never move. The text block (name + preview lines)
+    // is centred on the face, so a one-line and a two-line preview put the
+    // name at different tops by design; within one preview height (the "Working"
+    // swap and the badge coming and going) name, preview and time stay put.
+    const [first] = frames;
+    const num = (value) => value.split('/').map(Number);
+    for (const frame of frames) {
+      for (const key of ['row', 'avatar']) {
+        assert.equal(frame[key], first[key], `${label}: ${key} moved on "${frame.step}" ${JSON.stringify(frames)}`);
+      }
+      const [faceTop, faceHeight] = num(frame.avatar);
+      const [titleTop] = num(frame.title);
+      const [previewTop, previewHeight] = num(frame.preview);
+      assert.ok(
+        Math.abs(titleTop + (previewTop + previewHeight - titleTop) / 2 - (faceTop + faceHeight / 2)) <= 1,
+        `${label}: the text block is centred on the face on "${frame.step}" ${JSON.stringify(frames)}`
+      );
+      const sameLines = frames.find((other) => num(other.preview)[1] === previewHeight);
+      for (const key of ['title', 'preview', 'time']) {
         assert.equal(
           frame[key],
-          first[key],
-          `${label}: ${key} (top/height) moved from "${first.step}" to "${frame.step}" ${JSON.stringify(frames)}`
+          sameLines[key],
+          `${label}: ${key} (top/height) moved from "${sameLines.step}" to "${frame.step}" ${JSON.stringify(frames)}`
         );
       }
     }
-  }
-  assert.deepEqual(errors, []);
+  }  assert.deepEqual(errors, []);
 });

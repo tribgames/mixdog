@@ -289,3 +289,81 @@ test('a long Recent list mounts only the rows near the viewport', async () => {
     restore();
   }
 });
+
+test('a long later branch of a split project windows against its own first row', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  let top = 0;
+  // jsdom has no layout: stack the project's rows, spacers and sub-headings in
+  // document order (the other sections have no box) (31px rows, 28px sub-headings, spacers at their height, a 1px gap
+  // between) below a 100px lead, shifted up by the scroller's scrollTop.
+  const boxed = 'section[aria-label="P"] :is(.session-row, .session-list-spacer, .session-subheading)';
+  const heightOf = (element) =>
+    element.classList.contains('session-row')
+      ? 31
+      : element.classList.contains('session-subheading')
+        ? 28
+        : Number.parseFloat(element.style.height) || 0;
+  window.HTMLElement.prototype.getBoundingClientRect = function rect() {
+    if (!this.matches(boxed)) return { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0, x: 0, y: 0 };
+    let offset = 100 - top;
+    for (const node of document.querySelectorAll(boxed)) {
+      if (node === this) break;
+      offset += heightOf(node) + 1;
+    }
+    const height = heightOf(this);
+    return { top: offset, bottom: offset + height, height, left: 0, right: 200, width: 200, x: 0, y: offset };
+  };  const workspace = (worktreeId, branch) => ({ projectPath: '/p', repoCommonDir: null, cwd: '/p', worktreeId, branch });
+  const session = (id, activityAt, branch, worktreeId) => ({
+    ...catalog()[0],
+    id,
+    title: id,
+    activityAt,
+    updatedAt: activityAt,
+    classification: 'project',
+    projectPath: '/p',
+    cwd: '/p',
+    workspace: workspace(worktreeId, branch),
+  });
+  const MAIN = 20;
+  const sessions = [
+    ...Array.from({ length: MAIN }, (_, i) => session(`m-${i}`, 1000 - i, 'main', null)),
+    ...Array.from({ length: 60 }, (_, i) => session(`f-${i}`, 500 - i, 'feat/x', 'w1')),
+  ];
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  await act(async () =>
+    root.render(
+      React.createElement(SessionSidebar, {
+        open: true,
+        sessions,
+        sessionsReady: true,
+        selection: { kind: 'new' },
+        projects: [{ name: 'P', path: '/p', alias: null }],
+        onNewTask() {},
+        onNewStudio() {},
+        onResumeSession() {},
+        async onRenameSession() {},
+        async onArchiveSession() {},
+        async onFavoriteSession() {},
+        async onDeleteSession() {},
+      })
+    )
+  );
+  const scroller = document.querySelector('.session-sidebar-sessions .session-sidebar-scroll');
+  Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => top, set: (value) => (top = value) });
+  Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => window.innerHeight });
+  const mounted = () =>
+    [...document.querySelectorAll('section[aria-label="P"] .session-row[data-session-id]')].map(
+      (element) => element.dataset.sessionId
+    );
+  assert.ok(mounted().includes('f-0'), 'the later branch starts windowed at its top');
+  // The later branch's row 40 sits 40 slots below its first row; everything in
+  // front of that row (Recent, main's rows, both sub-headings) is above it.
+  const origin = document.querySelector('section[aria-label="P"] .session-row[data-session-id="f-0"]').getBoundingClientRect().top;
+  top = origin + 40 * 32;
+  await act(async () => scroller.dispatchEvent(new window.Event('scroll')));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const ids = mounted();
+  for (let i = 40; i < 46; i += 1) assert.ok(ids.includes(`f-${i}`), `f-${i} is mounted at the viewport top`);
+  assert.ok(!ids.includes('f-0'), 'rows far above are released');
+  assert.ok(ids.filter((id) => id.startsWith('m-')).length === MAIN, 'the short main list stays whole');
+});
