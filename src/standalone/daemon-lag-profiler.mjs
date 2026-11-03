@@ -20,7 +20,7 @@ const LAG_PROFILE_KEEP = 10;
 const LAG_PROFILE_TOP = 15;
 export const LAG_PROFILE_SAMPLING_US = 1000;
 const LAG_P99_THRESHOLD_MS = 1000;
-// The owner lease's stall threshold: any window holding one logged
+// The daemon's stall-report threshold (STALL_LOG_MS): any window holding one logged
 // `event loop stalled` line is kept.
 const LAG_MAX_THRESHOLD_MS = 1000;
 

@@ -8,16 +8,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import {
   DAEMON_OWNER_STALE_MS,
-  OWNER_PROBE_TIMEOUT_MS,
-  createOwnerHeartbeat,
+  OWNER_LOCK_OWNERSHIP,
+  createOwnerRecordKeeper,
   daemonOwnerIsStale,
   daemonOwnerTimings,
   discoveryPid,
+  ownerRecordYieldsToLock,
   probeDaemonPid,
   proveDaemonOwner,
   startOwnerLivenessListener,
 } from './daemon-owner.mjs';
-import { createSessionTransport } from './session-transport.mjs';
 
 const NOW = Date.parse('2026-10-13T12:00:00.000Z');
 const STALE = 60_000;
@@ -62,61 +62,26 @@ async function tricklingEndpoint(t) {
   return server.address().port;
 }
 
-function busyWait(ms) {
-  const end = performance.now() + ms;
-  while (performance.now() < end) {}
-}
-
-function post(port, path) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      { hostname: '127.0.0.1', port, path, method: 'POST', agent: false, headers: { 'X-Mixdog-Daemon-Token': 'tok' } },
-      (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-          body += chunk;
-        });
-        res.on('end', () => resolve({ status: res.statusCode, body }));
-      }
-    );
-    req.on('error', reject);
-    req.end('{}');
-  });
-}
-
-async function leasedTransport(t, heartbeat) {
-  const transport = createSessionTransport({
-    handleCall: async () => ({ ok: true }),
-    serverToken: 'tok',
-    admitWork: () => heartbeat.admitAsync(),
-  });
-  const { port } = await transport.start();
-  t.after(() => transport.stop());
-  return port;
-}
-
-test('lease timings: 60 s stale, 10 s beats, fenced with the shutdown budget to spare', () => {
-  const defaults = daemonOwnerTimings({});
-  assert.deepEqual(defaults, {
-    staleMs: DAEMON_OWNER_STALE_MS,
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-  });
-  assert.ok(defaults.fenceMs + 15_000 < defaults.staleMs);
-  // A holder silent for a full probe has stalled long enough to re-verify.
-  assert.ok(defaults.stallMs < OWNER_PROBE_TIMEOUT_MS);
-  assert.deepEqual(daemonOwnerTimings({ MIXDOG_DAEMON_OWNER_STALE_MS: '600' }), {
-    staleMs: 600,
-    heartbeatMs: 100,
-    fenceMs: 400,
-    tickMs: 25,
-    stallMs: 100,
-  });
+test('record timings: 60 s stale, six heartbeats per threshold; the env may only shorten it', () => {
+  assert.deepEqual(daemonOwnerTimings({}), { staleMs: DAEMON_OWNER_STALE_MS, heartbeatMs: 10_000 });
+  assert.deepEqual(daemonOwnerTimings({ MIXDOG_DAEMON_OWNER_STALE_MS: '600' }), { staleMs: 600, heartbeatMs: 100 });
   assert.equal(daemonOwnerTimings({ MIXDOG_DAEMON_OWNER_STALE_MS: '1' }).staleMs, 600);
   assert.equal(daemonOwnerTimings({ MIXDOG_DAEMON_OWNER_STALE_MS: '600000' }).staleMs, DAEMON_OWNER_STALE_MS);
+});
+
+test('a lock holder replaces a lock-format record at once, and a pre-lock record only when stale', () => {
+  const yields = (owner, proof) => ownerRecordYieldsToLock(owner, { proof, now: NOW, staleMs: STALE });
+  // Beating, its port unprobed: a pre-lock daemon's would stand, a lock holder's
+  // writer is gone (this process holds the lock it held).
+  const fresh = { pid: 4242, claimedAt: at(-1000), heartbeatAt: at(-1000), livenessPort: 5555 };
+  assert.equal(yields({ ...fresh, ownership: OWNER_LOCK_OWNERSHIP }, null), true);
+  assert.equal(yields(fresh, null), false);
+  assert.equal(yields(fresh, { pid: 4242, verdict: 'dead' }), false, 'a fresh pre-lock heartbeat stands');
+  const stale = { ...fresh, heartbeatAt: at(-STALE - 1) };
+  assert.equal(yields(stale, { pid: 4242, verdict: 'live' }), false, 'a pre-lock holder that answers stands');
+  assert.equal(yields(stale, { pid: 4242, verdict: 'dead' }), true);
+  // An unknown marker is not the lock's.
+  assert.equal(yields({ ...fresh, ownership: 'lease' }, null), false);
 });
 
 test('a leased record is reclaimable only when stale-looking AND its liveness port failed a probe', () => {
@@ -232,726 +197,211 @@ test('the probe is given the smaller of the probe timeout and the caller budget'
   assert.deepEqual(seen, [60, 2000, 2000]);
 });
 
-test('the heartbeat refreshes or recreates its own record and stops when another pid owns it', async (t) => {
+test('the record keeper refreshes or recreates its own record and stops when another pid owns it', async (t) => {
   const { ownerPath } = fixture(t);
-  const owner = { kind: 'mixdog-daemon', pid: 4242, claimedAt: at(-3_600_000), heartbeatAt: at(-3_600_000) };
+  const owner = { kind: 'mixdog-daemon', pid: 4242, ownership: OWNER_LOCK_OWNERSHIP, heartbeatAt: at(-3_600_000) };
   writeFileSync(ownerPath, JSON.stringify(owner));
   let clock = NOW;
-  let mono = 0;
   const beats = [];
   const superseded = [];
-  const heartbeat = createOwnerHeartbeat({
+  const keeper = createOwnerRecordKeeper({
     ownerPath,
     owner,
     heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
     now: () => clock,
-    monoNow: () => mono,
     onBeat: () => beats.push(clock),
     onSuperseded: (record) => superseded.push(record),
-    onFenced: () => assert.fail('not fenced'),
+    onLockLost: () => assert.fail('the lock is intact'),
   });
 
-  // The default refresh is asynchronous: a beat answers 'pending' and settles.
-  assert.equal(heartbeat.beat(), 'pending');
-  assert.equal(heartbeat.beat(), 'pending', 'one refresh at a time');
-  assert.equal(await heartbeat.settled(), 'refreshed');
+  // The refresh is asynchronous: a beat answers 'pending' and settles.
+  assert.equal(keeper.beat(), 'pending');
+  assert.equal(await keeper.settled(), 'refreshed');
   assert.deepEqual(readSingletonOwner(ownerPath).owner, { ...owner, heartbeatAt: at(0) });
   rmSync(ownerPath);
   clock += 10_000;
-  mono += 10_000;
-  heartbeat.beat();
-  assert.equal(await heartbeat.settled(), 'refreshed');
+  keeper.beat();
+  assert.equal(await keeper.settled(), 'refreshed');
   assert.deepEqual(readSingletonOwner(ownerPath).owner, { ...owner, heartbeatAt: at(10_000) });
-  assert.deepEqual(beats, [NOW, NOW + 10_000]);
+  // A restarted liveness listener's port is written at once.
+  keeper.update({ livenessPort: 6000 });
+  assert.equal(await keeper.settled(), 'refreshed');
+  assert.equal(readSingletonOwner(ownerPath).owner.livenessPort, 6000);
+  assert.deepEqual(beats, [NOW, NOW + 10_000, NOW + 10_000]);
 
+  // A pre-lock daemon took the record over.
   const winner = { kind: 'mixdog-daemon', pid: 7, heartbeatAt: at(10_000) };
   writeFileSync(ownerPath, JSON.stringify(winner));
-  heartbeat.beat();
-  assert.equal(await heartbeat.settled(), 'superseded');
+  keeper.beat();
+  assert.equal(await keeper.settled(), 'superseded');
   assert.deepEqual(superseded, [winner]);
-  assert.deepEqual(readSingletonOwner(ownerPath).owner, winner);
-  assert.equal(heartbeat.admit(), false);
+  assert.equal(keeper.state, 'superseded');
   // Stopped: later beats never touch the winner's record.
-  assert.equal(heartbeat.beat(), null);
-  assert.deepEqual(beats, [NOW, NOW + 10_000]);
+  assert.equal(keeper.beat(), null);
+  assert.deepEqual(readSingletonOwner(ownerPath).owner, winner);
+  assert.equal(beats.length, 3);
 });
 
-test('the lease runs in monotonic time: an expired lease fences instead of renewing', () => {
-  let mono = 0;
-  let failing = true;
-  const refreshes = [];
-  const fenced = [];
-  const heartbeat = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    // The wall clock jumping around changes nothing for the holder.
-    now: () => NOW + (refreshes.length % 2 ? 3_600_000 : -3_600_000),
-    monoNow: () => mono,
-    refresh: (_path, record) => {
-      refreshes.push(mono);
-      if (failing) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
-      return { status: 'refreshed', owner: record };
-    },
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => fenced.push(info),
-  });
-  for (const offset of [10_000, 20_000, 30_000, 39_999]) {
-    mono = offset;
-    assert.equal(heartbeat.beat(), 'failed');
-  }
-  assert.deepEqual(fenced, []);
-  // One success renews the lease from that beat.
-  failing = false;
-  assert.equal(heartbeat.beat(), 'refreshed');
-  // An overdue beat with no stall observed (only a tick or request sees one)
-  // must not renew it.
-  mono = 39_999 + 40_000;
-  const calls = refreshes.length;
-  assert.equal(heartbeat.beat(), 'fenced');
-  assert.equal(refreshes.length, calls, 'no renewal attempted on an expired lease');
-  assert.equal(fenced.length, 1);
-  assert.equal(fenced[0].sinceMs, 40_000);
-  assert.equal(heartbeat.admit(), false);
-  assert.equal(heartbeat.beat(), null);
-  assert.equal(fenced.length, 1);
-});
-
-test('after a stall nothing is admitted until a refresh re-verifies the record', () => {
-  let mono = 0;
-  let status = 'refreshed';
-  const refreshes = [];
-  const heartbeat = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    monoNow: () => mono,
-    refresh: (_path, record) => {
-      refreshes.push(mono);
-      return { status, owner: status === 'superseded' ? { pid: 7 } : record };
-    },
-    onSuperseded: () => {},
-    onFenced: () => assert.fail('not fenced'),
-  });
-  mono = 500;
-  assert.equal(heartbeat.admit(), true);
-  assert.deepEqual(refreshes, [], 'no stall, no refresh');
-  // 3 s without a turn: re-verify first; a busy claim lock refuses the work.
-  mono = 3500;
-  status = 'busy';
-  assert.equal(heartbeat.admit(), false);
-  assert.deepEqual(refreshes, [3500]);
-  // Retried at most once per tick, refusing meanwhile.
-  mono = 3600;
-  assert.equal(heartbeat.admit(), false);
-  assert.deepEqual(refreshes, [3500]);
-  mono = 3750;
-  status = 'refreshed';
-  assert.equal(heartbeat.admit(), true);
-  assert.deepEqual(refreshes, [3500, 3750]);
-  mono = 3800;
-  assert.equal(heartbeat.admit(), true);
-  // A stall during which a contender took the record: refused for good.
-  mono = 9000;
-  status = 'superseded';
-  assert.equal(heartbeat.admit(), false);
-  assert.equal(heartbeat.state, 'superseded');
-  mono = 9500;
-  assert.equal(heartbeat.admit(), false);
-});
-
-test('event-loop stall past the lease: re-verified under the claim lock on resume, fenced only when unproven', async (t) => {
-  // `status`: what the claim-locked refresh finds once the loop resumes.
-  const run = async (status) => {
-    const refreshes = [];
-    const fenced = [];
-    const superseded = [];
-    const logs = [];
-    let resumed = false;
-    const heartbeat = createOwnerHeartbeat({
-      ownerPath: 'unused',
-      owner: { pid: 4242, heartbeatAt: new Date().toISOString() },
-      heartbeatMs: 100,
-      fenceMs: 400,
-      tickMs: 25,
-      stallMs: 100,
-      log: (line) => logs.push(line),
-      refresh: (_path, record) => {
-        refreshes.push(performance.now());
-        const answer = resumed ? status : 'refreshed';
-        return { status: answer, owner: answer === 'superseded' ? { pid: 7 } : record };
-      },
-      onSuperseded: (record) => superseded.push(record),
-      onFenced: (info) => fenced.push(info),
-    });
-    t.after(() => heartbeat.stop());
-    const port = await leasedTransport(t, heartbeat);
-    heartbeat.start();
-    await delay(250);
-    assert.ok(refreshes.length >= 1, 'beating before the stall');
-    assert.equal((await post(port, '/client/register')).status !== 503, true);
-    const pending = post(port, '/call');
-    resumed = true;
-    busyWait(700);
-    return { response: await pending, fenced, superseded, logs, heartbeat, port };
-  };
-
-  // The record still names this process: no contender took it, so the sole
-  // daemon keeps serving (and keeps every running turn) instead of fencing.
-  const kept = await run('refreshed');
-  assert.notEqual(kept.response.status, 503);
-  assert.deepEqual(kept.fenced, []);
-  assert.equal(kept.heartbeat.state, 'active');
-  assert.ok(kept.logs.some((line) => /^owner lease re-verified \d+ms after its last refresh/.test(line)));
-  assert.notEqual((await post(kept.port, '/client/register')).status, 503);
-
-  // A contender reclaimed it meanwhile: stopped, never renewed over the winner.
-  const taken = await run('superseded');
-  assert.equal(taken.response.status, 503);
-  assert.match(taken.response.body, /daemon owner lease is not held/);
-  assert.deepEqual(
-    taken.superseded.map((record) => record.pid),
-    [7]
-  );
-  assert.equal(taken.heartbeat.state, 'superseded');
-
-  // Unprovable (claim lock busy): refused meanwhile, fenced after one beat.
-  const unproven = await run('busy');
-  assert.equal(unproven.response.status, 503);
-  for (let i = 0; i < 40 && unproven.fenced.length === 0; i += 1) await delay(25);
-  assert.equal(unproven.fenced.length, 1);
-  assert.equal(unproven.heartbeat.state, 'fenced');
-  assert.equal((await post(unproven.port, '/client/register')).status, 503);
-});
-
-test('a lease that ran out in a freeze is judged by the refresh that verifies it, never by how long that takes', async () => {
-  // The 16:22 incident: beating every 10 s, the loop froze for 150 s. On resume
-  // the refresh verifying the record was still in flight past the beat interval
-  // (the loop was busy again), and the lease fence shut the sole daemon down.
-  // `inFlight`: the refresh that was running when the loop froze answers late
-  // instead; it proves nothing about the record after the freeze.
-  const run = async (verdict, { inFlight = false } = {}) => {
-    let mono = 0;
-    const answers = [];
-    const fenced = [];
-    const superseded = [];
-    const logs = [];
-    const heartbeat = createOwnerHeartbeat({
-      ownerPath: 'unused',
-      owner: { pid: 4242, heartbeatAt: at(0) },
-      heartbeatMs: 10_000,
-      fenceMs: 40_000,
-      tickMs: 250,
-      stallMs: 1000,
-      log: (line) => logs.push(line),
-      monoNow: () => mono,
-      refresh: (_path, record) =>
-        new Promise((resolve, reject) =>
-          answers.push((answer) =>
-            answer instanceof Error
-              ? reject(answer)
-              : resolve({ status: answer, owner: answer === 'superseded' ? { pid: 7 } : record })
-          )
-        ),
-      onSuperseded: (record) => superseded.push(record),
-      onFenced: (info) => fenced.push(info),
-    });
-    for (mono = 250; mono <= 10_000; mono += 250) heartbeat.tick();
-    assert.equal(answers.length, 1);
-    if (!inFlight) {
-      answers[0]('refreshed');
-      assert.equal(await heartbeat.settled(), 'refreshed');
-    }
-    // Frozen for 150 s; the first turn after it notices the stall and re-verifies.
-    mono = 10_000 + 150_000;
-    heartbeat.tick();
-    assert.equal(heartbeat.admit(), false, 'nothing is served until the record is verified');
-    const resumedAt = mono;
-    for (; mono <= resumedAt + 20_000; mono += 250) heartbeat.tick();
-    assert.deepEqual(fenced, [], 'the clock alone never fences a daemon waiting on its verification');
-    assert.equal(heartbeat.state, 'active');
-    assert.equal(heartbeat.admit(), false);
-    if (verdict === 'never') {
-      // A refresh that never settles is waited for only up to staleMs from the resume.
-      for (; mono < resumedAt + 60_000; mono += 250) heartbeat.tick();
-      assert.deepEqual(fenced, [], 'still within the bound');
-      heartbeat.tick();
-      assert.equal(fenced.length, 1);
-      assert.equal(heartbeat.state, 'fenced');
-      assert.match(logs.at(-1), /verification unanswered 60000ms after the loop resumed/);
-      return { heartbeat, fenced, superseded };
-    }
-    if (inFlight) {
-      answers[0]('refreshed');
-      assert.equal(await heartbeat.settled(), 'refreshed');
-      heartbeat.tick();
-      assert.deepEqual(fenced, [], 'a refresh from before the freeze does not fence either');
-      assert.equal(answers.length, 2, 'a refresh started after the freeze verifies the record');
-    }
-    answers.at(-1)(verdict);
-    await heartbeat.settled();
-    heartbeat.tick();
-    return { heartbeat, fenced, superseded };
-  };
-
-  // The record still names this process: serving again, nothing was fenced.
-  const kept = await run('refreshed');
-  assert.equal(kept.heartbeat.state, 'active');
-  assert.equal(kept.heartbeat.admit(), true);
-  assert.deepEqual(kept.fenced, []);
-  const late = await run('refreshed', { inFlight: true });
-  assert.equal(late.heartbeat.state, 'active');
-  assert.equal(late.heartbeat.admit(), true);
-  assert.deepEqual(late.fenced, []);
-
-  // Another pid owns the record: superseded, never renewed over it.
-  const taken = await run('superseded');
-  assert.equal(taken.heartbeat.state, 'superseded');
-  assert.deepEqual(
-    taken.superseded.map((record) => record.pid),
-    [7]
-  );
-  assert.deepEqual(taken.fenced, []);
-
-  const hung = await run('never');
-  assert.equal(hung.heartbeat.admit(), false);
-
-  // The verification itself is refused or fails: fenced.
-  for (const refused of ['busy', new Error('EIO: i/o error, rename')]) {
-    const unproven = await run(refused);
-    assert.equal(unproven.fenced.length, 1);
-    assert.equal(unproven.heartbeat.state, 'fenced');
-    assert.equal(unproven.heartbeat.admit(), false);
-  }
-});
-
-test('after a freeze, a denied verification keeps its deadline and a verification past the bound never revives the daemon', async () => {
-  let mono = 0;
-  const answers = [];
-  const fenced = [];
-  const heartbeat = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    staleMs: 60_000,
-    monoNow: () => mono,
-    refresh: (_path, record) => new Promise((resolve) => answers.push((status) => resolve({ status, owner: record }))),
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => fenced.push(info),
-  });
-  const ticksTo = (end) => {
-    for (; mono < end; mono += 250) heartbeat.tick();
-  };
-  ticksTo(10_000);
-  heartbeat.tick();
-  assert.equal(answers.length, 1, 'the beat in flight when the loop freezes');
-
-  // Frozen for 150 s: the resume notices the stall; the pre-freeze refresh is
-  // still the one in flight, so nothing verifies yet.
-  const resumedAt = 160_000;
-  mono = resumedAt;
-  heartbeat.tick();
-  assert.equal(answers.length, 1);
-
-  // It lands 30 s in: proof of nothing after the freeze; the next tick starts
-  // the verifying refresh, which then hangs.
-  ticksTo(resumedAt + 30_000);
-  answers[0]('refreshed');
-  assert.equal(await heartbeat.settled(), 'refreshed');
-  mono = resumedAt + 30_250;
-  heartbeat.tick();
-  assert.equal(answers.length, 2);
-  ticksTo(resumedAt + 60_000 - 250);
-  assert.deepEqual(fenced, []);
-  assert.equal(heartbeat.admit(), false);
-  // It lands at the bound, before any tick saw it: too late to revive.
-  mono = resumedAt + 60_000;
-  answers[1]('refreshed');
-  assert.equal(await heartbeat.settled(), 'refreshed');
-  assert.equal(fenced.length, 1, 'fenced by the bound, not revived by the late answer');
-  assert.equal(heartbeat.state, 'fenced');
-  assert.equal(heartbeat.admit(), false);
-
-  // A denied verification fences at heartbeatMs after the resume even though
-  // its retry is in flight and never answers.
-  mono = 0;
-  answers.length = 0;
-  fenced.length = 0;
-  const denied = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    staleMs: 60_000,
-    monoNow: () => mono,
-    refresh: (_path, record) => new Promise((resolve) => answers.push((status) => resolve({ status, owner: record }))),
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => fenced.push(info),
-  });
-  for (mono = 250; mono <= 10_000; mono += 250) denied.tick();
-  answers[0]('refreshed');
-  assert.equal(await denied.settled(), 'refreshed');
-  mono = resumedAt;
-  denied.tick();
-  assert.equal(answers.length, 2, 'the verifying refresh');
-  mono = resumedAt + 1000;
-  answers[1]('busy');
-  assert.equal(await denied.settled(), 'busy');
-  mono = resumedAt + 1250;
-  denied.tick();
-  assert.equal(answers.length, 3, 'the retry hangs');
-  for (mono = resumedAt + 1500; mono < resumedAt + 10_000; mono += 250) denied.tick();
-  assert.deepEqual(fenced, []);
-  denied.tick();
-  assert.equal(fenced.length, 1, 'the denial deadline holds with a retry pending');
-  assert.equal(denied.state, 'fenced');
-});
-
-test('split stalls ending inside the lease are judged by the verification pending when it runs out', async () => {
-  // The 21:51 incident (#316): stalls of 3.3 s, 8.9 s and 24.5 s, the last
-  // ending 39.1 s into the 40 s lease; the verifying refresh was still in
-  // flight when the lease ran out, and the next tick fenced the sole daemon.
-  const run = async (verdict) => {
-    let mono = 0;
-    // Set: every later refresh answers at once with it.
-    let instant = null;
-    const answers = [];
-    const fenced = [];
-    const superseded = [];
-    const logs = [];
-    const heartbeat = createOwnerHeartbeat({
-      ownerPath: 'unused',
-      owner: { pid: 4242, heartbeatAt: at(0) },
-      heartbeatMs: 10_000,
-      fenceMs: 40_000,
-      tickMs: 250,
-      stallMs: 1000,
-      staleMs: 60_000,
-      log: (line) => logs.push(line),
-      monoNow: () => mono,
-      refresh: (_path, record) => {
-        const reply = (status) => ({ status, owner: status === 'superseded' ? { pid: 7 } : record });
-        return instant ? reply(instant) : new Promise((resolve) => answers.push((status) => resolve(reply(status))));
-      },
-      onSuperseded: (record) => superseded.push(record),
-      onFenced: (info) => fenced.push(info),
-    });
-    const ticksTo = (end) => {
-      for (; mono < end; mono += 250) heartbeat.tick();
-    };
-    const turnAt = (time) => {
-      mono = time;
-      heartbeat.tick();
-    };
-    ticksTo(2500);
-    turnAt(5500);
-    assert.equal(answers.length, 1, 'the first stall starts a verifying refresh');
-    turnAt(5750);
-    turnAt(14_750);
-    turnAt(15_000);
-    turnAt(39_250);
-    // Starved, that refresh answers only now, refused: it was started before
-    // the later stalls and proves nothing about them.
-    answers[0]('busy');
-    assert.equal(await heartbeat.settled(), 'busy');
-    turnAt(39_500);
-    assert.equal(answers.length, 2, 'a refresh started after the last stall verifies the record');
-    ticksTo(45_000);
-    assert.deepEqual(fenced, [], 'the lease running out with that refresh in flight does not fence');
-    assert.equal(heartbeat.state, 'active');
-    assert.equal(heartbeat.admit(), false, 'nothing is served until the record is verified');
-    if (verdict === 'never') {
-      // Waited for only up to staleMs from the first turn that saw the lease expired.
-      ticksTo(100_000);
-      assert.deepEqual(fenced, [], 'still within the bound');
-      heartbeat.tick();
-      assert.match(logs.at(-1), /verification unanswered 60000ms after the loop resumed/);
-      return { heartbeat, fenced, superseded };
-    }
-    answers[1](verdict);
-    await heartbeat.settled();
-    if (verdict === 'busy') {
-      // Started before the lease ran out, that refusal is retried; refused
-      // again, fenced heartbeatMs after the expiry turn, still before staleMs.
-      instant = 'busy';
-      ticksTo(50_000);
-      assert.deepEqual(fenced, []);
-    }
-    heartbeat.tick();
-    return { heartbeat, fenced, superseded };
-  };
-
-  // The record still names this process: serving again, nothing was fenced.
-  const kept = await run('refreshed');
-  assert.equal(kept.heartbeat.state, 'active');
-  assert.equal(kept.heartbeat.admit(), true);
-  assert.deepEqual(kept.fenced, []);
-
-  // Another pid owns the record: superseded, never renewed over it.
-  const taken = await run('superseded');
-  assert.equal(taken.heartbeat.state, 'superseded');
-  assert.deepEqual(
-    taken.superseded.map((record) => record.pid),
-    [7]
-  );
-  assert.deepEqual(taken.fenced, []);
-
-  // Refused, or never answered: fenced at the existing bounds from the expiry turn.
-  for (const [verdict, sinceMs] of [
-    ['busy', 50_000],
-    ['never', 100_000],
-  ]) {
-    const unproven = await run(verdict);
-    assert.deepEqual(
-      unproven.fenced.map((info) => info.sinceMs),
-      [sinceMs]
-    );
-    assert.equal(unproven.heartbeat.state, 'fenced');
-    assert.equal(unproven.heartbeat.admit(), false);
-  }
-});
-
-test('an asynchronous refresh never holds the loop, and one unanswered at the lease still fences on time', async () => {
-  let mono = 0;
-  const answers = [];
-  const fenced = [];
-  const heartbeat = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    monoNow: () => mono,
-    // Answers only when the test says so (a refresh stuck on a slow disk).
-    refresh: (_path, record) =>
-      new Promise((resolve) => answers.push(() => resolve({ status: 'refreshed', owner: record }))),
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => fenced.push(info),
-  });
-  for (mono = 250; mono <= 10_000; mono += 250) heartbeat.tick();
-  assert.equal(answers.length, 1, 'the beat started one refresh and returned');
-  for (; mono <= 12_000; mono += 250) heartbeat.tick();
-  assert.equal(answers.length, 1, 'never a second refresh beside the first');
-  assert.equal(heartbeat.admit(), true, 'the loop kept serving meanwhile');
-  answers[0]();
-  assert.equal(await heartbeat.settled(), 'refreshed');
-  // Renewed from when it started (10 s): the next beat is due at 20 s and
-  // the lease, if that one never answers, runs out at 50 s.
-  for (; mono < 50_000; mono += 250) heartbeat.tick();
-  assert.equal(answers.length, 2);
-  assert.deepEqual(fenced, []);
-  heartbeat.tick();
-  assert.equal(fenced.length, 1, 'fenced at the lease with the refresh still pending');
-  answers[1]();
-  assert.equal(await heartbeat.settled(), 'refreshed');
-  assert.equal(heartbeat.state, 'fenced', 'a late answer never revives a fenced holder');
-  assert.equal(heartbeat.admit(), false);
-});
-
-test('a lease that ran out in a stall is re-verified on resume; refreshes failing while the loop runs fence', () => {
-  let mono = 0;
-  let status = 'refreshed';
-  const fenced = [];
-  const heartbeat = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    monoNow: () => mono,
-    refresh: (_path, record) => ({ status, owner: record }),
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => fenced.push(info),
-  });
-  // A 66 s stall (the incident): renewed by the first refresh after it.
-  mono = 66_000;
-  heartbeat.tick();
-  assert.equal(heartbeat.state, 'active');
-  assert.equal(heartbeat.admit(), true);
-  // Another one with the claim lock busy: retried for one beat, then fenced.
-  status = 'busy';
-  mono = 140_000;
-  heartbeat.tick();
-  assert.equal(heartbeat.admit(), false);
-  mono = 145_000;
-  heartbeat.tick();
-  assert.deepEqual(fenced, []);
-  mono = 150_000;
-  heartbeat.tick();
-  assert.equal(fenced.length, 1);
-
-  // The loop keeps running while every refresh fails: fenced at the lease.
-  mono = 0;
-  const running = [];
-  const failing = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: at(0) },
-    heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    monoNow: () => mono,
-    refresh: () => ({ status: 'busy', owner: null }),
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => running.push(info),
-  });
-  for (mono = 250; mono <= 40_000 && running.length === 0; mono += 250) failing.tick();
-  assert.equal(running.length, 1);
-  assert.equal(running[0].sinceMs, 40_000);
-});
-
-test('a short stall re-verifies before serving: refused if the record was taken, served if not', async (t) => {
-  const { ownerPath } = fixture(t);
-  const run = async (takeOver) => {
-    const owner = { kind: 'mixdog-daemon', pid: 4242, heartbeatAt: new Date().toISOString() };
-    writeFileSync(ownerPath, JSON.stringify(owner));
-    const superseded = [];
-    const heartbeat = createOwnerHeartbeat({
-      ownerPath,
-      owner,
-      heartbeatMs: 100,
-      fenceMs: 5000,
-      tickMs: 25,
-      stallMs: 100,
-      onSuperseded: (record) => superseded.push(record),
-      onFenced: () => assert.fail('not fenced'),
-    });
-    t.after(() => heartbeat.stop());
-    const port = await leasedTransport(t, heartbeat);
-    heartbeat.start();
-    await delay(150);
-    // No refresh mid-flight across the stall: the takeover below bypasses the
-    // claim lock, which a real contender's claim never does.
-    await heartbeat.settled();
-    const pending = post(port, '/call');
-    busyWait(150);
-    // A contender reclaims while this holder cannot answer (its probe timed out).
-    if (takeOver)
-      writeFileSync(
-        ownerPath,
-        JSON.stringify({ kind: 'mixdog-daemon', pid: 7, heartbeatAt: new Date().toISOString() })
-      );
-    busyWait(150);
-    return { response: await pending, superseded, heartbeat };
-  };
-
-  const taken = await run(true);
-  assert.equal(taken.response.status, 503);
-  assert.match(taken.response.body, /daemon owner lease is not held/);
-  assert.deepEqual(
-    taken.superseded.map((record) => record.pid),
-    [7]
-  );
-  assert.equal(readSingletonOwner(ownerPath).owner.pid, 7, 'the winner record is never overwritten');
-
-  const kept = await run(false);
-  assert.notEqual(kept.response.status, 503);
-  assert.equal(kept.heartbeat.state, 'active');
-  assert.equal(readSingletonOwner(ownerPath).owner.pid, 4242);
-});
-
-test('the fence fires on its own tick when refreshes keep failing (no request needed)', async (t) => {
-  const fenced = [];
-  const heartbeat = createOwnerHeartbeat({
-    ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: new Date().toISOString() },
-    heartbeatMs: 30,
-    fenceMs: 100,
-    tickMs: 10,
-    stallMs: 1000,
-    refresh: () => ({ status: 'busy', owner: null }),
-    onSuperseded: () => assert.fail('not superseded'),
-    onFenced: (info) => fenced.push(info),
-  });
-  t.after(() => heartbeat.stop());
-  heartbeat.start();
-  for (let i = 0; i < 40 && fenced.length === 0; i += 1) await delay(25);
-  assert.equal(fenced.length, 1);
-});
-
-test('one long block is reported once with the describeStall detail, and still forces re-verify', () => {
-  let mono = 0;
+test('no refresh outcome over any span of time stops the keeper: ownership is the lock', async () => {
+  const outcomes = ['busy', new Error('EPERM: operation not permitted, rename'), 'busy'];
   const logs = [];
-  const windows = [];
-  const refreshes = [];
-  const heartbeat = createOwnerHeartbeat({
+  const keeper = createOwnerRecordKeeper({
     ownerPath: 'unused',
     owner: { pid: 4242, heartbeatAt: at(0) },
     heartbeatMs: 10_000,
-    fenceMs: 40_000,
-    tickMs: 250,
-    stallMs: 1000,
-    monoNow: () => mono,
-    log: (line) => logs.push(line),
-    describeStall: (from, to) => {
-      windows.push([from, to]);
-      return 'spans: session.read#abcd1234 3000ms';
-    },
+    // The wall clock jumping around changes nothing either.
+    now: () => NOW + (logs.length % 2 ? 3_600_000 : -3_600_000),
     refresh: (_path, record) => {
-      refreshes.push(mono);
-      return { status: 'busy', owner: record };
+      const outcome = outcomes.shift() ?? 'refreshed';
+      if (outcome instanceof Error) throw outcome;
+      return { status: outcome, owner: record };
     },
-    onSuperseded: () => {},
-    onFenced: () => assert.fail('not fenced'),
+    log: (line) => logs.push(line),
+    onSuperseded: () => assert.fail('not superseded'),
+    onLockLost: () => assert.fail('the lock is intact'),
   });
-  mono = 3500;
-  // Observed by the tick and by two requests at the same instant: one report.
-  heartbeat.tick();
-  assert.equal(heartbeat.admit(), false);
-  assert.equal(heartbeat.admit(), false);
-  const stalls = logs.filter((line) => line.startsWith('event loop stalled'));
-  assert.equal(stalls.length, 1);
-  assert.equal(
-    stalls[0],
-    'event loop stalled 3500ms — owner lease must be re-verified before serving | spans: session.read#abcd1234 3000ms'
-  );
-  assert.deepEqual(windows, [[0, 3500]]);
-  assert.equal(refreshes.length >= 1, true, 'lease re-verify still attempted');
-  // A later, separate block is a new report over its own window only.
-  mono = 6000;
-  heartbeat.tick();
-  assert.deepEqual(windows, [
-    [0, 3500],
-    [3500, 6000],
+  for (const expected of ['busy', 'failed', 'busy', 'refreshed']) {
+    keeper.beat();
+    assert.equal(await keeper.settled(), expected);
+    assert.equal(keeper.state, 'active');
+  }
+  assert.deepEqual(logs, [
+    'owner record refresh skipped: claim lock busy',
+    'owner record refresh failed: EPERM: operation not permitted, rename',
+    'owner record refresh skipped: claim lock busy',
   ]);
 });
 
-test('a throwing describeStall never disturbs the stall report or the lease', () => {
+// A refresh the test settles by hand: `next(status)` answers the oldest one
+// (once it has started) and counts it; `started()` counts every one started.
+function manualRefresh() {
+  const waiting = [];
+  let started = 0;
+  return {
+    started: () => started,
+    refresh: (_path, record) => {
+      started += 1;
+      return new Promise((resolve) =>
+        waiting.push((status) => resolve({ status, owner: status === 'superseded' ? { pid: 7 } : record }))
+      );
+    },
+    next: async (status) => {
+      while (!waiting.length) await delay(0);
+      waiting.shift()(status);
+      await delay(0);
+    },
+  };
+}
+
+// Reproduced: a stalled holder whose record a pre-lock daemon took over (and
+// whose claim lock it still held) answered /client/register with 200.
+test('after a stall nothing is admitted until a refresh started after it re-verifies the record', async () => {
   let mono = 0;
-  const logs = [];
-  const heartbeat = createOwnerHeartbeat({
+  const manual = manualRefresh();
+  const superseded = [];
+  const keeper = createOwnerRecordKeeper({
     ownerPath: 'unused',
     owner: { pid: 4242, heartbeatAt: at(0) },
     heartbeatMs: 10_000,
-    fenceMs: 40_000,
     tickMs: 250,
     stallMs: 1000,
     monoNow: () => mono,
-    log: (line) => logs.push(line),
-    describeStall: () => {
-      throw new Error('boom');
-    },
-    refresh: (_path, record) => ({ status: 'refreshed', owner: record }),
-    onSuperseded: () => {},
-    onFenced: () => assert.fail('not fenced'),
+    refresh: manual.refresh,
+    onSuperseded: (record) => superseded.push(record),
+    onLockLost: () => assert.fail('the lock is intact'),
   });
-  mono = 2000;
-  assert.equal(heartbeat.admit(), true);
-  assert.deepEqual(logs, ['event loop stalled 2000ms — owner lease must be re-verified before serving']);
+  // Turns keep coming: admitted, nothing refreshed.
+  for (mono = 250; mono <= 2000; mono += 250) assert.equal(keeper.admit(), true);
+  assert.equal(manual.started(), 0);
+
+  // A refresh is in flight when the loop stalls: it may have read the record
+  // before a takeover, so it re-verifies nothing.
+  keeper.beat();
+  mono += 5000;
+  assert.equal(keeper.admit(), false);
+  assert.equal(keeper.verifying, true);
+  const admitted = keeper.admitAsync();
+  await manual.next('refreshed');
+  assert.equal(manual.started(), 2, 'a second refresh, started after the stall');
+  assert.equal(keeper.verifying, true);
+  await manual.next('refreshed');
+  assert.equal(await admitted, true);
+  assert.equal(keeper.admit(), true);
+
+  // A contender mid-claim holds the claim lock: refused (retry later), not served.
+  mono += 3000;
+  const busy = keeper.admitAsync();
+  await manual.next('busy');
+  assert.equal(await busy, false);
+  assert.equal(keeper.verifying, true);
+  assert.equal(keeper.state, 'active');
+  // Retried every tick; the contender's record is found: stopped for good.
+  mono += 250;
+  keeper.tick();
+  await manual.next('superseded');
+  assert.equal(manual.started(), 4);
+  assert.deepEqual(superseded, [{ pid: 7 }]);
+  assert.equal(keeper.state, 'superseded');
+  assert.equal(keeper.admit(), false);
+  assert.equal(await keeper.admitAsync(), false);
 });
+
+// Probe: the verifying refresh started at 1,500 ms and was answered at 3,500
+// ms, a second stall in between with no turn seen: admitAsync said true and
+// the stall was cleared unverified.
+test('a second stall while the verifying refresh runs needs another refresh started after it', async () => {
+  let mono = 0;
+  const manual = manualRefresh();
+  const keeper = createOwnerRecordKeeper({
+    ownerPath: 'unused',
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    stallMs: 1000,
+    monoNow: () => mono,
+    refresh: manual.refresh,
+    onSuperseded: () => assert.fail('not superseded'),
+    onLockLost: () => assert.fail('the lock is intact'),
+  });
+  mono = 1500;
+  let answered = null;
+  void keeper.admitAsync().then((value) => {
+    answered = value;
+  });
+  await delay(0);
+  assert.equal(manual.started(), 1, 'the verifying refresh started at 1,500 ms');
+  mono = 3500;
+  await manual.next('refreshed');
+  assert.equal(answered, null, 'not admitted on a refresh older than the latest stall');
+  assert.equal(keeper.verifying, true);
+  assert.equal(manual.started(), 2, 'a refresh started after the second stall');
+  await manual.next('refreshed');
+  assert.equal(answered, true);
+  assert.equal(keeper.verifying, false);
+});
+
+test('a lock file deleted or replaced at its path stops the keeper before it writes again', async () => {
+  let intact = true;
+  const refreshes = [];
+  const lost = [];
+  const keeper = createOwnerRecordKeeper({
+    ownerPath: 'unused',
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    refresh: (_path, record) => {
+      refreshes.push(record);
+      return { status: 'refreshed', owner: record };
+    },
+    lockIntact: () => intact,
+    onSuperseded: () => assert.fail('not superseded'),
+    onLockLost: () => lost.push(true),
+  });
+  keeper.beat();
+  assert.equal(await keeper.settled(), 'refreshed');
+  intact = false;
+  assert.equal(keeper.beat(), 'lock-lost');
+  assert.deepEqual(lost, [true]);
+  assert.equal(keeper.state, 'lock-lost');
+  assert.equal(keeper.beat(), null);
+  assert.equal(refreshes.length, 1);
+});
+
