@@ -85,15 +85,22 @@ export function routeSheetBox(
   );
 }
 
-/** A side-panel field's dropdown (RouteEditor `dropdown`): exactly the
- *  trigger's width and edges, below it unless only above has the room. Every
- *  pane opens in this same footprint, sized to that pane. */
+/** A field's dropdown (RouteEditor `dropdown`): `trigger` is the lane it may
+ *  use (left edge = the chip's). It takes the composer panel's width, widened
+ *  to `preferredWidth` (the chip / model-name width), but never past the lane
+ *  or viewport, so a narrow side panel still gets its full lane. Below the
+ *  trigger unless only above has the room. Every pane opens in this same
+ *  footprint, sized to that pane. */
 export function routeDropdownBox(
   trigger: RouteAnchorRect,
   preferredHeight: number,
-  viewport: RouteViewport
+  viewport: RouteViewport,
+  preferredWidth = ROUTE_PANEL_WIDTH
 ): RoutePanelBox {
-  const width = Math.min(Math.max(1, trigger.right - trigger.left), Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2));
+  const width = Math.min(
+    Math.max(1, trigger.right - trigger.left),
+    routeSheetWidth(viewport, preferredWidth)
+  );
   return anchoredRouteBox(trigger, preferredHeight, viewport, width, 'below', 'start');
 }
 
