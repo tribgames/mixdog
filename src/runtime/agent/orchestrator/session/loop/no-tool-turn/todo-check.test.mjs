@@ -132,13 +132,8 @@ test('no reminder without unfinished items, for hidden roles, or while the turn 
   executeTodoTool(closed.session, { op: 'done', item: 'Only step' });
   assert.equal((await closed.end()).action, 'break');
   const waiting = fixture({ items: ['Only step'] });
-  executeTodoTool(waiting.session, { op: 'block', item: 'Only step', reason: 'waiting on the user' });
   noteTodoUserWait(waiting.session.id);
-  assert.equal(
-    (await waiting.end()).action,
-    'break',
-    'a turn waiting on the user is not asked about its blocked items'
-  );
+  assert.equal((await waiting.end()).action, 'break', 'a turn waiting on the user is not asked about its open items');
   const denied = fixture();
   noteTodoUserWait(denied.session.id);
   assert.equal((await denied.end()).action, 'break');
@@ -147,31 +142,17 @@ test('no reminder without unfinished items, for hidden roles, or while the turn 
   assert.equal((await denied.end()).action, 'continue');
 });
 
-test('a turn ending with only blocked items asks once per user cycle to settle them', async () => {
-  const f = fixture({ items: ['Measure', 'Verify after the fixes'] });
+test('the reminder offers continue, done or drop; an item waiting on the user stays open without looping', async () => {
+  const f = fixture({ items: ['Measure', 'Ask the user'] });
   executeTodoTool(f.session, { op: 'done', item: 'Measure' });
-  executeTodoTool(f.session, { op: 'block', item: 'Verify after the fixes', reason: 'after the three fixes land' });
   assert.equal((await f.end()).action, 'continue');
   const [reminder] = f.reminders();
-  assert.match(
-    reminder.content,
-    /1 blocked todo item\(s\):\n- Verify after the fixes \(blocked: after the three fixes land\)/
-  );
-  assert.match(reminder.content, /unblock and finish it; .*drop it; .*leave it blocked and say in your reply/);
-  // The agent answers that it still waits on the user: the turn ends, and the
-  // same cycle does not ask again even after more work.
+  assert.match(reminder.content, /- Ask the user/);
+  assert.match(reminder.content, /\(done or drop\)/);
+  assert.doesNotMatch(reminder.content, /block/i);
+  // The agent only asks the user: no tool batch since, so the turn ends.
   assert.equal((await f.end()).action, 'break');
-  f.resolver.noteToolBatchCompleted([], []);
-  assert.equal((await f.end()).action, 'break', 'asked once per user cycle');
   assert.equal(f.reminders().length, 1);
-  // A new user prompt asks again while the item stays blocked.
-  beginTodoTurn(f.session, { genuine: true });
-  assert.equal((await f.end()).action, 'continue');
-  // Settled: nothing left to ask about.
-  executeTodoTool(f.session, { op: 'drop', item: 'Verify after the fixes' });
-  beginTodoTurn(f.session, { genuine: true });
-  assert.equal(todoSnapshot(f.session), null, 'the closed list is let go on the next prompt');
-  assert.equal((await f.end()).action, 'break');
 });
 
 test('a running agent or a background shell started this cycle skips the reminder; an earlier server does not', async () => {
@@ -243,10 +224,9 @@ test('a new prompt lets go of a finished list; automatic turns, blocked items an
   assert.equal(todoSnapshot(done.session), null);
   assert.equal(published.get(done.session.id), null, 'the cleared list is published at once');
 
-  const blocked = fixture({ items: ['Only step'] });
-  executeTodoTool(blocked.session, { op: 'block', item: 'Only step', reason: 'waiting on the user' });
-  beginTodoTurn(blocked.session, { genuine: true });
-  assert.equal(todoSnapshot(blocked.session)?.total, 1, 'a blocked item is unfinished');
+  const open = fixture({ items: ['Only step'] });
+  beginTodoTurn(open.session, { genuine: true });
+  assert.equal(todoSnapshot(open.session)?.total, 1, 'an open item is unfinished');
 
   const audited = fixture({ items: ['Only step'] });
   executeTodoTool(audited.session, { op: 'done', item: 'Only step' });
@@ -364,10 +344,7 @@ test("an agent's brief or follow-up with no open list carries one hidden ask to 
 
   const blocked = { ...agentSession, id: `${agentSession.id}_blocked`, todo: null };
   executeTodoTool(blocked, { op: 'init', items: ['Wait for review'] });
-  executeTodoTool(blocked, { op: 'block', item: 'Wait for review', reason: 'needs sign-off' });
-  const reconcile = todoStartReminder(blocked);
-  assert.doesNotMatch(reconcile, /init the todo list/, 'a blocked-only list is not told to init');
-  assert.match(reconcile, /append[\s\S]*done, drop or unblock/);
+  assert.equal(todoStartReminder(blocked), null, 'an open list is not told to init');
   assert.throws(() => executeTodoTool(blocked, { op: 'init', items: ['New ask'] }), /unfinished items/);
 
   assert.equal(todoStartReminder({ ...agentSession, todo: null, owner: 'user' }), null, 'the Lead is not asked');

@@ -10,10 +10,6 @@
 // user cycle (background-wait.mjs).
 // Cancelled, failed and usage-limited turns never reach this point.
 //
-// A turn that ends with only blocked items left asks once per user cycle to
-// settle them: a blocked item keeps the list on screen, and one whose blocker
-// has already cleared was otherwise left there indefinitely.
-//
 // With an active Goal whose items are all closed, the same check asks once
 // per cycle for the completion audit: complete the Goal or append the rest.
 import { resolvePluginData } from '../../../../../shared/plugin-paths.mjs';
@@ -24,7 +20,6 @@ import {
   openTodoItems,
   todoAllClosed,
   todoPhases,
-  unfinishedTodoItems,
 } from '../../../runtime-core/todo-list.mjs';
 import { TODO_TOOL } from '../../../runtime-core/todo-tool-defs.mjs';
 import { HIDDEN_AGENT_NAMES } from '../hidden-agents.mjs';
@@ -71,15 +66,6 @@ export function todoStartReminder(session) {
   if (HIDDEN_AGENT_NAMES.has(session.agent)) return null;
   if (!session.tools?.some((tool) => tool?.name === TODO_TOOL.name)) return null;
   if (openTodoItems(session).length) return null;
-  // `init` refuses while any item is unfinished (blocked included), so such a
-  // list is reconciled or appended to, never re-initialized.
-  if (unfinishedTodoItems(session).length) {
-    return [
-      '<system-reminder>',
-      'The todo list still has blocked items. If this brief adds asks, append them; first done, drop or unblock each blocked item that this brief settles. Do not init over them. Do not mention this reminder.',
-      '</system-reminder>',
-    ].join('\n');
-  }
   return [
     '<system-reminder>',
     'If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.',
@@ -163,18 +149,8 @@ function openItemsReminder(open, count) {
     '<system-reminder>',
     `You ended the turn with ${open.length} open todo item(s):`,
     ...open.map((task) => `- ${task.content}`),
-    'Continue them, or close each with the todo tool (done, drop, or block with its reason).',
+    'Continue them, or close each with the todo tool (done or drop).',
     `(Reminder ${count}/${MAX_TODO_REMINDERS})`,
-    '</system-reminder>',
-  ].join('\n');
-}
-
-function blockedItemsReminder(blocked) {
-  return [
-    '<system-reminder>',
-    `You ended the turn with ${blocked.length} blocked todo item(s):`,
-    ...blocked.map((task) => `- ${task.content}${task.blocker ? ` (blocked: ${task.blocker})` : ''}`),
-    'For each: if its blocker is settled, unblock and finish it; if it is no longer needed, drop it; if it truly waits on the user, leave it blocked and say in your reply what you need from them.',
     '</system-reminder>',
   ].join('\n');
 }
@@ -201,13 +177,6 @@ export function todoCompletionReminder(session, { sessionId = null, sessionAgent
     check.reminders += 1;
     check.awaitingProgress = true;
     return openItemsReminder(open, check.reminders);
-  }
-  const blocked = unfinishedTodoItems(session);
-  if (blocked.length && !check.blockedAsked) {
-    if (awaitingBackgroundWork({ sessionId: id })) return null;
-    check.blockedAsked = true;
-    check.awaitingProgress = true;
-    return blockedItemsReminder(blocked);
   }
   if (check.auditAsked || !id || !activeGoal(id)) return null;
   if (awaitingBackgroundWork({ sessionId: id })) return null;

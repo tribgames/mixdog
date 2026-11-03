@@ -194,8 +194,7 @@ export interface DesktopQuotaResume {
 
 export interface DesktopTodoTask extends Readonly<Record<string, unknown>> {
   content: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
-  blocker?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'abandoned';
   note?: string;
 }
 
