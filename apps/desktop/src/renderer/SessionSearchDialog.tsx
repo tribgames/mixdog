@@ -1,4 +1,4 @@
-import { MessageSquare, Search } from 'lucide-react';
+import { MessageCircle, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -201,7 +201,7 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
                 onMouseDown={(event: MouseEvent) => event.preventDefault()}
                 onClick={() => openRow(row)}
               >
-                <MessageSquare size={14} aria-hidden="true" />
+                <MessageCircle size={14} aria-hidden="true" />
                 <span>
                   <b>{sessionLabel(session)}</b>
                   {snippet && <small>{snippet}</small>}
