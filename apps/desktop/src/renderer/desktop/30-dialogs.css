@@ -750,6 +750,106 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
 .utility-dock .schedules-list {
   gap: var(--mx-rail-list-gap);
 }
+/* ── Left rail: one horizontal grammar for every page ─────────────────────
+   The Sessions page is the reference (measured against the aside's left
+   edge): panel title and category text on 16, row fills 8 → 14 from the
+   right edge, row content (icon/avatar slot, then title) from 16, trailing
+   glyph centre on 224 (12 inside the fill's right edge), boxed controls on
+   the fill's edges. Every other page joins it here, desktop only: the phone
+   drawer keeps its own insets. Each rule names its page(s) so the right dock,
+   which has its own 12px grammar, is untouched. */
+/* Sessions' scroller holds the open width (09-sidebar-chrome.css: min-width
+   = width − 16, plus its 8px scrollbar bleed), which pushes its content edge
+   2px past the aside; the panels' scroller sits on the surface inset instead,
+   so every page's right edge (rows, controls, section "+") was 2px short. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .sidebar.session-sidebar > .session-sidebar-panels {
+  min-width: calc(var(--session-sidebar-min-width, 232px) - 8px);
+}
+@media (min-width: 761px) {
+  html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .sidebar.session-sidebar > .session-sidebar-panels {
+    min-width: calc(var(--session-sidebar-width, 260px) - 8px);
+  }
+}
+/* Card rows (Projects, Workflow, Extensions): the hover fill reaches 8px past
+   the content line, like a session row's, not 6. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-row.utilities-row.utilities-row {
+  width: calc(100% + 8px);
+  margin-left: -8px;
+  padding-left: 8px;
+}
+/* Boxed controls (search field, view switcher, sort chips) open on the row
+   fill's left edge so field, chips and hovered rows share one box line. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-page > :is(.schedules-search, .sidebar-section-toolbar) {
+  margin-left: -8px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-page > .sidebar-section-toolbar {
+  width: calc(100% + 8px);
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-page > .routine-sort-chips {
+  margin: 0 0 12px -8px;
+}
+/* Schedules / Webhooks: the grouped card spans the row-fill box, its bot face
+   (or status dot) opens on the content line and the ⋯ centres on the shared
+   trailing line — a 24px trigger flush with the card edge, 12px in. Group
+   labels sit on the category text line. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routine-side-list {
+  margin-left: -8px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routines-row,
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routines-row[data-leading] {
+  padding: 8px 0 8px 8px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routines-row .row-overflow-trigger {
+  width: 24px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routine-side-head {
+  margin-inline: 0;
+}
+/* Bots (an Agents dock hosted in the left column): the header's "+" and the
+   contact rows close on the Sessions axes. The contact avatar stays larger
+   than a session icon on purpose (a messenger-style card), so the title
+   starts after it; the avatar slot itself opens on the content line. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock > .utility-dock-header.session-panel-header {
+  padding-right: 12px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .schedules-page.agent-activity-page {
+  padding-right: 6px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .agent-chat-row[data-kind="contact"] {
+  --agent-contact-padding: 6px 12px 6px 8px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .agent-activity-page > .connectors-pill {
+  margin-inline: 0;
+}
+/* Search and Source Control (utility-dock panels hosted in the left column):
+   title on the content line; the 22px header actions centre on the trailing
+   line (26 in from the edge → 15 to their box); the project picker and the
+   query/mode stack take the row-fill box. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock > .utility-dock-header:not(.session-panel-header) {
+  padding-inline: 16px 15px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .utility-dock-project-row {
+  padding-inline: 8px 14px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .utility-dock-project-row .dock-project-select .mx-select-trigger {
+  padding-inline: 8px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock :is(.workbench-explorer-search, .dock-scm-view-controls) {
+  padding-inline: 8px 14px;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .dock-scm-toolbar {
+  padding-inline: 8px 14px;
+}
+/* Source Control history rows: fill from 8, subject on the content line, the
+   22px push disc centred on the trailing line (26 in from the edge). */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .dock-scm-history .dock-scm-commit-row {
+  margin-left: 8px;
+  padding: 0 1px 0 8px;
+}
+/* The recovery disclosure's marker opens on the content line. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .project-recovery {
+  padding-inline: 16px 14px;
+}
 /* ── Rail type ramp ──────────────────────────────────────────────────────
    Shared left/right/bottom ladder: panel title 16/600 > item and tab 14/400
    > supporting line 13. Every group label above a list wears the

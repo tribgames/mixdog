@@ -14,6 +14,12 @@
 }
 /* The mode tabs share their row with the file tree's own actions (New File,
    New Folder, Refresh, Collapse All), present only while the tree shows. */
+/* The project recovery disclosure under the query stack (an inline style
+   before, which no rail rule could re-inset). */
+.project-recovery {
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+}
 .workbench-search-mode-row {
   min-width: 0;
   display: flex;
