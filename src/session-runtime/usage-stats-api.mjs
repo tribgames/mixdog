@@ -190,6 +190,9 @@ async function describeRequestSessions(requests, sessionMetadata) {
     const id = String(sourceType || '')
       .trim()
       .toLowerCase();
+    // A title call is recorded under the session it titles: that session
+    // stays openable, so it is named like any other background request.
+    if (id === 'session-title') return id;
     const hidden = id && !isLeadVisibleRow({ sourceType: id, preview: id });
     return hidden && (id === 'exec' || !isConversationUsageSource(id)) ? id : '';
   };

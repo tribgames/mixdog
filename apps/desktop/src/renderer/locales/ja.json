@@ -5872,6 +5872,7 @@
   "{{count}} unmerged commits": "未マージのコミット {{count}} 件",
   "Background task": "バックグラウンドタスク",
   "Cache warm-up": "キャッシュのウォームアップ",
+  "Session title": "セッションのタイトル",
   "Merged · deleted at next cleanup": "マージ済み · 次の整理で削除",
   "Merged · will be cleaned up": "マージ済み · 整理の対象",
   "Merged · kept": "マージ済み · 保持",

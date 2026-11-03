@@ -6070,6 +6070,7 @@
   "{{count}} unmerged commits": "Неслитых коммитов: {{count}}",
   "Background task": "Фоновая задача",
   "Cache warm-up": "Прогрев кэша",
+  "Session title": "Название сеанса",
   "Merged · deleted at next cleanup": "Слито · удалится при следующей очистке",
   "Merged · will be cleaned up": "Слито · будет очищено",
   "Merged · kept": "Слито · сохранено",

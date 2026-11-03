@@ -6002,6 +6002,7 @@
   "{{count}} unmerged commits": "{{count}} commit non uniti",
   "Background task": "Attività in background",
   "Cache warm-up": "Preriscaldamento della cache",
+  "Session title": "Titolo della sessione",
   "Merged · deleted at next cleanup": "Unito · eliminato alla prossima pulizia",
   "Merged · will be cleaned up": "Unito · sarà pulito",
   "Merged · kept": "Unito · conservato",

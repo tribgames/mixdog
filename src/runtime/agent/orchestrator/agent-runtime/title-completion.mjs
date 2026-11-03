@@ -62,6 +62,11 @@ export function createTitleCompletion(deps = {}) {
         effort: String(route.effort || '').trim() || 'low',
         fast: route.fast === true,
         maxOutputTokens: 128,
+        // The spend belongs to the session being titled, and the request log
+        // names it a title call. `usageSessionId` only attributes the usage
+        // record: the provider still sees a one-shot, sessionless request.
+        ...(options.sessionId ? { usageSessionId: String(options.sessionId) } : {}),
+        sourceType: 'session-title',
         // Background call: an overloaded provider is not retried (nobody is
         // waiting on a title, and every retry adds load during a cascade).
         retry529: false,

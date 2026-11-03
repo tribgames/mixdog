@@ -62,6 +62,7 @@ function internalKindLabel(kind: string): string {
   if (kind === 'native-web-search') return t('Web search');
   if (kind === 'cache-warm') return t('Cache warm-up');
   if (kind === 'exec') return t('Heartbeat or exec run');
+  if (kind === 'session-title') return t('Session title');
   return t('Background task');
 }
 
