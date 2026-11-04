@@ -171,28 +171,28 @@ export function starterTours(): Record<StepId, TourStop[]> {
       {
         target: ['.settings-provider-cards', '.mixdog-settings__body'],
         title: t('Have a subscription? Sign in'),
-        body: t('Subscribed to ChatGPT, Claude or Grok? Press + and sign in.'),
+        body: t('Subscribed to ChatGPT, Claude, or Grok? Select a provider card to sign in.'),
         action: true,
       },
       {
         target: ['.settings-api-key-providers', '.mixdog-settings__body'],
         title: t('No subscription? Use an API key'),
-        body: t('Get a key, paste it here and save.'),
+        body: t('Choose an API-key provider, paste your key, and save.'),
         action: true,
       },
     ],
     project: [
       {
         target: '.projects-common-instructions .projects-row',
-        title: t('Memories'),
+        title: t('Common Memory'),
         body: t(
-          'Install Memory under Extensions → Built-in and turn on the Maintainer, and Mixdog remembers what matters.'
+          'Open Common Memory to add shared instructions. They apply to every new conversation in every project.'
         ),
       },
       {
         target: '.session-panel-action.projects-add',
         title: t('Add a project folder'),
-        body: t('Press + and pick a folder on this computer.'),
+        body: t('Click + and pick a folder on this computer.'),
         // The picker below needs a folder to offer, so the tour steps aside
         // for the add form and carries on once it closes — added or not.
         action: true,
@@ -203,7 +203,7 @@ export function starterTours(): Record<StepId, TourStop[]> {
       {
         target: '.composer-project-context',
         title: t('Choose the task project'),
-        body: t('Pick the project for each task. Open a project to add memories it should keep.'),
+        body: t('Pick the project to work in from the composer.'),
         action: true,
       },
     ],
@@ -211,12 +211,12 @@ export function starterTours(): Record<StepId, TourStop[]> {
       {
         target: '.workflows-packs .schedules-row',
         title: t('Workflows'),
-        body: t('A workflow sets how a request gets done. Open one to edit it.'),
+        body: t('A workflow sets the work rules the Lead follows. Open a workflow to view or edit its instructions.'),
       },
       {
         target: '.workflows-packs ~ section.workflows-models:last-of-type .schedules-row',
         title: t('Agents'),
-        body: t('Agents start off. Open one, turn it on and pick a model.'),
+        body: t("Turn on the agents you'll use and pick their models."),
       },
       // A New Task picks it in its context bar; a session tab shows it in the
       // route label and sets it from the model menu (the "simple" composer
@@ -228,13 +228,17 @@ export function starterTours(): Record<StepId, TourStop[]> {
           '.composer-model-line-controls .model-trigger',
         ],
         title: t('Delegation mode'),
-        body: t('Choose how much work goes to agents.'),
+        body: t(
+          'How the Lead delegates work to agents. Solo does it all, Assisted hands off side tasks, Collaborative splits by feature, and Swarm gives each scope its own agent.'
+        ),
       },
       {
         target: '[data-agent-id="maintainer"]',
         title: t('Turn on the Maintainer'),
-        body: t('The Maintainer handles upkeep like memory and session titles. Open it, turn it on and pick a model.'),
-        tip: t('Recommended: the cheapest model at the lowest effort is enough.'),
+        body: t(
+          'The Maintainer runs background jobs such as memory sorting, session titles, and conversation summaries, and those jobs do not run while it is off. Turn it on and pick a model.'
+        ),
+        tip: t('Recommended: use a cheap model at low effort.'),
         action: true,
       },
     ],
@@ -244,27 +248,27 @@ export function starterTours(): Record<StepId, TourStop[]> {
       {
         target: ['.conn-connect-device', '.mixdog-settings__body'],
         title: t('Connect a device'),
-        body: t('Choose the kind of device to connect.'),
+        body: t('Click Connect a device to pair with a QR code, browser, or pairing code.'),
         action: true,
       },
     ],
     extensions: [
       {
         target: '.extensions-pane[data-surface-active="true"] .sidebar-section-toolbar',
-        title: t('Extension type'),
-        body: t('Plugins add tools; skills teach agents how to work.'),
-      },
-      {
-        target: '.session-panel-action.extensions-add',
-        title: t('Add an extension'),
-        body: t('Press + to add one.'),
+        title: t('Extensions and Connectors'),
+        body: t(
+          'Use the tabs to switch between Extensions (Built-in features and installed plugins) and Connectors (external services and MCP servers).'
+        ),
       },
       // The built-in list ships with the app: pointing at it (and letting
-      // the user open one) is the fastest way to useful tools.
+      // the user open one) is the fastest way to useful tools. The panel's +
+      // installs outside plugins and connectors, so the tour skips it.
       {
         target: '.extensions-pane[data-surface-active="true"] .settings-group',
-        title: t('Built-in plugins'),
-        body: t('Ready-made tools like Git, Memory, Browser and Office. Install the ones you need.'),
+        title: t('Built-in'),
+        body: t(
+          'Pick what you need from the Built-in list—such as Git & GitHub, Memory, Browser Use, or Office. Open a row, then install it or turn on its switch.'
+        ),
         action: true,
       },
     ],
@@ -274,7 +278,9 @@ export function starterTours(): Record<StepId, TourStop[]> {
       {
         target: '.mixy-empty-create',
         title: t('Create representative bot'),
-        body: t('Press it to name the bot and pick its model.'),
+        body: t(
+          'The representative bot handles automations like schedules and webhooks. Click to set its name and model.'
+        ),
         action: true,
       },
     ],
@@ -386,7 +392,7 @@ export function StarterGuide({
     {
       id: 'provider',
       label: t('Connect a provider'),
-      hint: t('Sign in with an account or an API key.'),
+      hint: t('Sign in with a subscription account or paste an API key.'),
       doneWhen: t('Done when a provider is connected.'),
       icon: KeyRound,
       done: providerConnected(values.providerSetup),
@@ -396,7 +402,7 @@ export function StarterGuide({
     {
       id: 'project',
       label: t('Add a project'),
-      hint: t('Add a folder for Mixdog to work in.'),
+      hint: t('Add shared instructions and a project folder for Mixdog to work in.'),
       doneWhen: t('Done when a project is added or you finish this tour.'),
       icon: viewIcon('projects', GraduationCap),
       // A folder is optional (tasks run without one): finishing the tour
@@ -408,7 +414,7 @@ export function StarterGuide({
     {
       id: 'workflow',
       label: t('Set up workflows and agents'),
-      hint: t('Turn on agents and pick their models.'),
+      hint: t("Turn on the agents you'll use and pick their models."),
       doneWhen: t('Done when you finish this tour.'),
       icon: viewIcon('workflows', GraduationCap),
       done: state.visited.includes('workflow'),
@@ -418,7 +424,7 @@ export function StarterGuide({
     {
       id: 'remote',
       label: t('Set up remote access'),
-      hint: t('Follow and steer tasks from your phone.'),
+      hint: t('Pair a device to check and steer tasks remotely.'),
       doneWhen: t('Done when a device is paired or you finish this tour.'),
       icon: Smartphone,
       done: remotePaired || state.visited.includes('remote'),
@@ -428,7 +434,7 @@ export function StarterGuide({
     {
       id: 'extensions',
       label: t('Explore extensions'),
-      hint: t('Give agents more tools.'),
+      hint: t('Pick built-in features and connectors to give agents more tools.'),
       doneWhen: t('Done when you finish this tour.'),
       icon: viewIcon('extensions', GraduationCap),
       done: state.visited.includes('extensions'),
@@ -438,7 +444,7 @@ export function StarterGuide({
     {
       id: 'mixy',
       label: t('Create representative bot'),
-      hint: t('The representative bot helps with anything, sets up Mixdog and makes other bots.'),
+      hint: t('The default bot that runs automations such as schedules and webhooks.'),
       doneWhen: t('Done when the representative bot is created.'),
       icon: viewIcon('agents', Star),
       // Real state only: the host's created flag (mixy-identity.ts).
