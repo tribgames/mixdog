@@ -60,7 +60,7 @@ export function createInlineBootLoaders({
       // A loop turn between the two graph loads: one piece held the loop.
       await new Promise((resolve) => setImmediate(resolve));
       if (isClosed()) return false;
-      return (await module.warmLocalSessionRuntime?.()) !== false;
+      return (await module.warmLocalSessionRuntime?.({ isClosed })) !== false;
     } catch {
       return false;
     }

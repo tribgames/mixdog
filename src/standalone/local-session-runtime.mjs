@@ -43,7 +43,7 @@ import {
   spillWarningToStderr,
   sweepStaleTranscriptSpillDirsOnce,
 } from '../tui/session/transcript-spill.mjs';
-import { importInStages } from './staged-import.mjs';
+import { importInStages } from '../runtime/shared/staged-import.mjs';
 import { sessionStatusScheduler } from './session-status-scheduler.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
@@ -73,15 +73,22 @@ function importSessionRuntimeModule() {
 
 /**
  * Background warm-up for the daemon (scheduled after the ready signal): loads
- * the session-runtime module tree and runs the one-per-process transcript
- * spill sweep, so the first session.create pays for neither. Failures are
- * swallowed — create falls back to the same lazy import.
+ * the session-runtime module tree, then the modules a runtime boot and its
+ * first turn import lazily, and runs the one-per-process transcript spill
+ * sweep, so the first session.create pays for none of them. Failures are
+ * swallowed — create falls back to the same lazy imports. `isClosed` (the
+ * host shutting down) ends the warm-up at its next step: false.
  */
-export async function warmLocalSessionRuntime() {
+export async function warmLocalSessionRuntime({ isClosed = () => false } = {}) {
+  const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
   try {
-    await importSessionRuntimeModule();
-    // Separate turn: let queued I/O run between the import and the sync sweep.
-    await new Promise((resolve) => setImmediate(resolve));
+    const runtime = await importSessionRuntimeModule();
+    // Separate turns: let queued I/O run between the imports and the sync sweep.
+    await nextTurn();
+    if (isClosed()) return false;
+    await runtime.preloadSessionRuntimeModules({ isClosed });
+    await nextTurn();
+    if (isClosed()) return false;
     sweepStaleTranscriptSpillDirsOnce();
     return true;
   } catch {

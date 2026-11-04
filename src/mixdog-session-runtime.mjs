@@ -1,4 +1,5 @@
 export { createMixdogSessionRuntime } from './session-runtime/runtime-core.mjs';
+export { preloadSessionRuntimeModules } from './session-runtime/runtime-bootstrap.mjs';
 export {
   compactToolSearchDescription,
   defaultDeferredToolNames,

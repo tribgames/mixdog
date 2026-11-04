@@ -7,6 +7,7 @@ import { ensureStandaloneEnvironment } from './services/seeds.mjs';
 import { migrateOncePerProcess } from './boot/migrate-once.mjs';
 import { listOfficeJournals } from '../runtime/office/core/journal.mjs';
 import { bootProfile, profiledImport } from './boot-profile.mjs';
+import { prewarmAgentLoop } from '../runtime/agent/orchestrator/session/manager/runtime-loaders.mjs';
 import {
   RUNTIME,
   WEB_SEARCH_TOOL_DEFS,
@@ -42,6 +43,34 @@ export function prepareStandaloneEnvironment() {
 // Every module the runtime needs before it can wire anything, loaded in one
 // parallel batch. Tool-def modules are optional: a build without them resolves
 // to null and the corresponding tools simply never reach the surface.
+function importRuntimeModules() {
+  return Promise.all([
+    profiledImport('config', `${RUNTIME}/config.mjs`),
+    profiledImport('shared-config', `${RUNTIME}/../../shared/config.mjs`),
+    profiledImport('providers-registry', `${RUNTIME}/providers/registry.mjs`),
+    profiledImport('mcp-client', `${RUNTIME}/mcp/client.mjs`),
+    profiledImport('session-manager', `${RUNTIME}/session/manager.mjs`),
+    profiledImport('context-collect', `${RUNTIME}/context/collect.mjs`),
+    profiledImport('internal-tools', `${RUNTIME}/internal-tools.mjs`),
+    profiledImport('status-routes', STATUSLINE_SESSION_ROUTES, { optional: true }),
+    profiledImport('web-search-tool-defs', WEB_SEARCH_TOOL_DEFS, { optional: true }),
+    profiledImport('memory-tool-defs', MEMORY_TOOL_DEFS, { optional: true }),
+    profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
+  ]);
+}
+
+/**
+ * The host's warm-up, after the runtime graph itself: the modules a runtime
+ * boot and its first turn import lazily. Concurrent session opens share these
+ * imports (the agent loop's one staged load included), so loading them here
+ * takes their compilation off the open path. A closed host skips the rest.
+ */
+export async function preloadSessionRuntimeModules({ isClosed = () => false } = {}) {
+  await importRuntimeModules();
+  if (isClosed()) return;
+  await prewarmAgentLoop();
+}
+
 export async function loadRuntimeModules() {
   const startedAt = performance.now();
   const [
@@ -56,19 +85,7 @@ export async function loadRuntimeModules() {
     webSearchToolDefs,
     memoryToolDefs,
     codeGraphToolDefs,
-  ] = await Promise.all([
-    profiledImport('config', `${RUNTIME}/config.mjs`),
-    profiledImport('shared-config', `${RUNTIME}/../../shared/config.mjs`),
-    profiledImport('providers-registry', `${RUNTIME}/providers/registry.mjs`),
-    profiledImport('mcp-client', `${RUNTIME}/mcp/client.mjs`),
-    profiledImport('session-manager', `${RUNTIME}/session/manager.mjs`),
-    profiledImport('context-collect', `${RUNTIME}/context/collect.mjs`),
-    profiledImport('internal-tools', `${RUNTIME}/internal-tools.mjs`),
-    profiledImport('status-routes', STATUSLINE_SESSION_ROUTES, { optional: true }),
-    profiledImport('web-search-tool-defs', WEB_SEARCH_TOOL_DEFS, { optional: true }),
-    profiledImport('memory-tool-defs', MEMORY_TOOL_DEFS, { optional: true }),
-    profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
-  ]);
+  ] = await importRuntimeModules();
   bootProfile('imports:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   // Re-wire the idle/tombstone sweep. startIdleCleanup() lost its caller in a
   // refactor, so closed-session tombstones were never deleted after their 24h
