@@ -23,6 +23,8 @@ const { flushAllIndexWritesSync } = await import('./index-write-queue.mjs');
 const { createRestartFailureNotifier, restartNotificationId } = await import('./restart-notify.mjs');
 const { createWorkerIndex } = await import('./worker-index.mjs');
 const { createSpawnRunner } = await import('./spawn-flow/spawn-run.mjs');
+const { createWorkerTurns } = await import('./worker-turns.mjs');
+const { createTurnLifecycle } = await import('../../../runtime/shared/turn-lifecycle.mjs');
 const { createCloseAll } = await import('./close-flow/close-all.mjs');
 const pending = await import('../../../runtime/agent/orchestrator/session/manager/pending-messages.mjs');
 
@@ -251,17 +253,35 @@ test('a graceful quit fails a running agent as a restart failure that outlives i
     const index = workerIndex(dataDir);
     // Each row's turn runs as an agent job of `owner`, until its session closes.
     const endTurn = new Map();
+    // The canonical route reports each turn's start and its stop (turn-lifecycle.mjs).
+    const lifecycle = createTurnLifecycle();
+    const workerSession = (id) => ({ id, ownerSessionId: owner, parentSessionId: owner, agent: 'worker' });
+    const mgr = { getSession: (id) => ({ ...workerSession(id), messages: [] }) };
+    const sessionSurface = {
+      canonical: true,
+      canRun: () => true,
+      observeSessionTurns: lifecycle.observe,
+      runTurn: ({ session, submissionId }) =>
+        new Promise((_resolve, reject) => {
+          lifecycle.started(session.id, { turnId: session.id, startedAt: Date.now(), submissionIds: [submissionId] });
+          endTurn.set(session.id, () => {
+            lifecycle.settled(session.id, { turnId: session.id, status: 'cancelled' });
+            reject(new Error('Session closed'));
+          });
+        }),
+    };
     const runner = createSpawnRunner({
-      mgr: { getSession: () => ({ messages: [] }) },
-      upsertWorkerSessionDeferred: index.upsertWorkerSessionDeferred,
+      mgr,
+      workerTurns: createWorkerTurns({
+        mgr,
+        sessionSurface,
+        upsertWorkerSessionDeferred: index.upsertWorkerSessionDeferred,
+        tagForSession: (sessionId) => sessionId,
+        agentWatchdogOverrides: () => ({}),
+      }),
       emitSubagentEvent() {},
       createTurnReviewCollector: () => ({ onToolResult() {}, complete() {} }),
-      sessionSurface: {
-        canonical: true,
-        canRun: () => true,
-        runTurn: ({ session }) =>
-          new Promise((_resolve, reject) => endTurn.set(session.id, () => reject(new Error('Session closed')))),
-      },
+      sessionSurface,
     });
     const run = (sessionId) =>
       runner
@@ -269,13 +289,12 @@ test('a graceful quit fails a running agent as a restart failure that outlives i
           {
             args: {},
             tag: sessionId,
-            session: { id: sessionId, ownerSessionId: owner, parentSessionId: owner, agent: 'worker' },
+            session: workerSession(sessionId),
             agent: 'worker',
             preset: { provider: 'test-provider', model: 'test-model' },
             presetName: 'worker-route',
             workerCwd: root,
             prompt: 'work',
-            watchdogPolicy: null,
           },
           { callerSessionId: owner },
           registerBackgroundTask({

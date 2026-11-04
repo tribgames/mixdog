@@ -638,7 +638,7 @@ test('agent → agent: the Lead’s attachments reach a sub-agent turn and its p
       canUseSessionSurface: () => canonical,
       registry: { tagForSession: () => 'w1' },
       views: { isSessionBusy: () => true },
-      spawnFlow: {},
+      spawnFlow: { workerTurns: { observe() {} } },
     });
   for (const canonical of [false, true]) {
     await sendFlowFor(canonical).dispatchToExistingSession(
@@ -696,7 +696,6 @@ test('agent → agent: the Lead’s attachments reach a sub-agent turn and its p
     entryForSession: async () => ({ runtime }),
     retainUnwatched: () => {},
     createSession: async () => {},
-    takeWatchdogStop: () => null,
     takeCancelTranscript: () => null,
   });
   const result = await runAgentTurn({ session: descriptor, prompt: content });

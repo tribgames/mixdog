@@ -77,7 +77,7 @@ function tool(sessionId, { busy = true, startJob = () => ({}) } = {}) {
     canUseSessionSurface: () => false,
     registry,
     views: { isSessionBusy: () => busy, renderJob: () => ({ status: 'running' }) },
-    spawnFlow: { startJob },
+    spawnFlow: { workerTurns: { observe() {} }, startJob },
   });
   const spawnResult = () => 'spawned';
   const { send } = createSendDispatch({ registry, defaultCwd: process.cwd(), sendFlow, spawnFlow: {}, spawnResult });

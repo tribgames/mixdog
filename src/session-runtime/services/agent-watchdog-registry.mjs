@@ -74,26 +74,13 @@ export function createProgressWatchdogRegistry({ mgr }) {
     state.error = null;
     const snapshot =
       typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
-    // Turn boundary: askStartedAt is re-stamped by markSessionAskStart for
-    // EVERY turn of one askSession call, including the follow-up turns drained
-    // from the pending-message queue. The sweep already reads this snapshot, so
-    // observing the change is the cheapest per-turn signal available here.
-    const askStartedAt = Number(snapshot?.askStartedAt || 0);
-    if (askStartedAt > 0 && askStartedAt !== state.lastAskStartedAt) {
-      state.lastAskStartedAt = askStartedAt;
-      try {
-        state.onTurnStart?.(askStartedAt);
-      } catch {
-        /* bookkeeping only */
-      }
-    }
     const sess = typeof mgr.getSession === 'function' ? mgr.getSession(sessionId) : null;
     const iteration = typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null;
-    // In-turn progress. The worker index is otherwise stamped only at spawn and
-    // at turn boundaries, so a FIRST turn that runs dozens of tool iterations
-    // leaves the Agents panel frozen on its start stamp for minutes (user
-    // report: 위임한 세션이 안 도는 것처럼 보인다). This sweep already holds the
-    // live session, so reporting the change costs no extra read.
+    // In-turn progress. The worker index is otherwise stamped only at turn
+    // boundaries, so a turn that runs dozens of tool iterations leaves the
+    // Agents panel frozen on its start stamp for minutes (user report: 위임한
+    // 세션이 안 도는 것처럼 보인다). This sweep already holds the live
+    // session, so reporting the change costs no extra read.
     if (state.onProgress) {
       const messages = Array.isArray(sess?.messages) ? sess.messages.length : Number(sess?.messageCount) || 0;
       const signature = `${iteration ?? ''}:${messages}:${snapshot?.lastProgressAt || 0}`;
@@ -198,7 +185,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
     /** Watch a session until the returned handle is stopped; null when the
      *  policy is off or the manager has no progress or abort hooks. A session
      *  whose runtime is not loaded yet is linked on a later sweep. */
-    start(sessionId, watchdogPolicy, agent = null, { onTurnStart = null, onProgress = null } = {}) {
+    start(sessionId, watchdogPolicy, agent = null, { onProgress = null } = {}) {
       if (!sessionId || !agentWatchdogPolicyActive(watchdogPolicy)) return null;
       if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function')
         return null;
@@ -212,9 +199,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
         unlink: null,
         linked: false,
         anchorTs: Date.now(),
-        onTurnStart: typeof onTurnStart === 'function' ? onTurnStart : null,
         onProgress: typeof onProgress === 'function' ? onProgress : null,
-        lastAskStartedAt: 0,
         lastProgressSignature: '',
       };
       link(state);

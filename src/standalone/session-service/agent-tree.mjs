@@ -12,6 +12,7 @@ import { createAgentRegistry } from './agent-tree/agent-registry.mjs';
 import { createAgentRehydration, lastStoredAgentHandoff } from './agent-tree/agent-rehydrate.mjs';
 import { agentTurnContent, agentTurnTranscriptMeta, createAgentTurns } from './agent-tree/agent-turns.mjs';
 import { randomUUID } from 'node:crypto';
+import { sessionTurns } from '../../runtime/shared/turn-lifecycle.mjs';
 
 export { SESSION_ID_PATTERN } from './agent-tree/agent-registry.mjs';
 
@@ -34,15 +35,6 @@ export function createAgentTree({
   const registry = createAgentRegistry();
   const progress = new Map();
   const progressReads = new Set();
-  // Stall errors of turns the progress watchdog stopped. The runtime reports
-  // such a turn only as cancelled; this lets it surface as a watchdog stop
-  // with partial output instead of a user cancel.
-  const watchdogStops = new Map();
-  const takeWatchdogStop = (sessionId) => {
-    const error = watchdogStops.get(sessionId) || null;
-    watchdogStops.delete(sessionId);
-    return error;
-  };
   // Transcripts of running turns captured by a cancel just before it closes
   // (and clears) the session, so the cancelled turn still reports the output
   // it produced.
@@ -106,7 +98,6 @@ export function createAgentTree({
     entryForSession,
     retainUnwatched,
     createSession,
-    takeWatchdogStop,
     takeCancelTranscript,
   });
   const { cancelAgentTree, cancelAgentDescendants } = createAgentCancellation({
@@ -149,6 +140,9 @@ export function createAgentTree({
     canRun: (session) => Boolean(registry.get(session?.id)),
     createChild: createAgentChild,
     runTurn: runAgentTurn,
+    /** Every turn a child's runtime runs, whoever submitted it
+     *  (runtime/shared/turn-lifecycle.mjs); returns the unsubscribe. */
+    observeSessionTurns: (sessionId, observer) => sessionTurns.observe(sessionId, observer),
     /** A model or tuning change for a reused child goes through the session's
      *  own route API: saved at once, applied from the next turn (never refused
      *  because a turn is running). `route` may be partial; the route write
@@ -213,13 +207,14 @@ export function createAgentTree({
     linkParentSignalToSession(sessionId, signal) {
       const runtime = sessionOwner(sessionId)?.runtime;
       if (typeof runtime?.abort !== 'function') throw new Error(`agent runtime cannot abort session ${sessionId}`);
+      // The stall error travels as the abort's cause: the stopped turn's own
+      // settlement carries it, never a later turn's.
       const abort = () => {
-        watchdogStops.set(sessionId, signal.reason);
-        Promise.resolve(runtime.abort({ restorePrompt: false, reason: 'agent-watchdog', timeout: true })).catch(
-          (error) => {
-            log(`agent watchdog abort failed session=${sessionId}: ${error?.message || error}`);
-          }
-        );
+        Promise.resolve(
+          runtime.abort({ restorePrompt: false, reason: 'agent-watchdog', timeout: true, cause: signal.reason })
+        ).catch((error) => {
+          log(`agent watchdog abort failed session=${sessionId}: ${error?.message || error}`);
+        });
       };
       if (signal.aborted) abort();
       else signal.addEventListener('abort', abort, { once: true });

@@ -1,8 +1,9 @@
 /**
- * agent-tool/spawn-flow/spawn-run.mjs — one prepared worker's turn: the
- * progress-idle watchdog with its worker-row stampers, turn-review
- * collection, the terminal completion value (abnormal-empty finishes
- * promoted to errors), watchdog partial handoff, and terminal accounting.
+ * agent-tool/spawn-flow/spawn-run.mjs — one prepared worker's turn:
+ * turn-review collection, the terminal completion value (abnormal-empty
+ * finishes promoted to errors), watchdog partial handoff, and terminal
+ * accounting. The worker row and the progress watchdog follow the turn
+ * itself (../worker-turns.mjs).
  */
 import { createNotify } from '../notify.mjs';
 import {
@@ -13,33 +14,22 @@ import {
   terminalResultHook,
 } from '../job-task-reconcile.mjs';
 import { abnormalEmptyFinishError } from '../render.mjs';
-import { createProgressWatchdogRegistry } from '../../agent-watchdog-registry.mjs';
 import {
-  isAgentProgressWatchdogAbortError,
   noteStoppedShellJobsOnError,
   resolveHandoffMessageStartIndex,
   turnPartialHandoff,
   watchdogPartialHandoffFromError,
   watchdogStoppedHandoff,
 } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
-import { settledWorkerStatus } from '../worker-index/row-liveness.mjs';
-import { saveSessionAsync } from '../../../../runtime/agent/orchestrator/session/store.mjs';
 import { presetDescriptor } from './spawn-prep.mjs';
-import { workerStageForStatus } from '../worker-rows.mjs';
 import { handoffContent } from '../../../handoff-attachments.mjs';
 import { whileTurnDispatched } from '../../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { takeStoppedShellJobs } from '../../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import { turnReportText } from '../../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
 
-// Mid-turn worker persistence cadence. The watchdog sweep runs every second;
-// a transcript save is far more expensive than a bookkeeping stamp, so the
-// in-progress snapshot lands on this slower clock.
-const AGENT_PROGRESS_SAVE_MS = 2_000;
-
 export function createSpawnRunner({
   mgr,
-  upsertWorkerSessionDeferred,
-  notifyStatusChange = () => {},
+  workerTurns,
   notifySessionCompletion,
   emitSubagentEvent,
   sessionSurface = null,
@@ -51,57 +41,6 @@ export function createSpawnRunner({
     notifySessionCompletion,
     onWorkerCompletionQueued,
   });
-
-  // Idle-progress watchdogs (shared sweep timer) live in
-  // agent-watchdog-registry.mjs.
-  const progressWatchdogs = createProgressWatchdogRegistry({ mgr });
-  const startProgressIdleWatchdog = (sessionId, watchdogPolicy, agent = null, options = {}) =>
-    progressWatchdogs.start(sessionId, watchdogPolicy, agent, options);
-
-  // Queued `agent type=send` prompts run as follow-up turns INSIDE one
-  // askSession call, so the dispatch stamp alone would keep the panel elapsed
-  // growing across them. The watchdog sweep reports each turn's start; re-stamp
-  // the worker-index row so elapsed resets at the queued-turn boundary.
-  const turnStartStamper = (session, tag) => (turnStartedAtMs) => {
-    upsertWorkerSessionDeferred(session, tag, {
-      status: 'running',
-      stage: 'running',
-      turnStartedAt: new Date(turnStartedAtMs).toISOString(),
-    });
-  };
-
-  // In-turn progress stamp. turnStartStamper only fires at a TURN boundary, so
-  // one long first turn (a review agent easily runs 20+ tool iterations) left
-  // the worker row untouched for minutes and the panel looked stalled. The
-  // watchdog sweep reports each observed change; the row keeps its own live
-  // message count and updatedAt from it.
-  const progressStamper = (session, tag) => {
-    let lastSavedAt = 0;
-    return (progress = {}) => {
-      const messages = Number(progress?.messages) || 0;
-      upsertWorkerSessionDeferred(session, tag, {
-        status: 'running',
-        stage: workerStageForStatus('running', progress.stage),
-        ...(messages > 0 ? { messages } : {}),
-      });
-      // The canonical runtime owns persistence; this session is only its descriptor.
-      if (sessionSurface?.canonical === true) return;
-      // Mid-turn durability. A worker transcript otherwise reaches disk only
-      // when the turn ENDS, so a pane opened on a running worker shows the
-      // prompt and nothing after it — the work is real but invisible to every
-      // viewer. Persisting on the sweep makes the in-progress transcript
-      // readable like any other session. Throttled: a transcript save is not
-      // free, and the sweep runs every second.
-      const now = Date.now();
-      if (now - lastSavedAt < AGENT_PROGRESS_SAVE_MS) return;
-      lastSavedAt = now;
-      try {
-        Promise.resolve(saveSessionAsync(session)).catch(() => {});
-      } catch {
-        /* progress persistence is best-effort */
-      }
-    };
-  };
 
   // Promote an abnormal finish (iteration cap, truncation, or a public agent's
   // empty terminal turn) to an explicit error, so the Lead receives it as a
@@ -147,24 +86,13 @@ export function createSpawnRunner({
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {
-    const { tag, session, agent, preset, presetName, watchdogPolicy } = prepared;
-    const watchdog = startProgressIdleWatchdog(session.id, watchdogPolicy, agent, {
-      onTurnStart: turnStartStamper(session, tag),
-      onProgress: progressStamper(session, tag),
-    });
+    const { tag, session, agent, preset, presetName } = prepared;
+    const turn = workerTurns.claim(session, job);
     const turnReview = createTurnReviewCollector(session, tag, agent, notifyContext || {});
     const completionValue = completionValueFor(prepared);
     let finalStatus = 'idle';
-    let stalled = false;
     // SubagentStart: a worker session is about to run its first turn.
     emitSubagentEvent('start', agent, { session_id: session.id, tag });
-    upsertWorkerSessionDeferred(session, tag, {
-      ...presetDescriptor(agent, preset, presetName),
-      status: 'running',
-      stage: 'running',
-      turnStartedAt: new Date().toISOString(),
-    });
-    notifyStatusChange();
     let handoffMsgStart = 0;
     // A cancelled turn reports the output it produced before it stopped.
     const settleCancelled = (error, result = null) => {
@@ -179,6 +107,7 @@ export function createSpawnRunner({
     try {
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(session.id));
       const turnHooks = {
+        submissionId: turn.submissionId,
         notifyFn: workerNotifyFn(session.id),
         onToolResult: (message) => turnReview.onToolResult(message),
         ...(job
@@ -217,7 +146,6 @@ export function createSpawnRunner({
         settleCancelled(error);
         throw error;
       }
-      stalled = isAgentProgressWatchdogAbortError(error);
       const partial = watchdogPartialHandoffFromError(error, mgr.getSession(session.id), handoffMsgStart);
       if (partial) {
         finalStatus = 'idle';
@@ -242,13 +170,7 @@ export function createSpawnRunner({
       throw error;
     } finally {
       turnReview.complete();
-      watchdog?.stop?.();
-      upsertWorkerSessionDeferred(session, tag, {
-        ...presetDescriptor(agent, preset, presetName),
-        ...settledWorkerStatus(finalStatus, stalled, job),
-        finishedAt: new Date().toISOString(),
-      });
-      setImmediate(notifyStatusChange);
+      turn.release(finalStatus);
       reconcileJobFinally(job, finalStatus);
       // SubagentStop: worker finished (terminal), regardless of outcome.
       emitSubagentEvent('stop', agent, { session_id: session.id, tag, status: finalStatus });
@@ -264,10 +186,6 @@ export function createSpawnRunner({
   return {
     workerNotifyFn,
     notifyOwnerAgentCompletionEarly,
-    progressWatchdogs,
-    startProgressIdleWatchdog,
-    turnStartStamper,
-    progressStamper,
     runSpawn,
   };
 }

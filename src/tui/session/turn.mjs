@@ -25,6 +25,7 @@ import { turnFailureRecord } from '../../runtime/agent/orchestrator/session/turn
 import { providerDisplayName } from '../../runtime/shared/provider-display-name.mjs';
 import { clearDesktopNotice, raiseDesktopNotice } from '../../runtime/shared/desktop-notice-host.mjs';
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
+import { sessionTurns } from '../../runtime/shared/turn-lifecycle.mjs';
 import {
   isReactionSuccess,
   reactionCallIds,
@@ -123,7 +124,7 @@ export function applyTurnRouteMetadata(ctx, session) {
   for (const id of ctx.turn.submittedIds) ctx.patchItem(id, metadata);
 }
 
-function beginTurn({ flags, getState, transcriptRouteMetadata }, options) {
+function beginTurn({ runtime, flags, getState, transcriptRouteMetadata }, options) {
   const index = getState().stats.turns || 0;
   const startedAt = Date.now();
   const completionVerb = pickDoneVerb(index);
@@ -138,6 +139,8 @@ function beginTurn({ flags, getState, transcriptRouteMetadata }, options) {
   const { at: _userItemAt, messageId: _promptMessageId, ...routeMeta } = transcriptMeta;
   return {
     index,
+    // The session this turn runs on, as its lifecycle reports it.
+    sessionId: runtime?.id || '',
     startedAt,
     completionVerb,
     transcriptMeta,
@@ -670,6 +673,10 @@ async function settleTurn(ctx) {
   ctx.flushEmit?.();
   stream.publishedThinkingActive = false; // turn teardown cleared thinking
   const finalStatus = turnOutcome(turn.cancelled, turn.failed);
+  // What stopped this turn, as its abort named it (abort.mjs): a watchdog
+  // stop carries its stall error to the turn's own settlement.
+  const stop = flags.turnAbort?.epoch === turn.epoch ? flags.turnAbort : null;
+  if (stop) flags.turnAbort = null;
   const detail = {
     status: finalStatus,
     result: turn.askResult,
@@ -677,12 +684,14 @@ async function settleTurn(ctx) {
     error: turn.failureDetail || null,
     errorKind: turn.failed ? turn.errorKind || null : null,
     ...(turn.failed && turn.carriedReport ? { carriedReport: turn.carriedReport } : {}),
+    ...(stop ? { abortReason: stop.reason, ...(stop.cause ? { abortCause: stop.cause } : {}) } : {}),
   };
   // Publish termination before optional Goal work can delay the caller.
   bag.settleSteeredSubmissions?.(turn.epoch, detail);
   try {
     options.onSettled?.(detail);
   } catch {}
+  sessionTurns.settled(turn.sessionId, { turnId: turn.transcriptMeta.attemptId, ...detail });
   // A quota failure suspends only a Goal that was running when it struck.
   const quotaFailed = turn.failed && turn.quota && isCurrentTurn();
   const goalBefore = quotaFailed ? runtime.goalStatus?.() || null : null;
@@ -787,6 +796,13 @@ export function createRunTurn(bag) {
     const stopTaskWaitSteeringCheck = registerTaskWaitSteeringCheck(
       (sessionId) => isCurrentTurn() && runtime.id === sessionId && bag.pendingTaskWaitWake()
     );
+    // Every turn reports its real start, whoever submitted it; settleTurn
+    // below reports its outcome.
+    sessionTurns.started(turn.sessionId, {
+      turnId: turn.transcriptMeta.attemptId,
+      startedAt: turn.startedAt,
+      submissionIds: turn.submittedIds,
+    });
     try {
       const { result, session } = await runtime.ask(userText, {
         id: turn.submittedIds[0],

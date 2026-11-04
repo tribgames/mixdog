@@ -1,7 +1,5 @@
 import {
-  isAgentProgressWatchdogAbortError,
   noteStoppedShellJobsOnError,
-  resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   turnPartialHandoff,
   watchdogPartialHandoffFromError,
@@ -32,7 +30,6 @@ import {
 import { createTurnReviewCollector } from './turn-review.mjs';
 import { handoffContent } from '../../handoff-attachments.mjs';
 import { rebindDelegation } from '../../../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
-import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
 import { whileTurnDispatched } from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { takeStoppedShellJobs } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import { turnReportText } from '../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
@@ -53,8 +50,8 @@ export function followAgentPermission(session, { dataDir, sourceRoot }) {
 }
 
 // `send` to an existing worker: resolve the live session, run one follow-up
-// turn under the progress watchdog, and reconcile the job/worker row. Busy
-// sessions queue the prompt instead.
+// turn and reconcile its job; the worker row and watchdog follow the turn
+// itself (worker-turns.mjs). Busy sessions queue the prompt instead.
 export function createSendFlow({
   mgr,
   cfgMod = null,
@@ -133,32 +130,10 @@ export function createSendFlow({
     const { args, session, sessionId } = prepared;
     const sendAgent = session.agent || normalizeAgentName(args.agent);
     const tag = registry.tagForSession(sessionId);
-    // Queued sends run as follow-up turns inside this same askSession call;
-    // the watchdog sweep re-stamps turnStartedAt at each turn boundary.
-    const watchdogPolicy = resolveAgentWatchdogPolicy(
-      sendAgent,
-      spawnFlow.agentWatchdogOverrides({
-        agent: sendAgent,
-        provider: session.provider,
-        model: session.model,
-        ...(session.modelParameters ? { modelParameters: session.modelParameters } : {}),
-      })
-    );
-    const watchdog = spawnFlow.startProgressIdleWatchdog(sessionId, watchdogPolicy, sendAgent, {
-      onTurnStart: spawnFlow.turnStartStamper(session, tag),
-      onProgress: spawnFlow.progressStamper(session, tag),
-    });
+    const turn = spawnFlow.workerTurns.claim(session, job);
     const turnReview = createTurnReviewCollector(session, tag, sendAgent, notifyContext || {});
     const completionValue = completionValueFor({ session, tag, sessionId, sendAgent });
     let finalStatus = 'idle';
-    let stalled = false;
-    registry.upsertWorkerSessionDeferred(session, tag, {
-      status: 'running',
-      stage: 'running',
-      // The send's own task: a restart that ends this turn reports it by id.
-      task_id: job?.taskId,
-      turnStartedAt: new Date().toISOString(),
-    });
     let handoffMsgStart = 0;
     // A cancelled turn reports the output it produced before it stopped.
     const settleCancelled = (error, result = null) => {
@@ -171,7 +146,7 @@ export function createSendFlow({
     try {
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(sessionId));
       const turnHooks = buildTurnHooks({ sessionId, notifyContext, job, turnReview, completionValue });
-      const result = await runTurn(prepared, turnHooks);
+      const result = await runTurn(prepared, { ...turnHooks, submissionId: turn.submissionId });
       // The early preview does not suppress the canonical body notification;
       // notifyTaskCompletion fires once with output via resolve/reconcile.
       const finalValue = completionValue(result);
@@ -190,7 +165,6 @@ export function createSendFlow({
         settleCancelled(error);
         throw error;
       }
-      stalled = isAgentProgressWatchdogAbortError(error);
       const partial = watchdogPartialHandoffFromError(error, mgr.getSession(sessionId), handoffMsgStart);
       if (partial) {
         finalStatus = 'idle';
@@ -209,11 +183,7 @@ export function createSendFlow({
       throw error;
     } finally {
       turnReview.complete();
-      watchdog?.stop?.();
-      registry.upsertWorkerSessionDeferred(session, tag, {
-        ...settledWorkerStatus(finalStatus, stalled, job),
-        finishedAt: new Date().toISOString(),
-      });
+      turn.release(finalStatus);
       reconcileJobFinally(job, finalStatus);
       // Same lifecycle as a fresh spawn: the transcript/tag stays resumable,
       // while heavy process-local runtime state is reclaimed immediately.
@@ -312,6 +282,9 @@ export function createSendFlow({
     const prepared = routed.route ? await applyRequestedRoute(routed) : routed;
     const { session, sessionId, prompt } = prepared;
     const tag = registry.tagForSession(sessionId);
+    // Queued work runs as the worker's own later turn (or steers into the
+    // running one): the owner follows it from that turn's start.
+    if (views.isSessionBusy(sessionId)) spawnFlow.workerTurns.observe(session);
     if (canUseSessionSurface(session) && views.isSessionBusy(sessionId)) {
       const queued = await sessionSurface.enqueueTurn({
         session,

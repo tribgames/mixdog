@@ -45,6 +45,7 @@ function sendFlowHarness({ busy }) {
     registry: { tagForSession: () => 'w2' },
     views: { isSessionBusy: () => busy, renderJob: () => ({}) },
     spawnFlow: {
+      workerTurns: { observe() {} },
       startJob: (type, meta, _run, notifyContext) => {
         jobs.push({ type, meta, notifyContext });
         return { id: 'job' };
