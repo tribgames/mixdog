@@ -19,7 +19,9 @@ const { flushAllIndexWrites } = await import('./index-write-queue.mjs');
 const { MAINTENANCE_EVENT_DELAY_MS, agentMaintenanceSettled, runAgentMaintenancePass } = await import(
   './maintenance-pass.mjs'
 );
-const { resolveAgentTerminalReapMs } = await import('../../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs');
+const { resolveAgentTerminalReapMs } = await import(
+  '../../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs'
+);
 const { TAG_TOMBSTONE_TTL_MS } = await import('./worker-rows.mjs');
 const { _liveSessions } = await import('../../../runtime/agent/orchestrator/session/store/live-state.mjs');
 const { sessionPath } = await import('../../../runtime/agent/orchestrator/session/store/session-paths.mjs');
@@ -79,19 +81,19 @@ function workerRow(lead, id, tag, status, ageMs, now) {
 // The worker's session record, saved (and so live) in this process.
 function saveWorkerSession(row) {
   return saveSessionDurably({
-      id: row.sessionId,
-      owner: 'agent',
-      agent: row.agent,
-      agentTag: row.tag,
-      ownerSessionId: row.ownerSessionId,
-      parentSessionId: row.parentSessionId,
-      clientHostPid: row.clientHostPid,
-      status: row.status,
-      provider: row.provider,
-      model: row.model,
-      messages: [],
-      createdAt: Date.parse(row.createdAt),
-      updatedAt: Date.parse(row.updatedAt),
+    id: row.sessionId,
+    owner: 'agent',
+    agent: row.agent,
+    agentTag: row.tag,
+    ownerSessionId: row.ownerSessionId,
+    parentSessionId: row.parentSessionId,
+    clientHostPid: row.clientHostPid,
+    status: row.status,
+    provider: row.provider,
+    model: row.model,
+    messages: [],
+    createdAt: Date.parse(row.createdAt),
+    updatedAt: Date.parse(row.updatedAt),
   });
 }
 
@@ -143,7 +145,13 @@ async function scenario(t, { leads = 4, sharedTool = false, sessionManager = mgr
   const file = join(dataDir, 'agent-workers.json');
   // A legacy tombstone (no owner): its owner is recovered from the sessions.
   const tombstones = {
-    legacy: { tag: 'gone-w', agent: 'worker', clientHostPid: process.pid, sessionId: `${tag}_gone`, reapedAt: iso(now) },
+    legacy: {
+      tag: 'gone-w',
+      agent: 'worker',
+      clientHostPid: process.pid,
+      sessionId: `${tag}_gone`,
+      reapedAt: iso(now),
+    },
   };
   writeFileSync(file, JSON.stringify({ version: 2, workers, tombstones }));
   const jobs = leadIds.map((lead) =>
@@ -597,8 +605,7 @@ test('the maintenance pass yields between scopes and one failing scope skips no 
   const writer = indexWriter(t, ctx);
   const ghost = ghostRow(reaped, 'ghost');
   writer.writeWorkerRows((byKey) => byKey.set(ghost.sessionId, ghost));
-  const listedGhost = () =>
-    ctx.shown(ctx.pulse())[2].workers.includes(`ghost-w:running:${ghost.sessionId}`);
+  const listedGhost = () => ctx.shown(ctx.pulse())[2].workers.includes(`ghost-w:running:${ghost.sessionId}`);
   assert.ok(listedGhost());
 
   failFor = ctx.running.get(failing);

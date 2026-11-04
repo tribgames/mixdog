@@ -242,7 +242,11 @@ function closeWindow() {
   const elu = performance.eventLoopUtilization(eluStart);
   const cpu = process.cpuUsage(cpuStart);
   const ms = (nanoseconds) => Math.round((nanoseconds / 1e6) * 100) / 100;
-  const timers = [...timerSites].map(([site, stat]) => ({ site, ...stat, busyMs: Math.round(stat.busyMs * 100) / 100 }));
+  const timers = [...timerSites].map(([site, stat]) => ({
+    site,
+    ...stat,
+    busyMs: Math.round(stat.busyMs * 100) / 100,
+  }));
   return {
     elapsedMs: Math.round(elapsedMs),
     activeMs: Math.round(elu.active),
@@ -258,7 +262,11 @@ function closeWindow() {
     timerBusyMs: Math.round(timers.reduce((sum, stat) => sum + stat.busyMs, 0) * 100) / 100,
     promiseTimers: [...promiseTimers].map(([site, count]) => ({ site, count })),
     storageTouches: Object.fromEntries([...storageTouches].sort()),
-    atomicsWaits: [...atomicsWaits].map(([site, stat]) => ({ site, count: stat.count, blockedMs: Math.round(stat.blockedMs) })),
+    atomicsWaits: [...atomicsWaits].map(([site, stat]) => ({
+      site,
+      count: stat.count,
+      blockedMs: Math.round(stat.blockedMs),
+    })),
     ...(ticker ? { gapTicker: stopTicker(ticker) } : {}),
   };
 }

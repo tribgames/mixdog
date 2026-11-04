@@ -32,7 +32,7 @@ function scripted(replies) {
       clock.t += ms;
     },
     client: {
-      async call(name, args) {
+      async call(_name, args) {
         const kind = args.action === 'getTurnLiveness' ? 'liveness' : 'transcript';
         log.push(kind);
         const reply = replies.shift();

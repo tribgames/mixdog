@@ -42,12 +42,31 @@ function mulberry32(seed) {
 /** A pool of paragraphs of pseudo-prose / code-ish text, so records are not
  *  one repeated byte (JSON.parse and stringify cost depends on content). */
 function textPool(rand) {
-  const syllables = ['ses', 'ion', 'sto', 're', 'lock', 'ev', 'ent', 'loop', 'sav', 'wri', 'te', 'ren', 'ame', 'tool', 'ca', 'll'];
-  const word = () => Array.from({ length: 1 + Math.floor(rand() * 3) }, () => syllables[Math.floor(rand() * syllables.length)]).join('');
+  const syllables = [
+    'ses',
+    'ion',
+    'sto',
+    're',
+    'lock',
+    'ev',
+    'ent',
+    'loop',
+    'sav',
+    'wri',
+    'te',
+    'ren',
+    'ame',
+    'tool',
+    'ca',
+    'll',
+  ];
+  const word = () =>
+    Array.from({ length: 1 + Math.floor(rand() * 3) }, () => syllables[Math.floor(rand() * syllables.length)]).join('');
   return Array.from({ length: 400 }, () => {
     const sentences = 2 + Math.floor(rand() * 10);
-    return Array.from({ length: sentences }, () =>
-      Array.from({ length: 6 + Math.floor(rand() * 14) }, word).join(' ') + (rand() < 0.2 ? '();' : '.')
+    return Array.from(
+      { length: sentences },
+      () => Array.from({ length: 6 + Math.floor(rand() * 14) }, word).join(' ') + (rand() < 0.2 ? '();' : '.')
     ).join(' ');
   });
 }
@@ -99,7 +118,7 @@ function transcriptMessages({ rand, pool, targetBytes, sessionId }) {
   return messages;
 }
 
-function archiveSegments({ rand, pool, targetBytes, sessionId, now }) {
+function archiveSegments({ rand, pool, targetBytes, now }) {
   const segments = [];
   let total = 0;
   for (let seq = 1; total < targetBytes; seq += 1) {
@@ -116,7 +135,13 @@ function archiveSegments({ rand, pool, targetBytes, sessionId, now }) {
       items.push(item);
       bytes += JSON.stringify(item).length + 1;
     }
-    items.push({ kind: 'statusdone', id: `arch${seq}_divider`, status: 'compacted', label: 'Conversation compacted', at: now });
+    items.push({
+      kind: 'statusdone',
+      id: `arch${seq}_divider`,
+      status: 'compacted',
+      label: 'Conversation compacted',
+      at: now,
+    });
     segments.push({ seq, prev: seq > 1 ? seq - 1 : null, at: now - (1000 - seq) * 60_000, items });
     total += bytes;
   }
@@ -180,11 +205,24 @@ export async function seedBusyStore({
   for (let index = 0; index < busy; index += 1) {
     const profile = BUSY_PROFILES[index % BUSY_PROFILES.length];
     const id = `sess_busy_${String(index).padStart(3, '0')}`;
-    const record = sessionRecord({ id, cwd: busyCwd, title: `busy session ${index}`, now, ageMs: index * 60_000, provider, model });
+    const record = sessionRecord({
+      id,
+      cwd: busyCwd,
+      title: `busy session ${index}`,
+      now,
+      ageMs: index * 60_000,
+      provider,
+      model,
+    });
     record.messages = transcriptMessages({ rand, pool, targetBytes: profile.jsonMb * MB * sizeScale, sessionId: id });
     let archiveBytes = 0;
     if (profile.archiveMb > 0) {
-      const segments = archiveSegments({ rand, pool, targetBytes: profile.archiveMb * MB * sizeScale, sessionId: id, now });
+      const segments = archiveSegments({
+        rand,
+        pool,
+        targetBytes: profile.archiveMb * MB * sizeScale,
+        now,
+      });
       const text = `${segments.map((segment) => compactionSegmentLine(segment)).join('\n')}\n`;
       archiveBytes = Buffer.byteLength(text);
       record.compaction = { archive: { nextSeq: segments.length + 1, clearedThrough: 0 } };
@@ -202,7 +240,15 @@ export async function seedBusyStore({
   const fillerCount = Math.max(0, files - busy);
   for (let index = 0; index < fillerCount; index += 1) {
     const id = `sess_fill_${String(index).padStart(4, '0')}`;
-    const record = sessionRecord({ id, cwd, title: `stored session ${index}`, now, ageMs: (busy + index + 1) * 120_000, provider, model });
+    const record = sessionRecord({
+      id,
+      cwd,
+      title: `stored session ${index}`,
+      now,
+      ageMs: (busy + index + 1) * 120_000,
+      provider,
+      model,
+    });
     const targetBytes = (40 * 1024 + rand() ** 2 * 1.6 * MB) * sizeScale;
     record.messages = transcriptMessages({ rand, pool, targetBytes, sessionId: id });
     const text = JSON.stringify(record);

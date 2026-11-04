@@ -119,7 +119,15 @@ test('a probe that stays connected but never answers stop cannot hold the cleanu
   let failure = null;
   const outcome = await Promise.race([
     // `cleanupProbeDeadlineMs` is the test-only override of the 150 s bound.
-    runBusyScenario({ daemon, treeRoot: TREE, seeded, repoDir, config, summarize: () => ({}), cleanupProbeDeadlineMs: 500 }).then(
+    runBusyScenario({
+      daemon,
+      treeRoot: TREE,
+      seeded,
+      repoDir,
+      config,
+      summarize: () => ({}),
+      cleanupProbeDeadlineMs: 500,
+    }).then(
       () => 'resolved',
       (error) => {
         failure = error;
@@ -182,7 +190,14 @@ test('a stop answered late on the measured path succeeds and reports its round t
       lockEveryMs: 500,
       listRefresh: false,
     };
-    const run = await runBusyScenario({ daemon, treeRoot: TREE, seeded, repoDir, config, summarize: (report) => report });
+    const run = await runBusyScenario({
+      daemon,
+      treeRoot: TREE,
+      seeded,
+      repoDir,
+      config,
+      summarize: (report) => report,
+    });
     assert.ok(run.probeStopMs >= LATE_MS, `probeStopMs ${run.probeStopMs} records the late answer`);
     assert.equal(typeof run.probeStartMs, 'number');
     assert.ok(run.eventLoop.delayMs, 'the window report arrived');

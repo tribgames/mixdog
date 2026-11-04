@@ -47,7 +47,11 @@ test('the create path reads the cwd off-thread and composition then does no dire
   // them, with its own empty home so the real global files are never read.
   const home = mkdtempSync(join(tmpdir(), 'mixdog-startup-home-'));
   const saved = {};
-  for (const [name, value] of [['MIXDOG_BOOT_INSTRUCTION_FILES', undefined], ['HOME', home], ['USERPROFILE', home]]) {
+  for (const [name, value] of [
+    ['MIXDOG_BOOT_INSTRUCTION_FILES', undefined],
+    ['HOME', home],
+    ['USERPROFILE', home],
+  ]) {
     saved[name] = process.env[name];
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;

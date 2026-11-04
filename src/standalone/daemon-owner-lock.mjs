@@ -16,13 +16,13 @@ export function daemonOwnerLockPath(dataDir) {
   return join(dataDir, 'daemon-owner.lock');
 }
 
-/** `{ held: false }` while another live daemon holds the lock, else the
- *  holder's handle `{ held, path, intact(), release() }`, which must stay
- *  referenced for as long as the daemon runs. */
 // The handle this process holds, if any: what tells the daemon from every other
 // process on the data dir (`daemonOwnerLockHeld` below answers for any holder).
 let heldHere = null;
 
+/** `{ held: false }` while another live daemon holds the lock, else the
+ *  holder's handle `{ held, path, intact(), release() }`, which must stay
+ *  referenced for as long as the daemon runs. */
 export async function acquireDaemonOwnerLock(lockPath) {
   const lock = await acquireOsExclusiveLock(lockPath, LOCK_OPTIONS);
   if (!lock.held) return lock;

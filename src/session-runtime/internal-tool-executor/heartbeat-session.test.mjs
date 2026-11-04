@@ -37,7 +37,7 @@ function handlers(id) {
       },
     },
     goalRuntime: {
-      executeTool: async (name, args) => {
+      executeTool: async (_name, args) => {
         goalCalls.push(args);
         return 'ok';
       },

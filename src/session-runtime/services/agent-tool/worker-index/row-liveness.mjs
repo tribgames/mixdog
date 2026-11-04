@@ -29,7 +29,7 @@ export const runtimeDied = (row) => Boolean(positiveInt(row?.runtimePid)) && !ru
 export const PROCESS_RESTART_FAILURE = 'process-restart';
 
 /** The row's turn was stopped by the progress (stall) watchdog. */
-export const WATCHDOG_STALL_FAILURE = 'stalled';
+const WATCHDOG_STALL_FAILURE = 'stalled';
 
 /** A failed row whose turn a process restart ended and whose owner has not
  *  been told yet (restart-notify). It is the only record of that owed result,

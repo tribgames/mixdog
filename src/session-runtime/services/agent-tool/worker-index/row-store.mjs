@@ -239,7 +239,6 @@ export function createWorkerRowStore(file) {
     return readSnapshot().tombstones;
   }
 
-
   // The writing side over one row queue handle and one released-marker handle:
   // the store's own are the queues themselves (their flush waits for every
   // write so far), a holder's (`holder()`) wait only for that holder's writes.

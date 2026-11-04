@@ -375,7 +375,11 @@ test('between flag changes a tick reads no file: the flag is read once, then onl
     access.mock.restore();
     module.syncBuiltinESMExports();
   });
-  const profiler = createLagProfiler({ dataDir, createSession: fakeInspector().createSession, watchFlag: flagWatch.watchFlag });
+  const profiler = createLagProfiler({
+    dataDir,
+    createSession: fakeInspector().createSession,
+    watchFlag: flagWatch.watchFlag,
+  });
   for (let i = 0; i < 5; i += 1) assert.equal(await profiler.tick({ p99Ms: 5000 }), 'disabled');
   assert.equal(access.mock.callCount(), 1, 'five windows, one flag read');
   flagOn(dataDir);

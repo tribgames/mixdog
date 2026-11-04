@@ -32,7 +32,7 @@ const AGENT_PROGRESS_SAVE_MS = 2_000;
  *  the turn's job reads cancelled; a watchdog stop of an unfinished turn is a
  *  stall; any other unfinished turn (a pane stop included) and an abnormal
  *  empty finish are errors. */
-export function settledTurnStatus({ status, result, abortCause }, agent, job = null) {
+function settledTurnStatus({ status, result, abortCause }, agent, job = null) {
   if (job?.status === 'cancelled') return { finalStatus: 'cancelled', stalled: false };
   if (status !== 'done') return { finalStatus: 'error', stalled: isAgentProgressWatchdogAbortError(abortCause) };
   return { finalStatus: abnormalEmptyFinishError(result, agent) ? 'error' : 'idle', stalled: false };

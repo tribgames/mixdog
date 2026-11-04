@@ -55,7 +55,7 @@ export async function readStartupFiles(rt) {
 }
 
 /** Adopt the provider session and publish it to hooks and statusline. */
-export function materializeSession(deps, reason, coreMemoryContext, startupFiles = null) {
+export function materializeSession(deps, reason, coreMemoryContext, startupFiles) {
   const { rt, adoptSession, mgr, hooks, statusRoutes } = deps;
   // adoptSession attaches the hook bridge (boot/infrastructure.mjs sessionAdopter).
   adoptSession(mgr.createSession(sessionOptions(deps, coreMemoryContext, startupFiles)));

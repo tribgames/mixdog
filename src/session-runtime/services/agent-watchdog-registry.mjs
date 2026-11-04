@@ -77,10 +77,9 @@ export function createProgressWatchdogRegistry({ mgr }) {
     const sess = typeof mgr.getSession === 'function' ? mgr.getSession(sessionId) : null;
     const iteration = typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null;
     // In-turn progress. The worker index is otherwise stamped only at turn
-    // boundaries, so a turn that runs dozens of tool iterations leaves the
-    // Agents panel frozen on its start stamp for minutes (user report: 위임한
-    // 세션이 안 도는 것처럼 보인다). This sweep already holds the live
-    // session, so reporting the change costs no extra read.
+    // boundaries, so a turn that runs dozens of tool iterations would leave
+    // the Agents panel frozen on its start stamp. This sweep already holds the
+    // live session, so reporting the change costs no extra read.
     if (state.onProgress) {
       const messages = Array.isArray(sess?.messages) ? sess.messages.length : Number(sess?.messageCount) || 0;
       const signature = `${iteration ?? ''}:${messages}:${snapshot?.lastProgressAt || 0}`;

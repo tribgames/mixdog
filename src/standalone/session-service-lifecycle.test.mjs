@@ -228,7 +228,10 @@ test('a throwing frame sink cannot skip or orphan the teardown of an unsubscribe
   await setImmediate();
   assert.equal(closeCalls, 1, 'the runtime close still starts');
   assert.deepEqual(rejections, [], 'nothing escapes as an unhandled rejection');
-  assert.ok(logs.some((line) => line.includes('sink exploded')), 'the sink failure is logged');
+  assert.ok(
+    logs.some((line) => line.includes('sink exploded')),
+    'the sink failure is logged'
+  );
   let settled = false;
   const teardown = service.settleSessionTeardown(id).then(() => {
     settled = true;
@@ -335,7 +338,7 @@ test('stop drains a teardown left running by an unawaited unsubscribe', async ()
   assert.equal(closed, true);
 });
 
-test('an idle-only delete of a session waits for that session\'s pending teardown', async (t) => {
+test("an idle-only delete of a session waits for that session's pending teardown", async (t) => {
   const closeFinished = deferred();
   const events = [];
   const control = runtime();

@@ -395,10 +395,13 @@ test('a turn still in its cleanup after its ask, past the idle budget, settles i
     const worker = row(canonical, 'w-cleanup');
     return worker?.status !== 'running' ? worker : null;
   }, 'the turn settles');
-  assert.deepEqual({ status: settled.status, failureReason: settled.failureReason ?? null }, {
-    status: 'idle',
-    failureReason: null,
-  });
+  assert.deepEqual(
+    { status: settled.status, failureReason: settled.failureReason ?? null },
+    {
+      status: 'idle',
+      failureReason: null,
+    }
+  );
 });
 
 test('a turn whose model work never ends is still stopped by the watchdog and reads failed/stalled', async () => {
@@ -432,4 +435,3 @@ test('in-process route: a message queued behind a send continues its turn on its
   await untilTask(inProcess, taskId, /completed|failed|cancelled/);
   await until(() => row(inProcess, 'w-local')?.status === 'error', 'the pane-stopped turn settles error');
 });
-

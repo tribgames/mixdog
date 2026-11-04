@@ -22,7 +22,9 @@ mock.module(new URL('../../runtime/shared/git-runner.mjs', import.meta.url).href
     },
   },
 });
-const { settleGitStartupProbes } = await import('../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs');
+const { settleGitStartupProbes } = await import(
+  '../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs'
+);
 const { createPolicyStage } = await import('./policy-stage.mjs');
 
 test('staging a policy answers the git probes off-thread: no synchronous git spawn follows', async (t) => {
