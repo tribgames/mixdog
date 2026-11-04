@@ -17,6 +17,8 @@ import {
   setGitProcessRunner,
   streamNulRecords,
 } from './git-runner.ts';
+import * as slowSpan from '../../../../src/runtime/shared/slow-span.mjs';
+import { setPhaseRecorder } from './phase-recorder.ts';
 import { gitReview } from './git-history.ts';
 import { GIT_STATUS_UNTRACKED_LIMIT, gitStatus } from './git-status.ts';
 
@@ -287,4 +289,39 @@ test('a git deadline carries EGITTIMEOUT, never the ETIMEDOUT the session transp
   );
   assert.equal(isGitTimeout(Object.assign(new Error('x'), { code: 'EGITTIMEOUT' })), true);
   assert.equal(isGitTimeout(Object.assign(new Error('x'), { code: 'ETIMEDOUT' })), false);
+});
+
+test('a status read reports each git command and the runner worker wait on its span', async (t) => {
+  const root = repo(t);
+  setGitProcessRunner(runProcessOffThread);
+  setPhaseRecorder(slowSpan);
+  t.after(() => {
+    setGitProcessRunner(null);
+    setPhaseRecorder(null);
+  });
+  const logs = [];
+  const spans = slowSpan.createSlowSpans({ slowMs: 0, log: (line) => logs.push(line) });
+  await spans.trace('gitStatus', () => gitStatus(root));
+  const costs = Object.fromEntries(spans.recent[0].costs);
+  assert.ok('git.status' in costs && 'git.rev-parse' in costs, 'a git child is timed by its subcommand');
+  assert.ok('spawn-queue' in costs && 'spawn' in costs, "the worker's wait and process creation are reported");
+  assert.match(logs[0], /^\[slow-op\] gitStatus \d+ms .*git\.status=\d+/);
+});
+test('a git child that times out still reports its runner wait and process creation', async (t) => {
+  setGitProcessRunner(runProcessOffThread);
+  setPhaseRecorder(slowSpan);
+  t.after(() => {
+    setGitProcessRunner(null);
+    setPhaseRecorder(null);
+  });
+  const spans = slowSpan.createSlowSpans({ slowMs: 0 });
+  await assert.rejects(
+    spans.trace('gitStatus', () =>
+      streamNulRecords(tmpdir(), ['-c', 'alias.hang=!sleep 10', 'hang'], () => {}, { timeoutMs: 300 })
+    ),
+    { code: 'EGITTIMEOUT' }
+  );
+  const costs = Object.fromEntries(spans.recent[0].costs);
+  assert.ok('spawn-queue' in costs && 'spawn' in costs, 'the failed child is attributed like a successful one');
+  assert.ok('git.hang' in costs);
 });

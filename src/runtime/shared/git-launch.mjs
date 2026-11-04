@@ -204,6 +204,17 @@ export async function startGit(env, start, spawnError = () => null) {
   return start(gitCommand(env), gitChildEnv(env));
 }
 
+/** The git subcommand of `args`, past the global options in front of it ('' when none). */
+export function gitVerb(args) {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    // Options that take their value as the next argument.
+    if (arg === '-c' || arg === '-C' || arg === '--git-dir' || arg === '--work-tree') index += 1;
+    else if (!arg.startsWith('-')) return arg;
+  }
+  return '';
+}
+
 /** {@link startGit} for a synchronous `start` (spawnSync). */
 export function startGitSync(env, start, spawnError = (result) => result?.error) {
   const command = gitCommand(env);

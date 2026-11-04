@@ -28,6 +28,47 @@ export function killChildTree(child) {
   return Promise.resolve();
 }
 
+/** Worker threads that start children side by side. One thread spawns one
+ *  child at a time, and each spawn blocks it for 40–250 ms (more under load);
+ *  a status, a review and their merge-base reads from several busy sessions
+ *  queued behind each other for seconds. Process creation is the OS's work,
+ *  not CPU: a few threads overlap it. */
+export const CHILD_SPAWN_WORKERS = 4;
+/** How long a worker beyond the first may sit without a request before it is
+ *  retired: long enough that a poll cycle's burst finds it warm, short enough
+ *  that a quiet daemon holds one thread, as before the pool. */
+export const CHILD_SPAWN_IDLE_EXIT_MS = 30_000;
+
+/**
+ * {@link runChild} for a worker thread serving a request posted at `sentAt`
+ * (Date.now() of the posting thread): the result also carries
+ * `timing: { queueMs, spawnMs }` — the request's wait for this thread behind
+ * earlier requests' synchronous spawns, and its own child's process creation.
+ * A failed run (timeout, spawn error, output limit) rejects with the same
+ * `timing` on its error.
+ */
+export async function runChildTimed(request, sentAt) {
+  const queueMs = Date.now() - sentAt;
+  let spawnMs = 0;
+  const timing = () => ({ queueMs, spawnMs });
+  try {
+    const result = await runChild({
+      ...request,
+      spawnChild: (...args) => {
+        const started = Date.now();
+        try {
+          return spawn(...args);
+        } finally {
+          spawnMs += Date.now() - started;
+        }
+      },
+    });
+    return { ...result, timing: timing() };
+  } catch (error) {
+    throw Object.assign(error, { timing: timing() });
+  }
+}
+
 /** The child has exited (an exit code or the signal that ended it). */
 const childEnded = (child) => child.exitCode !== null || child.signalCode !== null;
 

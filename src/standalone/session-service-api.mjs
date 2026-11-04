@@ -1,4 +1,4 @@
-import { shortId, slowSpans } from '../runtime/shared/slow-span.mjs';
+import { notePhase, shortId, slowSpans } from '../runtime/shared/slow-span.mjs';
 
 const sessionServiceRoutes = ({ desktop, project, session }) => ({
   'desktop.init': (params, ctx) => desktop.init(params, ctx),
@@ -43,7 +43,10 @@ export function createSessionServiceApi({
       if (!route) throw new Error(`unknown session service call ${name}`);
       const params = args || {};
       const sid = shortId(params.sessionId);
-      return spans.trace(sid ? `${name}#${sid}` : String(name), () => route(params, ctx));
+      return spans.trace(sid ? `${name}#${sid}` : String(name), () => {
+        notePhase('queue', ctx?.queuedMs);
+        return route(params, ctx);
+      });
     },
     ...methods,
     get size() {

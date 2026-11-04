@@ -1,6 +1,7 @@
 import { open, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isGitTimeout } from './git-runner';
+import { notePhase } from './phase-recorder';
 
 export const GIT_METADATA_TTL_MS = 60_000;
 export const DISPLAY_DIFF_ARGS = ['--no-ext-diff', '--no-textconv', '--no-color'] as const;
@@ -44,9 +45,15 @@ export function sharedRead<A extends unknown[], R>(
   keyOf: (...args: A) => string,
   read: (...args: A) => Promise<R>
 ): (...args: A) => Promise<R> {
-  const lanes = new Map<string, { current: Promise<R>; next?: Promise<R> }>();
+  interface Lane {
+    current: Promise<R>;
+    next?: Promise<R>;
+    /** When the follow-up read began. */
+    nextStartedAt?: number;
+  }
+  const lanes = new Map<string, Lane>();
   const start = (key: string, args: A): Promise<R> => {
-    const lane: { current: Promise<R>; next?: Promise<R> } = { current: read(...args) };
+    const lane: Lane = { current: read(...args) };
     lanes.set(key, lane);
     const settle = (): void => {
       if (lanes.get(key) === lane && !lane.next) lanes.delete(key);
@@ -59,17 +66,25 @@ export function sharedRead<A extends unknown[], R>(
     const lane = lanes.get(key);
     if (!lane) return start(key, args);
     lane.next ??= lane.current.then(
-      () => start(key, args),
+      () => {
+        lane.nextStartedAt = Date.now();
+        return start(key, args);
+      },
       (error: unknown) => {
         // A read cut off at its deadline means the repository is wedged: a
         // follow-up would wait the whole deadline again and leave one more hung
         // git behind, so joined callers share the timeout. Later callers start fresh.
-        if (!isGitTimeout(error)) return start(key, args);
+        if (!isGitTimeout(error)) {
+          lane.nextStartedAt = Date.now();
+          return start(key, args);
+        }
         if (lanes.get(key) === lane) lanes.delete(key);
         throw error;
       }
     );
-    return lane.next;
+    // Time spent behind the read in flight, before the follow-up's own read.
+    const asked = Date.now();
+    return lane.next.finally(() => notePhase('share-wait', (lane.nextStartedAt ?? Date.now()) - asked));
   };
 }
 

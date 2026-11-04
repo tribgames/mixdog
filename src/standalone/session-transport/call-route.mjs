@@ -90,6 +90,7 @@ export function createCallRoute({
     if (cached) {
       dispatch = cachedDispatch(cached, callId, signature);
     } else {
+      const queuedAt = nowMs();
       dispatch = lanes.dispatch(
         ownerKeyFor(clientToken, c, body.args),
         () => {
@@ -102,6 +103,9 @@ export function createCallRoute({
             leadPid: c.leadPid ?? null,
             cwd: c.cwd ?? null,
             revision: c.revision ?? 0,
+            // Time in the lane before the call began: the call's own span
+            // starts after it, so its slow-op line reports it as a phase.
+            queuedMs: nowMs() - queuedAt,
           });
         },
         { lane: callLane(name, args) }
