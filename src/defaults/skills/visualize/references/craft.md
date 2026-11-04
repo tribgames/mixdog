@@ -68,7 +68,10 @@ Defaults (recolour / re-typeset only if the brief left them free):
 10. Default font used without a reason; ALL-CAPS eyebrow labels over every
     heading; one word accented in a headline; "→" on every link.
 
-Re-check after repairing. Do not show while 1–3 still fire.
+Text (cut; SKILL.md §1):
+11. A paragraph of explanation, specs or rationale above or between frames.
+
+Re-check after repairing. Do not show while 1–3 or 11 still fire.
 
 ## 6. Quality floor (always, without announcing it)
 `visualize inspect` reports most floor failures (overflow, clipped text,
