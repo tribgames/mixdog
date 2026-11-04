@@ -41,11 +41,11 @@ function darwinKeychain(stored) {
     if (state.locked) return { status: 36, stdout: '' };
     return stored.has(account) ? { status: 0, stdout: `${stored.get(account)}\n` } : { status: 44, stdout: '' };
   };
-  childProcess.spawnSync = (cmd, args) => {
+  childProcess.spawnSync = (_cmd, args) => {
     log.sync.push(args);
     return { ...answer(args), stderr: '' };
   };
-  childProcess.spawn = (cmd, args, options) => {
+  childProcess.spawn = (_cmd, args, options) => {
     log.async.push(args);
     if (state.live) {
       const live = real.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], options);
@@ -109,7 +109,12 @@ test('a not-found read is remembered instead of respawning security(1)', () => {
 });
 
 test('the warm reads only the accounts it is given, each with the per-account find, and no read spawns after it', async () => {
-  const { keychain, log, restore } = darwinKeychain(new Map([[KEY, 'sk-warm'], ['agent.someone-else.apiKey', 'not-ours']]));
+  const { keychain, log, restore } = darwinKeychain(
+    new Map([
+      [KEY, 'sk-warm'],
+      ['agent.someone-else.apiKey', 'not-ours'],
+    ])
+  );
   try {
     await keychain.prewarmSecrets([KEY, OTHER]);
     assert.deepEqual(log.async, [findArgs(KEY), findArgs(OTHER)]);
@@ -262,7 +267,10 @@ test('an invalidation serves the cached key, re-reads in the background, then se
 });
 
 test('a full invalidation re-reads every cached account in the background, one at a time', async () => {
-  const stored = new Map([[KEY, 'a1'], [OTHER, 'b1']]);
+  const stored = new Map([
+    [KEY, 'a1'],
+    [OTHER, 'b1'],
+  ]);
   const { keychain, log, settle, restore } = darwinKeychain(stored);
   try {
     await keychain.prewarmSecrets([KEY, OTHER]);
@@ -350,7 +358,12 @@ test('a named invalidation overtakes a first warm in flight the same way', async
 });
 
 test('a later warm (the custom providers) reads its accounts after the first one, each once', async () => {
-  const { keychain, log, restore } = darwinKeychain(new Map([[KEY, 'a'], ['agent.custom-1.apiKey', 'c']]));
+  const { keychain, log, restore } = darwinKeychain(
+    new Map([
+      [KEY, 'a'],
+      ['agent.custom-1.apiKey', 'c'],
+    ])
+  );
   try {
     const first = keychain.prewarmSecrets([KEY]);
     const second = keychain.prewarmSecrets([KEY, 'agent.custom-1.apiKey']);

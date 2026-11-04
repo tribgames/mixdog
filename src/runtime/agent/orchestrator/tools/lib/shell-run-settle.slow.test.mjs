@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
+import {
+  holdWorkspaceActivityAsync,
+  tryAdmitWorkspaceActivityAsync,
+} from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { createProcessTreeTracker } from './shell-descendants.mjs';
 import { createSettle } from './shell-run-settle.mjs';

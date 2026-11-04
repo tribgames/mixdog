@@ -8,7 +8,11 @@ import { existsSync, readFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { admitWorkspaceActivity, holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from './activity-gate.mjs';
+import {
+  admitWorkspaceActivity,
+  holdWorkspaceActivityAsync,
+  tryAdmitWorkspaceActivityAsync,
+} from './activity-gate.mjs';
 import { setAdmissionFaults } from './activity-gate-faults.test-hook.mjs';
 import { withFileLock, withFileLockSync } from '../file-lock.mjs';
 import { admitTurn, retainAdmittedTurnWorkspace } from '../../../session-runtime/workspace/admission-gate.mjs';

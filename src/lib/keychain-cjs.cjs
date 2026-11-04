@@ -74,7 +74,8 @@ function _cacheStore(account, value) {
   _secretCache.set(`${SERVICE}\0${account}`, {
     value,
     readAt: now,
-    expiresAt: KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : now + KEYCHAIN_CACHE_TTL_MS,
+    expiresAt:
+      KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : now + KEYCHAIN_CACHE_TTL_MS,
   });
 }
 

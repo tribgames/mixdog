@@ -2,7 +2,10 @@ import './isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
+import {
+  holdWorkspaceActivityAsync,
+  tryAdmitWorkspaceActivityAsync,
+} from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 
 // The real process-table reader runs; only the OS enumerator it starts on the

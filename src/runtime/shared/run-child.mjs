@@ -77,7 +77,7 @@ const childEnded = (child) => child.exitCode !== null || child.signalCode !== nu
 // the same moment (a long-lived server, say) can inherit this child's pipe
 // ends and hold them open for its whole life, so 'close' would never come;
 // what the child wrote before exiting is already in the pipes.
-export const EXIT_DRAIN_MS = 1_000;
+const EXIT_DRAIN_MS = 1_000;
 
 /**
  * `waitForExitMs` (> 0): a timeout rejects only once the killed child has
@@ -99,7 +99,7 @@ export function runChild({
   stdoutEncoding = 'utf8',
   waitForExitMs = 0,
   killTree = true,
-  // Tests only: a stand-in for child_process.spawn (in-process callers; not serializable).
+  // A stand-in for child_process.spawn (runChildTimed's timed spawn, or a test's; not serializable).
   spawnChild = spawn,
 }) {
   return new Promise((resolvePromise, rejectPromise) => {

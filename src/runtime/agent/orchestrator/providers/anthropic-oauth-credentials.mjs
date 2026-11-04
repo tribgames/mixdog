@@ -395,7 +395,9 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
         const stored = _loadCredentialsFile(creds.path);
         if (stored) return stored;
         throw Object.assign(
-          new Error('Anthropic OAuth credentials were removed during the token refresh. Open /providers in mixdog to sign in.'),
+          new Error(
+            'Anthropic OAuth credentials were removed during the token refresh. Open /providers in mixdog to sign in.'
+          ),
           { reauthRequired: true }
         );
       }

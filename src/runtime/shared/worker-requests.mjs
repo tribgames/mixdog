@@ -216,7 +216,9 @@ export function createWorkerRequestPool(url, { size, idleExitMs = 0, ...options 
   }
   request.hold = () => {
     const releases = members.map((member) => member.request.hold());
-    return () => releases.forEach((release) => release());
+    return () => {
+      for (const release of releases) release();
+    };
   };
   request.workers = () => members.filter((member) => member.request.running()).length;
   request.running = () => request.workers() > 0;

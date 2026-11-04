@@ -496,9 +496,9 @@ const BUMP_KEY = (day, provider, model) =>
   `INSERT INTO usage_key_revisions VALUES (${day},${provider},${model},1)
         ON CONFLICT(day,provider,model) DO UPDATE SET rev=rev+1;`;
 const BUMP_MEMBERSHIP = 'UPDATE usage_membership_revision SET rev=rev+1;';
-const ROUTE_FIELD = (route, index) => `(SELECT json_extract(signature,'$[${index}]') FROM usage_routes WHERE id=${route})`;
-const BUMP_EVENT_KEY = (row) =>
-  BUMP_KEY(`${row}.day`, ROUTE_FIELD(`${row}.route`, 0), ROUTE_FIELD(`${row}.route`, 1));
+const ROUTE_FIELD = (route, index) =>
+  `(SELECT json_extract(signature,'$[${index}]') FROM usage_routes WHERE id=${route})`;
+const BUMP_EVENT_KEY = (row) => BUMP_KEY(`${row}.day`, ROUTE_FIELD(`${row}.route`, 0), ROUTE_FIELD(`${row}.route`, 1));
 const BUMP_DAILY_KEY = (row) =>
   BUMP_KEY(`CAST(REPLACE(${row}.day,'-','') AS INTEGER)`, `${row}.provider`, `${row}.model`);
 const DAILY_OTHERS = (row) => `day=${row}.day AND provider=${row}.provider AND model=${row}.model`;
@@ -599,7 +599,7 @@ export function sessionDaysComplete(db) {
 }
 
 /** Records one build step covers, at most (a single session may exceed it). */
-export const SESSION_DAYS_STEP_EVENTS = 40_000;
+const SESSION_DAYS_STEP_EVENTS = 40_000;
 
 /**
  * Builds the sums from the stored records a step of sessions at a time, each
@@ -656,11 +656,6 @@ export function buildSessionDaysStep(db, budget = SESSION_DAYS_STEP_EVENTS) {
     db.exec('ROLLBACK');
     throw error;
   }
-}
-
-/** Builds the sums to completion in this thread (small ledgers and tests; the ledger worker steps through it). */
-export function buildSessionDays(db, budget) {
-  while (!buildSessionDaysStep(db, budget));
 }
 
 /**

@@ -70,7 +70,11 @@ test('a subscription made while recovery ends a vanished child is backed by a li
     return watcher;
   });
   t.mock.method(process.stderr, 'write', () => true);
-  const childSubscription = watchDirectory(child, ['record.json'], { replace: true, onEvent: () => {}, onLost: () => {} });
+  const childSubscription = watchDirectory(child, ['record.json'], {
+    replace: true,
+    onEvent: () => {},
+    onLost: () => {},
+  });
   t.after(() => childSubscription.close());
   live.find((entry) => entry.dir === parent).watcher.emit('error', new Error('watch lost'));
   // The child goes before anything is heard of it; the parent is then watched
@@ -95,32 +99,30 @@ test('a subscription made while recovery ends a vanished child is backed by a li
   });
 });
 
-test(
-  'a watched directory deleted under its watch ends it at once instead of reporting itself without pause',
-  { skip: process.platform !== 'win32' && 'only Windows reports the watched directory itself' },
-  async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-directory-watch-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const dir = join(root, 'goals');
-    mkdirSync(dir);
-    let raw = 0;
-    const original = fs.watch;
-    t.mock.method(fs, 'watch', (target, options, listener) =>
-      original(target, options, (...args) => {
-        raw += 1;
-        listener(...args);
-      })
-    );
-    const lost = Promise.withResolvers();
-    watchDirectory(dir, ['record.json'], { onEvent: () => {}, onLost: lost.resolve });
-    rmSync(dir, { recursive: true });
-    const error = await Promise.race([
-      lost.promise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('the watch never ended')), 2_000)),
-    ]);
-    assert.equal(error.code, 'ENOENT');
-    const ended = raw;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(raw, ended, 'no event after the watch ended');
-  }
-);
+test('a watched directory deleted under its watch ends it at once instead of reporting itself without pause', {
+  skip: process.platform !== 'win32' && 'only Windows reports the watched directory itself',
+}, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-directory-watch-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dir = join(root, 'goals');
+  mkdirSync(dir);
+  let raw = 0;
+  const original = fs.watch;
+  t.mock.method(fs, 'watch', (target, options, listener) =>
+    original(target, options, (...args) => {
+      raw += 1;
+      listener(...args);
+    })
+  );
+  const lost = Promise.withResolvers();
+  watchDirectory(dir, ['record.json'], { onEvent: () => {}, onLost: lost.resolve });
+  rmSync(dir, { recursive: true });
+  const error = await Promise.race([
+    lost.promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('the watch never ended')), 2_000)),
+  ]);
+  assert.equal(error.code, 'ENOENT');
+  const ended = raw;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(raw, ended, 'no event after the watch ended');
+});

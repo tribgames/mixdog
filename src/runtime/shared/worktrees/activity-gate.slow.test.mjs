@@ -4,7 +4,11 @@ import { once } from 'node:events';
 import { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import { admitWorkspaceActivity, holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from './activity-gate.mjs';
+import {
+  admitWorkspaceActivity,
+  holdWorkspaceActivityAsync,
+  tryAdmitWorkspaceActivityAsync,
+} from './activity-gate.mjs';
 import { setAdmissionFaults } from './activity-gate-faults.test-hook.mjs';
 import { admitTurn, retainAdmittedTurnWorkspace } from '../../../session-runtime/workspace/admission-gate.mjs';
 import {
@@ -527,7 +531,11 @@ test('a damaged ledger cannot hide a foreign management operation from readers',
   const repo = makeRepo();
   const child = await holding(t, [['management', repo]]);
   zeroFill(admissionPath(repo));
-  assert.equal(await tryAdmitWorkspaceActivityAsync('reader', repo), null, 'the operation in progress still excludes readers');
+  assert.equal(
+    await tryAdmitWorkspaceActivityAsync('reader', repo),
+    null,
+    'the operation in progress still excludes readers'
+  );
   const exited = once(child, 'exit');
   child.send('release');
   await exited;
@@ -666,7 +674,11 @@ test('#181-3 a damaged mirror is restored from the intact primary with every kin
   // The repaired mirror alone now carries all of them.
   zeroFill(admissionPath(repo));
   await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
-  assert.equal(await tryAdmitWorkspaceActivityAsync('blocked', managed), null, 'the management operation still excludes readers');
+  assert.equal(
+    await tryAdmitWorkspaceActivityAsync('blocked', managed),
+    null,
+    'the management operation still excludes readers'
+  );
   assert.equal(copiesOf(repo).recoveredAt, undefined);
 });
 
@@ -752,10 +764,16 @@ test('#181-6 publication faults never acknowledge an unprotected grant, lose a l
 
   // A grant whose write of either copy fails returns no handle and leaves no lease.
   for (const plan of [{ primary: [true] }, { mirror: [true] }]) {
-    await assert.rejects(withFailingWrites(plan, () => tryAdmitWorkspaceActivityAsync('attempt', repo)), UNVERIFIED);
+    await assert.rejects(
+      withFailingWrites(plan, () => tryAdmitWorkspaceActivityAsync('attempt', repo)),
+      UNVERIFIED
+    );
     settled();
   }
-  await assert.rejects(withFailingWrites({ mirror: [true] }, () => holdWorkspaceActivityAsync([managed])), UNVERIFIED);
+  await assert.rejects(
+    withFailingWrites({ mirror: [true] }, () => holdWorkspaceActivityAsync([managed])),
+    UNVERIFIED
+  );
   settled();
   const probe = await tryAdmitWorkspaceActivityAsync('probe', managed);
   assert.ok(probe, 'the failed management grant left no lease behind');
@@ -764,7 +782,9 @@ test('#181-6 publication faults never acknowledge an unprotected grant, lose a l
   // Its rollback fails too: the attempt stays recorded (a conservative claim of
   // this live process) and no grant succeeds while the copies cannot be made whole.
   await assert.rejects(
-    withFailingWrites({ mirror: [true], primary: [false, true] }, () => tryAdmitWorkspaceActivityAsync('attempt', repo)),
+    withFailingWrites({ mirror: [true], primary: [false, true] }, () =>
+      tryAdmitWorkspaceActivityAsync('attempt', repo)
+    ),
     UNVERIFIED
   );
   assert.ok(inPrimary('attempt') && !inMirror('attempt'));

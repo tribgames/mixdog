@@ -372,7 +372,16 @@ function acquireRepo(layout) {
   let entry = repos.get(layout.gitDir);
   if (!entry) {
     // gone: HEAD vanished (subscribers re-resolve); closed: dropped or released — never reopened.
-    entry = { layout, head: null, files: [], refs: 0, subscribers: new Set(), queued: false, gone: false, closed: false };
+    entry = {
+      layout,
+      head: null,
+      files: [],
+      refs: 0,
+      subscribers: new Set(),
+      queued: false,
+      gone: false,
+      closed: false,
+    };
     entry.listener = () => refreshRepo(entry);
     const read = readHead(layout, readHeld);
     entry.head = read.head ?? lastHeads.get(layout.gitDir) ?? NO_HEAD;

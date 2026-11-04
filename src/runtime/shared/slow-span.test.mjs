@@ -99,10 +99,13 @@ test('noted phases sum per name, may overlap, and follow the sequential ones in 
     markPhase('action');
   });
   assert.deepEqual(logs, ['[slow-op] desktop.invoke 1500ms action=1500 spawn-queue=500 git.status=1500']);
-  assert.deepEqual([...spans.recent[0].costs], [
-    ['spawn-queue', 500],
-    ['git.status', 1500],
-  ]);
+  assert.deepEqual(
+    [...spans.recent[0].costs],
+    [
+      ['spawn-queue', 500],
+      ['git.status', 1500],
+    ]
+  );
 });
 
 test('phases noted outside a span are dropped', async () => {

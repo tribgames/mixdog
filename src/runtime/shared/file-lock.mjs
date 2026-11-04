@@ -310,15 +310,13 @@ function* tryReclaimStaleLock(lockPath, staleMs, strictOwner = false) {
     }
     const currentOwner = yield* readLockOwner(lockPath);
     if (currentOwner.pid !== owner.pid || currentOwner.token !== owner.token) return false;
-    if (lockReclaimable(currentOwner, current, staleMs, strictOwner)) {
-      try {
-        yield ['unlink', lockPath];
-        return true;
-      } catch {
-        return false;
-      }
+    if (!lockReclaimable(currentOwner, current, staleMs, strictOwner)) return false;
+    try {
+      yield ['unlink', lockPath];
+      return true;
+    } catch {
+      return false;
     }
-    return false;
   } finally {
     yield* releaseReclaimGuard(reclaim);
   }

@@ -15,19 +15,19 @@ import {
 import { RateLimiter } from './rate-limit.mjs';
 
 export const FEEDBACK_KINDS = ['bug', 'suggestion', 'other'];
-export const MAX_FEEDBACK_TEXT_BODY_BYTES = 32_768;
+const MAX_FEEDBACK_TEXT_BODY_BYTES = 32_768;
 // Text envelope + base64 of the total attachment cap + names/JSON overhead.
 export const MAX_FEEDBACK_BODY_BYTES =
   MAX_FEEDBACK_TEXT_BODY_BYTES + Math.ceil(FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES / 3) * 4 + 4096;
-export const MAX_FEEDBACK_MESSAGE_CHARS = 8000;
-export const MAX_FEEDBACK_EMAIL_CHARS = 254;
-export const DEFAULT_FEEDBACK_TO = 'support@mixdog.ai';
+const MAX_FEEDBACK_MESSAGE_CHARS = 8000;
+const MAX_FEEDBACK_EMAIL_CHARS = 254;
+const DEFAULT_FEEDBACK_TO = 'support@mixdog.ai';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@<>(),;:\\"]+@[^\s@<>(),;:\\"]+\.[^\s@<>(),;:\\"]+$/;
 const RECORD_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 
-export const FEEDBACK_DEFAULTS = {
+const FEEDBACK_DEFAULTS = {
   maxPending: 500,
   maxRecords: 5000,
   baseDelayMs: 30_000,
@@ -50,7 +50,7 @@ export class FeedbackError extends Error {
 }
 
 /** Validate and normalise a request body; throws FeedbackError(400). */
-export function normalizeFeedback(body) {
+function normalizeFeedback(body) {
   const bad = () => new FeedbackError(400, 'invalid_feedback');
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw bad();
   const { id, kind, message, replyTo } = body;
@@ -86,7 +86,7 @@ function payloadHash({ kind, message, replyTo, attachments = [] }) {
 }
 
 /** SMTP settings from env, or null when mail is not configured. */
-export function feedbackMailConfig(env = {}) {
+function feedbackMailConfig(env = {}) {
   const user = String(env.SMTP_USER || '').trim();
   const pass = String(env.SMTP_PASSWORD || '');
   if (!user || !pass) return null;

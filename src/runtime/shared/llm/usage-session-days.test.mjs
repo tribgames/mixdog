@@ -43,7 +43,8 @@ const REBUILT = `SELECT e.session AS session,e.day AS day,e.route AS route,COUNT
     SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END) AS speed_output,
     SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speed_ms,
     json_extract(r.signature,'$[0]') AS provider,json_extract(r.signature,'$[1]') AS model
-  FROM usage_events e JOIN usage_routes r ON r.id=e.route GROUP BY e.session,e.day,e.route ORDER BY session,day,route`;const TABLE = `SELECT * FROM usage_session_days WHERE turns<>0 ORDER BY session,day,route`;
+  FROM usage_events e JOIN usage_routes r ON r.id=e.route GROUP BY e.session,e.day,e.route ORDER BY session,day,route`;
+const TABLE = `SELECT * FROM usage_session_days WHERE turns<>0 ORDER BY session,day,route`;
 const close = (left, right, label) => {
   assert.equal(left.length, right.length, `${label}: rows`);
   left.forEach((row, index) => {
@@ -63,7 +64,9 @@ function fullRead(ledger, ids, owners) {
   const db = ledger.db;
   db.exec('BEGIN');
   try {
-    db.exec(`DELETE FROM usage_session_days; INSERT INTO usage_session_days ${REBUILT.replace(' ORDER BY session,day,route', '')}`);
+    db.exec(
+      `DELETE FROM usage_session_days; INSERT INTO usage_session_days ${REBUILT.replace(' ORDER BY session,day,route', '')}`
+    );
     return readSessionUsage(db, ids, owners);
   } finally {
     db.exec('ROLLBACK');
@@ -90,7 +93,8 @@ const READS = [
   [['agent-3'], ['other-lead']],
   [[], ['other-lead']],
 ];
-const assertAllReads = (ledger, label) => READS.forEach(([ids, owners], index) => assertSameRead(ledger, ids, owners, `${label} #${index}`));
+const assertAllReads = (ledger, label) =>
+  READS.forEach(([ids, owners], index) => assertSameRead(ledger, ids, owners, `${label} #${index}`));
 
 test('per-session sums equal the records through supersession, nesting, ownership changes, edits and deletes', (t) => {
   const ledger = new UsageLedger(':memory:');
@@ -106,7 +110,13 @@ test('per-session sums equal the records through supersession, nesting, ownershi
     record({ sessionId: 'agent-3', ownerSessionId: 'other-lead', sourceType: 'agent' }),
     record({ sessionId: 'agent-3', ownerSessionId: 'lead', sourceType: 'agent' }),
     // ...and calls without provider usage or without a price stay unmeasured / unpriced.
-    record({ sessionId: 'agent-1', ownerSessionId: 'lead', inputTokens: null, inputTokensKnown: false, outputTokens: 7 }),
+    record({
+      sessionId: 'agent-1',
+      ownerSessionId: 'lead',
+      inputTokens: null,
+      inputTokensKnown: false,
+      outputTokens: 7,
+    }),
   ]);
   assertSumsMatchRecords(ledger, 'after inserts');
   assertAllReads(ledger, 'phase 1');
@@ -119,7 +129,9 @@ test('per-session sums equal the records through supersession, nesting, ownershi
   assert.equal(withSummary.turns, 3);
 
   // A detail record of the same model and day supersedes the summary for everyone.
-  ledger.record([record({ ...SONNET, sessionId: 'agent-2', ownerSessionId: 'lead', sourceType: 'agent', inputTokens: 2000 })]);
+  ledger.record([
+    record({ ...SONNET, sessionId: 'agent-2', ownerSessionId: 'lead', sourceType: 'agent', inputTokens: 2000 }),
+  ]);
   assertSumsMatchRecords(ledger, 'after supersession');
   assertAllReads(ledger, 'phase 2');
   const superseded = leadAgents();
@@ -128,12 +140,16 @@ test('per-session sums equal the records through supersession, nesting, ownershi
   assert.equal(readSessionUsage(ledger.db, ['agent-1'], []).turns, 1, 'agent-1 keeps only its own measured-route call');
 
   // A repair rewrites a record's route and cost; a delete removes one.
-  const target = ledger.db.prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='nested'").get();
+  const target = ledger.db
+    .prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='nested'")
+    .get();
   const otherRoute = ledger.db.prepare('SELECT id FROM usage_routes ORDER BY id DESC LIMIT 1').get();
   ledger.db.prepare('UPDATE usage_events SET route=?,cost_usd=? WHERE id=?').run(otherRoute.id, 0.5, target.id);
   assertSumsMatchRecords(ledger, 'after repair');
   assertAllReads(ledger, 'phase 3');
-  const gone = ledger.db.prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='lead' LIMIT 1").get();
+  const gone = ledger.db
+    .prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='lead' LIMIT 1")
+    .get();
   ledger.db.prepare('DELETE FROM usage_events WHERE id=?').run(gone.id);
   assertSumsMatchRecords(ledger, 'after delete');
   assertAllReads(ledger, 'phase 4');
@@ -143,7 +159,9 @@ test('per-session sums equal the records through supersession, nesting, ownershi
 /** A ledger as an older build left it: records, but none of the session sums or the revision. */
 function makeLegacy(db) {
   const triggers = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND (name LIKE 'session_days_%' OR name LIKE 'key_revision_%' OR name LIKE 'membership_%')")
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='trigger' AND (name LIKE 'session_days_%' OR name LIKE 'key_revision_%' OR name LIKE 'membership_%')"
+    )
     .all();
   for (const { name } of triggers) db.exec(`DROP TRIGGER ${name}`);
   db.exec(`DROP TABLE usage_session_days; DROP TABLE usage_session_days_state; DROP TABLE usage_session_revisions;
@@ -241,16 +259,22 @@ test('the sums stay exact under any statement form, whatever a connection sets',
     again('INSERT OR IGNORE', 30);
     again('REPLACE', 40);
     again('INSERT OR REPLACE', stored.input);
-    assert.throws(() => other.prepare('UPDATE usage_events SET id=?').run(Buffer.from('another')), /id does not change/);
+    assert.throws(
+      () => other.prepare('UPDATE usage_events SET id=?').run(Buffer.from('another')),
+      /id does not change/
+    );
     other.prepare('UPDATE OR REPLACE usage_events SET input=input').run();
     const { turns, input } = other.prepare('SELECT turns,input FROM usage_session_days').get();
     assert.deepEqual([turns, input], [1, stored.input], `recursive_triggers=${recursive}`);
-    assert.equal(other.prepare('SELECT input FROM usage_events').get().input, stored.input, 'the stored record is the first');
+    assert.equal(
+      other.prepare('SELECT input FROM usage_events').get().input,
+      stored.input,
+      'the stored record is the first'
+    );
     other.close();
     assertSumsMatchRecords(ledger, `forms ${recursive}`);
   }
 });
-
 
 test('deleting the last record of a session the build has not reached leaves its sums at zero, not below', (t) => {
   const ledger = new UsageLedger(':memory:');
@@ -264,7 +288,9 @@ test('deleting the last record of a session the build has not reached leaves its
   prepareSessionDays(ledger.db);
   // Session 1 is built; 2 and 3 are not.
   assert.equal(buildSessionDaysStep(ledger.db, 1), false);
-  const second = ledger.db.prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='s2'").get();
+  const second = ledger.db
+    .prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='s2'")
+    .get();
   ledger.db.prepare('DELETE FROM usage_events WHERE id=?').run(second.id);
   // A new record for the unbuilt session 3 lands between steps too.
   ledger.record([record({ sessionId: 's3' })]);
@@ -310,14 +336,20 @@ test('a group token moves with its Lead, its agents at any depth and its ownersh
   moves(() => ledger.record([record({ sessionId: 'lead' })]), 'the Lead records');
   moves(() => ledger.record([record({ sessionId: 'agent-1', ownerSessionId: 'lead' })]), 'a listed agent records');
   moves(() => ledger.record([record({ sessionId: 'nested', ownerSessionId: 'agent-1' })]), 'a nested agent records');
-  moves(() => ledger.record([record({ sessionId: 'agent-1', inputTokens: null, inputTokensKnown: false })]), 'an unmeasured response');
+  moves(
+    () => ledger.record([record({ sessionId: 'agent-1', inputTokens: null, inputTokensKnown: false })]),
+    'an unmeasured response'
+  );
   moves(() => ledger.record([record({ sessionId: 'new-agent', ownerSessionId: 'agent-1' })]), 'a new agent joins');
-  moves(() => ledger.db.prepare("UPDATE usage_sessions SET value='renamed' WHERE value='nested'").run(), 'a session is renamed');
+  moves(
+    () => ledger.db.prepare("UPDATE usage_sessions SET value='renamed' WHERE value='nested'").run(),
+    'a session is renamed'
+  );
   const afterRename = token(ledger);
   assert.equal(token(ledger), afterRename);
 });
 
-test('another Lead\'s detail that supersedes this group\'s gateway summary moves its token, a lower-priority record does not', (t) => {
+test("another Lead's detail that supersedes this group's gateway summary moves its token, a lower-priority record does not", (t) => {
   const ledger = new UsageLedger(':memory:');
   t.after(() => ledger.close());
   ledger.record([record({ ...SONNET, sessionId: 'agent-1', ownerSessionId: 'lead', origin: 'gateway' })]);
@@ -351,15 +383,21 @@ test('a record rewritten to another route moves the tokens of groups sitting on 
   const group = (...ids) => readUsageToken(ledger.db, ids, [ids[0]]);
   const sonnetGroup = group('agent-1');
   const opusGroup = group('agent-2');
-  const target = ledger.db.prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='elsewhere'").get();
-  const opusRoute = ledger.db.prepare("SELECT route FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='agent-2'").get();
+  const target = ledger.db
+    .prepare("SELECT e.id FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='elsewhere'")
+    .get();
+  const opusRoute = ledger.db
+    .prepare("SELECT route FROM usage_events e JOIN usage_sessions s ON s.id=e.session WHERE s.value='agent-2'")
+    .get();
   ledger.db.prepare('UPDATE usage_events SET route=? WHERE id=?').run(opusRoute.route, target.id);
   assert.notEqual(group('agent-1'), sonnetGroup, 'the old key');
   assert.notEqual(group('agent-2'), opusGroup, 'the new key');
   assertSumsMatchRecords(ledger, 'after the move');
   // A route definition rewritten in place to another model carries its sums with it.
   const before = group('agent-2');
-  ledger.db.exec("UPDATE usage_routes SET signature=json_set(signature,'$[1]','rewritten-model') WHERE id=" + opusRoute.route);
+  ledger.db.exec(
+    "UPDATE usage_routes SET signature=json_set(signature,'$[1]','rewritten-model') WHERE id=" + opusRoute.route
+  );
   assertSumsMatchRecords(ledger, 'after the rewrite');
   assert.notEqual(group('agent-2'), before, 'a rewritten route definition moves every group');
 });

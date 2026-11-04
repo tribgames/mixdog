@@ -44,7 +44,8 @@ function deliver(state, event, name) {
   if (subscribers === undefined) {
     // Windows names the watched directory itself, by its full path, once it
     // is deleted, and repeats that without pause while the watch stays open.
-    if (name === state.removedName) end(state, Object.assign(new Error(`${state.dir} was removed`), { code: 'ENOENT' }));
+    if (name === state.removedName)
+      end(state, Object.assign(new Error(`${state.dir} was removed`), { code: 'ENOENT' }));
     return;
   }
   for (const subscriber of [...subscribers]) {
@@ -224,7 +225,11 @@ function release(state) {
  * `dir` cannot be watched now, or the error that ended the watch while the
  * subscription was being made.
  */
-export function watchDirectory(dir, names, { onEvent, onLost = null, onDistrust = null, onTrust = null, replace = false }) {
+export function watchDirectory(
+  dir,
+  names,
+  { onEvent, onLost = null, onDistrust = null, onTrust = null, replace = false }
+) {
   let state = watched.get(dir);
   const opened = !state;
   if (opened) {

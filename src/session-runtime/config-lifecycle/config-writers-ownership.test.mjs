@@ -123,7 +123,11 @@ test('a reader barrier writes an accepted skills change while config edits keep 
     await sleep(50);
     writers.scheduleSkillsSave(['off-skill']);
     const editsBefore = edits;
-    assert.equal(await within(flushPendingSessionConfigWrites(), 3000), true, 'the barrier waited for config to go quiet');
+    assert.equal(
+      await within(flushPendingSessionConfigWrites(), 3000),
+      true,
+      'the barrier waited for config to go quiet'
+    );
     assert.deepEqual(skills, ['off-skill']);
     assert.ok(edits > editsBefore, 'config edits kept being accepted while the barrier waited');
   } finally {
