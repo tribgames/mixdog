@@ -70,12 +70,12 @@ function _cacheGet(account) {
 
 function _cacheStore(account, value) {
   if (KEYCHAIN_CACHE_TTL_MS === 0) return;
-  const now = Date.now();
   _secretCache.set(`${SERVICE}\0${account}`, {
     value,
-    readAt: now,
     expiresAt:
-      KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : now + KEYCHAIN_CACHE_TTL_MS,
+      KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : Date.now() + KEYCHAIN_CACHE_TTL_MS,
   });
 }
 
@@ -101,10 +101,6 @@ function invalidateSecretCache(account) {
   if (process.platform === 'linux') {
     _linuxLoadedUntil = 0;
     _prewarmPromise = null;
-  }
-  if (process.platform === 'darwin') {
-    _invalidateDarwin(account == null ? _knownDarwinAccounts() : [account]);
-    return;
   }
   if (account == null) {
     _secretCache.clear();
@@ -318,66 +314,26 @@ function darwinRun(args) {
 const DARWIN_FIND_ARGS = (account) => ['find-generic-password', '-a', account, '-s', SERVICE, '-w'];
 // errSecItemNotFound: the keychain answered that the account holds nothing.
 const DARWIN_NOT_FOUND = 44;
-// An answer older than this is served as is and re-read in the background, for
-// that account alone: a key another process or the user's own `security` call
-// replaced or removed is picked up within this bound of the next read.
-const DARWIN_REFRESH_MS = 30000;
-// Accounts whose last read in this process ended with a key or "not found".
-// Background work (warm aside, which is a first read) touches only these: an
-// item `security` has already read without any UI. An account whose last read
-// failed for another reason (denied, locked, an ACL asking for the user) is
-// left to its next foreground read, which behaves as it always did.
-const _darwinReadable = new Set();
-/** @type {Map<string, {generation: number, read: Promise<void>}>} the re-read in flight per account */
-const _darwinRereads = new Map();
-
 function darwinGet(account) {
   const r = darwinRun(DARWIN_FIND_ARGS(account));
-  if (r.status === 0) {
-    _darwinReadable.add(account);
-    return r.stdout.trimEnd();
-  }
-  if (r.status !== DARWIN_NOT_FOUND) {
-    _darwinReadable.delete(account);
-    return null;
-  }
-  _darwinReadable.add(account);
-  _cacheMiss(account);
+  if (r.status === 0) return r.stdout.trimEnd();
+  if (r.status === DARWIN_NOT_FOUND) _cacheMiss(account);
   return null;
 }
 
-// A read somebody awaits (the warm-up) keeps the child and its pipes referenced.
-// A `background` read (nobody awaits it: stale and invalidation re-reads) starts
-// unref'd, so a short CLI/TUI run exits instead of waiting out `security`; the
-// promise's `hold()` references it again when a caller later starts awaiting it.
-// The bound is an AbortSignal timeout (an unref'd timer that kills the child
-// when it fires) instead of spawn's `timeout` option, whose referenced timer
-// would hold a background read's process for the whole bound; a referenced
-// child keeps the loop running, so the bound still fires for the awaited read.
-function spawnAsync(cmd, args, background = false) {
-  let hold = () => {};
-  const promise = new Promise((resolve) => {
+function spawnAsync(cmd, args) {
+  return new Promise((resolve) => {
     let child;
     try {
       child = spawn(cmd, args, {
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        signal: AbortSignal.timeout(KEYCHAIN_TIMEOUT_MS),
+        timeout: KEYCHAIN_TIMEOUT_MS,
       });
     } catch (error) {
       resolve({ status: null, stdout: '', error });
       return;
-    }
-    hold = () => {
-      child.ref();
-      child.stdout.ref();
-      child.stderr.ref();
-    };
-    if (background) {
-      child.unref();
-      child.stdout.unref();
-      child.stderr.unref();
     }
     let stdout = '';
     child.stdout.setEncoding('utf8');
@@ -388,80 +344,23 @@ function spawnAsync(cmd, args, background = false) {
     child.once('error', (error) => resolve({ status: null, stdout, error }));
     child.once('close', (status) => resolve({ status, stdout, error: null }));
   });
-  promise.hold = () => hold();
-  return promise;
 }
 
-// Re-asks the keychain about one account without blocking. An answer that was
-// overtaken meanwhile by this process (set, delete, invalidation) is dropped. A
-// failure other than "not found" keeps the cached answer and takes the account
-// out of the background set, so it is never re-read behind the user's back.
-// `background`: nobody awaits it (its caller passes true); an awaiting caller
-// that joins a background read already in flight takes hold of it.
-function _rereadDarwin(account, background) {
+// The warm-up's read of one account, awaited by the caller (so its child keeps
+// the process alive until it answers). An answer overtaken meanwhile by this
+// process (set, delete, invalidation) is dropped; a failure other than "not
+// found" caches nothing, leaving the account to its next foreground read.
+async function _readDarwin(account) {
   const generation = _cacheGenerations.get(account) || 0;
-  const pending = _darwinRereads.get(account);
-  if (pending?.generation === generation) {
-    if (!background) pending.hold();
-    return pending.read;
-  }
   const epoch = _cacheEpoch;
-  const spawned = spawnAsync('security', DARWIN_FIND_ARGS(account), background);
-  const read = (async () => {
-    const r = await spawned;
-    if (_cacheEpoch !== epoch || (_cacheGenerations.get(account) || 0) !== generation) return;
-    const previous = _cacheGet(account);
-    if (!r.error && r.status === 0) {
-      _darwinReadable.add(account);
-      _cacheStore(account, r.stdout.trimEnd());
-    } else if (!r.error && r.status === DARWIN_NOT_FOUND) {
-      _darwinReadable.add(account);
-      _cacheMiss(account);
-    } else {
-      _darwinReadable.delete(account);
-    }
-    if (_cacheGet(account) !== previous) _noteSecretsChanged();
-  })().finally(() => {
-    if (_darwinRereads.get(account)?.read === read) _darwinRereads.delete(account);
-  });
-  _darwinRereads.set(account, { generation, read, hold: spawned.hold });
-  return read;
-}
-
-// One at a time, so a keychain that wants to ask the user asks once, not in parallel.
-// Only called for an invalidation, which nobody awaits.
-async function _rereadDarwinEach(accounts) {
-  for (const account of accounts) await _rereadDarwin(account, true);
-}
-
-// Called on every cached answer: past the refresh bound, start the re-read.
-function _refreshIfStale(account) {
-  if (platform() !== 'darwin' || !_darwinReadable.has(account)) return;
-  const entry = _secretCache.get(`${SERVICE}\0${account}`);
-  if (entry && Date.now() - entry.readAt > DARWIN_REFRESH_MS) void _rereadDarwin(account, true);
-}
-
-// An invalidation (another process changed these accounts): what is cached is
-// served until the re-read lands, so no read blocks. An account with no cached
-// entry, or one that is not safe to re-read, is read by its next foreground
-// read. A first read already in flight is overtaken by the new generation, so
-// its pre-invalidation answer is dropped, and it is read again in the background.
-function _invalidateDarwin(accounts) {
-  const reread = [];
-  for (const account of accounts) {
-    _cacheGenerations.set(account, (_cacheGenerations.get(account) || 0) + 1);
-    const cachedAndSafe = _secretCache.has(`${SERVICE}\0${account}`) && _darwinReadable.has(account);
-    if (cachedAndSafe || _darwinRereads.has(account)) reread.push(account);
-    else _secretCache.delete(`${SERVICE}\0${account}`);
-  }
-  _noteSecretsChanged();
-  void _rereadDarwinEach(reread);
-}
-
-// Every account a full invalidation concerns: the cached ones and those with a read in flight.
-function _knownDarwinAccounts() {
-  const cached = [..._secretCache.keys()].map((key) => key.slice(SERVICE.length + 1));
-  return [...new Set([...cached, ..._darwinRereads.keys()])];
+  const r = await spawnAsync('security', DARWIN_FIND_ARGS(account));
+  if (_cacheEpoch !== epoch || (_cacheGenerations.get(account) || 0) !== generation) return;
+  if (r.error) return;
+  const previous = _cacheGet(account);
+  if (r.status === 0) _cacheStore(account, r.stdout.trimEnd());
+  else if (r.status === DARWIN_NOT_FOUND) _cacheMiss(account);
+  else return;
+  if (_cacheGet(account) !== previous) _noteSecretsChanged();
 }
 
 let _darwinWarm = Promise.resolve();
@@ -473,22 +372,15 @@ function _prewarmDarwin(accounts) {
   _darwinWarm = _darwinWarm.then(async () => {
     for (const account of accounts) {
       if (_cacheGet(account) !== undefined) continue;
-      await _rereadDarwin(account, false);
-      // An invalidation may have overtaken that read with a newer one (any
-      // number of times): the warm is done only when the newest has landed.
-      for (let newest = _darwinRereads.get(account); newest; newest = _darwinRereads.get(account)) {
-        newest.hold();
-        await newest.read;
-      }
+      await _readDarwin(account);
     }
   });
   return _darwinWarm;
 }
+
 function darwinSet(account, value) {
   const r = darwinRun(['add-generic-password', '-a', account, '-s', SERVICE, '-w', value, '-U']);
   if (r.status !== 0) throw new Error(`[keychain] security set failed: ${r.stderr || r.stdout}`);
-  // `security` created the item, so it reads it without UI.
-  _darwinReadable.add(account);
 }
 
 function darwinDelete(account) {
@@ -1529,7 +1421,6 @@ function backend() {
 // the keychain holds nothing, so the fallback file still answers, exactly as it
 // does for an uncached read.
 function _cachedSecret(account, cached) {
-  _refreshIfStale(account);
   return cached ?? fallbackGet(account);
 }
 
@@ -1557,10 +1448,7 @@ function getSecret(account) {
 
 function hasSecret(account) {
   const cached = _cacheGet(account);
-  if (cached !== undefined) {
-    _refreshIfStale(account);
-    return cached != null || hasFallbackSecret(account);
-  }
+  if (cached !== undefined) return cached != null || hasFallbackSecret(account);
   if (platform() === 'win32') return fs.existsSync(dpApiFile(account));
   try {
     return getSecret(account) != null;
