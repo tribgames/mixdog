@@ -1,7 +1,8 @@
 // In-memory cache for small files read on hot paths (status, routes). A warm
-// read touches no filesystem. Every watch event on a cached file (an
-// `fs.watch` on its directory, whoever wrote it) re-reads that file off the
-// loop after a short debounce; a value that differs from the cached one
+// read touches no filesystem. Every watch event on a cached file (the
+// process's one shared watch of its directory, directory-watch.mjs, whoever
+// wrote it) re-reads that file off the loop after a short debounce; a value
+// that differs from the cached one
 // replaces it and tells `onChange`, an equal one changes nothing — so this
 // process's own writes read back as no change. Nothing is polled: a
 // directory whose watch fails (or errors later) is logged, closed and
@@ -15,12 +16,18 @@ import fsp from 'node:fs/promises';
 import { basename, dirname, join, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { writeStderrBestEffort } from './best-effort-stderr.mjs';
+import { watchDirectory } from './directory-watch.mjs';
 
 /** Re-reads a cache keeps in flight at once; the rest wait for a slot. */
 export const POLL_CONCURRENCY = 8;
 // One replace brings several events (Windows): the file is read once.
 const RELOAD_DEBOUNCE_MS = 50;
 const MISSING = 'missing';
+
+const isMissing = (error) => error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+
+// The entry of `dir` on the way down to `target` (a path inside it).
+const stepToward = (dir, target) => target.slice(dir.endsWith(sep) ? dir.length : dir.length + 1).split(sep)[0];
 
 // Atomic replacements may keep mtime and size; identity and ctime tell them apart.
 const stampOf = (stat) => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
@@ -74,163 +81,109 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
       onWatch(path, watched);
     } catch {}
   };
-  // dir -> { watcher, parentWatcher, trusted, refs }: one `fs.watch` per
-  // directory plus one on its parent (the only one that hears the directory
-  // renamed or deleted and recreated: the directory's own follows the moved
-  // one), held by every entry whose `watchDir` names it and closed when the
-  // last of them goes. `trusted`: both run (a root has no parent to need).
-  const watchers = new Map();
   let closed = false;
-
-  const closeQuietly = (watcher) => {
-    try {
-      watcher?.close();
-    } catch {}
-  };
-
-  const closeWatcher = (dir) => {
-    const held = watchers.get(dir);
-    if (!held) return;
-    watchers.delete(dir);
-    closeQuietly(held.watcher);
-    closeQuietly(held.parentWatcher);
-  };
-
-  const release = (dir) => {
-    const held = dir === null ? null : watchers.get(dir);
-    if (held && --held.refs <= 0) closeWatcher(dir);
-  };
-
-  const dropWatcher = (dir) => {
-    closeWatcher(dir);
-    for (const entry of entries.values()) if (entry.watchDir === dir) entry.watchDir = null;
-  };
-
-  // `dir` was renamed, or deleted and recreated: its watch may follow the old
-  // one. It closes, and the entries that held it watch the live directory
-  // (or the nearest ancestor while it is missing) and re-read; a value that
-  // differs from the cached one is announced by that re-read.
-  const replaceDir = (dir) => {
-    const affected = [...entries].filter(([, entry]) => entry.watchDir === dir);
-    dropWatcher(dir);
-    for (const [path, entry] of affected) {
-      attach(path, entry);
-      scheduleReread(path, entry);
-    }
-  };
-
-  // A watch that ended: the entries on it may miss changes, so their reads
-  // re-read on demand until the directory is watched again.
-  const distrust = (held, dir) => {
-    held.trusted = false;
-    for (const [path, entry] of entries) {
-      if (entry.watchDir !== dir) continue;
-      if (!entry.blind) {
-        entry.blind = true;
-        notifyWatch(path, false);
-      }
-      scheduleReread(path, entry);
-    }
-  };
-
-  // The parent's watch ended on its own: a replacement of `dir` goes unheard.
-  const parentLost = (dir, held, parentWatcher, error) => {
-    if (watchers.get(dir) !== held || held.parentWatcher !== parentWatcher) return;
-    held.parentWatcher = null;
-    closeQuietly(parentWatcher);
-    if (error) writeStderrBestEffort(`[watch] lost the watch on the parent of ${dir}: ${error.message || error}\n`);
-    distrust(held, dir);
-  };
-
-  // Opens the watch that hears `dir` replaced; null when it cannot be opened.
-  const watchParent = (dir, held) => {
-    const parent = dirname(dir);
-    const name = basename(dir);
-    let parentWatcher;
-    try {
-      parentWatcher = fs.watch(parent, { persistent: false }, (event, filename) => {
-        // 'change' is the directory's own metadata (any write inside it).
-        if (event !== 'rename' || (filename && String(filename) !== name)) return;
-        if (watchers.get(dir) === held) replaceDir(dir);
-      });
-    } catch (error) {
-      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') {
-        writeStderrBestEffort(`[watch] cannot watch ${parent}: ${error?.message || error}\n`);
-      }
-      return null;
-    }
-    parentWatcher.on('error', (error) => parentLost(dir, held, parentWatcher, error));
-    parentWatcher.on('close', () => parentLost(dir, held, parentWatcher, null));
-    return parentWatcher;
-  };
 
   // Directories whose watch failed (not merely missing): not tried again
   // until an ancestor's event names them (they were created or replaced).
   const unwatchable = new Set();
 
   const watchFailed = (dir, error) => {
+    if (unwatchable.has(dir)) return;
     unwatchable.add(dir);
     writeStderrBestEffort(`[watch] cannot watch ${dir}: ${error?.message || error}\n`);
   };
 
-  // A watch that errored is closed; its entries wait on the nearest
-  // ancestor that can be watched.
-  const watchLost = (dir, error) => {
-    const affected = [...entries].filter(([, entry]) => entry.watchDir === dir);
-    dropWatcher(dir);
-    watchFailed(dir, error);
-    for (const [path, entry] of affected) attach(path, entry);
+  // `target` was named by an event (created or replaced): a failed watch at
+  // or under it may work now.
+  const forgive = (target) => {
+    for (const failed of [...unwatchable]) {
+      if (failed === target || failed.startsWith(target + sep)) unwatchable.delete(failed);
+    }
   };
 
-  // 'open' (held now), 'missing' (does not exist yet) or 'failed'.
-  const openWatcher = (dir) => {
-    if (watchers.has(dir)) return 'open';
-    if (unwatchable.has(dir)) return 'failed';
-    let watcher;
-    try {
-      watcher = fs.watch(dir, { persistent: false }, (event, name) => onEvent(dir, name, event));
-    } catch (error) {
-      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return 'missing';
-      watchFailed(dir, error);
-      return 'failed';
-    }
-    const held = { watcher, parentWatcher: null, trusted: true, refs: 0 };
-    // An error or a close on its own ends the trust at once.
-    watcher.on('error', (error) => {
-      if (watchers.get(dir) === held) watchLost(dir, error);
+  // `path`'s entry follows its file in `dir` — its own directory — or, while
+  // that is missing or unwatchable, the step toward it in the nearest
+  // ancestor that can be watched; an event there re-reads the entry, which
+  // then tries its own directory again. Either directory replaced must be
+  // heard (a watch follows the moved one), so both follow their parent.
+  // Handlers of a subscription the entry no longer holds do nothing.
+  const subscribe = (path, dir, own) => {
+    const held = () => {
+      const entry = entries.get(path);
+      return entry?.subscription === subscription ? entry : null;
+    };
+    const subscription = watchDirectory(dir, [own ? basename(path) : stepToward(dir, dirname(path))], {
+      replace: true,
+      onEvent: (_event, name) => {
+        if (!own && name) forgive(join(dir, name));
+        const entry = held();
+        if (entry) scheduleReread(path, entry);
+      },
+      // The watch ended (an error, a close, or the directory gone after a
+      // replacement): the entry re-attaches and re-reads what it may have missed.
+      onLost: (error) => {
+        const entry = held();
+        if (!entry) return;
+        if (!isMissing(error)) watchFailed(dir, error);
+        entry.watchDir = null;
+        entry.subscription = null;
+        attach(path, entry);
+        scheduleReread(path, entry);
+      },
+      // A replacement of the directory now goes unheard: reads re-read on demand.
+      onDistrust: () => {
+        const entry = held();
+        if (!entry) return;
+        if (!entry.blind) {
+          entry.blind = true;
+          notifyWatch(path, false);
+        }
+        scheduleReread(path, entry);
+      },
+      // Heard again (the watch also moved onto the live directory and its
+      // unnamed event re-reads the entry). An entry waiting on an ancestor
+      // may be blind for a directory below that failed: it sees again only
+      // once it re-attaches.
+      onTrust: () => {
+        const entry = held();
+        if (!entry?.blind || !own) return;
+        entry.blind = false;
+        notifyWatch(path, true);
+      },
     });
-    watcher.on('close', () => {
-      if (watchers.get(dir) === held) watchLost(dir, new Error('watch closed'));
-    });
-    watchers.set(dir, held);
-    if (dirname(dir) !== dir) {
-      held.parentWatcher = watchParent(dir, held);
-      held.trusted = held.parentWatcher !== null;
-    }
-    return 'open';
+    return subscription;
   };
 
-  // Points `holder`'s watch at its file's directory or, while that is missing
-  // or unwatchable, the nearest ancestor that can be watched (whose event
-  // naming it re-reads the entries beneath it, which try their own directory
-  // again). `holder.blind`: a directory on that way failed (or nothing could
-  // be watched), so events may go unseen and reads re-read on demand. True
-  // when it reached its own directory just now.
+  // Points `holder`'s subscription at its file's directory or, while that is
+  // missing or unwatchable, the nearest ancestor that can be watched.
+  // `holder.blind`: a directory on that way failed (or nothing could be
+  // watched, or a replacement of the one it holds would go unheard), so events may go
+  // unseen and reads re-read on demand. True when it reached its own
+  // directory just now.
   const attach = (path, holder) => {
     const own = dirname(path);
     if (holder.watchDir === own) return false;
     let dir = own;
     let blind = false;
+    let subscription = holder.subscription;
     while (dir !== holder.watchDir) {
-      const state = openWatcher(dir);
-      if (state === 'open') {
-        if (!watchers.get(dir).trusted) blind = true;
-        break;
+      if (unwatchable.has(dir)) blind = true;
+      else {
+        try {
+          subscription = subscribe(path, dir, dir === own);
+          if (!subscription.trusted) blind = true;
+          break;
+        } catch (error) {
+          if (!isMissing(error)) {
+            watchFailed(dir, error);
+            blind = true;
+          }
+        }
       }
-      if (state === 'failed') blind = true;
       const parent = dirname(dir);
       if (parent === dir) {
         dir = null;
+        subscription = null;
         blind = true;
         break;
       }
@@ -239,9 +192,11 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
     if (blind !== (holder.blind === true)) notifyWatch(path, !blind);
     holder.blind = blind;
     if (dir === holder.watchDir) return false;
-    if (dir !== null) watchers.get(dir).refs += 1;
-    release(holder.watchDir);
+    // Released after the new one is held: a directory both use stays watched.
+    const previous = holder.subscription;
     holder.watchDir = dir;
+    holder.subscription = subscription;
+    previous?.close();
     return dir === own;
   };
 
@@ -250,7 +205,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
     if (!entry) return null;
     clearTimeout(entry.timer);
     entries.delete(path);
-    release(entry.watchDir);
+    entry.subscription?.close();
     checkSettled(path);
     return entry;
   };
@@ -353,27 +308,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
     scheduleReread(path, entry);
   };
 
-  const onEvent = (dir, name, event) => {
-    const target = name ? join(dir, String(name)) : null;
-    const replaced = new Set();
-    // A directory named here was created or replaced: its watch may work now.
-    if (target !== null) {
-      for (const failed of [...unwatchable]) {
-        if (failed === target || failed.startsWith(target + sep)) unwatchable.delete(failed);
-      }
-    }
-    for (const [path, entry] of entries) {
-      if (target === null ? dirname(path) === dir : path === target) scheduleReread(path, entry);
-      else if (target !== null && path.startsWith(target + sep)) {
-        // Only a rename names a replaced directory; 'change' is a write inside it.
-        if (event === 'rename' && entry.watchDir === dirname(path)) replaced.add(entry.watchDir);
-        scheduleReread(path, entry);
-      }
-    }
-    for (const replacedDir of replaced) replaceDir(replacedDir);
-  };
-
-  // `holder` carries the watch the new entry takes over.
+  // `holder` carries the subscription the new entry takes over.
   // `error`: a first read failed, and reads throw it until a re-read succeeds.
   const store = (path, holder, value, error = null) => {
     const previous = entries.get(path);
@@ -383,6 +318,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
       error,
       failed: false,
       watchDir: holder.watchDir,
+      subscription: holder.subscription,
       blind: holder.blind === true,
       loading: false,
       queued: false,
@@ -394,8 +330,10 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
   };
 
   const clear = () => {
-    for (const entry of entries.values()) clearTimeout(entry.timer);
-    for (const dir of [...watchers.keys()]) closeWatcher(dir);
+    for (const entry of entries.values()) {
+      clearTimeout(entry.timer);
+      entry.subscription?.close();
+    }
     entries.clear();
     unwatchable.clear();
     waiting.length = 0;
@@ -413,7 +351,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
         return entry.value;
       }
       // Watch before loading so a change after the load is never missed.
-      const holder = entry ?? { watchDir: null };
+      const holder = entry ?? { watchDir: null, subscription: null };
       attach(path, holder);
       let loaded;
       try {
@@ -458,7 +396,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
      *  another writer landed meanwhile is read rather than lost. */
     set(path, value) {
       if (closed) return;
-      const holder = entries.get(path) ?? { watchDir: null };
+      const holder = entries.get(path) ?? { watchDir: null, subscription: null };
       attach(path, holder);
       scheduleReread(path, store(path, holder, value));
     },

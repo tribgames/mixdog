@@ -7,15 +7,19 @@
  *
  * A session's watcher holds, through the shared watched-file cache, exactly
  * the files its answer was read from: HEAD and every symbolic ref it passes
- * through for a repository, or each `.git` the layout walk looked for above a
- * folder outside any repository. Their change events alone refresh the
+ * through for a repository, or the folder's own `.git` for a folder outside
+ * any repository; the `.git` in each of its ancestors is followed through
+ * that ancestor's shared directory watch, filtered to that one name (its
+ * replacement heard through its parent's, which is the next ancestor's).
+ * Their change events alone refresh the
  * answer; nothing re-reads on a clock. A filesystem that delivers no events
  * is the watched-file cache's to handle, for that path only.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { watchDirectory } from '../directory-watch.mjs';
 import { createWatchedFileCache, fileStamp, fileStampSync } from '../watched-file-cache.mjs';
 import { canonicalPath } from './paths.mjs';
 
@@ -101,13 +105,64 @@ function layoutAbove(start, strict = false) {
   }
 }
 
-/** Every `.git` the walk from `start` looks for, nearest first. */
-function dotGitsAbove(start) {
-  const paths = [];
-  for (let dir = start; ; dir = dirname(dir)) {
-    paths.push(resolve(dir, '.git'));
-    if (dirname(dir) === dir) return paths;
+/**
+ * Follows the `.git` of every ancestor of `start`: `onChange` hears an event
+ * naming it, or the ancestor replaced. An ancestor whose watch cannot start,
+ * or ends, waits for an event naming it in the nearest ancestor above that
+ * can be watched, then follows its `.git` again (`onChange` hears that too:
+ * a `.git` may have appeared meanwhile). Returns the stop.
+ */
+function followDotGitsAbove(start, onChange) {
+  const held = new Set();
+  const subscribe = (dir, names, handlers) => {
+    try {
+      const subscription = watchDirectory(dir, names, handlers);
+      held.add(subscription);
+      return subscription;
+    } catch {
+      return null;
+    }
+  };
+  const follow = (dir) => {
+    const subscription = subscribe(dir, ['.git'], {
+      replace: true,
+      onEvent: onChange,
+      onLost: () => {
+        held.delete(subscription);
+        waitFor(dir, dir);
+        onChange();
+      },
+    });
+    if (!subscription) waitFor(dir, dir);
+  };
+  // `failed` (`dir` or one of its ancestors) cannot be watched now.
+  const waitFor = (dir, failed) => {
+    for (let step = failed; dirname(step) !== step; step = dirname(step)) {
+      const waiter = subscribe(dirname(step), [basename(step)], {
+        replace: true,
+        onEvent: () => {
+          if (!held.delete(waiter)) return;
+          // Let go only after: a wait that resumes on this ancestor keeps its watch.
+          follow(dir);
+          waiter.close();
+          onChange();
+        },
+        onLost: () => {
+          held.delete(waiter);
+          waitFor(dir, dirname(step));
+        },
+      });
+      if (waiter) return;
+    }
+  };
+  for (let dir = start; dirname(dir) !== dir; ) {
+    dir = dirname(dir);
+    follow(dir);
   }
+  return () => {
+    for (const subscription of held) subscription.close();
+    held.clear();
+  };
 }
 
 /**
@@ -345,7 +400,8 @@ function releaseRepo(entry) {
 export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
   let target = null;
   let entry = null;
-  let dotGits = [];
+  let dotGit = null;
+  let stopDotGitsAbove = null;
   let timer = null;
   const notify = () => {
     clearTimeout(timer);
@@ -356,7 +412,7 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
     if (entry?.gone) attach(target);
     notify();
   };
-  // A `.git` above a folder outside any repository changed: walk again.
+  // A `.git` in or above a folder outside any repository changed: walk again.
   const found = () => {
     const layout = layoutAbove(target);
     if (!layout) return;
@@ -370,9 +426,11 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
       releaseRepo(entry);
       entry = null;
     }
-    if (dotGits.length) {
-      for (const path of dotGits) unhold(path, found);
-      dotGits = [];
+    if (dotGit) {
+      unhold(dotGit, found);
+      dotGit = null;
+      stopDotGitsAbove();
+      stopDotGitsAbove = null;
       const count = (notRepos.get(target) ?? 1) - 1;
       if (count > 0) notRepos.set(target, count);
       else notRepos.delete(target);
@@ -388,8 +446,9 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
       return;
     }
     notRepos.set(start, (notRepos.get(start) ?? 0) + 1);
-    dotGits = dotGitsAbove(start);
-    for (const path of dotGits) hold(path, found);
+    dotGit = resolve(start, '.git');
+    hold(dotGit, found);
+    stopDotGitsAbove = followDotGitsAbove(start, found);
   }
   return {
     retarget() {

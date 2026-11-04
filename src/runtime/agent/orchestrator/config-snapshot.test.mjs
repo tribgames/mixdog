@@ -31,7 +31,7 @@ const { configInputEpoch } = await import('../../shared/config-epoch.mjs');
 const { createConfigSnapshot } = await import('./config-snapshot.mjs');
 
 const realConfigWatch = shared.configWatchDeps.watch;
-const silentWatch = () => ({ close() {}, unref() {}, on() {} });
+const silentWatch = () => ({ close() {}, trusted: true });
 
 after(() => rmSync(root, { recursive: true, force: true }));
 afterEach(() => {

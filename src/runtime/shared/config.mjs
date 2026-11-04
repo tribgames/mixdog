@@ -2,7 +2,7 @@
  * Unified config reader/writer.
  * Single file: mixdog-config.json with sections such as channels, agent, and memory.
  */
-import { readFileSync, readdirSync, statSync, mkdirSync, existsSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
@@ -31,6 +31,7 @@ import {
 } from './user-data-guard.mjs';
 import { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
 import { bumpConfigInputEpoch } from './config-epoch.mjs';
+import { watchDirectory } from './directory-watch.mjs';
 
 export { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey };
 
@@ -642,39 +643,34 @@ async function publishSecretChangeAsync(account, deleted = false) {
 }
 
 // Config-change notification. In-process writes notify directly after the file
-// is persisted; writes from other processes arrive through one lazily started
-// directory watch (the atomic rename replaces the file, which would orphan a
-// file-level watch on POSIX). Bursts coalesce into one listener pass.
+// is persisted; writes from other processes arrive through the process's one
+// shared watch of the config directory, lazily subscribed (directory-watch.mjs;
+// the atomic rename replaces the file, which would orphan a file-level watch
+// on POSIX), which also hears that directory replaced. Bursts coalesce into
+// one listener pass.
 const CONFIG_CHANGE_DEBOUNCE_MS = 100;
-// A watch that failed (or could not start) is re-established on this delay
-// while anyone listens; changes missed meanwhile are announced once it is back.
-const CONFIG_WATCH_RETRY_MS = 1000;
 const WATCHED_FILES = new Set(['mixdog-config.json', SECRETS_MARKER_FILE]);
+const CONFIG_DIR_FILES = [...WATCHED_FILES, USER_DATA_INIT_MARKER];
 const _configChangeListeners = new Set();
 let _configChangeTimer = null;
+// `{ close(), trusted }`: the subscription to the config directory's files.
 let _configWatcher = null;
-// The config directory's parent: the directory watch follows the directory it
-// opened, not its path, and hears nothing when that directory is renamed away
-// or replaced (Windows) — the parent's rename event naming it does.
-let _configParentWatcher = null;
+// While the config directory cannot be watched (missing, or its watch
+// failed): the subscription that waits for it to be named, in the nearest
+// ancestor that can be watched.
+let _configWaiter = null;
 let _configWatchDir = '';
-let _configWatchRetryTimer = null;
 
-/** The directory watch implementations; tests substitute failing watchers. */
-export const configWatchDeps = { watch: fsWatch, watchParent: fsWatch };
-
-function closeQuietly(watcher) {
-  try {
-    watcher?.close();
-  } catch {}
-}
+/** The shared directory watch (directory-watch.mjs `watchDirectory`); tests
+ *  substitute failing watches. */
+export const configWatchDeps = { watch: watchDirectory };
 
 function stopConfigWatcher() {
-  const watchers = [_configWatcher, _configParentWatcher];
+  const watchers = [_configWatcher, _configWaiter];
   _configWatcher = null;
-  _configParentWatcher = null;
+  _configWaiter = null;
   _configWatchDir = '';
-  for (const watcher of watchers) closeQuietly(watcher);
+  for (const watcher of watchers) watcher?.close();
 }
 
 // The watched files' bytes at the last listener pass (or the first subscribe).
@@ -754,106 +750,92 @@ function notifyConfigChanged({ fromWatch = false } = {}) {
   _configChangeTimer.unref?.();
 }
 
-function scheduleConfigWatchRetry() {
-  if (_configWatchRetryTimer || !_configChangeListeners.size) return;
-  _configWatchRetryTimer = setTimeout(() => {
-    _configWatchRetryTimer = null;
-    if (!_configChangeListeners.size) return;
-    ensureConfigWatcher();
-    if (_configWatcher) notifyConfigChanged();
-  }, CONFIG_WATCH_RETRY_MS);
-  _configWatchRetryTimer.unref?.();
-}
-
 // Moves each time a directory watch starts; 0 while none runs for the current
-// config directory, or while nothing would hear that directory replaced. A
-// raw read records it (readConfigRawCached).
+// config directory, or while nothing would hear that directory replaced (its
+// reads are then checked by stat). A raw read records it (readConfigRawCached).
 let _configWatchStarts = 0;
 function configWatchGeneration() {
-  if (!_configWatcher || _configWatchDir !== dirname(configPath())) return 0;
-  if (!_configParentWatcher && dirname(_configWatchDir) !== _configWatchDir) return 0;
+  if (!_configWatcher?.trusted || _configWatchDir !== dirname(configPath())) return 0;
   return _configWatchStarts;
 }
 
-// A watch that errors or closes on its own no longer reports the live
-// directory: its reads stop being trusted at once and it is re-established.
-function onConfigWatchLost(watcher, lost) {
-  watcher.on?.('error', lost);
-  watcher.on?.('close', lost);
-}
-
+// Throws what the watch throws when `dir` cannot be watched now.
 function watchConfigDir(dir) {
-  const watcher = configWatchDeps.watch(dir, (_event, filename) => {
-    const name = filename ? String(filename) : '';
-    // The raw read goes stale at once (the listener pass is debounced).
-    if (!name || WATCHED_FILES.has(name) || name === USER_DATA_INIT_MARKER) dropConfigReadCache();
-    if (!name || WATCHED_FILES.has(name)) notifyConfigChanged({ fromWatch: true });
+  const watcher = configWatchDeps.watch(dir, CONFIG_DIR_FILES, {
+    replace: true,
+    onEvent: (_event, name) => {
+      // The raw read goes stale at once (the listener pass is debounced). An
+      // event with no name — also the directory replaced — may be any file.
+      dropConfigReadCache();
+      if (name !== USER_DATA_INIT_MARKER) notifyConfigChanged({ fromWatch: true });
+    },
+    // A watch that errors or closes on its own (or finds the directory gone
+    // after a replacement) no longer reports the live directory: its reads
+    // stop being trusted at once, and it waits to be named again.
+    onLost: () => {
+      if (_configWatcher !== watcher) return;
+      _configWatcher = null;
+      dropConfigReadCache();
+      waitForConfigDir(dir, dir);
+    },
   });
   _configWatchStarts += 1;
-  watcher.unref?.();
-  onConfigWatchLost(watcher, () => {
-    if (_configWatcher !== watcher) return;
-    stopConfigWatcher();
-    dropConfigReadCache();
-    scheduleConfigWatchRetry();
-  });
   _configWatcher = watcher;
 }
 
-// The config directory was renamed, removed or created under its parent: the
-// directory watch may follow the old one, so it starts again on the live one
-// (none while it is missing: the parent names it again once it is back).
-function configDirReplaced() {
-  const dir = _configWatchDir;
-  const previous = _configWatcher;
-  _configWatcher = null;
-  closeQuietly(previous);
-  dropConfigReadCache();
-  try {
-    watchConfigDir(dir);
-  } catch (err) {
-    if (err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR') {
-      stopConfigWatcher();
-      scheduleConfigWatchRetry();
+// `failed` (the config directory or one of its ancestors) is missing or
+// cannot be watched: wait in its parent for an event naming it, or further
+// up while that cannot be watched either. With nothing watchable up to the
+// root, reads are checked by stat (configWatchGeneration) and changes of
+// other processes go unannounced.
+function waitForConfigDir(dir, failed) {
+  for (let step = failed; dirname(step) !== step; step = dirname(step)) {
+    try {
+      // Replaced, the ancestor's watch would follow the moved one: it follows its parent too.
+      const waiter = configWatchDeps.watch(dirname(step), [basename(step)], {
+        replace: true,
+        onEvent: () => {
+          if (_configWaiter === waiter) configDirNamed(dir);
+        },
+        onLost: () => {
+          if (_configWaiter !== waiter) return;
+          _configWaiter = null;
+          waitForConfigDir(dir, dirname(step));
+        },
+      });
+      _configWaiter = waiter;
       return;
-    }
+    } catch {}
   }
-  // Whatever changed before the new watch started is announced now.
-  notifyConfigChanged({ fromWatch: true });
 }
 
-function watchConfigParent(dir) {
-  const parent = dirname(dir);
-  if (parent === dir) return;
-  const name = basename(dir);
+// An event named the way to the config directory: watch it if it is there
+// now (announcing what changed while it was not watched), else wait closer.
+function configDirNamed(dir) {
+  const waiter = _configWaiter;
+  _configWaiter = null;
   try {
-    const watcher = configWatchDeps.watchParent(parent, (event, filename) => {
-      // 'change' is the directory's own metadata (any write inside it).
-      if (event !== 'rename' || (filename && String(filename) !== name)) return;
-      if (_configParentWatcher === watcher) configDirReplaced();
-    });
-    watcher.unref?.();
-    onConfigWatchLost(watcher, () => {
-      if (_configParentWatcher === watcher) _configParentWatcher = null;
-    });
-    _configParentWatcher = watcher;
+    watchConfigDir(dir);
   } catch {
-    // Without it reads are checked by stat (configWatchGeneration); changes still arrive.
+    waitForConfigDir(dir, dir);
+    return;
+  } finally {
+    // Let go only now: a wait that resumes on the same ancestor keeps its watch.
+    waiter.close();
   }
+  dropConfigReadCache();
+  notifyConfigChanged();
 }
 
 function ensureConfigWatcher() {
   const dir = dirname(configPath());
-  if (_configWatcher && _configWatchDir === dir) return;
+  if ((_configWatcher || _configWaiter) && _configWatchDir === dir) return;
   stopConfigWatcher();
   _configWatchDir = dir;
-  // The parent first: a replacement between the two starts is still heard.
-  watchConfigParent(dir);
   try {
     watchConfigDir(dir);
   } catch {
-    stopConfigWatcher();
-    scheduleConfigWatchRetry();
+    waitForConfigDir(dir, dir);
   }
 }
 
@@ -888,8 +870,6 @@ export function subscribeConfigChange(listener) {
     if (!_configChangeListeners.size) {
       if (_configChangeTimer) clearTimeout(_configChangeTimer);
       _configChangeTimer = null;
-      if (_configWatchRetryTimer) clearTimeout(_configWatchRetryTimer);
-      _configWatchRetryTimer = null;
       stopConfigWatcher();
     }
   };

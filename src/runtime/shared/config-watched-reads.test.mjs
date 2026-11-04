@@ -2,11 +2,11 @@
 // until a watch event, for a present config and for a missing one on an
 // initialized data dir (whose recovery check reads the init marker).
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after } from 'node:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { syncFsCalls } from './sync-fs-calls.fixture.mjs';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-config-watched-reads-'));
@@ -129,18 +129,84 @@ test('a replaced data dir ends the trust of reads from the old one', async () =>
   }
 });
 
+/** Delays of the timers config.mjs arms from now on (the test's own are not counted). */
+function configTimers(t) {
+  const delays = [];
+  const real = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (fn, ms, ...rest) => {
+    if (/[\\/]config\.mjs:/.test(new Error().stack)) delays.push(ms);
+    return real(fn, ms, ...rest);
+  });
+  t.mock.method(globalThis, 'setInterval', () => assert.fail('nothing polls'));
+  return delays;
+}
+
+/** The first listener pass that reads agent.title as `title`; rejects after 5 s. */
+function titleSeen(title) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      stop();
+      reject(new Error(`no config change pass read "${title}"`));
+    }, 5000);
+    const stop = config.subscribeConfigChange(() => {
+      if (config.readSection('agent').title !== title) return;
+      stop();
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+test('a config dir deleted and recreated is watched again on its parent’s event, with no timer but the debounce', async (t) => {
+  const unsubscribe = config.subscribeConfigChange(() => {});
+  try {
+    let changed = titleSeen('before-delete');
+    fs.writeFileSync(configFile, JSON.stringify({ agent: { title: 'before-delete' } }));
+    await changed;
+    const delays = configTimers(t);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    // Long enough for the watch to end on the deletion before the folder is back.
+    await sleep(300);
+    changed = titleSeen('recreated');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(configFile, JSON.stringify({ agent: { title: 'recreated' } }));
+    await changed;
+    assert.deepEqual([...new Set(delays)], [100], 'only the change debounce was armed');
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('a config dir missing when the watch starts is watched once it is created, with no timer but the debounce', async (t) => {
+  fs.rmSync(dataDir, { recursive: true, force: true });
+  const delays = configTimers(t);
+  const unsubscribe = config.subscribeConfigChange(() => {});
+  try {
+    const changed = titleSeen('created');
+    await sleep(300);
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(configFile, JSON.stringify({ agent: { title: 'created' } }));
+    await changed;
+    assert.deepEqual([...new Set(delays)], [100], 'only the change debounce was armed');
+  } finally {
+    unsubscribe();
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+});
+
 test('a directory watch that closes on its own ends the trust at once', () => {
   const realWatch = config.configWatchDeps.watch;
-  let watcher = null;
-  config.configWatchDeps.watch = () => {
-    watcher = Object.assign(new EventEmitter(), { close() {} });
-    return watcher;
+  let lost = null;
+  config.configWatchDeps.watch = (_dir, _names, { onLost }) => {
+    // The first is the config directory's; later ones wait for it.
+    lost ??= onLost;
+    return { close() {}, trusted: true };
   };
   fs.writeFileSync(configFile, JSON.stringify({ agent: { title: 'before-close' } }));
   const unsubscribe = config.subscribeConfigChange(() => {});
   try {
     assert.equal(config.readSection('agent').title, 'before-close');
-    watcher.emit('close');
+    lost(new Error('watch closed'));
     fs.writeFileSync(configFile, JSON.stringify({ agent: { title: 'after-close' } }));
     assert.equal(config.readSection('agent').title, 'after-close');
   } finally {

@@ -5,7 +5,6 @@
 // PATH is empty), so no OS keychain is touched.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -87,30 +86,37 @@ async function waitFor(predicate, timeoutMs = 5000) {
   return true;
 }
 
-test('a failed directory watch is re-established and announces the changes it may have missed', async () => {
+test('a failed directory watch waits on its parent, is re-established on its name and announces what it may have missed', async () => {
   const realWatch = config.configWatchDeps.watch;
   const watchers = [];
-  config.configWatchDeps.watch = (_dir, onChange) => {
-    const watcher = Object.assign(new EventEmitter(), { onChange, close() {} });
+  config.configWatchDeps.watch = (dir, names, { onEvent, onLost }) => {
+    const watcher = { dir, names, onChange: onEvent, onLost, close() {}, trusted: true };
     watchers.push(watcher);
     return watcher;
   };
+  const of = (dir) => watchers.filter((watcher) => watcher.dir === dir);
   let notified = 0;
   const unsubscribe = config.subscribeConfigChange(() => {
     notified += 1;
   });
   try {
-    assert.equal(watchers.length, 1);
-    watchers[0].emit('error', new Error('EPERM: watched directory went away'));
-    assert.ok(await waitFor(() => watchers.length === 2 && notified === 1), 'the watch came back and re-announced');
+    assert.equal(of(dirs.data).length, 1);
+    of(dirs.data)[0].onLost(new Error('EPERM: watched directory went away'));
+    const [waiter] = of(path.dirname(dirs.data));
+    assert.deepEqual(waiter?.names, [path.basename(dirs.data)], 'it waits in the parent, on its own name');
+    await sleep(300);
+    assert.equal(of(dirs.data).length, 1, 'nothing retries until the parent names it');
+    waiter.onChange('rename', path.basename(dirs.data));
+    assert.ok(await waitFor(() => of(dirs.data).length === 2 && notified === 1), 'the watch came back and re-announced');
+    const watch = of(dirs.data)[1];
     // A rewrite of identical bytes (another process re-saving a marker) is no change.
-    watchers[1].onChange('rename', 'mixdog-secrets-changed.json');
+    watch.onChange('rename', 'mixdog-secrets-changed.json');
     await sleep(300);
     assert.equal(notified, 1, 'identical content announces nothing');
     const configFile = config.configPath();
     const before = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, 'utf8')) : {};
     fs.writeFileSync(configFile, JSON.stringify({ ...before, watchProbe: 1 }));
-    watchers[1].onChange('rename', 'mixdog-config.json');
+    watch.onChange('rename', 'mixdog-config.json');
     assert.ok(await waitFor(() => notified === 2), 'the new watch delivers changes');
   } finally {
     unsubscribe();
@@ -121,8 +127,8 @@ test('a failed directory watch is re-established and announces the changes it ma
 test('a half-written hand edit is never quarantined by the watch: the change is read once it parses', async () => {
   const realWatch = config.configWatchDeps.watch;
   let watcher = null;
-  config.configWatchDeps.watch = (_dir, onChange) => {
-    watcher = Object.assign(new EventEmitter(), { onChange, close() {} });
+  config.configWatchDeps.watch = (_dir, _names, { onEvent }) => {
+    watcher = { onChange: onEvent, close() {}, trusted: true };
     return watcher;
   };
   const configFile = config.configPath();
@@ -152,8 +158,8 @@ test('a half-written hand edit is never quarantined by the watch: the change is 
 test('a partial save landing while a pass runs is never quarantined by the pass’s own reads', async () => {
   const realWatch = config.configWatchDeps.watch;
   let watcher = null;
-  config.configWatchDeps.watch = (_dir, onChange) => {
-    watcher = Object.assign(new EventEmitter(), { onChange, close() {} });
+  config.configWatchDeps.watch = (_dir, _names, { onEvent }) => {
+    watcher = { onChange: onEvent, close() {}, trusted: true };
     return watcher;
   };
   const configFile = config.configPath();
