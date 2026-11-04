@@ -68,6 +68,8 @@ function setup(t, prefix, extra = {}) {
   t.after(async () => {
     await closeSessionCatalogDb();
     configureSessionCatalogDbForTest(null);
+    // A held session writer lock keeps its file (and the fixture's data dir) from being removed on Windows.
+    (await import('../store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   });
 }
 
