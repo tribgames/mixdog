@@ -17,6 +17,9 @@ writeFileSync(
 );
 process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
 
+await (await import('../../../shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../../../shared/llm/model-catalog.mjs')
+);
 const { DeepSeekProvider, deepSeekMessagesBaseURL } = await import('./deepseek.mjs');
 const { OpenCodeGoProvider } = await import('./opencode-go.mjs');
 const { COMPAT_RETRY_POLICY } = await import('./openai-compat-retry-profile.mjs');

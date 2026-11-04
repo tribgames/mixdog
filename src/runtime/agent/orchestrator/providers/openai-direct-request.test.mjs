@@ -78,6 +78,9 @@ writeFileSync(
 );
 process.env.MIXDOG_DATA_DIR = dataDir;
 
+await (await import('../../../shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../../../shared/llm/model-catalog.mjs')
+);
 const { applyOpenAIDirectCachePolicy, openAiDirectSupportsFast, openAiDirectSupportsUltrafast } = await import(
   './openai-direct-request.mjs'
 );

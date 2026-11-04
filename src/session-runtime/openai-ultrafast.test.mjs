@@ -81,6 +81,9 @@ test('direct API payload sends ultrafast for astra and 6.1-sol only', async (t) 
       },
     })
   );
+  await (await import('../runtime/shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+    await import('../runtime/shared/llm/model-catalog.mjs')
+  );
   const { buildRequestBody } = await import('../runtime/agent/orchestrator/providers/openai-oauth.mjs');
   const direct = { ...ultra, promptCacheProvider: 'openai' };
   for (const model of ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-sol-2026-10-01']) {

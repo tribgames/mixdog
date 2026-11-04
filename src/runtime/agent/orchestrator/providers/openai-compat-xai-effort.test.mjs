@@ -35,6 +35,8 @@ writeFileSync(join(dataDir, 'litellm-catalog.json'), JSON.stringify({ fetchedAt:
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { xaiModelSupportsReasoningEffort } = await import('./openai-compat-xai.mjs');
+const { warmCatalogForTest } = await import('../../../shared/llm/catalog-warm.fixture.mjs');
+await warmCatalogForTest(await import('./model-catalog.mjs'));
 
 test('a listed model takes the effort exactly when the catalog publishes effort values', () => {
   assert.equal(xaiModelSupportsReasoningEffort('grok-9-fixture'), true);

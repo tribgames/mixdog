@@ -19,6 +19,9 @@ import { _streamResponse } from '../../agent/orchestrator/providers/openai-ws-st
 import { consumeCompatChatCompletionStream } from '../../agent/orchestrator/providers/openai-compat-stream.mjs';
 import { EventEmitter } from 'node:events';
 import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
+import * as modelCatalog from './model-catalog.mjs';
+await warmCatalogForTest(modelCatalog);
 
 after(() => closeUsageLedgers());
 
@@ -799,7 +802,7 @@ test('a title call is recorded under the session it titles and the request log n
     resolveMaintenanceRoute: () => ({ provider: 'openai', model: 'gpt-5' }),
     initProviders: async () => {},
     getProvider: () => ({
-      send: (messages, model, tools, opts) =>
+      send: (_messages, model, _tools, opts) =>
         accountProviderSend(
           'openai',
           {},

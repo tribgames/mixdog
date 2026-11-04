@@ -254,7 +254,7 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
     const stored = id === clean(live?.id) ? live : mgr.getSession(id);
     if (!stored) throw new Error(`inheritFrom: session ${id} was not found`);
     const source = committedSource(stored);
-    const heir = buildColdHeir(source);
+    const heir = await buildColdHeir(source);
     const { messages, compacted } = await carryConversation(source, heir, { compact: compact === true });
     // A suffixed title ("… (Fork)") tells the copy apart in session lists;
     // locked as a model title so auto-titling keeps it, renames still win.

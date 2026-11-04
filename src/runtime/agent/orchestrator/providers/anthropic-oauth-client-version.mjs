@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { updateJsonAtomic } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { createNpmVersionSource, maxSemver } from './npm-cli-version.mjs';
 
@@ -64,9 +64,12 @@ function loadLearnedCliVersion() {
   return learnedCliVersion;
 }
 
-function persistLearnedCliVersion(cliVersion) {
+// Persistence is best-effort and runs off the event loop: the active process
+// already uses the learned floor from memory, and adopts a higher floor another
+// process stored meanwhile once the write settles.
+async function persistLearnedCliVersion(cliVersion) {
   try {
-    const persisted = updateJsonAtomicSync(
+    const persisted = await updateJsonAtomic(
       cliVersionCachePath(),
       (current) => {
         const currentVersion = current?.version === CACHE_SCHEMA_VERSION ? parseCliVersion(current?.cliVersion) : null;
@@ -81,12 +84,18 @@ function persistLearnedCliVersion(cliVersion) {
       },
       { lock: true, fsyncDir: true }
     );
-    return parseCliVersion(persisted?.cliVersion)?.text || cliVersion;
+    const stored = parseCliVersion(persisted?.cliVersion)?.text;
+    if (stored && compareCliVersions(stored, learnedCliVersion) > 0) learnedCliVersion = stored;
   } catch {
-    // Runtime learning still fixes the active process. Persistence remains
-    // best-effort so a read-only data directory cannot break inference.
-    return cliVersion;
+    // A read-only data directory must not break inference.
   }
+}
+
+const persistsInFlight = new Set();
+
+/** Resolves once every learned-floor write started so far has settled (persistence never rejects). */
+export async function settleLearnedCliVersionWrites() {
+  await Promise.all([...persistsInFlight]);
 }
 
 export function resolveCliVersion() {
@@ -118,8 +127,11 @@ export function learnRequiredCliVersion(errorText) {
   const currentFloor = loadLearnedCliVersion() || DEFAULT_CLI_VERSION;
   const updated = compareCliVersions(required.text, currentFloor) > 0;
   if (updated) {
-    learnedCliVersion = persistLearnedCliVersion(required.text);
+    learnedCliVersion = required.text;
     learnedCliVersionLoaded = true;
+    const write = persistLearnedCliVersion(required.text);
+    persistsInFlight.add(write);
+    void write.finally(() => persistsInFlight.delete(write));
   }
 
   const explicit = String(process.env.MIXDOG_CLI_VERSION || '').trim();

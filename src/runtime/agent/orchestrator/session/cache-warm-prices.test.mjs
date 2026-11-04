@@ -31,6 +31,9 @@ writeFileSync(
     },
   })
 );
+await (await import('../../../shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../../../shared/llm/model-catalog.mjs')
+);
 const { defaultPrices } = await import('./cache-warm.mjs');
 
 after(() => rmSync(dir, { recursive: true, force: true }));

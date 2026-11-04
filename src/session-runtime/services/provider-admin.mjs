@@ -1776,7 +1776,7 @@ export async function forgetProviderAuth(cfgModOrProvider, maybeProvider, reques
     ) {
       throw new TypeError('Account is no longer connected.');
     }
-    const result = withProviderAccount(id, accountId, () => oauth.forget());
+    const result = await withProviderAccount(id, accountId, () => oauth.forget());
     const pool = await removeProviderAccount(id, accountId);
     if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: pool.accounts.length > 0 });
     return { provider: id, type: 'oauth', forgotten: true, removed: Boolean(result?.removed) };

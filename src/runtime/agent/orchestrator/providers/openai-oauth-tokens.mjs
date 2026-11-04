@@ -15,7 +15,7 @@
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
 // Every credential write bumps it: the agent config snapshot probes this file.
 import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
@@ -136,9 +136,11 @@ export function loadTokens() {
   return null;
 }
 
-export function saveTokens(tokens) {
-  const target = getOwnTokenPath();
-  writeJsonAtomicSync(target, tokens, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+// Sign-in and refresh both persist through this one writer: it holds the store
+// lock without blocking the event loop (lock wait, fsync, ACL bridge), so the
+// two interleave by waiting for each other instead of failing on contention.
+export async function saveTokens(tokens) {
+  await writeJsonAtomicAsync(getOwnTokenPath(), tokens, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
   bumpConfigInputEpoch();
 }
 
@@ -255,7 +257,7 @@ async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
       account_id: extractAccountId(json.access_token),
       identity: identityFromTokens(json.id_token, json.access_token) || normalizeAccountIdentity(previousIdentity),
     };
-    saveTokens(tokens);
+    await saveTokens(tokens);
     return tokens;
   } catch (err) {
     if (err?.name === 'AbortError')

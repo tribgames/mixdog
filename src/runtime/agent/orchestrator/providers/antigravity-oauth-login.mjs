@@ -286,7 +286,7 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
     user_id: userId,
   };
   signal?.throwIfAborted();
-  saveTokens(tokens);
+  await saveTokens(tokens);
   return tokens;
 }
 

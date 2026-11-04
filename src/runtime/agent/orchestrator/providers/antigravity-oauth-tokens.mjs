@@ -16,7 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
 // Every credential write bumps it: the agent config snapshot probes this file.
 import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
@@ -217,20 +217,22 @@ export function loadTokens() {
   }
 }
 
-export function saveTokens(tokens) {
-  writeJsonAtomicSync(
-    getOwnTokenPath(),
-    {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: tokens.expires_at || 0,
-      project_id: tokens.project_id || tokens.projectId || '',
-      tier_id: tokens.tier_id || '',
-      email: tokens.email || '',
-      user_id: tokens.user_id || tokens.userId || '',
-    },
-    { lock: true, fsyncDir: true, mode: 0o600, secret: true }
-  );
+const tokenDocument = (tokens) => ({
+  access_token: tokens.access_token,
+  refresh_token: tokens.refresh_token,
+  expires_at: tokens.expires_at || 0,
+  project_id: tokens.project_id || tokens.projectId || '',
+  tier_id: tokens.tier_id || '',
+  email: tokens.email || '',
+  user_id: tokens.user_id || tokens.userId || '',
+});
+
+const TOKEN_WRITE_OPTS = { lock: true, fsyncDir: true, mode: 0o600, secret: true };
+
+// Sign-in, sign-out and refresh all write through the async lock holder, so
+// they wait for each other instead of failing on contention.
+export async function saveTokens(tokens) {
+  await writeJsonAtomicAsync(getOwnTokenPath(), tokenDocument(tokens), TOKEN_WRITE_OPTS);
   bumpConfigInputEpoch();
 }
 
@@ -286,12 +288,12 @@ export function describeAntigravityOAuthCredentials() {
   }
 }
 
-export function forgetAntigravityOAuthCredentials() {
+export async function forgetAntigravityOAuthCredentials() {
   const path = getOwnTokenPath();
   if (!existsSync(path)) return false;
   try {
     // Overwrite before unlink so the secret does not survive in a freed block.
-    writeJsonAtomicSync(path, {}, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+    await writeJsonAtomicAsync(path, {}, TOKEN_WRITE_OPTS);
     bumpConfigInputEpoch();
     return true;
   } catch {
@@ -351,7 +353,7 @@ export function refreshTokens({ fetchFn = fetch } = {}) {
       email: current.email,
       user_id: current.user_id,
     };
-    saveTokens(next);
+    await saveTokens(next);
     return next;
   })().finally(() => {
     _refreshesInFlight.delete(path);

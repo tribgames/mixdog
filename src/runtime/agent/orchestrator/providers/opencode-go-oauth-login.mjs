@@ -157,7 +157,7 @@ export async function completeLogin(granted, { fetchFn = fetch, signal } = {}) {
   ]);
   const org = pickOrganization(orgs, granted.org_id);
   if (!org) throw openCodeGoError(`[${PROVIDER_ID}] the OpenCode account has no organization`, { kind: 'validation' });
-  return saveTokens({
+  return await saveTokens({
     ...granted,
     account_id: typeof user?.id === 'string' ? user.id : '',
     email: typeof user?.email === 'string' ? user.email.trim().toLowerCase() : '',

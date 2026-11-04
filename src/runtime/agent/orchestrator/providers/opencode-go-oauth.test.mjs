@@ -221,8 +221,8 @@ test('a refresh that completes after a new sign-in keeps the new account', async
 
 test('a refresh that completes after a sign-out does not restore the credential', async () => {
   signIn({ expires_at: Date.now() + 1000 });
-  const api = recorder(() => {
-    forgetOpenCodeGoOAuthCredentials();
+  const api = recorder(async () => {
+    await forgetOpenCodeGoOAuthCredentials();
     return json({ access_token: 'at-old', refresh_token: 'rt-old', expires_in: 3600 });
   });
   await assert.rejects(ensureFreshTokens({ fetchFn: api.fetchFn }), (err) => err.reauthRequired === true);
@@ -585,4 +585,25 @@ test('a usage 401 refreshes once and retries', async () => {
   const snapshot = await new OpenCodeGoOAuthProvider({ preconnect: false, fetchImpl: api.fetchFn }).getUsageSnapshot();
   assert.equal(snapshot.quotaWindows.length, 2);
   assert.equal(api.seen.filter((row) => row.url === `${SERVER}/auth/device/token`).length, 1);
+});
+
+test('a sign-in landing while the store lock is held by another writer waits for it instead of failing', async () => {
+  const { withFileLock } = await import('../../../shared/atomic-file.mjs');
+  rmSync(credentialPath, { force: true });
+  const api = recorder((row) => {
+    if (row.url === `${SERVER}/api/user`) return json({ id: 'user-1', email: 'dev@example.com' });
+    if (row.url === `${SERVER}/api/orgs`) return json([{ id: 'org-a', name: 'Alpha' }]);
+    return json({}, 404);
+  });
+  let login;
+  await withFileLock(`${credentialPath}.lock`, async () => {
+    login = completeLogin(
+      { access_token: 'at-held', refresh_token: 'rt-held', expires_at: Date.now() + 3600_000 },
+      { fetchFn: api.fetchFn }
+    );
+    login.catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  await login;
+  assert.equal(JSON.parse(readFileSync(credentialPath, 'utf8')).access_token, 'at-held');
 });

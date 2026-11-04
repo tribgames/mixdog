@@ -24,7 +24,7 @@ const SEP = '\n\n---\n\n';
 const tier = (session, cacheTier) =>
   session.messages.find((message) => message.role === 'system' && message.cacheTier === cacheTier).content;
 
-test('the heir of a worktree source drops its pending re-root and is rooted at the Project folder', () => {
+test('the heir of a worktree source drops its pending re-root and is rooted at the Project folder', async () => {
   const project = join(root, 'project');
   const worktree = join(root, 'worktrees', 'fix');
   mkdirSync(project, { recursive: true });
@@ -73,7 +73,7 @@ test('the heir of a worktree source drops its pending re-root and is rooted at t
     ],
   };
   const before = JSON.stringify(source);
-  const heir = buildColdHeir(source);
+  const heir = await buildColdHeir(source);
   assert.equal(JSON.stringify(source), before, 'the source is never mutated');
   assert.equal(heir.cwd, project);
   assert.equal(Object.hasOwn(heir, 'workspaceReroot'), false, 'the pending re-root stays with the source');
@@ -88,7 +88,7 @@ test('the heir of a worktree source drops its pending re-root and is rooted at t
   assert.equal(heir.sessionStartMetaInjected, false);
 });
 
-test('a same-folder heir keeps the inherited instruction files and names its own scratch directory', () => {
+test('a same-folder heir keeps the inherited instruction files and names its own scratch directory', async () => {
   const project = join(root, 'same-folder');
   mkdirSync(project, { recursive: true });
   const agentsFile = join(project, 'AGENTS.md');
@@ -112,9 +112,9 @@ test('a same-folder heir keeps the inherited instruction files and names its own
   };
   // The file changed on disk since the source was created, then went away.
   writeFileSync(agentsFile, 'edited rule');
-  const edited = buildColdHeir(source);
+  const edited = await buildColdHeir(source);
   rmSync(agentsFile);
-  const removed = buildColdHeir(source);
+  const removed = await buildColdHeir(source);
   for (const heir of [edited, removed]) {
     assert.equal(tier(heir, 'tier3'), core, 'the inherited instruction slice is kept byte for byte');
     assert.equal(heir.bp3CoreContext, core);
@@ -123,4 +123,32 @@ test('a same-folder heir keeps the inherited instruction files and names its own
     assert.equal(heirEnv.includes(sourceScratch), false, "the source's scratch directory is gone");
     assert.equal(heirEnv.includes(source.id), false);
   }
+});
+
+test('building a heir answers the git probes off-thread: no synchronous git spawn', async (t) => {
+  const childProcess = (await import('node:child_process')).default;
+  const { syncBuiltinESMExports } = await import('node:module');
+  const folder = join(root, 'probe-project');
+  mkdirSync(folder, { recursive: true });
+  // The change-state and ignore probes only run inside a git work tree.
+  childProcess.spawnSync('git', ['init', '-q'], { cwd: folder });
+  const real = childProcess.spawnSync;
+  const spawned = [];
+  childProcess.spawnSync = function spy(command, ...rest) {
+    spawned.push(String(command));
+    return real.call(this, command, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    childProcess.spawnSync = real;
+    syncBuiltinESMExports();
+  });
+  await buildColdHeir({
+    id: 'sess_probe_source',
+    owner: 'cli',
+    tools: [{ name: 'git' }],
+    cwd: folder,
+    messages: [{ role: 'system', content: 'Preserve instructions.' }],
+  });
+  assert.deepEqual(spawned, []);
 });

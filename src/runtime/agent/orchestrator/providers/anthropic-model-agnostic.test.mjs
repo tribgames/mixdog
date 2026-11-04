@@ -73,6 +73,9 @@ const {
   shouldIncludeEffortBeta,
   thinkingTypesFromCapabilities,
 } = await import('../../../shared/llm/anthropic-effort.mjs');
+await (await import('../../../shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../../../shared/llm/model-catalog.mjs')
+);
 const { claudeGeneration, emitsAnthropicProgressUpdates } = await import(
   '../../../shared/llm/anthropic-thinking-contract.mjs'
 );

@@ -13,11 +13,11 @@ const { recordEffortRejection } = await import('../providers/effort-rejection.mj
 
 const ladder = [{ type: 'effort', values: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }];
 
-test('levels an endpoint rejected stop being offered for that route only', () => {
+test('levels an endpoint rejected stop being offered for that route only', async () => {
   const contributor = { id: 'muse-spark-1.3-contributor', reasoningOptions: ladder };
   assert.deepEqual(effortOptionsFor('muse-code-oauth', contributor), ladder[0].values);
 
-  recordEffortRejection('muse-code-oauth', 'muse-spark-1.3-contributor', 'max');
+  await recordEffortRejection('muse-code-oauth', 'muse-spark-1.3-contributor', 'max');
 
   assert.deepEqual(effortOptionsFor('muse-code-oauth', contributor), ['minimal', 'low', 'medium', 'high', 'xhigh']);
   assert.equal(coerceEffortFor('muse-code-oauth', contributor, 'max'), 'xhigh');

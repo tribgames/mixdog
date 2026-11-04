@@ -10,6 +10,9 @@ import { noteAbandonedUsage, noteRequestServiceTier } from './usage-context.mjs'
 import { usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from '../../../session-runtime/services/usage-stats-period.mjs';
 import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
+import * as modelCatalog from './model-catalog.mjs';
+await warmCatalogForTest(modelCatalog);
 
 // Cached ledger handles would hold the scratch folder open at exit.
 after(() => closeUsageLedgers());
