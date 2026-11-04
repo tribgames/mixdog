@@ -1036,6 +1036,7 @@
   "Choose how Mixdog answers": "Mixdog의 응답 스타일 선택",
   "Choose how Mixdog manages long-running and idle sessions.": "오래 실행 중인 세션과 유휴 세션을 Mixdog이 관리하는 방식을 선택합니다.",
   "Choose how much work goes to agents.": "에이전트에 위임할 작업량을 선택합니다.",
+  "Press it to name the bot and pick its model.": "눌러서 봇의 이름을 정하고 모델을 고릅니다.",
   "Choose how saved logins are used and kept.": "저장된 로그인의 사용 및 보관 방식을 선택합니다.",
   "Choose image…": "이미지 선택…",
   "Choose model": "모델 선택",

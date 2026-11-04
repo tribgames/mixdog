@@ -1036,6 +1036,7 @@
   "Choose how Mixdog answers": "Mixdog がどのように答えるかを選択",
   "Choose how Mixdog manages long-running and idle sessions.": "長時間実行されるセッションやアイドル状態のセッションを Mixdog がどのように管理するか選択します。",
   "Choose how much work goes to agents.": "エージェントにどれだけ作業を任せるかを選びます。",
+  "Press it to name the bot and pick its model.": "押してボットに名前を付け、モデルを選びます。",
   "Choose how saved logins are used and kept.": "保存したログイン情報の使用と保持の方法を選択します。",
   "Choose image…": "画像を選択…",
   "Choose model": "モデルを選択",

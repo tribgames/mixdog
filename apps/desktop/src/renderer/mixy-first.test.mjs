@@ -287,6 +287,46 @@ test('the dialog does not auto-open behind another dialog, nor after it closes',
   assert.equal(dialog(document), null, 'closing the other dialog does not open it');
 });
 
+test('the open dialog is published for the starter guide, and closing it clears that', async (t) => {
+  const { mixyDialogOpen } = await import('./mixy-identity.ts');
+  const { document, render } = mount(t, { created: false });
+  await render();
+  assert.equal(mixyDialogOpen(), false);
+  assert.ok(await openFromEmptyState(document));
+  assert.equal(mixyDialogOpen(), true);
+  await act(async () => dialog(document).querySelector('button[aria-label="Close"]').click());
+  await settle();
+  assert.equal(mixyDialogOpen(), false);
+});
+
+test('with two panes holding the dialog open, closing one still reports it open', async (t) => {
+  const { mixyDialogOpen } = await import('./mixy-identity.ts');
+  const { useMixyFirstPane } = await import('./mixy-first.tsx');
+  resetMixyStatus();
+  const { root } = installTestDom(t, { rootId: 'root' });
+  const panes = {};
+  function Pane({ id }) {
+    panes[id] = useMixyFirstPane(false);
+    return null;
+  }
+  await act(async () =>
+    root.render(
+      React.createElement(React.Fragment, null, [
+        React.createElement(Pane, { key: 'a', id: 'a' }),
+        React.createElement(Pane, { key: 'b', id: 'b' }),
+      ])
+    )
+  );
+  await act(async () => panes.a.openMixyDialog());
+  await act(async () => panes.b.openMixyDialog());
+  assert.equal(mixyDialogOpen(), true);
+  await act(async () => panes.a.closeMixyDialog());
+  assert.equal(panes.b.creatingMixy, true);
+  assert.equal(mixyDialogOpen(), true, 'pane B still has it open');
+  await act(async () => panes.b.closeMixyDialog());
+  assert.equal(mixyDialogOpen(), false);
+});
+
 test('closing leaves one 대표 에이전트 action; it and "+" both reopen the dialog', async (t) => {
   const { document, render } = mount(t, { created: false });
   await render();

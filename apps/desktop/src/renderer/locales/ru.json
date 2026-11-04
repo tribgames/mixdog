@@ -1159,6 +1159,7 @@
   "Choose how Mixdog answers": "Выберите, как отвечает Mixdog",
   "Choose how Mixdog manages long-running and idle sessions.": "Выберите, как Mixdog управляет длительными и неактивными сессиями.",
   "Choose how much work goes to agents.": "Выберите, сколько работы передавать агентам.",
+  "Press it to name the bot and pick its model.": "Нажмите, чтобы назвать бота и выбрать его модель.",
   "Choose how saved logins are used and kept.": "Выберите, как используются и хранятся сохранённые логины.",
   "Choose image…": "Выбрать изображение…",
   "Choose model": "Выбрать модель",

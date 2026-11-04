@@ -1077,6 +1077,7 @@
   "Choose how Mixdog answers": "Wählen Sie, wie Mixdog antwortet",
   "Choose how Mixdog manages long-running and idle sessions.": "Wählen Sie, wie Mixdog lang laufende und inaktive Sitzungen verwaltet.",
   "Choose how much work goes to agents.": "Wählen Sie, wie viel Arbeit an Agenten geht.",
+  "Press it to name the bot and pick its model.": "Klicken Sie hier, um dem Bot einen Namen und ein Modell zu geben.",
   "Choose how saved logins are used and kept.": "Legen Sie fest, wie gespeicherte Anmeldungen verwendet und aufbewahrt werden.",
   "Choose image…": "Bild auswählen…",
   "Choose model": "Modell auswählen",
