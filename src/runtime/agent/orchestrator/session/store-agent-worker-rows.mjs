@@ -25,6 +25,7 @@ import {
   statSessionStamp,
 } from './store/canonical-reader.mjs';
 import { readJsonProjection } from '../../../shared/pending-json-projection.mjs';
+import { createWorkerRequestClient } from '../../../shared/worker-requests.mjs';
 import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
 import { readTopLevelFields } from './store-agent-worker-header.mjs';
 import {
@@ -506,49 +507,49 @@ async function observeStampAsync(path) {
   }
 }
 
-/** probeWorkerSessionHeader with every stat and read awaited, under the
- *  same full-stamp cache policy. */
-async function probeWorkerSessionHeaderAsync(path) {
-  const before = await observeStampAsync(path);
-  if (!before) {
-    dropHeader(path);
-    return null;
-  }
-  const cached = workerSessionHeaderCache.get(path);
-  if (cached && sameSessionStamp(cached.stamp, before)) return cached.header;
-  dropHeader(path);
-  let header = null;
-  try {
-    header = readTopLevelFields(await readFile(path), WORKER_HEADER_FIELDS);
-  } catch {
-    return null;
-  }
-  if (!header) return null;
-  workerHeaderReads += 1;
-  if (isSettledSessionStamp(before) && sameSessionStamp(before, await observeStampAsync(path))) {
-    cacheHeader(path, { stamp: before, header, pass: headerPass });
-  }
-  return header;
-}
+// The probes of one prefetch go to a worker thread as ONE request (see
+// store-agent-worker-header-worker.mjs), so an awaited listing makes a bounded
+// number of file calls on this thread however many rows the index holds. The
+// worker file ships beside this module and is resolved from it, like the other
+// shared workers (model-catalog, usage-ledger, session save). A request the
+// worker fails rejects the listing; the next request starts a fresh worker.
+// The worker retires after HEADER_WORKER_IDLE_EXIT_MS without a request
+// (worker-requests' own idleExitMs, not a timer of this module). The
+// synchronous listing (TUI/CLI) probes its headers in place, as before.
+const HEADER_WORKER_IDLE_EXIT_MS = 30_000;
+let requestHeaderProbes = null;
 
-// Header reads in flight at once: each is a stat (and a read only when the
-// file changed) on the shared libuv pool, which other file I/O also needs.
-const HEADER_READ_CONCURRENCY = 4;
+/** The headers of `paths`, probed in the worker under the full-stamp cache
+ *  policy of probeWorkerSessionHeader: absent → none, same stamp → the cached
+ *  header, else the header read there (cached when its stamp is settled). */
+async function probeWorkerHeaders(paths) {
+  requestHeaderProbes ??= createWorkerRequestClient(new URL('./store-agent-worker-header-worker.mjs', import.meta.url), {
+    idleExitMs: HEADER_WORKER_IDLE_EXIT_MS,
+  });
+  const known = paths.map((path) => workerSessionHeaderCache.get(path) ?? null);
+  const answers = await requestHeaderProbes({
+    fields: WORKER_HEADER_FIELDS,
+    entries: paths.map((path, i) => [path, known[i]?.stamp ?? null]),
+  });
+  return paths.map((path, i) => {
+    const answer = answers[i];
+    if (answer.same) return known[i].header;
+    dropHeader(path);
+    if (answer.absent || answer.unreadable) return null;
+    workerHeaderReads += 1;
+    if (answer.settled) cacheHeader(path, { stamp: answer.stamp, header: answer.header, pass: headerPass });
+    return answer.header;
+  });
+}
 
 async function prefetchWorkerHeaders(sessionIds, headers) {
   const paths = [...new Set([...sessionIds].map((sessionId) => workerSessionHeaderPath(sessionId)))].filter(
     (path) => !headers.has(path)
   );
-  let next = 0;
-  const drain = async () => {
-    while (next < paths.length) {
-      const path = paths[next++];
-      headers.set(path, await probeWorkerSessionHeaderAsync(path));
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(HEADER_READ_CONCURRENCY, paths.length) }, drain));
+  if (paths.length === 0) return;
+  const found = await probeWorkerHeaders(paths);
+  paths.forEach((path, i) => headers.set(path, found[i]));
 }
-
 /** Test/diagnostic seam: cached headers and the records this process read. */
 export function storedAgentWorkerHeaderStats() {
   return {

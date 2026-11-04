@@ -1,17 +1,12 @@
 // Stale non-terminal rows: an index row whose session is gone and whose
 // last row stamp is older than the reap window becomes a tombstone so its tag is
 // freed instead of blocking spawn forever.
-import { clean, positiveInt } from '../helpers.mjs';
+import { clean } from '../helpers.mjs';
 import { isUnnotifiedRestartFailure } from '../worker-index/row-liveness.mjs';
 import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, workerRowTime } from '../worker-rows.mjs';
 import { resolveAgentTerminalReapMs } from '../../../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import {
-  insertTombstone,
-  isTerminalRow,
-  pastSettledRetention,
-  sessionHasLiveWork,
-  settledRetentionDeadline,
-} from './row-helpers.mjs';
+import { isTerminalRow, pastSettledRetention, sessionHasLiveWork, settledRetentionDeadline } from './row-helpers.mjs';
+import { tombstoneRows } from './tombstone-rows.mjs';
 
 // When a non-terminal row's stamp is past the reap window. A row with no
 // timestamp has no usable stamp at all (due at once). Explicitly disabled
@@ -24,7 +19,7 @@ function nonterminalReapDeadline(getConfig, row) {
 }
 
 export function createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveSession }) {
-  const { readWorkerRows, writeWorkerRows, flushWorkerIndexMutations } = index;
+  const { readWorkerRows } = index;
 
   // The provider window, resolved at most once per call and only for a row
   // whose decision needs it.
@@ -79,31 +74,7 @@ export function createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveS
       }
       return now >= nonterminalReapDeadline(getConfig, row);
     });
-    if (staleRows.length === 0) return false;
-    flushWorkerIndexMutations();
-    const nowIso = new Date().toISOString();
-    const reapedIds = new Set(staleRows.map((row) => clean(row.sessionId)));
-    writeWorkerRows((byKey, tombstonesByKey, priorityTombstoneKeys) => {
-      for (const [key, candidate] of byKey) {
-        if (reapedIds.has(clean(candidate.sessionId))) byKey.delete(key);
-      }
-      for (const row of staleRows) {
-        const sessionId = clean(row.sessionId);
-        const tombstone = {
-          tag: clean(row.tag),
-          agent: clean(row.agent) || null,
-          cwd: clean(row.cwd) || null,
-          clientHostPid: positiveInt(row.clientHostPid),
-          sessionId,
-          parentSessionId: clean(row.parentSessionId) || null,
-          ownerSessionId: clean(row.ownerSessionId) || null,
-          reapedAt: nowIso,
-        };
-        insertTombstone(tombstonesByKey, priorityTombstoneKeys, tombstone);
-        tagMaps.unbindIfOwned(tombstone.tag, sessionId);
-      }
-    });
-    return true;
+    return tombstoneRows({ index, tagMaps }, staleRows);
   }
 
   /** What kept `sessionId`'s row when last looked at ('work' | 'session'),

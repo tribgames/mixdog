@@ -22,7 +22,12 @@ import { runFsStepsAsync, runFsStepsSync } from './store/fs-steps.mjs';
 import { isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { readStrictRecordFields } from './store-record-strict-scan.mjs';
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
-import { applySummaryLogText, summaryLogPath } from './store-summary-log.mjs';
+import {
+  SUMMARY_PAIR_ATTEMPTS,
+  applySummaryLogText,
+  summaryBaseIdentityStep,
+  summaryLogPath,
+} from './store-summary-log.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 import { normalizeRoutineProvenance } from './routine-result.mjs';
 import { lastMessageLine, lastMessageSummary, normalizedIncomingTail } from './store-summary-last-message.mjs';
@@ -569,83 +574,103 @@ function freshIndex(indexPath, baseStamp, logStamp, logBytes) {
 /** The summary index, extending `cached` by appended log lines when it can. */
 function* readSummaryIndexSteps(cached) {
   const indexPath = join(dataDir(), 'session-summaries.json');
-  const baseStamp = yield* observeStampStep(indexPath);
-  const logStamp = yield* observeStampStep(summaryLogPath(indexPath));
+  let baseStamp = yield* observeStampStep(indexPath);
+  let logStamp = yield* observeStampStep(summaryLogPath(indexPath));
   if (cached?.indexPath !== indexPath) cached = null;
   if (cached && sameOptionalStamp(cached.baseStamp, baseStamp) && sameOptionalStamp(cached.logStamp, logStamp)) {
     return { index: cached, cacheable: true };
   }
   // The delta log (per-session updates since the last compaction) is read
-  // before the base; see store-summary-log.mjs.
-  const log = yield* readLogBytesStep(summaryLogPath(indexPath));
-  const index = freshIndex(indexPath, baseStamp, logStamp, log.bytes);
-  const appliedBytes = cached?.logBytes.length ?? 0;
-  if (
-    !log.failed &&
-    cached?.rows &&
-    sameOptionalStamp(cached.baseStamp, baseStamp) &&
-    index.logBytes.length >= appliedBytes &&
-    index.logBytes.compare(cached.logBytes, 0, appliedBytes, 0, appliedBytes) === 0
-  ) {
-    const rowsById = new Map(cached.rowsById);
-    const touched = new Set();
-    for (const line of index.logBytes.toString('utf8', appliedBytes).split('\n')) {
-      if (!line) continue;
-      let op;
-      try {
-        op = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      // Same semantics as applySummaryLogText: last writer wins per id.
-      if (op?.u && typeof op.u.id === 'string') {
-        const row = normalizedRow(op.u);
-        if (row) rowsById.set(row.id, deepFreeze(row));
-        else rowsById.delete(op.u.id);
-        touched.add(op.u.id);
-      } else if (Array.isArray(op?.r)) {
-        for (const id of op.r) {
-          rowsById.delete(id);
-          touched.add(id);
+  // before the base; see store-summary-log.mjs. A compaction replaces the base
+  // and then empties the log, so the pair is only whole when the base is the
+  // same file after both reads: a log read before a compaction must not be
+  // laid over the base read after it (older rows over newer ones).
+  for (let attempt = 0; attempt < SUMMARY_PAIR_ATTEMPTS; attempt += 1) {
+    const identity = yield* summaryBaseIdentityStep(indexPath);
+    // Stamps are taken after the identity and again on every attempt: they say
+    // which base the cached rows may be extended from, and a stamp left over
+    // from before a compaction would authorize rows of the replaced base for
+    // the new one (a truncated log passes the prefix check when none is cached).
+    // A replacement between the identity and the stamps fails the check below.
+    baseStamp = yield* observeStampStep(indexPath);
+    logStamp = yield* observeStampStep(summaryLogPath(indexPath));
+    const log = yield* readLogBytesStep(summaryLogPath(indexPath));
+    const index = freshIndex(indexPath, baseStamp, logStamp, log.bytes);
+    const appliedBytes = cached?.logBytes.length ?? 0;
+    if (
+      !log.failed &&
+      cached?.rows &&
+      sameOptionalStamp(cached.baseStamp, baseStamp) &&
+      index.logBytes.length >= appliedBytes &&
+      index.logBytes.compare(cached.logBytes, 0, appliedBytes, 0, appliedBytes) === 0
+    ) {
+      // The cached rows extended by this log are one snapshot only while the
+      // base was not replaced meanwhile: a compaction folded the log read
+      // here into a newer base, which a fresh read answers.
+      if ((yield* summaryBaseIdentityStep(indexPath)) !== identity) continue;
+      const rowsById = new Map(cached.rowsById);
+      const touched = new Set();
+      for (const line of index.logBytes.toString('utf8', appliedBytes).split('\n')) {
+        if (!line) continue;
+        let op;
+        try {
+          op = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        // Same semantics as applySummaryLogText: last writer wins per id.
+        if (op?.u && typeof op.u.id === 'string') {
+          const row = normalizedRow(op.u);
+          if (row) rowsById.set(row.id, deepFreeze(row));
+          else rowsById.delete(op.u.id);
+          touched.add(op.u.id);
+        } else if (Array.isArray(op?.r)) {
+          for (const id of op.r) {
+            rowsById.delete(id);
+            touched.add(id);
+          }
         }
       }
+      index.parentSerial = cached.serial;
+      index.touchedIds = touched;
+      index.rows = [...rowsById.values()];
+      index.rowsById = rowsById;
+      index.signatures = new Map(cached.signatures);
+      for (const id of touched) {
+        const row = rowsById.get(id);
+        if (row) index.signatures.set(id, JSON.stringify(row));
+        else index.signatures.delete(id);
+      }
+      return { index, cacheable: true };
     }
-    index.parentSerial = cached.serial;
-    index.touchedIds = touched;
-    index.rows = [...rowsById.values()];
-    index.rowsById = rowsById;
-    index.signatures = new Map(cached.signatures);
-    for (const id of touched) {
-      const row = rowsById.get(id);
-      if (row) index.signatures.set(id, JSON.stringify(row));
-      else index.signatures.delete(id);
+    const indexRead = yield* readFileStep(indexPath);
+    if ((yield* summaryBaseIdentityStep(indexPath)) !== identity) continue;
+    let baseRows = null;
+    if (indexRead.state === PROBE_PRESENT) {
+      try {
+        const raw = JSON.parse(indexRead.text);
+        if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) baseRows = Array.isArray(raw.rows) ? raw.rows : [];
+      } catch {
+        /* malformed sidecar: the files are the authority */
+      }
     }
-    return { index, cacheable: true };
-  }
-  const indexRead = yield* readFileStep(indexPath);
-  let baseRows = null;
-  if (indexRead.state === PROBE_PRESENT) {
-    try {
-      const raw = JSON.parse(indexRead.text);
-      if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) baseRows = Array.isArray(raw.rows) ? raw.rows : [];
-    } catch {
-      /* malformed sidecar: the files are the authority */
+    const rows = applySummaryLogText({ rows: baseRows ?? [] }, index.logBytes.toString('utf8'))
+      .rows.map((row) => normalizedRow(row))
+      .filter(Boolean)
+      .map(deepFreeze);
+    for (const row of rows) index.signatures.set(row.id, JSON.stringify(row));
+    if (baseRows) {
+      index.rows = rows;
+      index.rowsById = new Map(rows.map((row) => [row.id, row]));
     }
+    // A read that failed (EACCES/EIO) is not cached: the next call reads again.
+    return {
+      index,
+      cacheable: !log.failed && (indexRead.state === PROBE_PRESENT || indexRead.state === PROBE_ABSENT),
+    };
   }
-  const rows = applySummaryLogText({ rows: baseRows ?? [] }, index.logBytes.toString('utf8'))
-    .rows.map((row) => normalizedRow(row))
-    .filter(Boolean)
-    .map(deepFreeze);
-  for (const row of rows) index.signatures.set(row.id, JSON.stringify(row));
-  if (baseRows) {
-    index.rows = rows;
-    index.rowsById = new Map(rows.map((row) => [row.id, row]));
-  }
-  // A read that failed (EACCES/EIO) is not cached: the next call reads again.
-  return {
-    index,
-    cacheable: !log.failed && (indexRead.state === PROBE_PRESENT || indexRead.state === PROBE_ABSENT),
-  };
+  // Two reads in a row came out across a compaction: the files are the authority.
+  return { index: freshIndex(indexPath, baseStamp, logStamp, Buffer.alloc(0)), cacheable: false };
 }
 
 /** Ids whose index row differs between two loads (added, changed or removed). */

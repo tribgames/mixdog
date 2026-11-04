@@ -273,6 +273,69 @@ export function sessionWriterHeldElsewhere(id) {
   return false;
 }
 
+/**
+ * Keeps every writer of `id` out, for a decision about the session's record
+ * (is it absent?) that a save must not change before the caller has acted on
+ * it. Admission to a save takes this claim first, so while the lock is held no
+ * save of `id` can be admitted by any process — another process's claim finds
+ * it taken, this process's own save is refused as for a session held
+ * elsewhere — and none is in flight. A session that already has a writer (an
+ * admitted save or open session here, or a claim in another process) cannot
+ * be excluded: null. Otherwise `{ release({ retire }) }`; `retire` removes the
+ * lock file with the lock, as a delete does. An id can be created again later
+ * (reserved and home ids are): a claimant that locked the file in between holds
+ * an unlinked inode, which `intact()` reports, and it claims again. While an
+ * exclusion is held in this process, `whenSessionWritersFree` lets an async
+ * creator wait it out instead of being refused.
+ *
+ * A try-lock, never a wait, so the holder can ask for it while it holds
+ * other locks (the index's) without taking part in a lock cycle. It registers
+ * no claim and announces nothing.
+ */
+export function excludeSessionWriters(id) {
+  if (!isMainThread) return null;
+  const path = _claimPath(id);
+  if (_held.has(path)) return null;
+  const lock = _acquire(path);
+  if (!lock.held) return null;
+  let released = false;
+  _excluded.set(path, (_excluded.get(path) ?? 0) + 1);
+  return {
+    release({ retire = false } = {}) {
+      if (released) return;
+      released = true;
+      _dropLock(path, lock);
+      const left = (_excluded.get(path) ?? 1) - 1;
+      if (left > 0) _excluded.set(path, left);
+      else _excluded.delete(path);
+      if (left === 0) for (const wake of _excludedWaiters.splice(0)) wake();
+      if (!retire) return;
+      try {
+        unlinkSync(path);
+      } catch {
+        /* absent, or already open in a process acquiring it: it stays */
+      }
+    },
+  };
+}
+
+// Exclusions held in this process (path -> count) and the creators waiting.
+const _excluded = new Map();
+const _excludedWaiters = [];
+
+/**
+ * Resolves once no exclusion of `id`'s writers is held in this process: it
+ * ends with its batch's index write, which wakes the waiters. A creator that
+ * reuses an id (reserved, home and room ids are created again when missing)
+ * awaits this before its claim, so a prune batch of this process that is only
+ * deciding about the id's old record gives way instead of refusing the
+ * creation. An exclusion held by ANOTHER process has no such signal (the OS
+ * lock reports nothing on release); the claim reports it as any other holder.
+ */
+export async function whenSessionWritersFree(id) {
+  const path = _claimPath(id);
+  while (_excluded.has(path)) await new Promise((resolve) => _excludedWaiters.push(resolve));
+}
 /** The load cache records the stamp of the record each document was parsed from. */
 export function rememberSessionBaseStamp(doc, stamp) {
   if (doc && typeof doc === 'object' && stamp) _baseStamps.set(doc, stamp);

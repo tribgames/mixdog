@@ -182,14 +182,16 @@ export function createWorkerRowStore(file) {
     // it holds the loop the read needs to finish.
     onPersisted: (doc) => {
       if (!doc || !docs) return;
-      const changed = JSON.stringify(doc) !== JSON.stringify(current?.parsed);
-      if (changed) current = docOf(doc);
+      // The document just written carries its own `updatedAt`, so it differs
+      // from the one served on every persist but one in the same millisecond;
+      // comparing them cost two serializations of the whole index per write.
+      current = docOf(doc);
       try {
         docs.get(file, { fresh: true }); // the loader hands `current` over
       } catch {
         /* the next read stores it */
       }
-      if (changed) emitChange();
+      emitChange();
     },
     // The same rule against the locked document: a replayed row keeps the
     // flag that is on disk now, not the one the projection held.
@@ -237,47 +239,58 @@ export function createWorkerRowStore(file) {
     return readSnapshot().tombstones;
   }
 
+
+  // The writing side over one row queue handle and one released-marker handle:
+  // the store's own are the queues themselves (their flush waits for every
+  // write so far), a holder's (`holder()`) wait only for that holder's writes.
+  //
   // Single writer path: the mutator runs now over keyed maps against the
   // in-process projection (see index-write-queue.mjs); its effect is
   // republished as rows + tombstones by one async locked writer.
-  const write = (mutator) => {
-    const next = queue.write(typeof mutator === 'function' ? keepingAwaitingUser(mutator) : mutator);
-    if (next) emitChange();
-    return next;
-  };
-
-  return {
-    readAll,
-    readSnapshot,
-    readTombstones,
-    isReleased: released.isReleased,
-    markReleased: released.mark,
-    clearReleased: released.clear,
-    write,
+  const writing = (rows, marks) => ({
+    markReleased: marks.mark,
+    clearReleased: marks.clear,
+    write: (mutator) => {
+      const next = rows.write(typeof mutator === 'function' ? keepingAwaitingUser(mutator) : mutator);
+      if (next) emitChange();
+      return next;
+    },
     /** Conditional field update: `mutator` runs now on the projection and again
      *  on the locked document when persisted, so its condition is re-checked
      *  against what is on disk. The one writer of `awaitingUser`. */
     update: (mutator) => {
-      const next = queue.write(mutator, { rerun: true });
+      const next = rows.write(mutator, { rerun: true });
       if (next) emitChange();
       return next;
     },
+    /** Resolves once every write so far (a holder's: its own) is on disk. */
+    flush: async () => {
+      await Promise.all([rows.flush(), marks.flush()]);
+    },
+    hasUnpersisted: () => rows.hasUnpersisted() || marks.hasUnpersisted(),
+  });
+
+  const store = {
+    readAll,
+    readSnapshot,
+    readTombstones,
+    isReleased: released.isReleased,
+    ...writing(queue, released),
+    /** The store as one runtime of the process holds it: the same rows and
+     *  queue, with a flush that waits only for what that runtime wrote — a
+     *  session close never waits on its neighbours' index writes. */
+    holder: () => ({ ...store, ...writing(queue.writer(), released.writer()) }),
     /** `listener()` runs when the rows may have changed; returns the unsubscribe. */
     onChange(listener) {
       if (typeof listener !== 'function') return () => {};
       changeListeners.add(listener);
       return () => changeListeners.delete(listener);
     },
-    /** Resolves once every write so far is on disk. */
-    flush: async () => {
-      await Promise.all([queue.flush(), released.flush()]);
-    },
     /** Exit path: persist what is still queued, synchronously. */
     flushSync: () => {
       const flushed = [queue.flushSync(), released.flushSync()];
       return flushed.every(Boolean);
     },
-    hasUnpersisted: () => queue.hasUnpersisted() || released.hasUnpersisted(),
     invalidate: () => {
       dirty = true;
       released.invalidate();
@@ -285,12 +298,13 @@ export function createWorkerRowStore(file) {
     /** Last holder gone: the directory watch closes. */
     close: () => docs?.close(),
   };
+  return store;
 }
 
 /** The process's one store for `file` (a fresh no-op store for null), and its
  *  idempotent release; the store is dropped once its last holder releases. */
 export function acquireWorkerRowStore(file) {
-  if (!file) return { store: createWorkerRowStore(null), release: () => {} };
+  if (!file) return { store: createWorkerRowStore(null).holder(), release: () => {} };
   const key = canonicalFile(file);
   let entry = sharedStores.get(key);
   if (!entry) {
@@ -302,7 +316,7 @@ export function acquireWorkerRowStore(file) {
   entry.store.invalidate();
   let released = false;
   return {
-    store: entry.store,
+    store: entry.store.holder(),
     release: () => {
       if (released) return;
       released = true;

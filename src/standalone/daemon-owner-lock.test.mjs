@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { acquireDaemonOwnerLock, daemonOwnerLockPath } from './daemon-owner-lock.mjs';
+import { acquireDaemonOwnerLock, daemonOwnerLockHeldHere, daemonOwnerLockPath } from './daemon-owner-lock.mjs';
 
 const LOCK_URL = new URL('./daemon-owner-lock.mjs', import.meta.url).href;
 
@@ -164,4 +164,23 @@ test('one process holds it once; release frees it; intact() follows the locked f
   const again = await acquireDaemonOwnerLock(lockPath);
   closing(() => again.release());
   assert.equal(again.held, true);
+});
+
+test('only the process that took the lock knows it owns the data dir', async (t) => {
+  const fx = lockFixture(t);
+  assert.equal(daemonOwnerLockHeldHere(), false, 'nothing taken yet');
+  const other = contender(fx);
+  assert.equal((await other.verdict).held, true);
+  const refused = await acquireDaemonOwnerLock(fx.lockPath);
+  assert.equal(refused.held, false);
+  assert.equal(daemonOwnerLockHeldHere(), false, 'a daemon elsewhere holds it: not this process');
+});
+
+test('releasing the lock ends this process ownership of the data dir', async (t) => {
+  const fx = lockFixture(t);
+  const lock = await acquireDaemonOwnerLock(fx.lockPath);
+  assert.equal(lock.held, true);
+  assert.equal(daemonOwnerLockHeldHere(), true, 'taken here');
+  lock.release();
+  assert.equal(daemonOwnerLockHeldHere(), false, 'released: no longer the owner');
 });

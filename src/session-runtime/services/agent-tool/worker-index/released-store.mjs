@@ -98,24 +98,32 @@ export function createReleasedStore(file) {
     return cache.at;
   }
 
+  /** The writes of one holder of the store: `flush` waits only for its own. */
+  function writerOf(target) {
+    return {
+      mark(sessionIds) {
+        const at = new Date().toISOString();
+        target.write((entriesById) => {
+          for (const sessionId of sessionIds) entriesById.set(sessionId, at);
+        });
+      },
+      clear(sessionId) {
+        if (!entries().has(sessionId)) return;
+        target.write((entriesById) => {
+          entriesById.delete(sessionId);
+        });
+      },
+      flush: () => target.flush(),
+      hasUnpersisted: () => target.hasUnpersisted(),
+    };
+  }
+
   return {
     /** Whether the owner closed this session less than the TTL ago. */
     isReleased: (sessionId) => entries().get(sessionId) >= Date.now() - TAG_TOMBSTONE_TTL_MS,
-    mark(sessionIds) {
-      const at = new Date().toISOString();
-      queue.write((entriesById) => {
-        for (const sessionId of sessionIds) entriesById.set(sessionId, at);
-      });
-    },
-    clear(sessionId) {
-      if (!entries().has(sessionId)) return;
-      queue.write((entriesById) => {
-        entriesById.delete(sessionId);
-      });
-    },
-    flush: queue.flush,
+    ...writerOf(queue),
+    writer: () => writerOf(queue.writer()),
     flushSync: queue.flushSync,
-    hasUnpersisted: queue.hasUnpersisted,
     invalidate: () => {
       dirty = true;
     },
