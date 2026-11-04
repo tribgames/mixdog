@@ -192,8 +192,8 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
       historyTurns,
     });
   } catch {
-    // The next turn boundary, visibility change, expansion, or bounded idle
-    // refresh retries. A transient read must never permanently lock Revert.
+    // The next turn boundary, review-changed push, focus or visibility
+    // change, or expansion retries. A transient read must never permanently lock Revert.
   } finally {
     const latest = endTurnReviewRequest(requestedScope, generation);
     if (latest && ctx.activeScope.current === requestedScope) ctx.setAnsweredSession(String(sessionId));
@@ -203,7 +203,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
       let pending = pendingCapabilityRefresh.current;
       pendingCapabilityRefresh.current = null;
       // A cached summary is the last computed answer, not the worktree now:
-      // a refreshing read always follows it (entry and idle backoff alike).
+      // a refreshing read always follows it.
       if (cachedAnswer && !pending?.refreshWorktree) pending = { ...(pending ?? issued), refreshWorktree: true };
       // A recorded review already reflects the current worktree: the
       // refreshing read queued behind it for the same boundary (an idle
@@ -221,7 +221,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
   }
 }
 
-/** Re-reads at turn boundaries, while busy or open, and on an idle backoff. */
+/** Re-reads at turn boundaries, on opening, and on review-changed events. */
 function useTurnReviewRefreshSchedule({
   active,
   busy,
@@ -249,8 +249,12 @@ function useTurnReviewRefreshSchedule({
   const wasExpanded = useRef(false);
   const boundaryInBackground = busy && !(expanded && !wasExpanded.current);
   useEffect(() => {
+    const opened = expanded && !wasExpanded.current;
     wasExpanded.current = expanded;
-  }, [expanded]);
+    // The collapsed bar read a summary (no patch): opening it reads the patch
+    // it is about to draw, queued behind a read still in flight.
+    if (opened && active && (hasTurnActivity || agentReviewCount > 0)) void refreshAgentReviews(true, false);
+  }, [expanded, active, hasTurnActivity, agentReviewCount, refreshAgentReviews]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey stands in for items, mutations for a history change, as re-run triggers
   useEffect(() => {
     // A tool/turn boundary is the authoritative point at which the visible

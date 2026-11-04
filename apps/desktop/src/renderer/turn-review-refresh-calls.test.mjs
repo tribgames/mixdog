@@ -8,16 +8,26 @@ import { _runIdleReclaimForTest } from './idle-reclaim';
 function mount(t, sessionId = 'sess-review-calls') {
   const pending = [];
   const requests = [];
+  const reviewChanged = new Set();
   const { dom, root } = installReviewDom(t, {
     desktop: {
       invokeCapability(request) {
         requests.push(request);
         return new Promise((resolve) => pending.push(resolve));
       },
+      subscribeTurnReviewChanged(listener) {
+        reviewChanged.add(listener);
+        return () => reviewChanged.delete(listener);
+      },
     },
   });
   const render = (items, busy, active = true) =>
     act(async () => root.render(React.createElement(TurnReviewBar, { items, sessionId, active, busy })));
+  /** The host's TURN_REVIEW_CHANGED push: the runtime says the review may read differently. */
+  const push = () =>
+    act(async () => {
+      for (const listener of [...reviewChanged]) listener();
+    });
   const answer = (value = {}) =>
     act(async () =>
       pending.shift()({
@@ -34,7 +44,7 @@ function mount(t, sessionId = 'sess-review-calls') {
     );
   const bar = () => dom.window.document.querySelector('.turn-review-bar');
   const entryPending = () => Boolean(dom.window.document.querySelector('[data-entry-pending]'));
-  return { dom, render, answer, bar, entryPending, pending, requests };
+  return { dom, render, answer, push, bar, entryPending, pending, requests };
 }
 
 const prompt = { kind: 'user', id: 'prompt', text: 'Change a file' };
@@ -233,35 +243,26 @@ test("an outgoing session's answer never suppresses the incoming session's ident
   assert.doesNotMatch(text(), /\+5/, 'the incoming session shows its own empty answer');
 });
 
-test('an idle backoff read answered from the cached summary is followed by a refreshing read', async (t) => {
-  const { dom, render, answer, requests } = mount(t, 'sess-review-idle-cached');
-  const timers = [];
-  const setTimeoutNative = dom.window.setTimeout.bind(dom.window);
-  dom.window.setTimeout = (callback, ms, ...rest) =>
-    ms >= 6_000 ? timers.push(callback) : setTimeoutNative(callback, ms, ...rest);
+test('an idle entry answered from the cached summary is followed by a refreshing read; a review-changed push reads the worktree again', async (t) => {
+  const { render, answer, push, pending, requests } = mount(t, 'sess-review-idle-cached');
   const changed = { files: [{ path: 'a.txt', status: 'M', additions: 1, deletions: 0 }] };
   await render([prompt, edit('first')], false);
   await answer({ ...changed, snapshotKind: 'scoped', reason: 'cached', patchOmitted: true });
   assert.equal(requests.at(-1).args[0].refresh, true, 'the entry refresh follows the cached summary');
   await answer({ ...changed, snapshotKind: 'scoped', reason: 'recorded', patchOmitted: true });
   const settled = requests.length;
+  assert.equal(pending.length, 0);
 
-  assert.ok(timers.length > 0, 'the idle backoff is scheduled');
-  await act(async () => timers.shift()());
+  await push();
   assert.equal(requests.length, settled + 1);
-  assert.equal(requests.at(-1).args[0].refresh, false);
-  await answer({ ...changed, snapshotKind: 'scoped', reason: 'cached', patchOmitted: true });
-  assert.equal(requests.length, settled + 2, 'a cached backoff answer asks the worktree again');
-  assert.equal(requests.at(-1).args[0].refresh, true);
+  assert.equal(requests.at(-1).args[0].refresh, true, 'the push captures the worktree');
+  assert.equal(requests.at(-1).args[0].poll, undefined, 'an idle review reads in the foreground');
   await answer({ ...changed, snapshotKind: 'scoped', reason: 'recorded', patchOmitted: true });
+  assert.equal(requests.length, settled + 1);
 });
 
-test('a cached summary is never named as known, so a failed refresh is retried by the next backoff read', async (t) => {
-  const { dom, render, answer, pending, requests } = mount(t, 'sess-review-cached-tag');
-  const timers = [];
-  const setTimeoutNative = dom.window.setTimeout.bind(dom.window);
-  dom.window.setTimeout = (callback, ms, ...rest) =>
-    ms >= 6_000 ? timers.push(callback) : setTimeoutNative(callback, ms, ...rest);
+test('a cached summary is never named as known, so a failed refresh is retried by the next review-changed push', async (t) => {
+  const { render, answer, push, pending, requests } = mount(t, 'sess-review-cached-tag');
   const cached = {
     files: [{ path: 'a.txt', status: 'M', additions: 1, deletions: 0 }],
     snapshotKind: 'scoped',
@@ -274,11 +275,11 @@ test('a cached summary is never named as known, so a failed refresh is retried b
   assert.equal(requests.at(-1).args[0].refresh, true);
   // The refreshing read fails.
   await act(async () => pending.shift()(Promise.reject(new Error('transient'))));
-  await act(async () => timers.shift()());
-  assert.equal(requests.at(-1).args[0].refresh, false);
-  assert.equal(requests.at(-1).args[0].known, undefined, 'the cached tag is not offered for an unchanged reply');
-  await answer(cached);
+  const failed = requests.length;
+  await push();
+  assert.equal(requests.length, failed + 1);
   assert.equal(requests.at(-1).args[0].refresh, true, 'the refresh is retried');
+  assert.equal(requests.at(-1).args[0].known, undefined, 'the cached tag is not offered for an unchanged reply');
   await answer({ ...cached, reason: 'recorded', etag: undefined });
 });
 
@@ -389,12 +390,8 @@ test('blurring a first foreground read never reveals a temporary transcript esti
   assert.equal(bar(), null);
 });
 
-test('running-turn boundaries and the interval timer read in the background; opening and idle reads capture now', async (t) => {
-  const { dom, render, answer, requests } = mount(t, 'sess-review-poll-kind');
-  const timers = [];
-  dom.window.setInterval = (callback) => timers.push(callback);
-  dom.window.clearInterval = () => {};
-  const tick = () => act(async () => timers.at(-1)());
+test("running-turn boundaries and a collapsed bar's review-changed push read in the background; opening, an open review's push and idle reads capture now", async (t) => {
+  const { dom, render, answer, push, requests } = mount(t, 'sess-review-poll-kind');
   const items = [prompt, edit('first')];
   const changed = { files: [{ path: 'a.txt', status: 'M', additions: 1, deletions: 1 }] };
 
@@ -404,10 +401,10 @@ test('running-turn boundaries and the interval timer read in the background; ope
   assert.equal(requests[0].args[0].refresh, true);
   await answer(changed);
 
-  await tick();
+  await push();
   assert.equal(requests.length, 2);
-  assert.equal(requests[1].args[0].poll, 'background', 'the busy timer polls in the background');
-  assert.equal(requests[1].args[0].summary, true, 'a collapsed bar polls for a summary');
+  assert.equal(requests[1].args[0].poll, 'background', "a running turn's push reads in the background");
+  assert.equal(requests[1].args[0].summary, true, 'a collapsed bar reads a summary');
   await answer(changed);
 
   await act(async () => dom.window.document.querySelector('.turn-review-summary').click());
@@ -416,14 +413,14 @@ test('running-turn boundaries and the interval timer read in the background; ope
   assert.equal(requests[2].args[0].summary, undefined);
   await answer(changed);
 
-  await tick();
+  await push();
   assert.equal(requests.length, 4);
-  assert.equal(requests[3].args[0].poll, 'background');
-  assert.equal(requests[3].args[0].summary, undefined, 'an open review polls for its patch');
+  assert.equal(requests[3].args[0].poll, undefined, 'an open review re-reads in the foreground');
+  assert.equal(requests[3].args[0].summary, undefined, 'an open review re-reads its patch');
   await answer(changed);
 
-  // A boundary queued behind a poll stays a background read.
-  await tick();
+  // A boundary queued behind a pushed read stays a background read.
+  await push();
   await render([...items, edit('second')], true);
   assert.equal(requests.length, 5);
   await answer(changed);
