@@ -137,7 +137,8 @@ function startSystemSampler(intervalMs = 1000) {
       }),
       { idle: 0, total: 0 }
     );
-  const busyPercent = (from, to) => (to.total > from.total ? 100 * (1 - (to.idle - from.idle) / (to.total - from.total)) : 0);
+  const busyPercent = (from, to) =>
+    to.total > from.total ? 100 * (1 - (to.idle - from.idle) / (to.total - from.total)) : 0;
   const first = snapshot();
   let previous = first;
   const samples = [];
@@ -301,7 +302,7 @@ export async function runBusyScenario(options) {
 /** Longer than the supervisor's freeze limit (DAEMON_FREEZE_LIMIT_MS, 120 s in
  *  session-runtime/services/daemon-candidate.mjs): a stall the supervisor
  *  itself would tolerate is never cut short. */
-export const CLEANUP_PROBE_DEADLINE_MS = 150_000;
+const CLEANUP_PROBE_DEADLINE_MS = 150_000;
 
 /** Failure path only: ask the probe to stop the window it still has open, so a
  *  broken run can reach the driver's `daemon.dispose()`. The measured path never
@@ -335,23 +336,24 @@ async function timedProbeRequest(request) {
   return { answer, ms: Math.round(performance.now() - startedAt) };
 }
 
-async function measureBusy(
-  { daemon, treeRoot, seeded, repoDir, config, summarize, fake = null },
-  resources
-) {
+async function measureBusy({ daemon, treeRoot, seeded, repoDir, config, summarize, fake = null }, resources) {
   const { signal } = resources.abort;
   const protocol = await import(pathToFileURL(join(treeRoot, 'src/standalone/session-protocol.mjs')).href);
   const hasRead = (action) => protocol.SESSION_READ_ACTION_SET?.has(action) === true;
   const hasConfigure = (action) => protocol.SESSION_CONFIGURE_ACTION_SET?.has(action) === true;
   const skipped = {};
   const requireAction = (name, present) => {
-    if (!present) skipped[name] = 'action is not in this tree\'s session protocol';
+    if (!present) skipped[name] = "action is not in this tree's session protocol";
     return present;
   };
   const doSaves = requireAction('save', hasConfigure('renameSessionTitle'));
   const workspaceOps = [
     ['listWorktrees', requireAction('listWorktrees', hasRead('listWorktrees')), 'session.read'],
-    ['previewWorktreeCleanup', requireAction('previewWorktreeCleanup', hasRead('previewWorktreeCleanup')), 'session.read'],
+    [
+      'previewWorktreeCleanup',
+      requireAction('previewWorktreeCleanup', hasRead('previewWorktreeCleanup')),
+      'session.read',
+    ],
     ['pruneWorktrees', requireAction('pruneWorktrees', hasConfigure('pruneWorktrees')), 'session.configure'],
   ].filter(([, present]) => present);
   const doWorktrees = requireAction('requestWorktree', hasConfigure('requestWorktree'));
@@ -418,7 +420,7 @@ async function measureBusy(
     ...extra,
   });
   const jitter = (() => {
-    let state = (config.seed >>> 0) || 1;
+    let state = config.seed >>> 0 || 1;
     return () => {
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
       return state / 4294967296;
@@ -451,7 +453,7 @@ async function measureBusy(
   // later setup step fails are stopped too.
   const loops = resources.workload;
   if (doSaves) {
-    busyRows.forEach((row, index) =>
+    for (const [index, row] of busyRows.entries()) {
       loops.push(
         loop(jitter() * config.saveIntervalMs, config.saveIntervalMs, async (n) => {
           const value = await timed(buckets.save, () =>
@@ -463,8 +465,8 @@ async function measureBusy(
           );
           if (value !== undefined && value?.value !== true) buckets.save.noops += 1;
         })
-      )
-    );
+      );
+    }
   }
   const rowCounts = {};
   loops.push(
@@ -524,7 +526,15 @@ async function measureBusy(
           createClient.call('session.configure', {
             sessionId: created.sessionId,
             action: 'requestWorktree',
-            args: [{ provision: true, name: `bench-${n}`, prompt: `bench worktree ${n}`, txId: `bench-tx-${n}`, carryChanges: 'leave' }],
+            args: [
+              {
+                provision: true,
+                name: `bench-${n}`,
+                prompt: `bench worktree ${n}`,
+                txId: `bench-tx-${n}`,
+                carryChanges: 'leave',
+              },
+            ],
           })
         );
       })
@@ -533,7 +543,7 @@ async function measureBusy(
   // Running turns on the busy sessions (cwd = the git repo, so each turn also
   // passes workspace admission), answered by the scripted provider.
   if (doTurns) {
-    busyRows.forEach((row, index) =>
+    for (const [index, row] of busyRows.entries()) {
       loops.push(
         loop(jitter() * config.turnIntervalMs, config.turnIntervalMs, async (n) => {
           const token = `BENCH-TURN-${index}-${n}`;
@@ -561,8 +571,8 @@ async function measureBusy(
             buckets.turnEndToEnd.firstError ??= `turn ended ${outcome}`;
           }
         })
-      )
-    );
+      );
+    }
   }
   // The agent-including listing: any agent tool call first rehydrates agent
   // sessions from storage (listSessions includeAgentOnly), once per daemon;

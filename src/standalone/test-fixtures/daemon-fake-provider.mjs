@@ -83,7 +83,9 @@ export async function startFakeProvider({ replyMs = 400 } = {}) {
       setTimeout(() => {
         res.write(chunk({ content: 'for the load test.' }));
         res.write(chunk({}, 'stop'));
-        res.write(`data: ${JSON.stringify({ id: 'chatcmpl-bench', object: 'chat.completion.chunk', model: FAKE_MODEL, choices: [], usage })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({ id: 'chatcmpl-bench', object: 'chat.completion.chunk', model: FAKE_MODEL, choices: [], usage })}\n\n`
+        );
         res.end('data: [DONE]\n\n');
         finish();
       }, replyMs);

@@ -12,8 +12,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** Larger than any stall: a call with this never gives up (the largest setTimeout delay). */
 export const NO_DEADLINE_MS = 2 ** 31 - 1;
-const ENTRY =fileURLToPath(new URL('./daemon-steady-entry.mjs', import.meta.url));
-export const HEAD_TREE = new URL('../../../', import.meta.url);
+const ENTRY = fileURLToPath(new URL('./daemon-steady-entry.mjs', import.meta.url));
+const HEAD_TREE = new URL('../../../', import.meta.url);
 
 function isAlive(pid) {
   try {

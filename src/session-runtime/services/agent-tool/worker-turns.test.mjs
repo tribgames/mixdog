@@ -52,7 +52,9 @@ test("a send's own turn carries its task id and arms the watchdog the agent and 
   assert.equal(upserts.at(-1).status, 'idle');
 });
 
-test('a running turn keeps a working stage beside status running, whatever phase the runtime reads', { timeout: 10_000 }, async (t) => {
+test('a running turn keeps a working stage beside status running, whatever phase the runtime reads', {
+  timeout: 10_000,
+}, async (t) => {
   const session = { id: 'child', agent: 'worker', messages: [{}, {}] };
   const { turns, upserts, mgr, workerTurns } = owner(session);
   t.after(() => workerTurns.dispose());

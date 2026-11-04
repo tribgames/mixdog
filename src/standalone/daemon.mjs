@@ -1209,14 +1209,12 @@ async function main() {
   setSessionTurnPrelude(postBeforeAgentTurn);
   // Mixy's heartbeat check (user-set interval) (mixy-heartbeat.mjs), on an unref'd timer.
   import('../session-runtime/mixy-heartbeat.mjs')
-    .then(({ startMixyHeartbeat }) =>
-      {
-        stopHeartbeat = startMixyHeartbeat({
-          getSessionService: () => sessionService,
-          log: (line) => log(`heartbeat: ${line}`),
-        });
-      }
-    )
+    .then(({ startMixyHeartbeat }) => {
+      stopHeartbeat = startMixyHeartbeat({
+        getSessionService: () => sessionService,
+        log: (line) => log(`heartbeat: ${line}`),
+      });
+    })
     .catch((error) => log(`heartbeat start failed: ${error?.message || error}`));
   // Results queued before a restart are posted now; results a finished run
   // could not queue (kept on its routine's record) are queued again.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,11 @@ import test from 'node:test';
 
 import { withFileLock } from '../../../../runtime/shared/file-lock.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../runtime/shared/os-exclusive-lock.mjs';
-import { claimSessionWriter, releaseSessionWriter, whenSessionWritersFree } from '../../../../runtime/agent/orchestrator/session/store/session-writer-claim.mjs';
+import {
+  claimSessionWriter,
+  releaseSessionWriter,
+  whenSessionWritersFree,
+} from '../../../../runtime/agent/orchestrator/session/store/session-writer-claim.mjs';
 import { flushAllIndexWrites } from '../index-write-queue.mjs';
 import { createWorkerIndex } from '../worker-index.mjs';
 import { PROCESS_RESTART_FAILURE } from '../worker-index/row-liveness.mjs';
@@ -50,18 +54,42 @@ function userShapedFixture(t, { idle = 1378, cancelled = 72, live = 339 } = {}) 
   const add = (sessionId, extra, { file = false, keep }) => {
     workers[sessionId] = row(sessionId, now, extra);
     if (file) {
-      writeFileSync(join(root, 'sessions', `${sessionId}.json`), JSON.stringify({ id: sessionId, owner: 'agent', agent: 'worker', ownerSessionId: LEAD, title: sessionId, messages: [] }));
+      writeFileSync(
+        join(root, 'sessions', `${sessionId}.json`),
+        JSON.stringify({
+          id: sessionId,
+          owner: 'agent',
+          agent: 'worker',
+          ownerSessionId: LEAD,
+          title: sessionId,
+          messages: [],
+        })
+      );
     }
     if (keep) kept.add(sessionId);
   };
   // 1,451 rows to prune: gone sessions, settled long ago.
   for (let i = 0; i < idle; i += 1) add(id('goneidle', i), {}, { keep: false });
-  for (let i = 0; i < cancelled; i += 1) add(id('gonecancel', i), { status: 'cancelled', stage: 'cancelled' }, { keep: false });
-  add(id('gonefailed', 0), { status: 'failed', stage: 'failed', failureReason: PROCESS_RESTART_FAILURE, restartNotified: new Date(now - 11 * DAY).toISOString() }, { keep: false });
+  for (let i = 0; i < cancelled; i += 1)
+    add(id('gonecancel', i), { status: 'cancelled', stage: 'cancelled' }, { keep: false });
+  add(
+    id('gonefailed', 0),
+    {
+      status: 'failed',
+      stage: 'failed',
+      failureReason: PROCESS_RESTART_FAILURE,
+      restartNotified: new Date(now - 11 * DAY).toISOString(),
+    },
+    { keep: false }
+  );
   // Rows that stay.
   for (let i = 0; i < live; i += 1) add(id('liveidle', i), {}, { file: true, keep: true });
   for (let i = 0; i < 12; i += 1) {
-    add(id('running', i), { status: 'running', stage: 'streaming', updatedAt: new Date(now - 2 * MINUTE).toISOString() }, { file: true, keep: true });
+    add(
+      id('running', i),
+      { status: 'running', stage: 'streaming', updatedAt: new Date(now - 2 * MINUTE).toISOString() },
+      { file: true, keep: true }
+    );
   }
   add(id('owed', 0), { status: 'failed', stage: 'failed', failureReason: PROCESS_RESTART_FAILURE }, { keep: true });
   add(id('recent', 0), { updatedAt: new Date(now - 60 * MINUTE).toISOString() }, { keep: true });
@@ -71,7 +99,11 @@ function userShapedFixture(t, { idle = 1378, cancelled = 72, live = 339 } = {}) 
   assert.equal(gone, idle + cancelled + 1);
 
   const file = join(root, 'agent-workers.json');
-  const legacy = JSON.stringify({ version: 2, updatedAt: new Date(now).toISOString(), workers, tombstones: {} }, null, 2);
+  const legacy = JSON.stringify(
+    { version: 2, updatedAt: new Date(now).toISOString(), workers, tombstones: {} },
+    null,
+    2
+  );
   writeFileSync(file, legacy);
   const past = new Date(now - 60_000);
   utimesSync(file, past, past);
@@ -90,7 +122,13 @@ function userShapedFixture(t, { idle = 1378, cancelled = 72, live = 339 } = {}) 
     tagAgents: new Map(),
     tagCwds: new Map(),
   });
-  const sweep = createGoneRowSweep({ cfgMod: { loadConfig: () => ({}) }, mgr, tagMaps: { unbindIfOwned() {} }, index: worker, ownsDataDir: () => true });
+  const sweep = createGoneRowSweep({
+    cfgMod: { loadConfig: () => ({}) },
+    mgr,
+    tagMaps: { unbindIfOwned() {} },
+    index: worker,
+    ownsDataDir: () => true,
+  });
   t.after(async () => {
     await flushAllIndexWrites();
     worker.dispose();
@@ -123,7 +161,14 @@ test('an owed restart failure, a live session, live work and a row within retent
   const { kept, worker, sweep } = userShapedFixture(t, { idle: 60, cancelled: 0, live: 10 });
   await sweep.sweepGoneRows();
   const left = new Set(worker.readAllWorkerRows().map((entry) => entry.sessionId));
-  for (const sessionId of [id('owed', 0), id('liveidle', 0), id('running', 0), id('working', 0), id('recent', 0), id('goneactive', 0)]) {
+  for (const sessionId of [
+    id('owed', 0),
+    id('liveidle', 0),
+    id('running', 0),
+    id('working', 0),
+    id('recent', 0),
+    id('goneactive', 0),
+  ]) {
     assert.ok(left.has(sessionId), `${sessionId} stays`);
   }
   assert.equal(left.size, kept.size);
@@ -157,10 +202,13 @@ test('the pool lists the same rows, in the same order and fields, after the swee
   const { sweep, worker, gone } = userShapedFixture(t, { idle: 200, cancelled: 10, live: 20 });
   const runningIds = new Set([id('goneactive', 0), ...Array.from({ length: 12 }, (_, i) => id('running', i))]);
   let instance = 0;
-  const list = async () =>
-    (await import(`../../../../runtime/agent/orchestrator/session/store-agent-worker-rows.mjs?gone=${(instance += 1)}`)).listStoredAgentWorkersAsync({
-      runningSessionIds: runningIds,
-    });
+  const list = async () => {
+    instance += 1;
+    const rows = await import(
+      `../../../../runtime/agent/orchestrator/session/store-agent-worker-rows.mjs?gone=${instance}`
+    );
+    return rows.listStoredAgentWorkersAsync({ runningSessionIds: runningIds });
+  };
 
   const before = await list();
   assert.ok(before.length >= 13, 'the running rows are listed');
@@ -172,7 +220,10 @@ test('the pool lists the same rows, in the same order and fields, after the swee
 // the listing that named a row a candidate and the removal keeps its row.
 const recordOf = (root, sessionId) => join(root, 'sessions', `${sessionId}.json`);
 const saveRecord = (root, sessionId) =>
-  writeFileSync(recordOf(root, sessionId), JSON.stringify({ id: sessionId, owner: 'agent', agent: 'worker', messages: [] }));
+  writeFileSync(
+    recordOf(root, sessionId),
+    JSON.stringify({ id: sessionId, owner: 'agent', agent: 'worker', messages: [] })
+  );
 
 test('a record that appears after the listing keeps its row', async (t) => {
   const { root, file, kept, gone, worker, sweep } = userShapedFixture(t, { idle: 60, cancelled: 0, live: 10 });
@@ -230,7 +281,10 @@ test('a record that appears before the removal is persisted keeps its row', asyn
   const left = readIndex(file).workers;
   assert.ok(left[late], 'the persisted removal ran again against the record and kept the row');
   assert.equal(Object.keys(left).length, kept.size + 1);
-  assert.ok(worker.readAllWorkerRows().some((entry) => entry.sessionId === late), 'and the view follows the file');
+  assert.ok(
+    worker.readAllWorkerRows().some((entry) => entry.sessionId === late),
+    'and the view follows the file'
+  );
 });
 
 test('a session with a writer — here or in another process — keeps its row', async (t) => {
@@ -330,7 +384,12 @@ test('a process that does not own the data dir prunes nothing and saves no backu
   const { file, legacy, worker } = userShapedFixture(t, { idle: 60, cancelled: 0, live: 10 });
   const mgr = { getSessionRuntime: () => null, isSessionTurnInFlight: () => false };
   // The default owner state: no daemon owner lock is held by this test process.
-  const nonOwner = createGoneRowSweep({ cfgMod: { loadConfig: () => ({}) }, mgr, tagMaps: { unbindIfOwned() {} }, index: worker });
+  const nonOwner = createGoneRowSweep({
+    cfgMod: { loadConfig: () => ({}) },
+    mgr,
+    tagMaps: { unbindIfOwned() {} },
+    index: worker,
+  });
 
   assert.equal(await nonOwner.sweepGoneRows(), 0);
   await worker.flushWorkerIndexWrites();

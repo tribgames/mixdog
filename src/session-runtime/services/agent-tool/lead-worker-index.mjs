@@ -63,7 +63,10 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession, i
     const now = Date.now();
     const status = clean(extra.status) || (session.closed === true ? 'closed' : clean(session.status) || 'idle');
     const stage = clean(extra.stage) || status;
-    const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig({ secrets: false }), extra.provider || session.provider);
+    const reapMs = resolveAgentTerminalReapMs(
+      cfgMod.loadConfig({ secrets: false }),
+      extra.provider || session.provider
+    );
     const row = workerRowFromSession(session, leadPoolTag(session.id), {
       ...extra,
       agent: 'lead',

@@ -51,7 +51,11 @@ test('a boot waits for the config writes in flight when it starts, not for those
     boot.cfgMod = { loadConfig: () => ({}) };
     boot.sharedCfgMod = sharedConfig;
     const savesBefore = saves;
-    assert.equal(await within(resolveConfig(boot), 10_000), true, 'the boot resolved while the neighbours kept writing');
+    assert.equal(
+      await within(resolveConfig(boot), 10_000),
+      true,
+      'the boot resolved while the neighbours kept writing'
+    );
     assert.equal(inFlightSettled, true, 'the boot waited for the write in flight when it started');
     assert.ok(saves > savesBefore, 'the neighbour wrote again while the boot waited, so it was still busy');
   } finally {

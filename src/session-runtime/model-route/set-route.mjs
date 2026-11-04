@@ -104,9 +104,7 @@ async function recreateEmptySession(deps, lease) {
       // session is replaced whether or not its tombstone lands. A retry
       // after a wait asks again whether it is still empty.
       const closeOptions = { tombstone: true, isSessionLive: () => sessionHasRouteHistory(emptySession) };
-      void Promise.resolve(mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', closeOptions)).catch(
-        () => {}
-      );
+      void Promise.resolve(mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', closeOptions)).catch(() => {});
       setSession(null);
       invalidatePreSessionToolSurface?.();
       return true;
@@ -119,7 +117,7 @@ async function recreateEmptySession(deps, lease) {
 /** The fallback chain a Lead-class session follows on `route`: its owner's chain
  *  while the route is the owner's primary model, none otherwise (see
  *  owner-route-fallbacks.mjs). Nothing for an agent's session, which keeps its own. */
-export function sessionRouteFallbackFields(deps, session, route) {
+function sessionRouteFallbackFields(deps, session, route) {
   const { mode, agentId } = resolveSessionMode({ session });
   if (!agentId) return {};
   return {
@@ -194,7 +192,7 @@ function modelSwitchAnchorIndex(messages) {
 /** Display-only boundary of an in-place model switch, kept in message meta
  *  (like an inheritance boundary): the transcript shows it live and after a
  *  restore, and the model conversation gains no synthetic message. */
-export function recordModelSwitchBoundary(session, boundary) {
+function recordModelSwitchBoundary(session, boundary) {
   return recordTranscriptBoundary(
     session,
     'modelSwitches',
@@ -270,14 +268,7 @@ async function leadFallbackChain(deps, next, primary) {
 
 /** Validate, persist and adopt the requested route as the runtime's route. */
 async function adoptRoute(deps, persist, next, options, lease) {
-  const {
-    getConfig,
-    getRoute,
-    setRouteState,
-    resolveRoute,
-    refreshRouteEffort,
-    refreshStatuslineUsageSnapshot,
-  } = deps;
+  const { getConfig, getRoute, setRouteState, resolveRoute, refreshRouteEffort, refreshStatuslineUsageSnapshot } = deps;
   const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
   // The Lead's fallback chain travels with an explicit main-model choice only
   // (the Lead editor, the setup tool); a session's own pick never touches it.

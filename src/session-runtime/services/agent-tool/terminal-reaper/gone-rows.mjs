@@ -28,7 +28,10 @@
 // claim and waits for the index lock.
 import { copyFileSync, constants, existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { sessionRecordPath, storeRecordDir } from '../../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
+import {
+  sessionRecordPath,
+  storeRecordDir,
+} from '../../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
 import { excludeSessionWriters } from '../../../../runtime/agent/orchestrator/session/store/session-writer-claim.mjs';
 import { daemonOwnerLockHeldHere } from '../../../../standalone/daemon-owner-lock.mjs';
 import { clean } from '../helpers.mjs';
