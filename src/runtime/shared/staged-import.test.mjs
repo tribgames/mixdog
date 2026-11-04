@@ -66,3 +66,20 @@ test('a throwing stage stops staging: later stages do not evaluate and the impor
   assert.deepEqual(globalThis.__stagedFailLog, ['a', 'b'], 'c, core and root never evaluate');
   delete globalThis.__stagedFailLog;
 });
+
+// A stage that fails to link must surface its own error, not the masked
+// "request for 'node:perf_hooks' is not in cache" older Node gives on re-link.
+test('a stage that fails to link rejects with its link error', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-staged-import-link-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'a.mjs'), 'export const a = 1;\n');
+  writeFileSync(
+    join(dir, 'b.mjs'),
+    "import { performance } from 'node:perf_hooks';\nimport { missing } from './a.mjs';\nexport const b = [performance, missing];\n"
+  );
+  writeFileSync(join(dir, 'core.mjs'), "import './a.mjs';\nimport './b.mjs';\nexport const value = 1;\n");
+  writeFileSync(join(dir, 'root.mjs'), "export { value } from './core.mjs';\n");
+  const url = (name) => pathToFileURL(join(dir, name)).href;
+
+  await assert.rejects(importInStages(url('root.mjs'), url('core.mjs')), /does not provide an export named 'missing'/);
+});
