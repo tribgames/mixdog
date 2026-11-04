@@ -1611,6 +1611,40 @@ test('across the daemon ↔ app hop: no app, the bound end to end, drain, failur
   world.endpoint.dispose();
 });
 
+test("an app that missed one ack deadline closes the failed carrier's peer connection and serves the next offer without reattaching", async () => {
+  bridgeWorld.windows.length = 0;
+  bridgeWorld.peers.length = 0;
+  const world = await linkWorld();
+  await world.endpoint.attach();
+  const h = await harness({ peerHost: world.service.peerHost });
+  await h.ready();
+  await ackAll(h);
+  await h.advance(30);
+  const first = await promoteThroughPage(h, world.pump);
+
+  // The app hangs past the ack deadline (a busy main thread), then answers again.
+  world.appAlive = false;
+  world.service.standIn.clientReleased();
+  await world.pump();
+  world.expire();
+  world.appAlive = true;
+  await world.pump();
+  assert.equal(h.coordinator.diagnostics().path, 'relay');
+  assert.equal(h.coordinator.diagnostics().reason, 'peer-host-unavailable');
+  await pumpUntil(() => first.pc.closed, "the failed carrier's peer connection is closed in the app", world.pump);
+
+  // Still the same app and attachment: the next offer is served.
+  const attaches = world.attaches;
+  await h.advance(REMOTE_TRANSPORT_NEGOTIATION_TIMEOUT_MS);
+  await promoteThroughPage(h, world.pump);
+  assert.equal(world.attaches, attaches, 'no reattach');
+  assert.equal(h.coordinator.diagnostics().path, 'direct');
+
+  h.coordinator.close();
+  await pumpUntil(() => bridgeWorld.peers.every((pc) => pc.closed), 'every peer connection closed', world.pump);
+  world.endpoint.dispose();
+});
+
 /** An app endpoint whose attach operations the test resolves by hand. */
 function pendingAttachEndpoint() {
   const pending = [];

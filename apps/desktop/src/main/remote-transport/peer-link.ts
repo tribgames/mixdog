@@ -29,11 +29,14 @@
  * REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES short of it).
  *
  * No app: without an attachment `create` refuses (the session stays on the
- * relay and retries once per negotiation window). A detach, a newer attach
- * (the app restarted) or a command left unacknowledged for
- * REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS (the no-progress bound: the carrier
- * would be judged stalled anyway) fails every live connection
- * `peer-host-unavailable`; an app that attaches later serves the next offer.
+ * relay and retries once per negotiation window). A detach or a newer attach
+ * (the app restarted) fails every live connection `peer-host-unavailable`
+ * and ends the attachment; an app that attaches later serves the next offer.
+ * A command left unacknowledged for REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS (the
+ * no-progress bound: the carrier would be judged stalled anyway) fails every
+ * live connection the same way and closes each in the app, but keeps the
+ * attachment: nothing tells a slow app to attach again, so ending it would
+ * refuse every later offer while that app runs.
  *
  */
 import { randomUUID } from 'node:crypto';
@@ -199,16 +202,33 @@ function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandInDeps):
   const share = (mirror: Mirror, channel: RemoteTransportPeerChannel): number =>
     mirror.hop[channel] + mirror.app[channel === 'app' ? 0 : 1];
 
-  /** The app is gone: every live connection with it. */
-  function lost(): void {
-    attachment = null;
+  /** Fails every live connection `peer-host-unavailable` and drops the hop's
+   *  accounting; `closeInApp` also closes each one in the attached app. */
+  function failAll(closeInApp: boolean): void {
     batch = [];
     batchBytes = new Map();
     for (const entry of pending.values()) entry.cancel();
     pending.clear();
     const ids = [...connections.keys()];
     connections.clear();
-    for (const connectionId of ids) emit({ type: 'failed', connectionId, reason: 'peer-host-unavailable' });
+    for (const connectionId of ids) {
+      if (closeInApp) send({ type: 'close', connectionId });
+      emit({ type: 'failed', connectionId, reason: 'peer-host-unavailable' });
+    }
+  }
+
+  /** The app is gone (detached, replaced by a newer attach, or disposed). */
+  function lost(): void {
+    attachment = null;
+    failAll(false);
+  }
+
+  /** A command went unacknowledged past the no-progress bound. Its carriers
+   *  fail, and are closed in the app should it still be there, so their peer
+   *  connections never outlive them. The attachment stays: an app that was
+   *  only slow serves the next offer, one that restarted attaches anew. */
+  function stalled(): void {
+    failAll(true);
   }
 
   function send(
@@ -217,7 +237,7 @@ function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandInDeps):
   ): void {
     if (!attachment) return;
     const id = ++seq;
-    pending.set(id, { bytes, cancel: schedule(lost, REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS) });
+    pending.set(id, { bytes, cancel: schedule(stalled, REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS) });
     deps.publish({ attachment, seq: id, command });
   }
 
