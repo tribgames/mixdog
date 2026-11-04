@@ -83,20 +83,25 @@
   color: var(--mx-text-faint);
   font-weight: var(--mx-weight-medium);
 }
+/* Korean breaks by 어절 and the last line never holds one orphan (the
+   22-markdown.css paragraph rules). */
 .starter-guide-step-text small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-wrap: pretty;
 }
 
-/* Completion notice: pops above the pill the moment a step completes, over
-   every layer (Settings included), positioned from the pill's box. */
+/* Completion notice: pops over the pill the moment a step completes, over
+   every layer (Settings included), positioned and bounded from the pill's
+   box (toastPosition). */
 .starter-guide-toast {
   position: fixed;
   z-index: calc(var(--mx-toast-z-index) + 60);
   box-sizing: border-box;
-  min-width: min(200px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
+  min-height: 32px;
   padding: 7px 12px;
   display: flex;
   align-items: center;
@@ -111,14 +116,21 @@
   font-size: var(--mx-font-ui);
   animation: starter-guide-toast-in 220ms var(--mx-ease-standard);
 }
+/* The full step name, wrapping by word (22-markdown.css paragraph rules) when
+   even the widest notice cannot hold it; the check and "Done" never shrink. */
 .starter-guide-toast span {
   min-width: 0;
-  overflow: hidden;
   color: var(--mx-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-wrap: pretty;
+}
+.starter-guide-toast svg {
+  flex: none;
 }
 .starter-guide-toast b {
+  flex: none;
+  white-space: nowrap;
   margin-left: auto;
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-medium);
