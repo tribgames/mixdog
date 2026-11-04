@@ -29,7 +29,14 @@ import {
   _clearSessionSaveState,
   clearSessionLifecycleCommitError,
   fenceSessionWrites,
+  _recordLifecycleCommitFailure,
 } from './live-state.mjs';
+import {
+  claimSessionWriter,
+  forgetSessionWriter,
+  releaseSessionWriter,
+  sessionWriterRefusalError,
+} from './session-writer-claim.mjs';
 import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './save-worker.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryRemoval, _cachedSummaryRows } from './summary-cache.mjs';
 import { _savePending, _clearDebounce, _releasePendingSlot } from './pending-saves.mjs';
@@ -81,6 +88,29 @@ export function deleteSession(id, options = {}) {
   // Keep caller probes and all vetoes ahead of the non-reentrant lock and
   // ahead of pending-save disruption, matching markSessionClosed().
   if (_runtimeLivenessVeto(id, options)) return false;
+  // A session another process holds is that process's: deleting it under
+  // its writer would only have the next save recreate it.
+  let claim;
+  try {
+    claim = claimSessionWriter(id);
+  } catch (error) {
+    _recordLifecycleCommitFailure(id, sessionWriterRefusalError({ id, reason: 'unclaimable', cause: error }), 'delete');
+    return false;
+  }
+  if (!claim.held) {
+    const err = sessionWriterRefusalError({ id, reason: 'claimed', path: claim.path });
+    err.message = `${err.message} — refusing to delete it`;
+    process.stderr.write(`[session-store] ${err.message}\n`);
+    _recordLifecycleCommitFailure(id, err, 'delete');
+    return false;
+  }
+  const deleted = _deleteSession(id, options);
+  if (deleted) void forgetSessionWriter(id);
+  else if (claim.fresh) void releaseSessionWriter(id);
+  return deleted;
+}
+
+function _deleteSession(id, options) {
   const deleteGuard = _guardedSaveOptions(id);
   const commitControl = _acquireWriteCommit(deleteGuard);
   if (commitControl === false) return false;

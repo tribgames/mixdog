@@ -35,6 +35,7 @@ test.after(async () => {
   await settleSessionSummaryIndex();
   await (await import('./store/lifecycle-barriers.mjs')).flushSessionCloseMetrics();
   invalidateSkillsCache(root);
+  (await import('./store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   rmSync(root, { recursive: true, force: true });
 });
 

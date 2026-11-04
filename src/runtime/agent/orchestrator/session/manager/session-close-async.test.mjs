@@ -22,6 +22,7 @@ const { flushSessionCloseMetrics } = await import('../store/lifecycle-barriers.m
 test.after(async () => {
   await settleSessionSummaryIndex();
   await flushSessionCloseMetrics();
+  (await import('../store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   rmSync(root, { recursive: true, force: true });
 });
 

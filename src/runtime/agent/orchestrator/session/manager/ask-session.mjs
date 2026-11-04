@@ -15,7 +15,7 @@ import { drainPendingMessages, hydratePendingMessages } from './pending-messages
 import { _unlinkParentAbortListener, _getRuntimeEntry, _evictTerminalSessionRuntime } from './runtime-liveness.mjs';
 import { acquireSessionLock } from './session-lock.mjs';
 import { createAskPromptQueue } from './ask-queue.mjs';
-import { armTurnDurability, claimTurnRuntime, settleTurnBase } from './ask-turn-open.mjs';
+import { armTurnDurability, claimTurnRuntime, settleAndOpenTurn } from './ask-turn-open.mjs';
 import { prepareAskTurn, runAskAgentLoop } from './ask-turn-execute.mjs';
 import { commitAskTurn, publishAskTurn } from './ask-turn-settle.mjs';
 import { carryReportOnError, turnReportText, withEarlierReport } from '../loop/turn-report.mjs';
@@ -282,21 +282,23 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       try {
         // The previous turn's save has landed and this turn's base is on disk
         // before the turn touches the session (one unsettled turn per session).
-        await settleTurnBase(sessionId, { recoverCheckpoint: firstTurn });
-        // Synchronous pre-await setup (must happen before any await so
-        // closeSession() can't interleave between load and registration).
-        const claimed = claimTurnRuntime({
-          sessionId,
-          askOpts,
-          emitStart: firstTurn,
+        // The open runs right after, synchronously (before any await, so
+        // closeSession() can't interleave between load and registration);
+        // a turn that does not open gives back the writer claim it took.
+        opened = await settleAndOpenTurn(sessionId, { recoverCheckpoint: firstTurn }, () => {
+          const claimed = claimTurnRuntime({
+            sessionId,
+            askOpts,
+            emitStart: firstTurn,
+          });
+          warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
+          firstTurn = false;
+          askGeneration = claimed.askGeneration;
+          return {
+            ...claimed,
+            ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
+          };
         });
-        warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
-        firstTurn = false;
-        askGeneration = claimed.askGeneration;
-        opened = {
-          ...claimed,
-          ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
-        };
       } catch (error) {
         throw carryReportOnError(error, earlierReport);
       }

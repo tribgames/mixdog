@@ -41,6 +41,7 @@ test.after(async () => {
   // that writes the index, its lock and temp files into this data dir.
   await settleSessionSummaryIndex();
   await (await import('./lifecycle-barriers.mjs')).flushSessionCloseMetrics();
+  (await import('./session-writer-claim.mjs')).releaseHeldSessionWriters();
   rmSync(root, { recursive: true, force: true });
 });
 

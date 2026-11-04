@@ -21,6 +21,7 @@ const { _saveWorkerForTest, _setSaveWorkerIdleMsForTest, _detachSaveWorkerForTes
 const { _sessionWriteAuthorityRefusal } = await import('./write-admission.mjs');
 const { getFailedSaveSnapshot, getSessionSaveError } = await import('./live-state.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
+const { claimSessionWriter } = await import('./session-writer-claim.mjs');
 
 const posted = [];
 const originalPost = Worker.prototype.postMessage;
@@ -33,6 +34,7 @@ test.after(async () => {
   Worker.prototype.postMessage = originalPost;
   _setSaveWorkerIdleMsForTest(null);
   await settleSessionSummaryIndex();
+  (await import('./session-writer-claim.mjs')).releaseHeldSessionWriters();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -137,6 +139,8 @@ test('evidence of a dead worker is rebuilt only while it provably matches what w
     // The posted write is refused before the commit lock, so terminating
     // the detached instance cannot strand that lock.
     assert.equal(bumpSessionGeneration(id, 'evidence-test'), 2);
+    // Opened here again (as a turn does): the old-generation save is posted.
+    claimSessionWriter(id);
     session.messages = [...session.messages, { role: 'assistant', content: 'attempted' }];
     const inFlight = saveSessionAsync(session, { expectedGeneration: 1 }); // a delta
     if (edited) session.messages[0].content = 'edited in place after the post';

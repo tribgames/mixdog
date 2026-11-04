@@ -15,9 +15,11 @@ process.env.MIXDOG_DATA_DIR = first;
 
 const { saveSessionAsync } = await import('../store.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
+const { releaseHeldSessionWriters } = await import('./session-writer-claim.mjs');
 
 test.after(async () => {
   await settleSessionSummaryIndex();
+  releaseHeldSessionWriters();
   rmSync(first, { recursive: true, force: true });
   rmSync(second, { recursive: true, force: true });
 });
@@ -36,6 +38,8 @@ test('a save after the data dir moved lands in the new dir, even once the old ro
 
   process.env.MIXDOG_DATA_DIR = second;
   await settleSessionSummaryIndex();
+  // The run ends (headless drain): its writer locks go before its root does.
+  releaseHeldSessionWriters();
   rmSync(first, { recursive: true, force: true });
 
   await saveSessionAsync(makeSession('sess_datadir_second'), { expectedGeneration: 1 });

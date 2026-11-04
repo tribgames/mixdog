@@ -20,6 +20,7 @@ const { settleSessionSummaryIndex } = await import('./listing.mjs');
 
 test.after(async () => {
   await settleSessionSummaryIndex();
+  (await import('./session-writer-claim.mjs')).releaseHeldSessionWriters();
   rmSync(root, { recursive: true, force: true });
 });
 

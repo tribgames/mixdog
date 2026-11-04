@@ -10,6 +10,7 @@ import {
   acceptStrictSessionRecords,
 } from './canonical-reader.mjs';
 import { sessionPath } from './session-paths.mjs';
+import { rememberSessionBaseStamp } from './session-writer-claim.mjs';
 import { noteMemoryRelease } from '../../../../shared/idle-gc.mjs';
 
 // Recent full-session reads are much hotter than writes while a user hops
@@ -344,6 +345,7 @@ export function _readStoredSessionCached(id, path, { preferInMemory = null } = {
     // writer) drops it and reads strictly below.
     const handoff = _dropHandoff(path);
     if (handoff && handoff.signature === before.signature) {
+      rememberSessionBaseStamp(handoff.session, before.stamp);
       return {
         exists: true,
         session: _cacheStable(path, before.signature, handoff.session, preferInMemory, handoff.chars),
@@ -417,6 +419,8 @@ export function _readStoredSessionCached(id, path, { preferInMemory = null } = {
     // these exact bytes: handed to the canonical reader under the full
     // stamp, which reuses it only while that stamp is unchanged and settled.
     readCanonicalSessionRecord.rememberStrictVerdict(path, before.stamp, record);
+    // A writer claim taken at this document's first save checks it against the record then.
+    rememberSessionBaseStamp(record.doc, before.stamp);
     return { exists: true, session: _cacheStable(path, before.signature, record.doc, preferInMemory, text.length) };
   }
   // Bounded retries exhausted. `last` is the most recent observation we
