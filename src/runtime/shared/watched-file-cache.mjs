@@ -37,16 +37,14 @@ export function fileStampSync(path) {
   try {
     return stampOf(fs.statSync(path, { bigint: true }));
   } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return MISSING;
+    if (isMissing(error)) return MISSING;
     throw error;
   }
 }
 
 /** Async counterpart of fileStampSync; resolves null on unexpected errors. */
 export function fileStamp(path) {
-  return fsp.stat(path, { bigint: true }).then(stampOf, (error) =>
-    error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? MISSING : null
-  );
+  return fsp.stat(path, { bigint: true }).then(stampOf, (error) => (isMissing(error) ? MISSING : null));
 }
 
 // Caches still open; a closed one is released (its owner shut down).

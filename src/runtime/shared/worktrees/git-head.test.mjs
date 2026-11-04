@@ -226,12 +226,14 @@ test('N sessions in one repository share one watcher set', (t) => {
   const sessions = Array.from({ length: 5 }, (_, i) =>
     createGitHeadWatcher({ getCwd: () => (i % 2 ? join(top, 'src') : top), onChange: () => {} })
   );
-  t.after(() => sessions.forEach((s) => s.dispose()));
-  sessions.forEach((s) => s.retarget());
+  t.after(() => {
+    for (const s of sessions) s.dispose();
+  });
+  for (const s of sessions) s.retarget();
   // HEAD's directory and the branch ref's directory, each with the watch on
   // its parent, once for all five.
   assert.equal(opened.length, 4);
-  sessions.forEach((s) => s.retarget());
+  for (const s of sessions) s.retarget();
   assert.equal(opened.length, 4, 'retarget with an unchanged folder re-watches nothing');
 });
 
@@ -295,10 +297,16 @@ test('sessions in a folder outside any repository watch it and each ancestor onc
   mkdirSync(cwd, { recursive: true });
   const opened = fakeWatch(t);
   const sessions = Array.from({ length: 3 }, () => createGitHeadWatcher({ getCwd: () => cwd, onChange: () => {} }));
-  t.after(() => sessions.forEach((s) => s.dispose()));
-  sessions.forEach((s) => s.retarget());
+  t.after(() => {
+    for (const s of sessions) s.dispose();
+  });
+  for (const s of sessions) s.retarget();
   assert.equal(readGitHead(cwd), null);
-  assert.deepEqual(opened.map((handle) => handle.dir).sort(), ancestry(cwd).sort(), 'one watch per directory, none twice');
+  assert.deepEqual(
+    opened.map((handle) => handle.dir).sort(),
+    ancestry(cwd).sort(),
+    'one watch per directory, none twice'
+  );
 });
 
 test('a repository created in an ancestor of a non-repository folder is attached on that ancestor’s `.git` event', async (t) => {
@@ -410,8 +418,10 @@ async function published(t, top, change) {
   const sessions = seen.map((s) =>
     createGitHeadWatcher({ getCwd: () => top, onChange: () => s.resolve(), debounceMs: 10 })
   );
-  t.after(() => sessions.forEach((s) => s.dispose()));
-  sessions.forEach((s) => s.retarget());
+  t.after(() => {
+    for (const s of sessions) s.dispose();
+  });
+  for (const s of sessions) s.retarget();
   // macOS delivers no event for a write made the instant a watch starts.
   await new Promise((resolve) => setTimeout(resolve, 150));
   change();

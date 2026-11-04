@@ -4,7 +4,10 @@
 // `reg` and `warmProviderModelCache` are late-bound getters because the
 // registry import and the provider-models factory resolve after this gate is
 // created, while ensureProvidersReady only reaches them on demand.
-import { builtinProviderKeyAccounts, customProviderKeyAccounts } from '../runtime/agent/orchestrator/config-providers-merge.mjs';
+import {
+  builtinProviderKeyAccounts,
+  customProviderKeyAccounts,
+} from '../runtime/agent/orchestrator/config-providers-merge.mjs';
 import { bootProfile } from './boot-profile.mjs';
 import { invalidateSharedProviderCatalog } from './provider-catalog-cache.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';

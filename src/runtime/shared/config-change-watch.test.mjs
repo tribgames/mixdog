@@ -107,7 +107,10 @@ test('a failed directory watch waits on its parent, is re-established on its nam
     await sleep(300);
     assert.equal(of(dirs.data).length, 1, 'nothing retries until the parent names it');
     waiter.onChange('rename', path.basename(dirs.data));
-    assert.ok(await waitFor(() => of(dirs.data).length === 2 && notified === 1), 'the watch came back and re-announced');
+    assert.ok(
+      await waitFor(() => of(dirs.data).length === 2 && notified === 1),
+      'the watch came back and re-announced'
+    );
     const watch = of(dirs.data)[1];
     // A rewrite of identical bytes (another process re-saving a marker) is no change.
     watch.onChange('rename', 'mixdog-secrets-changed.json');

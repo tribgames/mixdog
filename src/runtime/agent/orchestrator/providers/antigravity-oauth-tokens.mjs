@@ -296,7 +296,8 @@ export async function forgetAntigravityOAuthCredentials() {
     // already in flight, so that save cannot restore the sign-in afterwards.
     return await withTokenStoreLock(path, async () => {
       if (!existsSync(path)) return false;
-      // Overwrite before unlink so the secret does not survive in a freed block.
+      // Overwritten in place with an empty document (the file stays), so the
+      // secret does not survive in a freed block.
       await writeJsonAtomicAsync(path, {}, TOKEN_WRITE_OPTS);
       bumpConfigInputEpoch();
       return true;

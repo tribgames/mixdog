@@ -5,7 +5,14 @@ import { createContentBlockStart } from './content-block-start.mjs';
 function start(block) {
   const kinds = [];
   const thinking = new Map();
-  const blocks = { thinking, appendText() {}, appendCitation() {}, nativeServerTool: new Map(), pendingToolInputs: new Map(), pendingNativeToolInputs: new Map() };
+  const blocks = {
+    thinking,
+    appendText() {},
+    appendCitation() {},
+    nativeServerTool: new Map(),
+    pendingToolInputs: new Map(),
+    pendingNativeToolInputs: new Map(),
+  };
   const turn = { fallbackEvents: [], contentBlockTypes: new Set() };
   createContentBlockStart({ turn, blocks, state: {}, progress: (kind) => kinds.push(kind), seedText() {} })(0, block);
   return kinds;

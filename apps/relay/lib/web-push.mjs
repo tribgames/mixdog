@@ -28,7 +28,7 @@ const DEFAULT_TTL_SECONDS = 24 * 60 * 60;
 const MAX_TTL_SECONDS = 28 * 24 * 60 * 60;
 const SEND_TIMEOUT_MS = 10_000;
 /** One aes128gcm record: the push services cap a message at 4 KB. */
-export const MAX_WEB_PUSH_BODY_BYTES = 4096;
+const MAX_WEB_PUSH_BODY_BYTES = 4096;
 const MAX_ENDPOINT_CHARS = 2048;
 /** A browser paired with many PCs holds one association per PC credential. */
 const MAX_ASSOCIATIONS_PER_ENDPOINT = 32;
@@ -146,7 +146,7 @@ function canonicalHost(hostname) {
   return hostname.toLowerCase().replace(/\.+$/u, '');
 }
 
-export function knownPushServiceHost(hostname) {
+function knownPushServiceHost(hostname) {
   const host = canonicalHost(hostname);
   return PUSH_SERVICE_HOSTS.includes(host) || PUSH_SERVICE_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }

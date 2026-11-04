@@ -446,7 +446,7 @@ export function getModelsDevProviderModelsSync(provider, _test) {
 
 /**
  * Sync lookup. Warm order:
- *   1. in-memory cache (filled from disk when this module loaded),
+ *   1. in-memory cache (filled by warmCatalogFromDisk or a fetch),
  *   2. null if no catalog is resident (async loadCatalog will fill later).
  *
  * Used by hot-path loggers (agent-trace usage row) that must not await, so it

@@ -146,9 +146,7 @@ const metrics = await import('../src/runtime/agent/orchestrator/session/manager/
 const { closeSession } = await import('../src/runtime/agent/orchestrator/session/manager/session-close.mjs');
 const { _touchRuntime } = await import('../src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs');
 const { summaryIndexPath } = await import('../src/runtime/agent/orchestrator/session/store-summary-index.mjs');
-const { listStoredSessionSummariesAsync } = await import(
-  '../src/runtime/agent/orchestrator/session/store/listing.mjs'
-);
+const { listStoredSessionSummariesAsync } = await import('../src/runtime/agent/orchestrator/session/store/listing.mjs');
 const {
   saveSession,
   saveSessionDurably,
@@ -261,7 +259,9 @@ test('durable save failure: a failed atomic save surfaces, preserves disk + live
   await saveSessionDurably(session);
   const canonical = readFileSync(diskPath, 'utf8');
   assert.equal(JSON.parse(canonical).messages.length, 2);
-  const baselineRow = (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).find((row) => row.id === id);
+  const baselineRow = (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).find(
+    (row) => row.id === id
+  );
   assert.ok(baselineRow, 'baseline summary row exists');
 
   // Newest turn, then a single injected commit fault for THIS id only.
@@ -632,7 +632,11 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     setSessionSaveFault({ ids: raceId, count: 1 });
     drainSessionStore();
     await newer;
-    assert.match(getSessionSaveError(raceId)?.message ?? '', /injected save commit fault/, 'the newer failure is recorded');
+    assert.match(
+      getSessionSaveError(raceId)?.message ?? '',
+      /injected save commit fault/,
+      'the newer failure is recorded'
+    );
 
     olderSettlement.release();
     await older.catch(() => {}); // the OLDER write settles afterwards

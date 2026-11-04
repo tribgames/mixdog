@@ -173,5 +173,7 @@ export function loadInstructionFilesContext({ mode, cwd, homeDir = homedir() } =
 export async function loadInstructionFilesContextAsync({ mode, cwd, homeDir = homedir() } = {}) {
   const candidates = instructionFileCandidates({ mode, cwd, homeDir });
   const contents = await Promise.all(candidates.map(readInstructionFileAsync));
-  return renderInstructionFiles(candidates.map((candidate, index) => ({ path: candidate.path, content: contents[index] })));
+  return renderInstructionFiles(
+    candidates.map((candidate, index) => ({ path: candidate.path, content: contents[index] }))
+  );
 }

@@ -9,9 +9,9 @@
 import { performance } from 'node:perf_hooks';
 import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
-export const SPAN_RING_MIN_MS = 25;
-export const SPAN_SLOW_MS = 1000;
-export const SPAN_RING_CAPACITY = 64;
+const SPAN_RING_MIN_MS = 25;
+const SPAN_SLOW_MS = 1000;
+const SPAN_RING_CAPACITY = 64;
 
 const current = runtimeAsyncLocalStorage();
 

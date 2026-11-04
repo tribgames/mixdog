@@ -300,7 +300,10 @@ let exitFlushInstalled = false;
  *  the next write, `heartbeatStateSettled` or the exit flush writes it again. */
 function updateState(path, change) {
   let file = stateFiles.get(path);
-  if (!file) stateFiles.set(path, (file = { state: null, pending: [], dirty: false, running: null, op: null }));
+  if (!file) {
+    file = { state: null, pending: [], dirty: false, running: null, op: null };
+    stateFiles.set(path, file);
+  }
   const entry = { change };
   entry.done = new Promise((resolve, reject) => {
     entry.resolve = resolve;
@@ -405,7 +408,8 @@ function flushStatesSync() {
 export function heartbeatStateSettled(path = defaultStatePath()) {
   const file = stateFiles.get(path);
   if (!file || (!file.dirty && !file.pending.length)) return Promise.resolve();
-  return (file.running ??= startDrain(path, file));
+  file.running ??= startDrain(path, file);
+  return file.running;
 }
 
 /** Daemon shutdown, once the producers have stopped: the newest state of every

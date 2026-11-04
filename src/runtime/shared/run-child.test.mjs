@@ -154,9 +154,15 @@ test('runChildTimed reports queue and spawn time for a child that ran and for on
 
   const failures = [
     // A child that outlives its deadline, one that cannot be started, one past its output bound.
-    [{ command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], timeoutMs: 100, maxBytes: 1024 }, 'ETIMEDOUT'],
+    [
+      { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], timeoutMs: 100, maxBytes: 1024 },
+      'ETIMEDOUT',
+    ],
     [{ command: 'mixdog-no-such-command', args: [], maxBytes: 1024 }, 'ENOENT'],
-    [{ command: process.execPath, args: ['-e', "process.stdout.write('x'.repeat(5000))"], maxBytes: 100 }, 'EMAXBUFFER'],
+    [
+      { command: process.execPath, args: ['-e', "process.stdout.write('x'.repeat(5000))"], maxBytes: 100 },
+      'EMAXBUFFER',
+    ],
   ];
   for (const [request, code] of failures) {
     await assert.rejects(runChildTimed(request, Date.now() - 50), (error) => {

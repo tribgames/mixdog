@@ -4,7 +4,10 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
+import {
+  holdWorkspaceActivityAsync,
+  tryAdmitWorkspaceActivityAsync,
+} from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 
 import { processTable, scriptedChildTree } from './process-table-fixture.mjs';

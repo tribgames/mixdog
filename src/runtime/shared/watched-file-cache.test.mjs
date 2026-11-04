@@ -92,7 +92,11 @@ test('a file under a missing directory is followed through its nearest existing 
   const own = join(dir, 'a', 'b');
   const path = join(own, 'record.json');
   assert.equal(cache.get(path), null);
-  assert.deepEqual(watching(), [dirname(dir), dir].sort(), 'the nearest existing ancestor and its parent, nothing above');
+  assert.deepEqual(
+    watching(),
+    [dirname(dir), dir].sort(),
+    'the nearest existing ancestor and its parent, nothing above'
+  );
   mkdirSync(own, { recursive: true });
   writeFileSync(path, 'there');
   await eventually(() => cache.peek(path) === 'there', { timeoutMs: 3_000 });
@@ -134,7 +138,8 @@ test('changes reach every cache sharing a watch: in-place writes, atomic replace
       .sort();
   const single = [one.dir, sub].sort();
   assert.deepEqual(live(), single, 'one watch of the folder and one of its parent for both caches');
-  const seen = (path, value) => [one, two].every(({ cache }) => cache.peek(path) === undefined || cache.peek(path) === value);
+  const seen = (path, value) =>
+    [one, two].every(({ cache }) => cache.peek(path) === undefined || cache.peek(path) === value);
 
   writeFileSync(a, 'a2');
   await eventually(() => seen(a, 'a2'));
