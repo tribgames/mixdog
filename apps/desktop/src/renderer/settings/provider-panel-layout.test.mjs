@@ -86,6 +86,13 @@ test('the page runs OAuth, API-key, custom providers and ends with the usage-lim
   );
 });
 
+test('the starter guide’s API-key stop lights the API-key provider list', async (t) => {
+  const { starterTours } = await import('../StarterGuide.tsx');
+  await mountPanel(t);
+  const [, apiKey] = starterTours().provider;
+  assert.equal(document.querySelector(apiKey.target[0])?.querySelector('h3')?.textContent, 'API-key providers');
+});
+
 test('OAuth providers without an account share one compact card after the connected ones', async (t) => {
   await mountPanel(t);
   assert.ok(document.querySelector('[data-account-provider="layout-full"]'));

@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
-import { requestMixyDialog, useMixyDialogSettled, useMixyStatus } from './mixy-identity';
+import { useMixyDialogOpen, useMixyStatus } from './mixy-identity';
 import { providerConnected } from './setup-facts';
 import { record } from './record-utils';
 import { SettingsConfirmDialog } from './settings/capability-controls';
@@ -135,7 +135,9 @@ function persisted(api: GuideApi, change: (current: GuideState) => GuideState) {
 
 function markVisited(step: StepId): (current: GuideState) => GuideState {
   return (current: GuideState) =>
-    current.visited.includes(step) ? current : { ...current, visited: [...current.visited, step] };
+    !STEP_IDS.includes(step) || current.visited.includes(step)
+      ? current
+      : { ...current, visited: [...current.visited, step] };
 }
 
 /** The completion notice sits just above the pill; with the side panel
@@ -152,7 +154,7 @@ function toastPosition(pill: HTMLElement | null): CSSProperties {
 }
 
 /** The coach-mark stops of each step's tour. */
-function starterTours(): Record<Exclude<StepId, 'mixy'>, TourStop[]> {
+export function starterTours(): Record<StepId, TourStop[]> {
   return {
     // Which provider is the user's call: the tour explains how to choose and
     // lights every option; any sign-in or key action hands over.
@@ -164,7 +166,7 @@ function starterTours(): Record<Exclude<StepId, 'mixy'>, TourStop[]> {
         action: true,
       },
       {
-        target: ['.settings-provider-cards ~ .settings-group:last-of-type', '.mixdog-settings__body'],
+        target: ['.settings-api-key-providers', '.mixdog-settings__body'],
         title: t('No subscription? Use an API key'),
         body: t('Get a key, paste it here and save.'),
         action: true,
@@ -207,8 +209,15 @@ function starterTours(): Record<Exclude<StepId, 'mixy'>, TourStop[]> {
         title: t('Agents'),
         body: t('Agents start off. Open one, turn it on and pick a model.'),
       },
+      // A New Task picks it in its context bar; a session tab shows it in the
+      // route label and sets it from the model menu (the "simple" composer
+      // style shows no label).
       {
-        target: '.orchestration-mode-select',
+        target: [
+          '.orchestration-mode-select',
+          '.composer-route-label',
+          '.composer-model-line-controls .model-trigger',
+        ],
         title: t('Delegation mode'),
         body: t('Choose how much work goes to agents.'),
       },
@@ -250,6 +259,16 @@ function starterTours(): Record<Exclude<StepId, 'mixy'>, TourStop[]> {
         action: true,
       },
     ],
+    // The dialog is the user's to open: the tour points at the empty state's
+    // button and hands over when it is clicked.
+    mixy: [
+      {
+        target: '.mixy-empty-create',
+        title: t('Create representative bot'),
+        body: t('Press it to name the bot and pick its model.'),
+        action: true,
+      },
+    ],
   };
 }
 
@@ -285,9 +304,8 @@ export function StarterGuide({
   // Mixy's status follows the host; it counts as loading until known so an
   // existing user's done step never announces itself.
   const mixyCreated = useMixyStatus(api, !state.closed).created;
-  // The welcome comes after the 대표 에이전트 dialog: once Mixy exists or the
-  // dialog was dismissed, never on top of (or under) it.
-  const mixySettled = useMixyDialogSettled() || mixyCreated === true;
+  // The welcome never shows on top of (or under) the 대표 에이전트 dialog.
+  const mixyDialogOpen = useMixyDialogOpen();
   const loading = referencesLoading || mixyCreated === null;
   const update = (change: (current: GuideState) => GuideState) => setState(persisted(api, change));
   const visit = (step: StepId) => update(markVisited(step));
@@ -416,12 +434,12 @@ export function StarterGuide({
       icon: viewIcon('agents', Star),
       // Real state only: the host's created flag (mixy-identity.ts).
       done: mixyCreated === true,
-      // The Agents page with the 대표 에이전트 dialog open: no tour over it.
+      // The Agents page with its create button lit; a created one leaves
+      // nothing to open.
       open: () => {
-        openView('agents');
-        requestMixyDialog();
+        if (mixyCreated !== true) openView('agents');
       },
-      tour: [],
+      tour: mixyCreated === true ? [] : tours.mixy,
     },
   ];
   const startTour = (id: StepId, chain: boolean) => {
@@ -494,7 +512,7 @@ export function StarterGuide({
   // No pill until the real state is known, so it never paints 0 and jumps.
   // A running tour outlives the pill: its last step may be what finishes it.
   const hidden = state.closed || finished || loading || !diskRead;
-  const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour && mixySettled;
+  const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour && !mixyDialogOpen;
   // The welcome and the tour cover the window: the What's new notice waits for
   // them. Layout phase, so the gate is set before any passive effect looks.
   const coversWindow = (!state.closed && !state.welcomed) || tour !== null;

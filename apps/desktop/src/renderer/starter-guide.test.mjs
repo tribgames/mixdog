@@ -17,7 +17,9 @@ const { resetSidebarReferenceCache } = await import('./sidebar-reference-cache.t
 const { openModal } = await import('./settings/dialog-modality.ts');
 const { tourCardPosition } = await import('./StarterTour.tsx');
 const { setCachedConnectionInfo } = await import('./settings/connection-info.ts');
-const { publishMixyStatus, resetMixyStatus, settleMixyDialog } = await import('./mixy-identity.ts');
+const { holdMixyDialogOpen, onMixyDialogRequest, publishMixyStatus, resetMixyStatus } = await import(
+  './mixy-identity.ts'
+);
 
 test.after(() => dom.window.close());
 
@@ -152,25 +154,53 @@ test('the guide counts real provider and project state and lists the steps in gu
   );
 });
 
-test('대표 에이전트 만들기 is the last step: it opens the dialog and completes when the representative is created', async (t) => {
+/** The empty Agents pane's create button (MixyEmptyState), laid out. */
+function mixyCreateButton(t) {
+  const create = document.createElement('button');
+  create.className = 'mixy-empty-create';
+  create.getBoundingClientRect = () => ({ top: 120, left: 40, width: 180, height: 32, right: 220, bottom: 152 });
+  document.body.append(create);
+  t.after(() => create.remove());
+  return create;
+}
+
+test('a new user without the representative bot gets the welcome, never while its dialog is open', async (t) => {
+  await mount(t, { mixy: false });
+  // Nothing opens the dialog by itself, so the welcome cannot wait for it.
+  assert.ok(document.querySelector('.starter-welcome'));
+  let release = () => {};
+  t.after(() => release());
+  await act(async () => {
+    release = holdMixyDialogOpen();
+  });
+  assert.equal(document.querySelector('.starter-welcome'), null);
+  await act(async () => release());
+  assert.ok(document.querySelector('.starter-welcome'));
+});
+
+test('대표 봇 만들기 is the last step: it lights the create button, opens no dialog, and completes on creation', async (t) => {
   const requested = [];
-  const { onMixyDialogRequest } = await import('./mixy-identity.ts');
   t.after(onMixyDialogRequest(() => requested.push('dialog')));
   const { opened } = await mount(t, { connected: true, mixy: false });
-  // The welcome waits for the 대표 에이전트 dialog (created or dismissed).
-  assert.equal(document.querySelector('.starter-welcome'), null);
-  await act(async () => settleMixyDialog());
   await click(button('Maybe later'));
   assert.match(pill().textContent, /1\/6/);
+  const create = mixyCreateButton(t);
   await click(pill());
   const last = steps()[5];
   assert.equal(last.querySelector('b').textContent, 'Create representative bot');
   assert.equal(last.dataset.done, undefined);
-  // Its step opens the Agents page with the dialog, no tour over it.
+  // Its step opens the Agents page and points at the real button.
   await click(last);
   assert.deepEqual(opened.views, ['agents']);
-  assert.deepEqual(requested, ['dialog']);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+  assert.equal(document.querySelector('.starter-tour-card h2').textContent, 'Create representative bot');
+  assert.ok(document.querySelector('.starter-tour-hole[data-live="true"]'));
+  assert.deepEqual(requested, [], 'the step itself opens no dialog');
+  // The click is the user's: the tour hands the page over.
+  await click(create);
+  await settle();
   assert.equal(document.querySelector('.starter-tour-card'), null);
+  assert.deepEqual(requested, []);
   assert.match(pill().textContent, /1\/6/);
   // The dialog created it, under the name the user chose.
   await act(async () => publishMixyStatus({ created: true, name: 'Navi' }));
@@ -195,10 +225,76 @@ test('the step copy names the representative by its current name', async (t) => 
 });
 
 test('an existing user (Mixy already decided as created) sees that step done, without a notice', async (t) => {
-  await mount(t, { mixy: true });
+  const { opened } = await mount(t, { mixy: true });
   await click(button('Maybe later'));
   assert.match(pill().textContent, /1\/6/);
   assert.equal(document.querySelector('.starter-guide-toast'), null);
+  // A created representative leaves nothing to open.
+  await click(pill());
+  await click(steps()[5]);
+  assert.deepEqual(opened.views, []);
+  assert.equal(document.querySelector('.starter-tour-card'), null);
+});
+
+test('the welcome chain ends on the Agents page with the create button lit; only its click hands over', async (t) => {
+  window.localStorage.clear();
+  window.localStorage.setItem(
+    'mixdog.desktop.starter-guide.v1',
+    JSON.stringify({ closed: false, welcomed: false, visited: ['workflow', 'remote'] })
+  );
+  const requested = [];
+  t.after(onMixyDialogRequest(() => requested.push('dialog')));
+  const { opened } = await mount(t, {
+    connected: true,
+    projects: [{ path: 'C:/work' }],
+    mixy: false,
+    clearStorage: false,
+  });
+  const create = mixyCreateButton(t);
+  await click(button('Start the tour'));
+  assert.deepEqual(opened.views, ['extensions']);
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Done'));
+  assert.deepEqual(opened.views, ['extensions', 'agents']);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+  assert.equal(document.querySelector('.starter-tour-card h2').textContent, 'Create representative bot');
+  assert.ok(document.querySelector('.starter-tour-hole[data-live="true"]'));
+  assert.deepEqual(requested, [], 'the chain opens no dialog');
+  await click(create);
+  await settle();
+  assert.equal(document.querySelector('.starter-tour-card'), null);
+});
+
+test('the delegation stop lights where a session tab shows and sets its mode', async (t) => {
+  await mount(t);
+  await click(button('Maybe later'));
+  // An existing session tab: no New Task select, the route label and the
+  // model menu (whose rows set the mode) instead.
+  const line = document.createElement('span');
+  line.className = 'composer-model-line-controls';
+  const label = document.createElement('button');
+  label.className = 'composer-route-label';
+  label.getBoundingClientRect = () => ({ top: 600, left: 400, width: 140, height: 24, right: 540, bottom: 624 });
+  const trigger = document.createElement('button');
+  trigger.className = 'model-trigger';
+  trigger.getBoundingClientRect = () => ({ top: 600, left: 560, width: 120, height: 24, right: 680, bottom: 624 });
+  line.append(label, trigger);
+  document.body.append(line);
+  t.after(() => line.remove());
+  await click(pill());
+  await click(steps()[2]);
+  await click(button('Next'));
+  await click(button('Next'));
+  assert.equal(tourCount(), '3/4');
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 1400)));
+  assert.equal(tourCount(), '3/4', 'not skipped');
+  const hole = () => document.querySelector('.starter-tour-hole');
+  assert.equal(hole()?.style.left, '394px', 'the route label');
+  // The "simple" composer style shows no label: the model menu holds the mode.
+  label.remove();
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+  assert.equal(hole()?.style.left, '554px', 'the model menu');
 });
 
 test('each step opens its destination and runs its own tour', async (t) => {

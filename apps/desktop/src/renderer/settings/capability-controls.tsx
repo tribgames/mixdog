@@ -18,16 +18,19 @@ export function Group({
   title,
   description,
   actions,
+  className,
   children,
 }: {
   title?: string;
   description?: string;
   /** Sits at the right end of the title line. */
   actions?: ReactNode;
+  /** Added to `settings-group`. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="settings-group">
+    <section className={className ? `settings-group ${className}` : 'settings-group'}>
       {(title || description) && (
         <header>
           {actions ? (

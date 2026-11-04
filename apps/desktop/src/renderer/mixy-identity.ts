@@ -23,9 +23,10 @@ type StatusApi = Partial<Pick<DesktopApi, 'invokeCapability'>> | undefined;
 const UNREAD: MixyStatus = { created: null, name: '', avatar: null };
 let status: MixyStatus = UNREAD;
 let reading: Promise<void> | null = null;
-/** The 대표 에이전트 dialog was dismissed (or Mixy created) in this run: the
- *  starter guide's welcome may show. */
-let dialogSettled = false;
+/** Open 대표 에이전트 dialogs (one per Agents pane, mixy-first.tsx): while any
+ *  is on screen the starter guide's welcome never shows on top of, or under,
+ *  it. */
+let openDialogs = 0;
 const listeners = new Set<() => void>();
 const notify = () => {
   for (const listener of listeners) listener();
@@ -48,7 +49,6 @@ export function publishMixyStatus(value: unknown): void {
   const renamed = updated.name !== status.name || JSON.stringify(updated.avatar) !== JSON.stringify(status.avatar);
   if (!renamed && updated.created === status.created) return;
   status = updated;
-  if (updated.created) dialogSettled = true;
   // Contacts, rooms and tab titles are built from the agents catalog: re-read
   // it so they pick up the new name and face.
   if (renamed) invalidateSidebarReferenceForMutation('saveLeadIdentity');
@@ -73,7 +73,6 @@ export function resetMixyStatus(value: Partial<MixyStatus> | null = null): void 
   failedReads = 0;
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = null;
-  dialogSettled = false;
   notify();
 }
 
@@ -106,11 +105,19 @@ export function readMixyStatus(api: StatusApi): void {
     });
 }
 
-export function settleMixyDialog(): void {
-  if (dialogSettled) return;
-  dialogSettled = true;
-  notify();
+/** Marks one dialog open; the returned release marks it closed (once). */
+export function holdMixyDialogOpen(): () => void {
+  openDialogs += 1;
+  if (openDialogs === 1) notify();
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    openDialogs -= 1;
+    if (openDialogs === 0) notify();
+  };
 }
+export const mixyDialogOpen = (): boolean => openDialogs > 0;
 
 /** The display name: the user's choice, else Mixy. */
 export const mixyName = (): string => status.name || MIXY_DEFAULT_NAME;
@@ -129,19 +136,15 @@ export function useMixyStatus(api: StatusApi, enabled = true): MixyStatus {
   return value;
 }
 
-export function useMixyDialogSettled(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => dialogSettled,
-    () => dialogSettled
-  );
+export function useMixyDialogOpen(): boolean {
+  return useSyncExternalStore(subscribe, mixyDialogOpen, mixyDialogOpen);
 }
 
 /** Window event: show the Agents view (where the representative bot is made). */
 export const OPEN_AGENTS_VIEW_EVENT = 'mixdog:open-agents-view';
 
-// The starter guide's step (and a routine view with no bot) asks the Agents
-// pane to open the dialog; a pane not mounted yet takes the request on mount.
+// The automation picker (a routine view with no bot) asks the Agents pane to
+// open the dialog; a pane not mounted yet takes the request on mount.
 const requests = new Set<() => void>();
 let pendingRequest = false;
 export function requestMixyDialog(): void {

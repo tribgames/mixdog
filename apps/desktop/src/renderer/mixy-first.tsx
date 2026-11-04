@@ -2,8 +2,8 @@
 // Whether Mixy exists is the host's answer to getLeadStatus (main/mixy-first.ts
 // decides an undecided profile once: existing users count as created). While
 // Mixy does not exist the Agents pane is empty, the new-agent dialog opens in
-// 대표 에이전트 mode when asked (the empty state's button, "+", the guide's
-// step); the starter guide's first step completes when Mixy is created.
+// 대표 에이전트 mode when asked (the empty state's button, "+", the automation
+// picker); the starter guide's last step completes when Mixy is created.
 import { useEffect, useState } from 'react';
 import { MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { MIXY_AVATAR } from '../../../../src/runtime/shared/agent-avatar.mjs';
@@ -13,7 +13,7 @@ import {
   MIXY_DEFAULT_NAME,
   onMixyDialogRequest,
   publishMixyStatus,
-  settleMixyDialog,
+  holdMixyDialogOpen,
   useMixyStatus,
 } from './mixy-identity';
 import type { RecordValue } from './desktop-types';
@@ -29,21 +29,20 @@ export function useMixyCreated(api: StatusApi, enabled = true): boolean | null {
 }
 
 /** The Agents pane's side: while Mixy does not exist, the 대표 에이전트 dialog
- *  opens only on request — the empty state's button, "+" or the guide's step. */
+ *  opens only on request — the empty state's button, "+" or the automation
+ *  picker. */
 export function useMixyFirstPane(active: boolean) {
   const mixyCreated = useMixyCreated(window.mixdogDesktop, active);
   const [creatingMixy, setCreatingMixy] = useState(false);
   useEffect(() => onMixyDialogRequest(() => setCreatingMixy(true)), []);
+  useEffect(() => (creatingMixy ? holdMixyDialogOpen() : undefined), [creatingMixy]);
   return {
     /** Mixy is known not to exist. */
     empty: mixyCreated === false,
     mixyCreated,
     creatingMixy,
     openMixyDialog: () => setCreatingMixy(true),
-    closeMixyDialog: () => {
-      setCreatingMixy(false);
-      settleMixyDialog();
-    },
+    closeMixyDialog: () => setCreatingMixy(false),
   };
 }
 

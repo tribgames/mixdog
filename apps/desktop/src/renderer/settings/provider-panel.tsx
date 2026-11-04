@@ -562,7 +562,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
         run={run}
         confirm={confirm}
       />
-      <Group title={t('API-key providers')}>
+      <Group className="settings-api-key-providers" title={t('API-key providers')}>
         {otherApiProviders.map(renderApiProvider)}
         {otherApiProviders.length === 0 && <ListEmpty text={t('No API-key providers available.')} />}
       </Group>
