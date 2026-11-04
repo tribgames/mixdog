@@ -9,7 +9,9 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ENTRY = fileURLToPath(new URL('./daemon-steady-entry.mjs', import.meta.url));
+/** Larger than any stall: a call with this never gives up (the largest setTimeout delay). */
+export const NO_DEADLINE_MS = 2 ** 31 - 1;
+const ENTRY =fileURLToPath(new URL('./daemon-steady-entry.mjs', import.meta.url));
 export const HEAD_TREE = new URL('../../../', import.meta.url);
 
 function isAlive(pid) {
@@ -41,16 +43,34 @@ async function connectProbe(portFile) {
   socket.on('data', (chunk) => {
     pending += chunk;
     for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
-      waiting.shift()?.(JSON.parse(pending.slice(0, end)));
+      waiting.shift()?.resolve(JSON.parse(pending.slice(0, end)));
       pending = pending.slice(end + 1);
     }
   });
+  // A probe that goes away (daemon exit, socket error) fails what waits on it
+  // instead of leaving the caller hanging.
+  let lost = null;
+  const lose = (error) => {
+    lost ??= error;
+    for (const waiter of waiting.splice(0)) waiter.reject(lost);
+  };
+  socket.on('error', lose);
+  socket.on('close', () => lose(new Error('probe disconnected')));
   const ask = (command) =>
-    new Promise((resolve) => {
-      waiting.push(resolve);
+    new Promise((resolve, reject) => {
+      if (lost) {
+        reject(lost);
+        return;
+      }
+      waiting.push({ resolve, reject });
       socket.write(`${command}\n`);
     });
-  return { start: () => ask('start'), stop: () => ask('stop'), close: () => socket.destroy() };
+  // `ticker: true` also runs the in-daemon gap ticker for this window.
+  return {
+    start: ({ ticker = false } = {}) => ask(ticker ? 'start ticker' : 'start'),
+    stop: () => ask('stop'),
+    close: () => socket.destroy(),
+  };
 }
 
 /**
@@ -58,17 +78,31 @@ async function connectProbe(portFile) {
  * @param {URL|string} [options.tree]  source tree root (default: this checkout)
  * @param {string} [options.mutation]  absolute path of a module the daemon loads first
  * @param {string[]} [options.execArgv]  node flags for the daemon
+ * @param {Function} [options.prepare]  async ({ root, dataDir }) run before the daemon starts
  * @param {string} [options.base]  where the isolated root is created. The
  *   sessions' cwd lives in it, and the daemon watches every ancestor of a cwd
  *   (git HEAD cache): a base under a busy directory wakes it with that
  *   directory's events.
  */
-export async function launchObservedDaemon({ tree = HEAD_TREE, mutation = '', execArgv = [], base = tmpdir() } = {}) {
+export async function launchObservedDaemon({
+  tree = HEAD_TREE,
+  mutation = '',
+  execArgv = [],
+  base = tmpdir(),
+  prepare = null,
+} = {}) {
   const treeRoot = tree instanceof URL ? tree : pathToFileURL(`${String(tree).replace(/[\\/]+$/, '')}/`);
   const root = mkdtempSync(join(base, 'mixdog-steady-'));
   const home = join(root, 'home');
   const dataDir = join(home, '.mixdog', 'data');
   mkdirSync(dataDir, { recursive: true });
+  // `prepare({ root, dataDir })`: seeds the isolated home before the daemon starts.
+  try {
+    await prepare?.({ root, dataDir });
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
   const portFile = join(root, 'probe-port');
   const env = {
     MIXDOG_DATA_DIR: dataDir,
@@ -94,6 +128,7 @@ export async function launchObservedDaemon({ tree = HEAD_TREE, mutation = '', ex
 
   const client = await import(new URL('src/standalone/session-client.mjs', treeRoot).href);
   const clients = [];
+  const sessionClients = new Map();
   let discovery = null;
   let probe = null;
   let disposed = false;
@@ -158,26 +193,42 @@ export async function launchObservedDaemon({ tree = HEAD_TREE, mutation = '', ex
       }
     },
     window: probe,
+    /** One more client attachment (closed by `dispose`): `call(name, args)` is
+     *  the daemon's client protocol. */
+    async attach({ cwd = root } = {}) {
+      const attached = await client.attachSession({ discovery, cwd });
+      clients.push(attached);
+      return attached;
+    },
     /** `count` sessions, each over its own client attachment (a terminal each). */
-    async openSessions(count) {
+    async openSessions(count, { cwd = root } = {}) {
       const created = await Promise.all(
         Array.from({ length: count }, async () => {
-          const attached = await client.attachSession({ discovery, cwd: root });
+          const attached = await client.attachSession({ discovery, cwd });
           clients.push(attached);
-          const session = await attached.call('session.create', {
-            cwd: root,
-            provider: 'openai',
-            model: 'gpt-4o-mini',
-            toolMode: 'full',
-            remote: false,
-            desktopSession: null,
-          });
-          return String(session?.sessionId || '');
+          // No deadline: a stalled daemon answers late, and that is a result.
+          const session = await attached.call(
+            'session.create',
+            {
+              cwd,
+              provider: 'openai',
+              model: 'gpt-4o-mini',
+              toolMode: 'full',
+              remote: false,
+              desktopSession: null,
+            },
+            { timeoutMs: NO_DEADLINE_MS }
+          );
+          const sessionId = String(session?.sessionId || '');
+          sessionClients.set(sessionId, attached);
+          return sessionId;
         })
       );
       if (created.some((id) => !id)) throw new Error('session.create returned no sessionId');
       return created;
     },
+    /** The client attachment a session returned by `openSessions` was created over. */
+    sessionClient: (sessionId) => sessionClients.get(sessionId),
     dispose,
   };
 }

@@ -10,8 +10,10 @@
 //     utilization of the window.
 // A window is driven over a loopback socket (path in MIXDOG_PROBE_PORT_FILE),
 // because a supervised daemon has no IPC channel. The socket is event-driven
-// and unref'd; the probe itself arms no timer of its own.
+// and unref'd; the probe arms no timer of its own, except the gap ticker of a
+// window opened with `start ticker` (the busy-sessions bench).
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import module from 'node:module';
 import net from 'node:net';
 import nodeTimers from 'node:timers';
@@ -33,6 +35,23 @@ let promiseTimers = new Map();
 let running = null;
 const histogram = monitorEventLoopDelay({ resolution: 10 });
 
+// What the window did to session storage, by call (sync or promise-based):
+// reads/stats of `sessions/*.json` and every touch of the summary index files.
+// `kind` is the fs method; the count is per method, so a rewrite shows as
+// `rename` (or writeFile) on the index and a refresh as `readFile`/`open` on records.
+let storageTouches = new Map();
+function noteStorageTouch(method, args) {
+  const target = typeof args[0] === 'string' ? args[0] : '';
+  let area = '';
+  if (target.includes('session-summaries.json')) area = target.endsWith('.lock') ? 'summary-lock' : 'summary-index';
+  else if (target.includes('mixdog-workspace-admission')) area = 'admission-ledger';
+  else if (/[\\/]sessions[\\/][^\\/]+\.json$/.test(target)) area = 'session-record';
+  else if (target.endsWith('.compaction-archive.jsonl')) area = 'archive';
+  if (!area) return;
+  const key = `${area} ${method.replace(/Sync$/, '')}`;
+  storageTouches.set(key, (storageTouches.get(key) ?? 0) + 1);
+}
+
 /** The first stack frame outside this file and Node internals: `path:line`. */
 function callSite() {
   const holder = {};
@@ -53,12 +72,32 @@ for (const name of Object.keys(realFs)) {
   if (!name.endsWith('Sync') || typeof realFs[name] !== 'function') continue;
   fs[name] = function observedSync(...args) {
     if (windowOpen) {
+      noteStorageTouch(name, args);
       const key = `${name} ${callSite()}`;
       syncFs.set(key, (syncFs.get(key) ?? 0) + 1);
     }
     return realFs[name].apply(this, args);
   };
 }
+
+// Blocking waits on the main thread (Atomics.wait: lock sleeps, the commit
+// lock, workspace admission). They are idle for the CPU but count as active
+// event-loop time, so they are tallied per call site: count and time blocked.
+const realAtomicsWait = Atomics.wait;
+let atomicsWaits = new Map();
+Atomics.wait = function observedAtomicsWait(...args) {
+  if (!windowOpen) return realAtomicsWait.apply(this, args);
+  const site = callSite();
+  const startedAt = performance.now();
+  try {
+    return realAtomicsWait.apply(this, args);
+  } finally {
+    const stat = atomicsWaits.get(site) ?? { count: 0, blockedMs: 0 };
+    stat.count += 1;
+    stat.blockedMs += performance.now() - startedAt;
+    atomicsWaits.set(site, stat);
+  }
+};
 
 function observeTimer(kind, original) {
   const observed = function observedTimer(callback, delay, ...args) {
@@ -93,6 +132,9 @@ function observeTimer(kind, original) {
   return observed;
 }
 
+// The independent gap ticker below arms its own timers with the unobserved
+// original, so it never shows up in the timer statistics.
+const unobservedSetTimeout = globalThis.setTimeout;
 globalThis.setTimeout = observeTimer('timeout', globalThis.setTimeout);
 globalThis.setInterval = observeTimer('interval', globalThis.setInterval);
 nodeTimers.setTimeout = globalThis.setTimeout;
@@ -109,10 +151,73 @@ timersPromises.setTimeout = function observedPromiseTimeout(delay, ...rest) {
   });
 };
 
+for (const name of ['open', 'readFile', 'writeFile', 'appendFile', 'rename', 'link', 'unlink', 'stat', 'readdir']) {
+  const real = fsPromises[name];
+  fsPromises[name] = function observedAsync(...args) {
+    if (windowOpen) noteStorageTouch(name, args);
+    return real.apply(this, args);
+  };
+}
+
 module.syncBuiltinESMExports();
 
-function openWindow() {
+// Gap ticker (opt-in per window: `start ticker`, so idle windows stay
+// unchanged). A self-re-arming unref'd timer records the time between
+// consecutive callbacks. This is the daemon's own "event loop stalled" notion
+// (a gap over 1 s), measured independently of the delay histogram.
+const TICK_MS = 50;
+const GAP_THRESHOLDS_MS = [1000, 5000];
+const TOP_GAPS = 10;
+let ticker = null;
+
+function recordGap(state, endedAt) {
+  const gap = endedAt - state.last;
+  state.last = endedAt;
+  state.maxGapMs = Math.max(state.maxGapMs, gap);
+  for (const threshold of GAP_THRESHOLDS_MS) {
+    if (gap <= threshold) continue;
+    state.over[threshold].count += 1;
+    state.over[threshold].totalMs += gap;
+  }
+  if (gap > GAP_THRESHOLDS_MS[0]) {
+    state.top.push({ atMs: Math.round(endedAt - gap - state.startedAt), gapMs: Math.round(gap) });
+    state.top.sort((a, b) => b.gapMs - a.gapMs);
+    state.top.length = Math.min(state.top.length, TOP_GAPS);
+  }
+}
+
+function startTicker() {
+  const now = performance.now();
+  const state = { startedAt: now, last: now, maxGapMs: 0, timer: null, top: [], over: {} };
+  for (const threshold of GAP_THRESHOLDS_MS) state.over[threshold] = { count: 0, totalMs: 0 };
+  const tick = () => {
+    recordGap(state, performance.now());
+    state.timer = unobservedSetTimeout(tick, TICK_MS);
+    state.timer.unref();
+  };
+  state.timer = unobservedSetTimeout(tick, TICK_MS);
+  state.timer.unref();
+  return state;
+}
+
+function stopTicker(state) {
+  clearTimeout(state.timer);
+  recordGap(state, performance.now());
+  const round = ({ count, totalMs }) => ({ count, totalMs: Math.round(totalMs) });
+  return {
+    tickMs: TICK_MS,
+    maxGapMs: Math.round(state.maxGapMs),
+    over1s: round(state.over[1000]),
+    over5s: round(state.over[5000]),
+    topGaps: state.top,
+  };
+}
+
+function openWindow(withTicker = false) {
+  ticker = withTicker ? startTicker() : null;
   syncFs = new Map();
+  atomicsWaits = new Map();
+  storageTouches = new Map();
   timerSites = new Map();
   promiseTimers = new Map();
   histogram.reset();
@@ -123,6 +228,14 @@ function openWindow() {
   windowOpen = true;
 }
 
+// `utilization` is performance.eventLoopUtilization over the window: the share
+// of wall time the loop thread was not parked in the OS poll. That includes
+// native work in the poll phase (fs.watch / directory-change dispatch, worker
+// message decoding) which V8's CPU profiler files under `(idle)`, because it
+// marks the whole prepare->check span idle. A `--cpu-prof` of busy JS is
+// therefore a lower bound; the main thread's own CPU time (per-thread, from the
+// OS) tracks this figure (measured: 2.3 s of thread CPU in 5 s = ELU 50 %, and
+// both fell together to 0.5 s / 16 % when the watchers were stubbed).
 function closeWindow() {
   windowOpen = false;
   const elapsedMs = performance.now() - windowStartedAt;
@@ -144,6 +257,9 @@ function closeWindow() {
     timers,
     timerBusyMs: Math.round(timers.reduce((sum, stat) => sum + stat.busyMs, 0) * 100) / 100,
     promiseTimers: [...promiseTimers].map(([site, count]) => ({ site, count })),
+    storageTouches: Object.fromEntries([...storageTouches].sort()),
+    atomicsWaits: [...atomicsWaits].map(([site, stat]) => ({ site, count: stat.count, blockedMs: Math.round(stat.blockedMs) })),
+    ...(ticker ? { gapTicker: stopTicker(ticker) } : {}),
   };
 }
 
@@ -156,8 +272,8 @@ const server = net.createServer((socket) => {
     for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
       const command = pending.slice(0, end).trim();
       pending = pending.slice(end + 1);
-      if (command === 'start') {
-        openWindow();
+      if (command === 'start' || command === 'start ticker') {
+        openWindow(command === 'start ticker');
         socket.write('{}\n');
       } else if (command === 'stop') {
         socket.write(`${JSON.stringify(closeWindow())}\n`);
