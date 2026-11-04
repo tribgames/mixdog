@@ -5,8 +5,9 @@
  * the route that runs it: the canonical session runtime
  * (sessionSurface.observeSessionTurns) or the in-process manager's ask loop
  * (mgr.observeSessionTurns). At a turn's real start the owner stamps the row
- * `running` from that moment and arms the progress watchdog; at its outcome
- * it stops that watchdog and settles the row as a send's result reads
+ * `running` from that moment and arms the progress watchdog; when its ask
+ * ends, or at its outcome on a route that reports no ask end, it stops that
+ * watchdog; at its outcome it settles the row as a send's result reads
  * (settledWorkerStatus). Turns are keyed by their own id, so an earlier
  * turn's late settle never touches the next one.
  */
@@ -127,6 +128,16 @@ export function createWorkerTurns({
     notifyStatusChange();
   }
 
+  // The turn's model work is over: the progress watchdog, which judges only
+  // that, stops here. The row still settles on the turn's real outcome,
+  // its cleanup's failure included, when the settlement arrives.
+  function turnAskEnded(owner, { turnId }) {
+    const turn = owner.current;
+    if (!turn || turn.turnId !== turnId) return;
+    turn.watchdog?.stop();
+    turn.watchdog = null;
+  }
+
   function turnSettled(sessionId, owner, outcome) {
     const turn = owner.current;
     if (!turn || turn.turnId !== outcome.turnId) return;
@@ -150,6 +161,7 @@ export function createWorkerTurns({
     owners.set(sessionId, owner);
     owner.unobserve = source.observeSessionTurns(sessionId, {
       onTurnStart: (turn) => turnStarted(sessionId, owner, turn),
+      onTurnAskEnded: (event) => turnAskEnded(owner, event),
       onTurnSettled: (outcome) => turnSettled(sessionId, owner, outcome),
     });
     return owner;

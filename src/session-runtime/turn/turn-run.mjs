@@ -14,6 +14,7 @@ import { createTurnPreparation } from './turn-run/turn-prepare.mjs';
 import { createAskCallbacks } from './turn-run/ask-callbacks.mjs';
 import { registerNativeWebSearchUsageSink } from '../native-web-search-usage.mjs';
 import { createTurnSettlement } from './turn-run/turn-settle.mjs';
+import { sessionTurns } from '../../runtime/shared/turn-lifecycle.mjs';
 
 export function createTurnRunner(deps) {
   const {
@@ -89,6 +90,10 @@ export function createTurnRunner(deps) {
         );
       } finally {
         releaseWebSearchUsage?.();
+        // The ask is over (its runtime entry is gone); only this turn's
+        // cleanup below remains before the settlement is reported.
+        const turnId = options.transcriptMeta?.attemptId;
+        if (turnId) sessionTurns.askEnded(session0.id, { turnId });
       }
       return await completeTurn(turn, session0, result);
     } catch (error) {

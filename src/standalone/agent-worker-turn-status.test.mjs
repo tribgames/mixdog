@@ -107,6 +107,28 @@ const keychain = {
   SERVICE: 'mixdog',
 };
 mock.module('../lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });
+// The next Computer Use release at a turn's settlement (its post-ask cleanup)
+// waits for the test.
+let cleanupHold = null;
+function holdCleanup() {
+  cleanupHold = { entered: deferred(), gate: deferred() };
+  return { entered: cleanupHold.entered.promise, release: cleanupHold.gate.resolve };
+}
+const realComputer = await import('../runtime/computer-bridge/client.mjs?real=1');
+mock.module('../runtime/computer-bridge/client.mjs', {
+  namedExports: {
+    ...realComputer,
+    endComputerExecution: async (sessionId) => {
+      const held = cleanupHold;
+      if (held) {
+        cleanupHold = null;
+        held.entered.resolve();
+        await held.gate.promise;
+      }
+      return realComputer.endComputerExecution(sessionId);
+    },
+  },
+});
 const startupRefresh = Promise.resolve();
 const realRegistry = await import('../runtime/agent/orchestrator/providers/registry.mjs?real=1');
 const registry = {
@@ -202,9 +224,18 @@ const agentOptions = {
   isKeychainPrewarmReady: () => true,
   notifySessionCompletion: () => true,
 };
+// Every progress-watchdog stop the canonical route's turns receive, by session.
+const watchdogStops = [];
+const canonicalManager = {
+  ...service.agentManager,
+  linkParentSignalToSession(sessionId, signal) {
+    signal.addEventListener('abort', () => watchdogStops.push(sessionId), { once: true });
+    return service.agentManager.linkParentSignalToSession(sessionId, signal);
+  },
+};
 const canonical = createStandaloneAgent({
   ...agentOptions,
-  mgr: service.agentManager,
+  mgr: canonicalManager,
   sessionSurface: service.agentSurface,
 });
 const inProcess = createStandaloneAgent({ ...agentOptions, mgr: manager });
@@ -326,6 +357,58 @@ test('a queued follow-up with no first output is stopped by the watchdog and rea
     const worker = row(canonical, 'w-stall');
     return worker?.status === 'failed' ? worker : null;
   }, 'the watchdog stops the follow-up');
+  assert.equal(stalled.failureReason, 'stalled');
+});
+
+test('a turn still in its cleanup after its ask, past the idle budget, settles idle and is never stopped as stale', async () => {
+  const model = hold('CLEANUP-6');
+  const spawned = await canonical.execute(
+    { type: 'spawn', tag: 'w-cleanup', agent: 'worker', prompt: 'do CLEANUP-6' },
+    context
+  );
+  const taskId = taskIdOf(spawned);
+  await model.started;
+  const cleanup = holdCleanup();
+  model.release();
+  await cleanup.entered;
+  // The ask is over: its runtime entry is gone, the settlement is not reported yet.
+  const { sessionId } = row(canonical, 'w-cleanup');
+  assert.equal(manager.getSessionProgressSnapshot(sessionId), null);
+  assert.equal(row(canonical, 'w-cleanup').status, 'running');
+  // Sweeps during the cleanup see a clock an hour past the turn's start.
+  const realNow = Date.now.bind(Date);
+  const shifted = mock.method(Date, 'now', () => realNow() + 60 * 60_000);
+  try {
+    await tick(3_500);
+  } finally {
+    shifted.mock.restore();
+  }
+  assert.deepEqual(
+    watchdogStops.filter((id) => id === sessionId),
+    [],
+    'no watchdog stop reached the finished turn'
+  );
+  cleanup.release();
+  await untilTask(canonical, taskId, /completed|failed|cancelled/);
+  assert.equal(await taskStatus(canonical, taskId), 'completed');
+  const settled = await until(() => {
+    const worker = row(canonical, 'w-cleanup');
+    return worker?.status !== 'running' ? worker : null;
+  }, 'the turn settles');
+  assert.deepEqual({ status: settled.status, failureReason: settled.failureReason ?? null }, {
+    status: 'idle',
+    failureReason: null,
+  });
+});
+
+test('a turn whose model work never ends is still stopped by the watchdog and reads failed/stalled', async () => {
+  const model = hold('ENDLESS-7');
+  await canonical.execute({ type: 'spawn', tag: 'w-endless', agent: 'worker', prompt: 'do ENDLESS-7' }, context);
+  await model.started;
+  const stalled = await until(() => {
+    const worker = row(canonical, 'w-endless');
+    return worker?.status === 'failed' ? worker : null;
+  }, 'the watchdog stops the turn');
   assert.equal(stalled.failureReason, 'stalled');
 });
 

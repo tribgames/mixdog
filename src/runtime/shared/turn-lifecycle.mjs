@@ -5,10 +5,12 @@
 // settle is never read as a later turn's. Import-free leaf.
 
 /** One layer's channel. `observer.onTurnStart({ turnId, startedAt,
- *  submissionIds })` and `observer.onTurnSettled({ turnId, status, result,
- *  error, abortReason, abortCause })`, `status` 'done' | 'failed' |
- *  'cancelled'; `abortCause` is what an abort named as its cause (a
- *  watchdog's stall error). */
+ *  submissionIds })`, `observer.onTurnAskEnded({ turnId })` once the turn's
+ *  model work is over (its ask returned or threw) and only its cleanup
+ *  remains, and `observer.onTurnSettled({ turnId, status, result, error,
+ *  abortReason, abortCause })`, `status` 'done' | 'failed' | 'cancelled';
+ *  `abortCause` is what an abort named as its cause (a watchdog's stall
+ *  error). */
 export function createTurnLifecycle() {
   const observers = new Map(); // sessionId -> Set<observer>
 
@@ -39,6 +41,7 @@ export function createTurnLifecycle() {
       };
     },
     started: (sessionId, event) => notify(sessionId, 'onTurnStart', event),
+    askEnded: (sessionId, event) => notify(sessionId, 'onTurnAskEnded', event),
     settled: (sessionId, event) => notify(sessionId, 'onTurnSettled', event),
   };
 }
