@@ -1,9 +1,9 @@
-import { readdirSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
-import { getStoreDir } from './session-paths.mjs';
-import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
-import { STORED_SESSION_UNREADABLE, _storedSessionFromFile } from './serialize.mjs';
+import { getStoreDir, storeRecordDir } from './session-paths.mjs';
+import { probePath, probePathAsync, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
+import { STORED_SESSION_UNREADABLE, _storedSessionFromFileAsync } from './serialize.mjs';
 import {
   _sessionSummary,
   _normalizeSummaryIndex,
@@ -38,7 +38,7 @@ export function _ensureSummaryCacheDataDir() {
   _summaryCacheDataDir = dataDir;
   _summaryRowsCache = null;
   _summaryRowsViewCache = null;
-  _summaryScanCache.clear();
+  _summaryScanCache = { dataDir: null, files: new Map() };
   _summaryCacheUpserts.clear();
   _summaryCacheLatestRows.clear();
   _summaryCacheRemovals.clear();
@@ -71,7 +71,9 @@ export function _cachedSummaryRows() {
 }
 
 function _setCachedBaseSummary(row) {
-  if (!row || _summaryRowsCache === null) return;
+  if (!row) return;
+  _noteScanTouched(row.id, row);
+  if (_summaryRowsCache === null) return;
   const byId = new Map(_summaryRowsCache.map((existing) => [existing.id, existing]));
   byId.set(row.id, row);
   _summaryRowsCache = [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -79,6 +81,7 @@ function _setCachedBaseSummary(row) {
 }
 
 function _removeCachedBaseSummary(id) {
+  _noteScanTouched(id, null);
   if (_summaryRowsCache === null) return;
   _summaryRowsCache = _summaryRowsCache.filter((row) => row.id !== id);
   _invalidateSummaryRowsView();
@@ -166,14 +169,72 @@ export function _queueSummaryIndexPrune(ids) {
 // summary only changes when its file changes, so key a per-file row cache on (mtimeMs, size): unchanged
 // files reuse the cached row, changed/new files re-parse, vanished files drop
 // out. Storage stays the truth source — the sidecar index is never trusted.
-const _summaryScanCache = new Map(); // filename → { mtimeMs, size, row|null }
+// Every stat, listing and read is awaited, so the scan hands the event loop
+// back after each file; only one scan runs at a time (store/listing.mjs).
+// The cache belongs to one data dir and is replaced, never cleared, when the
+// dir switches: a scan writes only into the cache of the dir it started in,
+// so rows it reads after a switch can never serve a file of another dir that
+// happens to have the same name, size and mtime.
+let _summaryScanCache = { dataDir: null, files: new Map() }; // files: filename → { mtimeMs, size, row|null }
 
-export function _scanStoredSessionSummaryRows() {
-  const dir = getStoreDir();
-  const dirProbe = probePath(dir);
+function _summaryScanCacheFor(dataDir) {
+  if (_summaryScanCache.dataDir !== dataDir) _summaryScanCache = { dataDir, files: new Map() };
+  return _summaryScanCache.files;
+}
+
+// While a scan (or an index read) awaits storage, local writes keep landing:
+// per open window, id → the base row a write set meanwhile (null: it dropped
+// the row). The read may predate that write, so its rows never stand in for
+// them.
+const _readWindows = new Set();
+
+function _noteScanTouched(id, row) {
+  for (const touched of _readWindows) touched.set(id, row);
+}
+
+/** Opens the window of one awaited read of storage or the index;
+ *  `adopt(rows, { invalidStorageIds, settlesRemovals })` closes it,
+ *  reconciles the rows read with the local writes that landed meanwhile,
+ *  makes them the cache base and returns them (newest first).
+ *  `settlesRemovals`: the rows come from a scan of the session files, which
+ *  settles every removal recorded before it began. */
+export function _openSummaryScanWindow() {
+  const touched = new Map();
+  _readWindows.add(touched);
+  // Removals already recorded when a scan starts are settled by it: their
+  // files were gone before it listed the directory.
+  const removalsBefore = new Set(_summaryCacheRemovals);
+  const close = () => {
+    _readWindows.delete(touched);
+  };
+  return {
+    close,
+    adopt(rows, { invalidStorageIds = new Set(), settlesRemovals = false } = {}) {
+      close();
+      // A row a write landed meanwhile describes its file as it is now; a
+      // removal drops the row (and stays recorded, so the overlay keeps hiding
+      // it). A file the scan found unreadable is never stood in for.
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      for (const [id, row] of touched) {
+        if (!row) byId.delete(id);
+        else if (!invalidStorageIds.has(id)) byId.set(id, row);
+      }
+      if (settlesRemovals) for (const id of removalsBefore) _summaryCacheRemovals.delete(id);
+      const reconciled = [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      _setSummaryRowsCache(reconciled);
+      return reconciled;
+    },
+  };
+}
+
+export async function _scanStoredSessionSummaryRowsAsync() {
+  // The scan only reads: an absent directory is answered below.
+  const dir = storeRecordDir();
+  const scanCache = _summaryScanCacheFor(getPluginData());
+  const dirProbe = await probePathAsync(dir);
   if (dirProbe.state === PROBE_ABSENT) {
-    const changed = _summaryScanCache.size > 0;
-    _summaryScanCache.clear();
+    const changed = scanCache.size > 0;
+    scanCache.clear();
     return { rows: [], invalidStorageIds: new Set(), changed };
   }
   if (dirProbe.state !== PROBE_PRESENT) {
@@ -186,12 +247,12 @@ export function _scanStoredSessionSummaryRows() {
     err.code = dirProbe.code;
     throw err;
   }
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.json'));
   const present = new Set(files);
   let changed = false;
-  for (const key of [..._summaryScanCache.keys()]) {
+  for (const key of [...scanCache.keys()]) {
     if (!present.has(key)) {
-      _summaryScanCache.delete(key);
+      scanCache.delete(key);
       changed = true;
     }
   }
@@ -208,11 +269,11 @@ export function _scanStoredSessionSummaryRows() {
     if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
   };
   for (const f of files) {
-    const fileProbe = probePath(join(dir, f));
+    const fileProbe = await probePathAsync(join(dir, f));
     // Proven absence only: the file was deleted mid-scan, so its cached
     // row legitimately retires.
     if (fileProbe.state === PROBE_ABSENT) {
-      if (_summaryScanCache.delete(f)) changed = true;
+      if (scanCache.delete(f)) changed = true;
       continue;
     }
     if (fileProbe.state !== PROBE_PRESENT) {
@@ -220,26 +281,26 @@ export function _scanStoredSessionSummaryRows() {
       // cache entry exactly as it is — `changed` stays untouched so no
       // sidecar rewrite can drop this row — and keep serving the last
       // known row. With no cached row the id is marked invalid instead.
-      keepRow(f, _summaryScanCache.get(f)?.row);
+      keepRow(f, scanCache.get(f)?.row);
       continue;
     }
-    const cached = _summaryScanCache.get(f);
+    const cached = scanCache.get(f);
     if (cached && cached.mtimeMs === fileProbe.mtimeMs && cached.size === fileProbe.size) {
       keepRow(f, cached.row);
       continue;
     }
-    const session = _storedSessionFromFile(dir, f);
+    const session = await _storedSessionFromFileAsync(dir, f);
     if (session === STORED_SESSION_UNREADABLE) {
       // Stat said PRESENT, the READ failed: identical contract to an
       // unreadable probe. Retain the last known row, leave `changed`
       // untouched (no sidecar rewrite may drop it) and never cache a
       // null row for a file we could not read.
-      keepRow(f, _summaryScanCache.get(f)?.row);
+      keepRow(f, scanCache.get(f)?.row);
       continue;
     }
     const summary = session ? _sessionSummary(session) : null;
     const row = summary ? { ...summary, storageMtimeMs: fileProbe.mtimeMs, storageSize: fileProbe.size } : null;
-    _summaryScanCache.set(f, { mtimeMs: fileProbe.mtimeMs, size: fileProbe.size, row });
+    scanCache.set(f, { mtimeMs: fileProbe.mtimeMs, size: fileProbe.size, row });
     changed = true;
     keepRow(f, row);
   }

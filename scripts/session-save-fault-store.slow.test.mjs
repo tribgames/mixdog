@@ -145,6 +145,9 @@ const metrics = await import('../src/runtime/agent/orchestrator/session/manager/
 const { closeSession } = await import('../src/runtime/agent/orchestrator/session/manager/session-close.mjs');
 const { _touchRuntime } = await import('../src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs');
 const { summaryIndexPath } = await import('../src/runtime/agent/orchestrator/session/store-summary-index.mjs');
+const { listStoredSessionSummariesAsync } = await import(
+  '../src/runtime/agent/orchestrator/session/store/listing.mjs'
+);
 const {
   saveSession,
   saveSessionAsync,
@@ -196,7 +199,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
   saveSession(session, { sync: true });
   const canonical = readFileSync(diskPath, 'utf8');
   assert.equal(JSON.parse(canonical).messages.length, 2);
-  const baselineRow = listStoredSessionSummaries({ refreshFromStorage: true }).find((row) => row.id === id);
+  const baselineRow = (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).find((row) => row.id === id);
   assert.ok(baselineRow, 'baseline summary row exists');
 
   // Newest turn, then a single injected commit fault for THIS id only.
@@ -643,7 +646,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     await assert.rejects(saveSessionAsync(mine), (err) => err.code === 'ESESSIONNOTOWNED');
     assert.equal(_liveSessions.has(foreignId), false, 'no live snapshot was published');
     assert.equal(
-      listStoredSessionSummaries({ refreshFromStorage: true }).some((row) => row.id === foreignId),
+      (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).some((row) => row.id === foreignId),
       false,
       'no optimistic summary row was published'
     );
@@ -1531,7 +1534,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     );
     assert.equal(getFailedSaveSnapshot(raceId), null, 'no failed-save recovery snapshot survives the delete');
     assert.equal(
-      listStoredSessionSummaries({ refreshFromStorage: true }).some((row) => row.id === raceId),
+      (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).some((row) => row.id === raceId),
       false,
       'no summary row for a deleted session'
     );
@@ -1824,7 +1827,7 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
     const keepId = 'sess_summary_read_fault';
     saveSession(makeSession({ id: keepId, messages: [{ role: 'user', content: 'row' }] }), { sync: true });
     assert.ok(
-      listStoredSessionSummaries({ refreshFromStorage: true }).some((row) => row.id === keepId),
+      (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).some((row) => row.id === keepId),
       'the row is indexed'
     );
     const indexPath = summaryIndexPath();
@@ -1832,7 +1835,7 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
     rmSync(indexPath, { force: true });
     mkdirSync(indexPath); // stat says PRESENT, every read fails
     try {
-      const during = listStoredSessionSummaries({ refreshFromStorage: true });
+      const during = await listStoredSessionSummariesAsync({ refreshFromStorage: true });
       assert.ok(
         during.some((row) => row.id === keepId),
         'a stat-success + read-fault retains the cached rows instead of emitting none'
@@ -1867,7 +1870,7 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
       await assert.rejects(saveSessionAsyncDeferred(mine), (err) => err.code === 'ESESSIONNOTOWNED');
       assert.equal(_liveSessions.has(gateId), false, 'worker/deferred modes publish nothing either');
       assert.equal(
-        listStoredSessionSummaries({ refreshFromStorage: true }).some((row) => row.id === gateId),
+        (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).some((row) => row.id === gateId),
         false,
         'no optimistic summary row for an unreadable record'
       );

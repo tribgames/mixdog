@@ -23,7 +23,11 @@ import {
   writeBase,
 } from './store-summary-reader-catalog-fixture.mjs';
 import { encodeSummaryOps } from './store-summary-log.mjs';
-import { listStoredSessionSummaries, verifyStoredSessionCatalog } from './store-summary-reader.mjs';
+import {
+  listStoredSessionSummaries,
+  listStoredSessionSummariesAsync,
+  verifyStoredSessionCatalog,
+} from './store-summary-reader.mjs';
 
 test('an unreadable record keeps exactly the rows it kept before', async (t) => {
   isolateDataDir('mixdog-reader-catalog-unreadable-');
@@ -35,7 +39,7 @@ test('an unreadable record keeps exactly the rows it kept before', async (t) => 
   spyFs(t, failing);
   const expected = { indexed_a: 'indexed:alpha|alpha' };
   assert.deepEqual(view(), expected, 'indexed: the retained index row; never indexed: no row');
-  assert.deepEqual(view(listStoredSessionSummaries({ refreshFromStorage: true })), expected);
+  assert.deepEqual(view(await listStoredSessionSummariesAsync({ refreshFromStorage: true })), expected);
   failing.clear();
   await verifyStoredSessionCatalog();
   assert.deepEqual(view(), { indexed_a: '|alpha', plain_b: '|bravo' }, 'readable again: the files win');
@@ -87,10 +91,10 @@ test('a missing index: rows come from the files, and an index appearing or vanis
   assert.deepEqual([...counts.sessionFileStats], [fileOf('plain_e')]);
   unlinkSync(indexPath());
   assert.deepEqual(view(), parsed);
-  assertMatchesStorage();
+  await assertMatchesStorage();
 });
 
-test('index updates written by another process', (t) => {
+test('index updates written by another process', async (t) => {
   // Continues the settled data dir of the previous test.
   writeBase([]);
   list();
@@ -122,22 +126,22 @@ test('index updates written by another process', (t) => {
   // A row that does not describe the file on disk never replaces the file's.
   append([{ ...row, title: 'stale', storageSize: 1 }]);
   assert.equal(view().plain_f, '|foxtrot');
-  assertMatchesStorage();
+  await assertMatchesStorage();
   // A malformed base is no index at all.
   writeFileSync(indexPath(), '{');
   assert.deepEqual(view(), { plain_e: '|echo', plain_f: '|foxtrot' });
 });
 
-test('without a base index, the store’s own saves still refresh their session', () => {
+test('without a base index, the store’s own saves still refresh their session', async () => {
   isolateDataDir('mixdog-reader-catalog-logonly-');
   saveIndexed('indexed_l', 'first');
   assert.equal(view().indexed_l, '|first');
   saveIndexed('indexed_l', 'second');
   assert.equal(view().indexed_l, '|second', 'the log row marks the session changed');
-  assertMatchesStorage();
+  await assertMatchesStorage();
 });
 
-test('a failed index read is retried on the next call, retained rows included', (t) => {
+test('a failed index read is retried on the next call, retained rows included', async (t) => {
   isolateDataDir('mixdog-reader-catalog-index-eio-');
   replace('indexed_m', 'mike');
   writeBase([indexRow('indexed_m', 'mike')]);
@@ -153,5 +157,5 @@ test('a failed index read is retried on the next call, retained rows included', 
   failing.add(fileOf('indexed_m'));
   const expected = { indexed_m: 'indexed:mike|mike' };
   assert.deepEqual(view(), expected, 'read again: the unreadable record keeps its index row');
-  assert.deepEqual(view(listStoredSessionSummaries({ refreshFromStorage: true })), expected);
+  assert.deepEqual(view(await listStoredSessionSummariesAsync({ refreshFromStorage: true })), expected);
 });

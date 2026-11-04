@@ -6,7 +6,7 @@ import { SCHEMA_SQL, UPSERT_SQL, rowFromDb, rowSignature, upsertParams } from '.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { normalizedRow, scanSessionFiles } from '../store-summary-catalog.mjs';
+import { normalizedRow, scanSessionFilesAsync } from '../store-summary-catalog.mjs';
 import { _sessionSummary } from '../store-summary-index.mjs';
 import { routineResultMessage } from '../routine-result.mjs';
 import { leadSessionRow } from '../../../../../session-runtime/lifecycle/session-catalog.mjs';
@@ -35,7 +35,7 @@ test('the last line carries its routine provenance; a look-alike user message ca
   assert.equal(row.lastMessageRoutine, null);
 });
 
-test('a session the index does not describe still lists its last line from the file read', (t) => {
+test('a session the index does not describe still lists its last line from the file read', async (t) => {
   const previous = process.env.MIXDOG_DATA_DIR;
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-last-line-'));
   process.env.MIXDOG_DATA_DIR = dir;
@@ -57,7 +57,7 @@ test('a session the index does not describe still lists its last line from the f
     { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
   ]);
   write('sess_home_reviewer', [routine({ name: 'nightly', ok: false, text: 'boom', messageId: 'm9' })]);
-  const rows = new Map(scanSessionFiles(new Map(), true).map((row) => [row.id, row]));
+  const rows = new Map((await scanSessionFilesAsync(new Map(), true)).map((row) => [row.id, row]));
   const mixy = rows.get('sess_home_lead');
   assert.equal(mixy.lastMessagePreview, 'Hello! How can I help?');
   assert.equal(mixy.lastMessageRoutine, null);

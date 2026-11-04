@@ -19,7 +19,6 @@ import {
   createOrdinaryCatalog,
   indexListing,
   observeStamp,
-  scanSessionFiles,
   scanSessionFilesAsync,
   stampedDerivation,
   storedSessionCatalogRow,
@@ -75,6 +74,7 @@ import {
 // module stay unchanged.
 export {
   listStoredAgentWorkerLinks,
+  listStoredAgentWorkerLinksAsync,
   listStoredAgentWorkers,
   listStoredAgentWorkersAsync,
 } from './store-agent-worker-rows.mjs';
@@ -217,17 +217,13 @@ export function clearStoredSessionCatalog() {
   ordinaryCatalog.clear();
 }
 
+/** The ordinary catalog. The authoritative storage rescan is
+ *  listStoredSessionSummariesAsync({ refreshFromStorage: true }). */
 export function listStoredSessionSummaries(options = {}) {
   // The index is consulted on EVERY path: its rows are the authority that
   // must be retained whenever storage cannot be enumerated or an individual
   // session file cannot be read.
   const index = ordinaryCatalog.loadIndex();
-  // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
-  // nor empty: the scan still runs, and when IT cannot enumerate either, the
-  // catalog reports nothing rather than inventing an empty truth.
-  if (options.refreshFromStorage === true) {
-    return scanSessionFiles(index.rowsById, true) ?? indexListing(index) ?? [];
-  }
   if (options.rebuildIfMissing === false) return indexListing(index) ?? [];
   // A missing/malformed index leaves every file to be parsed (once per
   // stamp); a present one lets unchanged files reuse their durable summary.
@@ -247,21 +243,26 @@ async function catalogDbListing(page) {
 }
 
 // The running storage refresh a new caller may still join: only until its
-// final synchronous settle begins, since a caller arriving after that asked
-// after the answer was fixed (a scan that never yields settles before its own
-// caller awaits it).
+// final pass begins, since a caller arriving after that asked after the
+// answer was fixed.
 let storageRefreshFlight = null;
 
-async function refreshFromStorageOnce(onSettle) {
-  const index = ordinaryCatalog.loadIndex();
-  return (await scanSessionFilesAsync(index.rowsById, true, { onSettle })) ?? indexListing(index) ?? [];
+async function refreshFromStorageOnce(root, onSettle) {
+  // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
+  // nor empty: the scan still runs, and when IT cannot enumerate either, the
+  // catalog reports nothing rather than inventing an empty truth. The index
+  // path is taken when the load starts, so both describe `root`.
+  const index = await ordinaryCatalog.loadIndexAsync();
+  return (await scanSessionFilesAsync(index.rowsById, true, { onSettle, root })) ?? indexListing(index) ?? [];
 }
 
 function storageRefresh() {
-  if (storageRefreshFlight?.joinable) return storageRefreshFlight.rows;
-  const flight = { joinable: true, rows: null };
+  // A flight scans the data dir it started in: never joined from another one.
+  const directory = dataDir();
+  if (storageRefreshFlight?.joinable && storageRefreshFlight.directory === directory) return storageRefreshFlight.rows;
+  const flight = { joinable: true, directory, rows: null };
   storageRefreshFlight = flight;
-  flight.rows = refreshFromStorageOnce(() => {
+  flight.rows = refreshFromStorageOnce(directory, () => {
     flight.joinable = false;
   }).finally(() => {
     // A newer flight is never cleared by an older one's end.
@@ -279,7 +280,7 @@ function storageRefresh() {
  */
 export async function listStoredSessionSummariesAsync(options = {}) {
   if (options.refreshFromStorage === true) {
-    // The same authoritative rescan as the sync path, in slices that yield.
+    // The authoritative rescan of every session file, in slices that yield.
     // Concurrent refreshes share one scan while it can still see their
     // request (it settles against storage when it ends); each caller gets its
     // own rows.

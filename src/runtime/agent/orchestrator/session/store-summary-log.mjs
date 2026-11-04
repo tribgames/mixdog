@@ -16,8 +16,8 @@
  * compaction already folded into the base is harmless. Unparseable lines (a
  * torn tail) are skipped.
  */
-import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { runFsStepsSync } from './store/fs-steps.mjs';
 
 const SUMMARY_LOG_FILENAME = 'session-summaries.log';
 
@@ -39,8 +39,13 @@ export function encodeSummaryOps(upserts, removals) {
  *  a compaction landing between the two reads then replays already-folded ops
  *  (harmless) instead of hiding ops the new base has and the old one lacks. */
 export function readSummaryLogText(indexPath) {
+  return runFsStepsSync(readSummaryLogTextStep(indexPath));
+}
+
+/** readSummaryLogText as a store-read step (store/fs-steps.mjs). */
+export function* readSummaryLogTextStep(indexPath) {
   try {
-    return readFileSync(summaryLogPath(indexPath), 'utf8');
+    return yield ['readFile', summaryLogPath(indexPath), 'utf8'];
   } catch {
     return '';
   }
@@ -69,10 +74,15 @@ export function applySummaryLogText(raw, logText) {
 
 /** Change stamp of base + log: the newest mtime of either (0 when neither exists). */
 export function summaryIndexStampMs(indexPath) {
+  return runFsStepsSync(summaryIndexStampMsStep(indexPath));
+}
+
+/** summaryIndexStampMs as a store-read step (store/fs-steps.mjs). */
+export function* summaryIndexStampMsStep(indexPath) {
   let stamp = 0;
   for (const path of [indexPath, summaryLogPath(indexPath)]) {
     try {
-      stamp = Math.max(stamp, statSync(path).mtimeMs || 0);
+      stamp = Math.max(stamp, (yield ['stat', path]).mtimeMs || 0);
     } catch {
       /* absent */
     }

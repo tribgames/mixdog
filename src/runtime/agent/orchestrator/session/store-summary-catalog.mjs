@@ -9,14 +9,16 @@
  * path, and the session catalog DB worker (catalog-db/worker.mjs) runs another
  * that feeds SQLite. Both therefore detect exactly the same changes.
  */
-import { readdirSync, readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { performance } from 'node:perf_hooks';
 // Leaf helpers only: the three-way present/absent/unreadable classification
 // and the strict record parser the authoritative store uses, so the catalog
 // cannot disagree with it.
-import { probePath, readBytesFile, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
+import { readFileStep, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
+// The catalog's reads are store-read steps: the ordinary catalog runs them
+// with blocking calls (its own thread in the catalog DB worker, cheap stamp
+// checks on the JSON path), the daemon's storage refresh awaits every one.
+import { runFsStepsAsync, runFsStepsSync } from './store/fs-steps.mjs';
 import { isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { readStrictRecordFields } from './store-record-strict-scan.mjs';
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
@@ -73,21 +75,37 @@ function dropStampedDerivation(key) {
   stampedDerivationBytes -= entry.bytes;
 }
 
-export function observeStamp(path) {
+const BIGINT_STAT = Object.freeze({ bigint: true });
+
+/** The full stamp of `path` as a store-read step; throws like the stat. */
+function* statStampStep(path) {
+  return sessionStampOf(yield ['stat', path, BIGINT_STAT]);
+}
+
+/** statStampStep, null when the stat fails. */
+function* observeStampStep(path) {
   try {
-    return statSessionStamp(path);
+    return yield* statStampStep(path);
   } catch {
     return null;
   }
+}
+
+export function observeStamp(path) {
+  return runFsStepsSync(observeStampStep(path));
 }
 
 /** `{ state, value }`: `derive(text)` for the record at `path`, or its cached
  *  result while the file is provably unchanged. `bytes`: `derive` gets the
  *  raw Buffer instead of text. `stamp`: the caller's own stat of `path`,
  *  taken just before, stands for the pre-read stat (one stat fewer). */
-export function stampedDerivation(kind, path, derive, { bytes = false, stamp } = {}) {
+export function stampedDerivation(kind, path, derive, options) {
+  return runFsStepsSync(stampedDerivationSteps(kind, path, derive, options));
+}
+
+function* stampedDerivationSteps(kind, path, derive, { bytes = false, stamp } = {}) {
   const key = `${kind}|${path}`;
-  const before = stamp === undefined ? observeStamp(path) : stamp;
+  const before = stamp === undefined ? yield* observeStampStep(path) : stamp;
   const cached = stampedDerivations.get(key);
   if (before && cached && sameSessionStamp(cached.stamp, before)) {
     stampedDerivations.delete(key);
@@ -95,14 +113,16 @@ export function stampedDerivation(kind, path, derive, { bytes = false, stamp } =
     return { state: PROBE_PRESENT, value: cached.value };
   }
   dropStampedDerivation(key);
-  const read = bytes ? readBytesFile(path) : readTextFile(path);
+  const read = yield* readFileStep(path, bytes);
   if (read.state !== PROBE_PRESENT) return { state: read.state, value: null };
   const value = derive(bytes ? read.bytes : read.text);
-  if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
+  if (isSettledSessionStamp(before) && sameSessionStamp(before, yield* observeStampStep(path))) {
     // UTF-16 code units of the key and the serialized value approximate the
     // retained bytes; the strict parse just above dwarfs this stringify.
     const size = 2 * (key.length + (JSON.stringify(value)?.length ?? 0));
     if (size <= STAMPED_DERIVATION_MAX_BYTES) {
+      // An awaited derivation of the same file may have landed meanwhile.
+      dropStampedDerivation(key);
       stampedDerivations.set(key, { stamp: before, value, bytes: size });
       stampedDerivationBytes += size;
       while (
@@ -313,10 +333,14 @@ function stampMtimeMs(stamp) {
 
 /** The entry for `<storageId>.json`, or null when the file is provably gone. */
 function reconcileSessionFile(directory, storageId, retained, forceRead) {
+  return runFsStepsSync(reconcileSessionFileSteps(directory, storageId, retained, forceRead));
+}
+
+function* reconcileSessionFileSteps(directory, storageId, retained, forceRead) {
   const path = join(directory, `${storageId}.json`);
   let stamp;
   try {
-    stamp = statSessionStamp(path);
+    stamp = yield* statStampStep(path);
   } catch (error) {
     // Provably gone: the row legitimately disappears with the file.
     return STAMP_ABSENT_CODES.has(error?.code) ? null : UNREADABLE_ENTRY;
@@ -335,7 +359,7 @@ function reconcileSessionFile(directory, storageId, retained, forceRead) {
   // A file the index does not describe (never saved by the store, or
   // saved after the index was written) is read once per full stamp; the
   // stat above is the read's pre-read stat.
-  const read = stampedDerivation(
+  const read = yield* stampedDerivationSteps(
     'row',
     path,
     (bytes) => {
@@ -377,9 +401,13 @@ function deepFreeze(value) {
 /** The session ids (`<id>.json`) of `directory`, or null when it cannot be
  *  enumerated. */
 function listSessionIds(directory) {
+  return runFsStepsSync(listSessionIdsStep(directory));
+}
+
+function* listSessionIdsStep(directory) {
   let names;
   try {
-    names = readdirSync(directory);
+    names = yield ['readdir', directory];
   } catch {
     return null;
   }
@@ -399,61 +427,46 @@ function scanSessionEntries(directory, indexRowsById, forceRead) {
   return { entries };
 }
 
-// The async rescan yields a turn once a slice of reconciles has run this long:
-// a full authoritative rescan strict-reads every session file (≈4 s for 1.8k
-// files / 1.3 GB), which must not hold the daemon loop in one piece.
-let scanSliceMs = 25;
-
-/** Test seam: the async rescan's slice budget (0 yields after every file). */
-export function _setCatalogScanSliceMsForTest(ms) {
-  scanSliceMs = Math.max(0, Number(ms) || 0);
-}
-
-const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
-
 /** The entry a file still has: `entry` when the file's stamp is unchanged
  *  since it was reconciled, else a fresh reconcile (null once it is gone). */
-function settledEntry(directory, storageId, entry, retained, forceRead) {
+function* settledEntrySteps(directory, storageId, entry, retained, forceRead) {
   if (entry?.stamp) {
-    let stamp = null;
-    try {
-      stamp = statSessionStamp(join(directory, `${storageId}.json`));
-    } catch {
-      // Gone or unstatable: the reconcile below decides which.
-    }
+    // Gone or unstatable (null): the reconcile below decides which.
+    const stamp = yield* observeStampStep(join(directory, `${storageId}.json`));
     if (stamp && sameSessionStamp(entry.stamp, stamp)) return entry;
   }
-  return reconcileSessionFile(directory, storageId, retained, forceRead);
+  return yield* reconcileSessionFileSteps(directory, storageId, retained, forceRead);
 }
 
-/** scanSessionEntries in slices, yielding the loop between them. Files can
- *  change while it yields, so the answer is settled in one synchronous pass at
- *  the end: the directory is listed again, a file whose stamp moved since its
- *  read (or that appeared) is reconciled again, and a file that is no longer
- *  listed is dropped — the entries match storage when they are returned, as
- *  the one-piece scan's do. That pass is a stat per file (≈20 ms for 1.5k). */
+/** scanSessionEntries with every stat, listing and read awaited, one file at
+ *  a time: a full authoritative rescan strict-reads every session file (≈4 s
+ *  for 1.8k files / 1.3 GB), and neither the whole scan nor one slow read may
+ *  hold the daemon loop. Files change while it awaits, so the answer is
+ *  settled by a final pass: the directory is listed again, a file whose stamp
+ *  moved since its read (or that appeared) is reconciled again, and a file
+ *  that is no longer listed is dropped — the entries match storage as that
+ *  pass saw it. That pass is a stat per file. */
 async function scanSessionEntriesAsync(directory, indexRowsById, forceRead, onSettle) {
-  const sessionIds = listSessionIds(directory);
+  const sessionIds = await runFsStepsAsync(listSessionIdsStep(directory));
   if (!sessionIds) {
     onSettle?.();
     return null;
   }
   const scanned = new Map();
-  let sliceStart = performance.now();
   for (const storageId of sessionIds) {
-    if (performance.now() - sliceStart >= scanSliceMs) {
-      await nextTurn();
-      sliceStart = performance.now();
-    }
-    const entry = reconcileSessionFile(directory, storageId, indexRowsById.get(storageId), forceRead);
+    const entry = await runFsStepsAsync(
+      reconcileSessionFileSteps(directory, storageId, indexRowsById.get(storageId), forceRead)
+    );
     if (entry) scanned.set(storageId, entry);
   }
   onSettle?.();
-  const settledIds = listSessionIds(directory);
+  const settledIds = await runFsStepsAsync(listSessionIdsStep(directory));
   if (!settledIds) return null;
   const entries = new Map();
   for (const storageId of settledIds) {
-    const entry = settledEntry(directory, storageId, scanned.get(storageId), indexRowsById.get(storageId), forceRead);
+    const entry = await runFsStepsAsync(
+      settledEntrySteps(directory, storageId, scanned.get(storageId), indexRowsById.get(storageId), forceRead)
+    );
     if (entry) entries.set(storageId, entry);
   }
   return { entries };
@@ -477,33 +490,23 @@ function assembleCatalog(entries, indexRowsById) {
 }
 
 /**
- * Read-only scan of the authoritative session files.
- * Returns `null` when the directory itself is NOT enumerable (unreadable
- * stat / readdir): that is not "no sessions", and the caller must keep the
- * authority it already has (the index rows) instead of publishing an empty
- * catalog. `indexRowsById` carries those rows so unchanged files can reuse the
- * durable summary and a single UNREADABLE file retains its last known row
- * instead of vanishing.
+ * Read-only scan of the authoritative session files, every file's I/O
+ * awaited (the daemon's session.list storage refresh). Resolves `null` when the directory itself is NOT enumerable
+ * (unreadable stat / readdir): that is not "no sessions", and the caller must
+ * keep the authority it already has (the index rows) instead of publishing an
+ * empty catalog. `indexRowsById` carries those rows so unchanged files can
+ * reuse the durable summary and a single UNREADABLE file retains its last
+ * known row instead of vanishing. `onSettle` runs once, when the answer's
+ * final pass begins: a caller asking later must not be handed this answer.
+ * `root`: the data dir to scan (default: the current one).
  */
-export function scanSessionFiles(indexRowsById, forceRead) {
-  const directory = join(dataDir(), 'sessions');
-  const dirProbe = probePath(directory);
-  if (dirProbe.state === PROBE_ABSENT) return [];
-  if (dirProbe.state !== PROBE_PRESENT) return null;
-  const scan = scanSessionEntries(directory, indexRowsById, forceRead);
-  return scan && assembleCatalog(scan.entries, indexRowsById);
-}
-
-/** scanSessionFiles with the same answer, its file reconciles run in slices
- *  that yield the event loop (the daemon's session.list storage refresh).
- *  `onSettle` runs once, when the answer's final synchronous part begins: from
- *  then on storage changes are no longer seen by this scan. */
-export async function scanSessionFilesAsync(indexRowsById, forceRead, { onSettle } = {}) {
-  const directory = join(dataDir(), 'sessions');
-  const dirProbe = probePath(directory);
-  if (dirProbe.state !== PROBE_PRESENT) {
+export async function scanSessionFilesAsync(indexRowsById, forceRead, { onSettle, root = dataDir() } = {}) {
+  const directory = join(root, 'sessions');
+  try {
+    await stat(directory);
+  } catch (error) {
     onSettle?.();
-    return dirProbe.state === PROBE_ABSENT ? [] : null;
+    return STAMP_ABSENT_CODES.has(error?.code) ? [] : null;
   }
   const scan = await scanSessionEntriesAsync(directory, indexRowsById, forceRead, onSettle);
   return scan && assembleCatalog(scan.entries, indexRowsById);
@@ -533,12 +536,9 @@ function sameOptionalStamp(left, right) {
 
 /** `{ bytes, failed }`: the log, empty when absent; `failed` when it exists
  *  and could not be read (EACCES/EIO), which is never cached. */
-function readLogBytes(logPath) {
-  try {
-    return { bytes: readFileSync(logPath), failed: false };
-  } catch (error) {
-    return { bytes: Buffer.alloc(0), failed: !STAMP_ABSENT_CODES.has(error?.code) };
-  }
+function* readLogBytesStep(logPath) {
+  const read = yield* readFileStep(logPath, true);
+  return { bytes: read.bytes, failed: read.state !== PROBE_PRESENT && read.state !== PROBE_ABSENT };
 }
 
 function freshIndex(indexPath, baseStamp, logStamp, logBytes) {
@@ -563,17 +563,17 @@ function freshIndex(indexPath, baseStamp, logStamp, logBytes) {
 }
 
 /** The summary index, extending `cached` by appended log lines when it can. */
-function readSummaryIndex(cached) {
+function* readSummaryIndexSteps(cached) {
   const indexPath = join(dataDir(), 'session-summaries.json');
-  const baseStamp = observeStamp(indexPath);
-  const logStamp = observeStamp(summaryLogPath(indexPath));
+  const baseStamp = yield* observeStampStep(indexPath);
+  const logStamp = yield* observeStampStep(summaryLogPath(indexPath));
   if (cached?.indexPath !== indexPath) cached = null;
   if (cached && sameOptionalStamp(cached.baseStamp, baseStamp) && sameOptionalStamp(cached.logStamp, logStamp)) {
     return { index: cached, cacheable: true };
   }
   // The delta log (per-session updates since the last compaction) is read
   // before the base; see store-summary-log.mjs.
-  const log = readLogBytes(summaryLogPath(indexPath));
+  const log = yield* readLogBytesStep(summaryLogPath(indexPath));
   const index = freshIndex(indexPath, baseStamp, logStamp, log.bytes);
   const appliedBytes = cached?.logBytes.length ?? 0;
   if (
@@ -618,7 +618,7 @@ function readSummaryIndex(cached) {
     }
     return { index, cacheable: true };
   }
-  const indexRead = readTextFile(indexPath);
+  const indexRead = yield* readFileStep(indexPath);
   let baseRows = null;
   if (indexRead.state === PROBE_PRESENT) {
     try {
@@ -774,10 +774,18 @@ export function createOrdinaryCatalog() {
   let hintedIds = new Set();
   const listeners = new Set();
 
-  function loadIndex() {
-    const { index, cacheable } = readSummaryIndex(summaryIndexCache);
+  function adoptIndex({ index, cacheable }) {
     if (cacheable) summaryIndexCache = index;
     return index;
+  }
+
+  function loadIndex() {
+    return adoptIndex(runFsStepsSync(readSummaryIndexSteps(summaryIndexCache)));
+  }
+
+  /** loadIndex with every stat and read awaited. */
+  async function loadIndexAsync() {
+    return adoptIndex(await runFsStepsAsync(readSummaryIndexSteps(summaryIndexCache)));
   }
 
   function dropSessionCatalog() {
@@ -883,6 +891,7 @@ export function createOrdinaryCatalog() {
 
   return {
     loadIndex,
+    loadIndexAsync,
     refresh,
     rowsOf,
     /** The row `id` contributes to the current catalog. */

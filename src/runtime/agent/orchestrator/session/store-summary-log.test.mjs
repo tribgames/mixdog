@@ -66,7 +66,7 @@ const readCatalog = () => listStoredSessionSummaries({ rebuildIfMissing: false }
 
 test('an update appends to the delta log and never rewrites the base; readers see it', () =>
   withDataDir(async () => {
-    _writeSummaryIndex(baseRows());
+    await _writeSummaryIndex(baseRows());
     const indexPath = summaryIndexPath();
     const baseBefore = readFileSync(indexPath);
     assert.equal(existsSync(summaryLogPath(indexPath)), false, 'legacy layout: base only');
@@ -98,7 +98,7 @@ test('base + log reads identically to a full rewrite of the same rows', async ()
   };
   let viaLog;
   await withDataDir(async () => {
-    _writeSummaryIndex(baseRows());
+    await _writeSummaryIndex(baseRows());
     ops();
     await settleSummaryIndexWrites();
     viaLog = readCatalog();
@@ -107,7 +107,7 @@ test('base + log reads identically to a full rewrite of the same rows', async ()
   await withDataDir(async () => {
     const rows = baseRows().filter((row) => row.id !== 's6' && row.id !== 's5');
     rows.push(summaryRow('s5', 9_999, 'changed five'), summaryRow('fresh', 8_000, 'brand new'));
-    _writeSummaryIndex(rows);
+    await _writeSummaryIndex(rows);
     viaRewrite = readCatalog();
   });
   assert.deepEqual(viaLog, viaRewrite);
@@ -115,7 +115,7 @@ test('base + log reads identically to a full rewrite of the same rows', async ()
 
 test('compaction folds the log into the base; a crash before the log is emptied replays harmlessly', () =>
   withDataDir(async () => {
-    _writeSummaryIndex(baseRows());
+    await _writeSummaryIndex(baseRows());
     _upsertSessionSummaryRow(summaryRow('s5', 9_999, 'changed five'));
     _removeSessionSummary('s6');
     await settleSummaryIndexWrites();
@@ -146,7 +146,7 @@ test('compaction folds the log into the base; a crash before the log is emptied 
 
 test('a torn log tail is skipped and cannot corrupt the next append', () =>
   withDataDir(async () => {
-    _writeSummaryIndex(baseRows(20));
+    await _writeSummaryIndex(baseRows(20));
     const logPath = summaryLogPath(summaryIndexPath());
     appendFileSync(logPath, '{"u":{"id":"broken","preview":"tor');
     assert.equal(readCatalog().length, 20);
@@ -160,7 +160,7 @@ test('a torn log tail is skipped and cannot corrupt the next append', () =>
 
 test('the exit-drain path appends synchronously', () =>
   withDataDir(async () => {
-    _writeSummaryIndex(baseRows(5));
+    await _writeSummaryIndex(baseRows(5));
     _upsertSessionSummaryRow(summaryRow('exit', 7_000, 'written at exit'));
     _flushPendingSummaryOps({ sync: true });
     assert.equal(readCatalog().find((row) => row.id === 'exit')?.preview, 'written at exit');
@@ -169,7 +169,7 @@ test('the exit-drain path appends synchronously', () =>
 
 test('try-lock failures are counted and reported at most once per interval, then retried', (t) =>
   withDataDir(async () => {
-    _writeSummaryIndex(baseRows(3));
+    await _writeSummaryIndex(baseRows(3));
     const lockPath = `${summaryIndexPath()}.lock`;
     const messages = [];
     const write = process.stderr.write.bind(process.stderr);
@@ -235,9 +235,9 @@ test('the startup sweep removes only this store’s stale temp files and skips a
   }));
 
 test('one-shot exec sessions stay out of the cold catalog', () =>
-  withDataDir(() => {
+  withDataDir(async () => {
     const lead = { owner: 'cli', agent: 'lead', sourceType: 'lead' };
-    _writeSummaryIndex([
+    await _writeSummaryIndex([
       { ...summaryRow('leadrow', 2_000, 'keep me'), ...lead },
       { ...summaryRow('execrow', 3_000, 'hide me'), ...lead, sourceType: 'exec' },
     ]);

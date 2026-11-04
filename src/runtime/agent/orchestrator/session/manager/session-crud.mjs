@@ -9,6 +9,7 @@ import {
   evictLiveSession,
   listStoredSessionSummaries,
 } from '../store.mjs';
+import { listStoredSessionSummariesAsync } from '../store/listing.mjs';
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
 import {
@@ -62,10 +63,16 @@ export function getSession(id) {
   return loadSession(id);
 }
 export function listSessions(opts = {}) {
+  return listedSessions(listStoredSessionSummaries(), opts);
+}
+/** listSessions with an optional authoritative storage rescan
+ *  (`refreshFromStorage`), every file read awaited. */
+export async function listSessionsAsync(opts = {}) {
+  const sessions = await listStoredSessionSummariesAsync({ refreshFromStorage: opts.refreshFromStorage === true });
+  return listedSessions(sessions, opts);
+}
+function listedSessions(sessions, opts) {
   const includeClosed = opts.includeClosed === true;
-  const sessions = listStoredSessionSummaries({
-    refreshFromStorage: opts.refreshFromStorage === true,
-  });
   const hiddenIds = new Set([..._runtimeEntries()].filter(([, e]) => e.listHidden).map(([id]) => id));
   // Tombstoned sessions (closed===true) are excluded unless the caller opts in
   // (e.g. agent list includeClosed:true).

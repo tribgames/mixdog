@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
@@ -110,18 +111,44 @@ export function _ensureLifecycleFields(session) {
 export const STORED_SESSION_UNREADABLE = Symbol('stored-session-unreadable');
 
 export function _storedSessionFromFile(dir, filename, ensureLifecycle = true) {
-  if (!filename.endsWith('.json')) return null;
-  const storageId = filename.slice(0, -5);
-  if (!storageId || !/^[A-Za-z0-9_-]+$/.test(storageId)) return null;
+  const storageId = _storedSessionStorageId(filename);
+  if (!storageId) return null;
   let text;
   try {
     text = readFileSync(join(dir, filename), 'utf-8');
   } catch (err) {
-    const code = err?.code || 'EUNKNOWN';
-    // Only ENOENT/ENOTDIR is absence; everything else is present-but-
-    // unreadable and must fail closed for retention decisions.
-    return code === 'ENOENT' || code === 'ENOTDIR' ? null : STORED_SESSION_UNREADABLE;
+    return _storedSessionReadFailure(err);
   }
+  return _storedSessionFromText(storageId, text, ensureLifecycle);
+}
+
+/** `_storedSessionFromFile` with the read awaited. */
+export async function _storedSessionFromFileAsync(dir, filename, ensureLifecycle = true) {
+  const storageId = _storedSessionStorageId(filename);
+  if (!storageId) return null;
+  let text;
+  try {
+    text = await readFile(join(dir, filename), 'utf-8');
+  } catch (err) {
+    return _storedSessionReadFailure(err);
+  }
+  return _storedSessionFromText(storageId, text, ensureLifecycle);
+}
+
+function _storedSessionStorageId(filename) {
+  if (!filename.endsWith('.json')) return null;
+  const storageId = filename.slice(0, -5);
+  return storageId && /^[A-Za-z0-9_-]+$/.test(storageId) ? storageId : null;
+}
+
+function _storedSessionReadFailure(err) {
+  const code = err?.code || 'EUNKNOWN';
+  // Only ENOENT/ENOTDIR is absence; everything else is present-but-
+  // unreadable and must fail closed for retention decisions.
+  return code === 'ENOENT' || code === 'ENOTDIR' ? null : STORED_SESSION_UNREADABLE;
+}
+
+function _storedSessionFromText(storageId, text, ensureLifecycle) {
   try {
     // One strict authority for identity: a plain JSON.parse resolves a
     // duplicate top-level `id` LAST-WINS, so `{"id":"other",…,"id":"me"}`

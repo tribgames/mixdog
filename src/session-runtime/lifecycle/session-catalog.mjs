@@ -135,9 +135,11 @@ export function leadSessionRow(s, working = false) {
   };
 }
 
+/** The resumable Lead rows; with `refreshFromStorage` (a rescan of every
+ *  session file, read with awaited I/O) a Promise of them. */
 export function listLeadSessions(mgr, options = {}) {
-  return mgr
-    .listSessions({ refreshFromStorage: options?.refreshFromStorage === true })
-    .map((s) => leadSessionRow(s, mgr.isSessionTurnInFlight?.(s.id) === true))
-    .filter(Boolean);
+  const leadRows = (sessions) =>
+    sessions.map((s) => leadSessionRow(s, mgr.isSessionTurnInFlight?.(s.id) === true)).filter(Boolean);
+  if (options?.refreshFromStorage === true) return mgr.listSessionsAsync({ refreshFromStorage: true }).then(leadRows);
+  return leadRows(mgr.listSessions());
 }

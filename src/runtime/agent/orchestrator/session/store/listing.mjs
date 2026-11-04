@@ -2,11 +2,12 @@
 // sweep/stale-sweep.mjs); store.mjs owns the persistence half
 // (save/load/close/delete). Both read the in-flight save maps so an
 // unpersisted session still shows up in listings.
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { getPluginData } from '../../config.mjs';
-import { getStoreDir } from './session-paths.mjs';
-import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
+import { getStoreDir, storeRecordDir } from './session-paths.mjs';
+import { probePath, probePathStep, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
+import { runFsStepsAsync, runFsStepsSync } from './fs-steps.mjs';
 import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import {
   SESSION_SUMMARY_INDEX_VERSION,
@@ -15,15 +16,21 @@ import {
   _normalizeSummaryIndex,
   _writeSummaryIndex,
   _hasUnsettledSummaryOps,
+  _holdSummaryAppends,
   settleSummaryIndexWrites,
 } from '../store-summary-index.mjs';
-import { applySummaryLogText, readSummaryLogText, summaryIndexStampMs } from '../store-summary-log.mjs';
+import {
+  applySummaryLogText,
+  readSummaryLogTextStep,
+  summaryIndexStampMs,
+  summaryIndexStampMsStep,
+} from '../store-summary-log.mjs';
 import {
   _ensureSummaryCacheDataDir,
   _cachedSummaryRows,
+  _openSummaryScanWindow,
   _setSummaryRowsCache,
-  _scanStoredSessionSummaryRows,
-  _summaryCacheRemovals,
+  _scanStoredSessionSummaryRowsAsync,
   _summaryRowsCache,
 } from './summary-cache.mjs';
 import { _saveAsyncQueued, _saveWorkerPending } from './save-worker.mjs';
@@ -161,44 +168,111 @@ export async function settleSessionSummaryIndex() {
   await closeSessionCatalogDb();
 }
 
-export function listStoredSessionSummaries(options = {}) {
-  _ensureSummaryCacheDataDir();
-  // This is intentionally the only path that rescans every session JSON:
-  // callers use it as an on-demand authoritative refresh (including resume
-  // authorization), so it must not trust either the cache or sidecar.
-  if (options.refreshFromStorage === true) return _refreshSummariesFromStorage();
-  if (_summaryRowsCache !== null) return _warmSummaryRows();
-  return _coldSummaryRows();
+/** The cached/sidecar listing. The authoritative storage rescan is
+ *  listStoredSessionSummariesAsync({ refreshFromStorage: true }). */
+export function listStoredSessionSummaries() {
+  return runFsStepsSync(_cachedListingSteps());
 }
 
-function _refreshSummariesFromStorage() {
+function* _cachedListingSteps() {
+  _ensureSummaryCacheDataDir();
+  if (_summaryRowsCache !== null) return yield* _warmSummaryRowsSteps();
+  return yield* _coldSummaryRowsSteps();
+}
+
+/**
+ * listStoredSessionSummaries for async callers. `refreshFromStorage: true` is
+ * the only path that rescans every session JSON: callers use it as an
+ * on-demand authoritative refresh (including resume authorization), so it
+ * trusts neither the cache nor the sidecar. Every stat and read (the index
+ * read of the cached listing too) and the index rewrite are awaited.
+ */
+export async function listStoredSessionSummariesAsync(options = {}) {
+  _ensureSummaryCacheDataDir();
+  if (options.refreshFromStorage !== true) return runFsStepsAsync(_cachedListingSteps());
+  const scanned = await _storageRefresh();
+  // A refresh is an authorization boundary for desktop resume. If
+  // authoritative storage cannot be enumerated, stale cached/sidecar rows
+  // must not be treated as proof that a session is available.
+  if (!scanned) return [];
+  return _overlayUnpersistedSummaryRows(scanned.rows, scanned.invalidStorageIds);
+}
+
+// One storage refresh runs at a time (they share the per-file scan cache). A
+// caller arriving while one runs may have written something that scan already
+// passed, so it never joins it: it waits for the one refresh queued behind it,
+// shared by every caller arriving meanwhile.
+let _refreshRunning = null;
+let _refreshQueued = null;
+
+function _storageRefresh() {
+  if (_refreshQueued) return _refreshQueued;
+  if (!_refreshRunning) return _startStorageRefresh();
+  _refreshQueued = _refreshRunning.then(() => {
+    _refreshQueued = null;
+    return _startStorageRefresh();
+  });
+  return _refreshQueued;
+}
+
+function _startStorageRefresh() {
+  const run = _refreshSummariesFromStorage().finally(() => {
+    if (_refreshRunning === run) _refreshRunning = null;
+  });
+  _refreshRunning = run;
+  return run;
+}
+
+/** `{ rows, invalidStorageIds }` of one awaited rescan, or null when storage
+ *  cannot be enumerated. Never rejects. */
+async function _refreshSummariesFromStorage() {
+  const dataDir = getPluginData();
+  const releaseAppends = _holdSummaryAppends();
+  const scanWindow = _openSummaryScanWindow();
   try {
-    const { rows: persistedRows, invalidStorageIds, changed } = _scanStoredSessionSummaryRows();
-    const rows = _overlayUnpersistedSummaryRows(persistedRows, invalidStorageIds);
+    const { rows, invalidStorageIds, changed } = await _scanStoredSessionSummaryRowsAsync();
+    // A data dir switched mid-scan: these rows describe the old one, so they
+    // may neither become the new dir's cache nor be written into its index.
+    if (getPluginData() !== dataDir) return { rows, invalidStorageIds };
     // Unchanged scans skip the sidecar rewrite — refresh is called on
     // every sidebar poll/push and must not grind a multi-MB atomic
     // write when no session actually changed.
     if (changed) {
       try {
-        _writeSummaryIndex(persistedRows);
+        await _writeSummaryIndex(rows);
       } catch {
         /* sidecar remains best-effort */
       }
     }
+    // The rewrite is awaited too: a switch during it leaves the new dir's
+    // cache alone as well.
+    if (getPluginData() !== dataDir) return { rows, invalidStorageIds };
     // A direct scan settles deletion state too; retain only active
     // optimistic write overlays, never a stale local removal.
-    _summaryCacheRemovals.clear();
-    _setSummaryRowsCache(persistedRows);
-    return rows;
+    // The answer is storage as it is when the refresh returns: a session a
+    // local write deleted or updated while the scan awaited I/O is answered
+    // as that write left it.
+    return { rows: scanWindow.adopt(rows, { invalidStorageIds, settlesRemovals: true }), invalidStorageIds };
   } catch {
-    // A refresh is an authorization boundary for desktop resume. If
-    // authoritative storage cannot be enumerated, stale cached/sidecar
-    // rows must not be treated as proof that a session is available.
-    return [];
+    return null;
+  } finally {
+    scanWindow.close();
+    releaseAppends();
   }
 }
 
-function _warmSummaryRows() {
+// The cached listing reads the index as store-read steps (store/fs-steps.mjs):
+// blocking for the sync listing, awaited for the async one. An awaited read
+// lets local writes land meanwhile, so it reads inside a window (see
+// _openSummaryScanWindow) whose adoption keeps what those writes left, and a
+// data dir switched mid-read never receives the old dir's rows.
+function _adoptIndexRows(window, dataDir, rows) {
+  if (getPluginData() !== dataDir) return rows;
+  window.adopt(rows);
+  return _cachedSummaryRows();
+}
+
+function* _warmSummaryRowsSteps() {
   // A local session save has already updated the in-memory cache but its
   // non-blocking sidecar merge may still be queued/in flight. Re-reading
   // the older sidecar in that window would temporarily erase the new row.
@@ -212,37 +286,55 @@ function _warmSummaryRows() {
   // (local optimistic overlays stay applied on top).
   // Stamp = newest mtime of base + delta log, taken BEFORE the reads so a
   // change landing mid-read is seen again on the next call.
-  const diskMtime = summaryIndexStampMs(summaryIndexPath());
+  const dataDir = getPluginData();
+  const path = summaryIndexPath();
+  const diskMtime = yield* summaryIndexStampMsStep(path);
   if (diskMtime <= _summaryIndexMtimeSeen) return _cachedSummaryRows().slice();
+  const window = _openSummaryScanWindow();
   try {
-    const logText = readSummaryLogText(summaryIndexPath());
-    const raw = applySummaryLogText(JSON.parse(readFileSync(summaryIndexPath(), 'utf-8')), logText);
+    const logText = yield* readSummaryLogTextStep(path);
+    const raw = applySummaryLogText(JSON.parse(yield ['readFile', path, 'utf-8']), logText);
     if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) {
+      const rows = _normalizeSummaryIndex(raw).rows;
+      if (getPluginData() !== dataDir) return rows;
       _summaryIndexMtimeSeen = diskMtime;
-      return _setSummaryRowsCache(_normalizeSummaryIndex(raw).rows).slice();
+      return _adoptIndexRows(window, dataDir, rows).slice();
     }
   } catch {
     /* torn concurrent write — keep serving the cache; retry next call */
+  } finally {
+    window.close();
   }
-  return _cachedSummaryRows().slice();
+  return getPluginData() === dataDir ? _cachedSummaryRows().slice() : [];
 }
 
-function _coldSummaryRows() {
+function* _coldSummaryRowsSteps() {
+  const dataDir = getPluginData();
+  const window = _openSummaryScanWindow();
+  try {
+    return yield* _coldSummaryRowsInWindow(window, dataDir);
+  } finally {
+    window.close();
+  }
+}
+
+function* _coldSummaryRowsInWindow(window, dataDir) {
   let indexedRows = [];
   let p;
   let hasIndex = false;
   let indexUnreadable = false;
+  let stampBeforeRead = 0;
   try {
     p = summaryIndexPath();
-    const probe = probePath(p);
+    const probe = yield* probePathStep(p);
     hasIndex = probe.state === PROBE_PRESENT;
     if (probe.state !== PROBE_PRESENT && probe.state !== PROBE_ABSENT) indexUnreadable = true;
     if (hasIndex) {
-      const stampBeforeRead = summaryIndexStampMs(p);
-      const logText = readSummaryLogText(p);
+      stampBeforeRead = yield* summaryIndexStampMsStep(p);
+      const logText = yield* readSummaryLogTextStep(p);
       let text;
       try {
-        text = readFileSync(p, 'utf-8');
+        text = yield ['readFile', p, 'utf-8'];
       } catch (err) {
         // Stat said PRESENT and the read failed: the sidecar is there
         // and we cannot have it. FAIL CLOSED — keep serving the cache,
@@ -254,14 +346,15 @@ function _coldSummaryRows() {
       }
       const raw = applySummaryLogText(JSON.parse(text), logText);
       hasIndex = Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION;
-      if (hasIndex) {
-        indexedRows = _normalizeSummaryIndex(raw).rows;
-        _summaryIndexMtimeSeen = stampBeforeRead;
-      }
+      if (hasIndex) indexedRows = _normalizeSummaryIndex(raw).rows;
     }
   } catch {
     /* unreadable/malformed sidecar falls through to rebuild */
   }
+  // The rows of a data dir switched away from mid-read: answered, never
+  // cached, and no rebuild scheduled for the new dir on their account.
+  if (getPluginData() !== dataDir) return indexedRows;
+  if (hasIndex) _summaryIndexMtimeSeen = stampBeforeRead;
 
   if (indexUnreadable) {
     // Present-but-unreadable sidecar: retain authority. A COLD cache has
@@ -272,17 +365,21 @@ function _coldSummaryRows() {
   }
   if (!p || !hasIndex) {
     scheduleSessionSummaryIndexRebuild();
-    return _setSummaryRowsCache(indexedRows);
+    return _adoptIndexRows(window, dataDir, indexedRows);
   }
   try {
-    if (indexedRows.length > 0) return _setSummaryRowsCache(indexedRows);
-    const dir = getStoreDir();
-    const hasSessionFiles = probePath(dir).state === PROBE_PRESENT && readdirSync(dir).some((f) => f.endsWith('.json'));
-    if (hasSessionFiles) scheduleSessionSummaryIndexRebuild();
-    return _setSummaryRowsCache(indexedRows);
+    if (indexedRows.length > 0) return _adoptIndexRows(window, dataDir, indexedRows);
+    // Only listed, never created: an absent store simply has no files.
+    const dir = storeRecordDir();
+    const hasSessionFiles =
+      (yield* probePathStep(dir)).state === PROBE_PRESENT &&
+      (yield ['readdir', dir]).some((f) => f.endsWith('.json'));
+    // The rebuild targets the current dir: only on this dir's evidence.
+    if (hasSessionFiles && getPluginData() === dataDir) scheduleSessionSummaryIndexRebuild();
+    return _adoptIndexRows(window, dataDir, indexedRows);
   } catch {
-    scheduleSessionSummaryIndexRebuild();
-    return _setSummaryRowsCache(indexedRows);
+    if (getPluginData() === dataDir) scheduleSessionSummaryIndexRebuild();
+    return _adoptIndexRows(window, dataDir, indexedRows);
   }
 }
 

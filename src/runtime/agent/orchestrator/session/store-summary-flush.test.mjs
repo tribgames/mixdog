@@ -46,7 +46,7 @@ const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('many concurrent saves never overlap flushes and the latest op per session wins', () =>
   withDataDir(async () => {
-    _writeSummaryIndex([row('keep', 1, 'k')]);
+    await _writeSummaryIndex([row('keep', 1, 'k')]);
     const before = summaryLockFailureStats().total;
     for (let i = 0; i < 100; i++) {
       _upsertSessionSummaryRow(row(`s${i % 10}`, 100 + i, `v${i}`));
@@ -66,7 +66,7 @@ test('many concurrent saves never overlap flushes and the latest op per session 
 
 test('a direct flush while one is in flight leaves ops pending for a follow-up', () =>
   withDataDir(async () => {
-    _writeSummaryIndex([]);
+    await _writeSummaryIndex([]);
     const before = summaryLockFailureStats().total;
     _upsertSessionSummaryRow(row('a', 10, 'a'));
     await tick(0);
@@ -82,7 +82,7 @@ test('a direct flush while one is in flight leaves ops pending for a follow-up',
 
 test('saves during a scheduled retry wait for it; settle resolves only after persistence', () =>
   withDataDir(async () => {
-    _writeSummaryIndex([]);
+    await _writeSummaryIndex([]);
     const lockPath = `${summaryIndexPath()}.lock`;
     writeFileSync(lockPath, `${process.pid} ${Date.now()} foreign-token\n`);
     const before = summaryLockFailureStats().total;
@@ -109,7 +109,7 @@ test('saves during a scheduled retry wait for it; settle resolves only after per
 
 test('settles sharing one long-lived signal leave no abort listener behind once they land', () =>
   withDataDir(async () => {
-    _writeSummaryIndex([]);
+    await _writeSummaryIndex([]);
     const lifetime = new AbortController();
     for (let i = 0; i < 5; i++) {
       _upsertSessionSummaryRow(row(`r${i}`, 40 + i, 'r'));
