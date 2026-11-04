@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { importInStages, staticRelativeImports } from './staged-import.mjs';
+import { importInStages } from './staged-import.mjs';
 
 // The daemon warm-up imports the session-runtime graph through this: each
 // stage loads in its own loop turn, and evaluation order matches one import.
@@ -22,7 +22,7 @@ test('a staged import evaluates in single-import order, one loop turn per stage'
   );
   writeFileSync(join(dir, 'root.mjs'), `export { value } from './core.mjs';\n${log('root')}`);
   const url = (name) => pathToFileURL(join(dir, name)).href;
-  assert.deepEqual(staticRelativeImports(url('core.mjs')), [url('a.mjs'), url('b.mjs')]);
+  const stages = [url('a.mjs'), url('b.mjs')];
 
   globalThis.__stagedLog = [];
   globalThis.__stagedTurns = 0;
@@ -33,7 +33,7 @@ test('a staged import evaluates in single-import order, one loop turn per stage'
     setImmediate(count);
   };
   setImmediate(count);
-  const module = await importInStages(url('root.mjs'), url('core.mjs'));
+  const module = await importInStages(url('root.mjs'), stages);
   counting = false;
   assert.equal(module.value, 3);
   const order = globalThis.__stagedLog.map(([name]) => name);
@@ -62,7 +62,7 @@ test('a throwing stage stops staging: later stages do not evaluate and the impor
   const url = (name) => pathToFileURL(join(dir, name)).href;
 
   globalThis.__stagedFailLog = [];
-  await assert.rejects(importInStages(url('root.mjs'), url('core.mjs')), /stage b failed/);
+  await assert.rejects(importInStages(url('root.mjs'), [url('a.mjs'), url('b.mjs'), url('c.mjs')]), /stage b failed/);
   assert.deepEqual(globalThis.__stagedFailLog, ['a', 'b'], 'c, core and root never evaluate');
   delete globalThis.__stagedFailLog;
 });
@@ -81,5 +81,30 @@ test('a stage that fails to link rejects with its link error', async (t) => {
   writeFileSync(join(dir, 'root.mjs'), "export { value } from './core.mjs';\n");
   const url = (name) => pathToFileURL(join(dir, name)).href;
 
-  await assert.rejects(importInStages(url('root.mjs'), url('core.mjs')), /does not provide an export named 'missing'/);
+  await assert.rejects(
+    importInStages(url('root.mjs'), [url('a.mjs'), url('b.mjs')]),
+    /does not provide an export named 'missing'/
+  );
+});
+
+// Stages are the caller's declared modules, never read out of a source text:
+// a core whose text only looks like it imports other.mjs (a template string)
+// never evaluates other.mjs.
+test('stages are not derived from source text', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-staged-import-text-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'a.mjs'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'other.mjs'), "globalThis.__stagedTextLog.push('other');\n");
+  writeFileSync(
+    join(dir, 'core.mjs'),
+    "import { a } from './a.mjs';\nexport const text = `\nimport './other.mjs';\n`;\nexport const value = a;\n"
+  );
+  writeFileSync(join(dir, 'root.mjs'), "export { value } from './core.mjs';\n");
+  const url = (name) => pathToFileURL(join(dir, name)).href;
+
+  globalThis.__stagedTextLog = [];
+  const module = await importInStages(url('root.mjs'), [url('a.mjs')]);
+  assert.equal(module.value, 1);
+  assert.deepEqual(globalThis.__stagedTextLog, [], 'other.mjs is not a stage');
+  delete globalThis.__stagedTextLog;
 });
