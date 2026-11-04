@@ -92,9 +92,7 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
       <Group title={t('Cleanup')}>
         <ToggleRow
           title={t('Clean up finished worktrees automatically')}
-          description={t(
-            'Worktrees with uncommitted or unmerged work are never deleted. A branch Mixdog created goes with its worktree once git considers it merged; its commits stay reachable. Turning this off asks first.'
-          )}
+          description={t('Worktrees with uncommitted or unmerged work are never deleted. Turning this off asks first.')}
           showDescription
           checked={settings.autoCleanup}
           onChange={(autoCleanup) => {
@@ -133,6 +131,17 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
             disabled={off}
             optimistic={false}
             onChange={(cleanupArchived) => save({ cleanupArchived })}
+          />
+          <ToggleRow
+            title={t('Delete the branch when cleaning up')}
+            description={t(
+              'Deletes a branch Mixdog created once git considers it merged; when off, the branch and its commits stay.'
+            )}
+            showDescription
+            checked={settings.deleteBranch}
+            disabled={off}
+            optimistic={false}
+            onChange={(deleteBranch) => save({ deleteBranch })}
           />
         </div>
       </Group>

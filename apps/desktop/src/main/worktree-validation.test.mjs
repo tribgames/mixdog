@@ -65,7 +65,7 @@ test('worktree capability arguments are shape-checked', () => {
   assert.doesNotThrow(() => request('pruneWorktrees', { repoCommonDir: '/p/.git' }));
   assert.doesNotThrow(() => request('setWorktreeSettings', { branchPrefix: '' }));
   assert.doesNotThrow(() =>
-    request('setWorktreeSettings', { maxWorktrees: 0, unusedDays: 30, cleanupArchived: false })
+    request('setWorktreeSettings', { maxWorktrees: 0, unusedDays: 30, cleanupArchived: false, deleteBranch: true })
   );
   assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login' }));
   assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login', force: true }));
@@ -123,7 +123,7 @@ test('worktree capability arguments are shape-checked', () => {
     ['setWorktreeSettings', { maxWorktrees: 1001 }],
     ['setWorktreeSettings', { unusedDays: 1.5 }],
     ['setWorktreeSettings', { cleanupArchived: 'yes' }],
-    ['setWorktreeSettings', { deleteBranch: true }],
+    ['setWorktreeSettings', { deleteBranch: 'yes' }],
     ['deleteWorktree'],
     ['deleteWorktree', {}],
     ['deleteWorktree', { entryId: 'x', force: 'yes' }],

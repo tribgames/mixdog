@@ -1020,10 +1020,11 @@ async function finishDeletion(record) {
     return { removed: false, retryable: true, remaining };
   }
   // The branch-row "Remove worktree folder" (safeOnly) promises the branch
-  // stays. Only a record that says Mixdog created the branch deletes it; one
+  // stays, as does an automatic cleanup with deleteBranch off (preserveBranch).
+  // Only a record that says Mixdog created the branch deletes it; one
   // without the flag (made before it was recorded) keeps it, reported.
   const branch =
-    !record.branch || record.deleting?.safeOnly || record.existingBranch === true
+    !record.branch || record.deleting?.safeOnly || record.deleting?.preserveBranch || record.existingBranch === true
       ? { deleted: false }
       : record.existingBranch === false
         ? await deleteCreatedBranch(record)
@@ -2496,7 +2497,9 @@ export async function assertWorktreeRemovable({ entryId, force = false, sessionI
  * git removal returns `{ removed: false, incomplete: true }` with the record ready again.
  * The branch Mixdog created goes with it once git considers it merged; other
  * branches stay, and dropped commits stay reachable (finishDeletion).
- * @param {{ entryId: string, force?: boolean, expected?: { kind?: string, txId?: string, holderSessionId?: string }|null, automatic?: boolean }} input
+ * `preserveBranch` (an automatic removal with the deleteBranch setting off)
+ * keeps the branch whatever it is.
+ * @param {{ entryId: string, force?: boolean, expected?: { kind?: string, txId?: string, holderSessionId?: string }|null, automatic?: boolean, preserveBranch?: boolean }} input
  * @returns {Promise<{ removed: boolean, skipped?: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean,
  *   preservedBranch?: { name: string, head: string }, recoveryRefs?: string[] }>}
  */
@@ -2507,6 +2510,7 @@ export async function removeManagedWorktree({
   safeOnly = false,
   expected = null,
   automatic = false,
+  preserveBranch = false,
 } = {}) {
   const skipped = { removed: false, skipped: true };
   const matches = (record) =>
@@ -2525,7 +2529,7 @@ export async function removeManagedWorktree({
       if (!current && !expected) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
       return skipped;
     }
-    return removeLocked(current, { force, sessionId, safeOnly, automatic });
+    return removeLocked(current, { force, sessionId, safeOnly, automatic, preserveBranch });
   });
 }
 
@@ -2548,12 +2552,12 @@ function automaticRefusal(record, kept) {
  * branch it was made on (what a rollback or the branch deletion names); the
  * refusals name the branch checked out now.
  */
-async function removeLocked(current, { force, sessionId, safeOnly = false, automatic = false }) {
+async function removeLocked(current, { force, sessionId, safeOnly = false, automatic = false, preserveBranch = false }) {
   assertNotShared(current, sessionId);
   // A deleted session's leftover (cleanupDeletedSessionWorktree): the
   // verified automatic path, never a forced or recursive one.
   if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
-    const outcome = await removeAutomatically(current);
+    const outcome = await removeAutomatically(current, { preserveBranch });
     if (!outcome.result) throw automaticRefusal(current, outcome.kept);
     return outcome.result;
   }
@@ -2739,7 +2743,7 @@ async function retentionOf(record, live, retained) {
  */
 async function removeAutomatically(
   record,
-  { inUse = async () => false, finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS } = {}
+  { inUse = async () => false, preserveBranch = false, finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS } = {}
 ) {
   const token = await checkoutToken(record);
   const { dirty, ignored, artefacts } = await automaticKeepPaths(record);
@@ -2769,6 +2773,7 @@ async function removeAutomatically(
     record.deleting = {
       force: false,
       automatic: true,
+      ...(preserveBranch ? { preserveBranch: true } : {}),
       headCommit,
       startedAt: Date.now(),
       remaining: [],
@@ -2874,7 +2879,8 @@ export async function previewManagedWorktreeCleanup({
  * archived-session marks (`disposableReason: 'archived'`, which
  * `cleanupArchived: false` ignores); a deleted session's mark and a true
  * orphan are not subject to them. A removed worktree's merged branch goes
- * when Mixdog created it (finishDeletion). `maxRemovals` caps the count/age/archive removals of one pass
+ * when Mixdog created it (finishDeletion), unless `preserveBranch` keeps
+ * every branch (the deleteBranch setting off). `maxRemovals` caps the count/age/archive removals of one pass
  * together (`kept: budget` beyond it). Dirty, unmerged, live, shared or
  * recovery-holding worktrees are always kept, as are ones holding ignored
  * files no install restores (`kept: ignored` with `files`, `count`:
@@ -2884,7 +2890,7 @@ export async function previewManagedWorktreeCleanup({
  * under that hold (the caller's current live sessions and running jobs).
  * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean,
  *   repoCommonDir?: string|null, removeEntryIds?: string[], protectedSessionIds?: string[],
- *   minAgeMs?: number, now?: number, cleanupArchived?: boolean,
+ *   minAgeMs?: number, now?: number, cleanupArchived?: boolean, preserveBranch?: boolean,
  *   maxRemovals?: number, inUse?: (record: object) => Promise<boolean>|boolean,
  *   finalCheckTimeoutMs?: number }} input
  *   `finalCheckTimeoutMs` bounds the last dirty check under the hold (FINAL_DIRTY_CHECK_TIMEOUT_MS);
@@ -2900,6 +2906,7 @@ export async function reconcileManagedWorktrees({
   minAgeMs = 0,
   now = Date.now(),
   cleanupArchived = true,
+  preserveBranch = false,
   maxRemovals = Infinity,
   inUse = async () => false,
   finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS,
@@ -3033,6 +3040,7 @@ export async function reconcileManagedWorktrees({
               }
               const outcome = await removeAutomatically(record, {
                 inUse,
+                preserveBranch,
                 finalCheckTimeoutMs,
               });
               if (!outcome.result) {

@@ -117,9 +117,11 @@ export function createWorktreeMaintenance({
   async function cleanupDeletedSession(sessionId) {
     // Its snapshots go with it below; no turn cleanup keeps retrying them.
     cancelSnapshotCleanups(sessionId);
+    const settings = worktreeSettings();
     return maintenance.cleanupDeletedSessionWorktree(sessionId, {
       manager: await backend(),
-      autoCleanup: worktreeSettings().autoCleanup,
+      autoCleanup: settings.autoCleanup,
+      deleteBranch: settings.deleteBranch,
     });
   }
 

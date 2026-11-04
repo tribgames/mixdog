@@ -155,9 +155,8 @@ export interface DesktopWorktreeSettings {
   branchPrefix: string;
   /** Repository size that asks for confirmation first; 0 never asks. Default 2 GiB. */
   sizeWarnBytes: number;
-  /** Remove clean, merged worktrees when their task ends (with the branch
-   *  Mixdog created, once git considers it merged; its commits stay
-   *  reachable). Default true; the three settings below apply only while it is on. */
+  /** Remove clean, merged worktrees when their task ends. Default true; the
+   *  four settings below apply only while it is on. */
   autoCleanup: boolean;
   /** Keep at most this many worktrees, least recently used cleaned first; 0 = no limit. Default 15. */
   maxWorktrees: number;
@@ -165,6 +164,9 @@ export interface DesktopWorktreeSettings {
   unusedDays: number;
   /** Archiving a session cleans up its worktrees. Default true. */
   cleanupArchived: boolean;
+  /** Cleanup also deletes the branch Mixdog created, once git considers it
+   *  merged (its commits stay reachable). Default false: the branch stays. */
+  deleteBranch: boolean;
 }
 
 /** Upper bounds of maxWorktrees / unusedDays (runtime settings.mjs). */
