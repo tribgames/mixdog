@@ -115,7 +115,7 @@ linux:
     - from: ../../native/gnome-extension/mixdog-windows@mixdog.io
       to: gnome-extension/mixdog-windows@mixdog.io
   synopsis: Mixdog desktop host
-  maintainer: Mixdog <dev@tribgames.com>
+  maintainer: Mixdog <support@mixdog.ai>
   desktop:
     entry:
       # Electron reports the package name (mixdog-desktop) as WM_CLASS and the

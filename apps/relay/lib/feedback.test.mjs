@@ -139,7 +139,7 @@ test('accepts, persists before replying, and mails immediately once', async () =
   const stored = JSON.parse(readFileSync(join(dataDir, 'feedback', files[0]), 'utf8'));
   assert.equal(stored.id, body.id);
   await waitFor(() => sent.length === 1, 'mail sent');
-  assert.equal(sent[0].to, 'support@tribgames.com');
+  assert.equal(sent[0].to, 'support@mixdog.ai');
   assert.equal(sent[0].text, 'it broke');
   assert.equal(sent[0].replyTo, 'User@Example.com');
   assert.ok(!JSON.stringify(stored).includes('127.0.0.1'));

@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 export const VAPID_FILE = 'webpush-vapid.json';
 export const SUBSCRIPTIONS_FILE = 'webpush-subscriptions.json';
 /** RFC 8292 wants a contactable sender; it names the software, not a user. */
-export const VAPID_SUBJECT = 'mailto:support@tribgames.com';
+export const VAPID_SUBJECT = 'mailto:support@mixdog.ai';
 /** Comfortably inside the 24-hour ceiling even with a skewed push service. */
 const VAPID_LIFETIME_SECONDS = 12 * 60 * 60;
 const DEFAULT_TTL_SECONDS = 24 * 60 * 60;
