@@ -1,9 +1,13 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { readdir as readdirAsync } from 'node:fs/promises';
 import { startGitSync } from '../../../../shared/git-launch.mjs';
 import { runGitOffThread } from '../../../../shared/git-runner.mjs';
-import { findPathExecutable } from '../../../../shared/path-executable.mjs';
+import {
+  findPathExecutable,
+  findPathExecutablesAsync,
+  gitExecutablePresent,
+} from '../../../../shared/path-executable.mjs';
 import { dirname as pathDirname, join as pathJoin, resolve as pathResolveAbsolute } from 'node:path';
 
 // Startup shell-tool line. An earlier inventory was dropped because it was
@@ -43,25 +47,78 @@ function _posixStartupShell(candidates = ['/bin/bash', '/usr/bin/bash', '/bin/sh
 }
 
 // Every session composes this line. Probing it means up to names×PATHEXT×PATH
-// stats on Windows (~40ms) or a login-shell spawn on POSIX, both on the event
-// loop, so one answer per PATH/shell is reused for a short window — the same
-// rule as gitExecutablePresent: a session opened after an install still picks
-// the tool up once the window passes.
-const SHELL_TOOLS_STARTUP_TTL_MS = 30_000;
+// stats on Windows or a login-shell spawn on POSIX, so it is observed once per
+// process for one PATH/shell — "at startup" is this process's start — and
+// every later session reuses that observation. prewarmGitStartupProbes takes
+// it off the event loop (a directory listing per PATH entry, or an async
+// spawn), shared by every session opening meanwhile; a composition that finds
+// no observation yet probes synchronously exactly as before.
+// Entry: { key, value, ready, generation, pending }.
 let _shellToolsStartup = null;
+
+function _shellToolsStartupKey(options) {
+  const { platform = process.platform, names = SHELL_TOOL_STARTUP_NAMES, shellPath = null } = options;
+  return JSON.stringify([platform, names, shellPath, options.pathValue ?? (process.env.PATH || '')]);
+}
+
+function _shellToolsStartupEntry(options) {
+  const key = _shellToolsStartupKey(options);
+  if (_shellToolsStartup?.key !== key) {
+    _shellToolsStartup = { key, value: '', ready: false, generation: 0, pending: null };
+  }
+  return _shellToolsStartup;
+}
 
 export function describeShellToolsStartupState(options = {}) {
   if (options._spawnSync) return _probeShellToolsStartupState(options);
-  const { platform = process.platform, names = SHELL_TOOL_STARTUP_NAMES, shellPath = null } = options;
-  const pathValue = options.pathValue ?? (process.env.PATH || '');
-  const key = JSON.stringify([platform, names, shellPath, pathValue]);
-  const now = Date.now();
-  if (_shellToolsStartup?.key === key && now - _shellToolsStartup.at < SHELL_TOOLS_STARTUP_TTL_MS) {
-    return _shellToolsStartup.value;
+  const entry = _shellToolsStartupEntry(options);
+  if (!entry.ready) {
+    // An off-loop probe still running is superseded by this answer.
+    entry.generation += 1;
+    entry.value = _probeShellToolsStartupState(options);
+    entry.ready = true;
   }
-  const value = _probeShellToolsStartupState(options);
-  _shellToolsStartup = { key, at: now, value };
-  return value;
+  return entry.value;
+}
+
+/** Starts the off-loop shell-tools probe unless this PATH/shell has an
+ *  observation or one in flight; resolves (never rejects) once it answers. */
+export function prewarmShellToolsStartupState(options = {}) {
+  const entry = _shellToolsStartupEntry(options);
+  if (entry.ready) return Promise.resolve();
+  if (!entry.pending) {
+    const generation = entry.generation;
+    entry.pending = _probeShellToolsStartupStateAsync(options)
+      .then((value) => {
+        if (entry.generation !== generation) return;
+        entry.value = value;
+        entry.ready = true;
+      })
+      .finally(() => {
+        entry.pending = null;
+      });
+  }
+  return entry.pending;
+}
+
+const _wantedShellTools = (names) => names.map((name) => String(name || '').trim()).filter(Boolean);
+// The Store stub in WindowsApps resolves but only opens the Store.
+const _isStoreStub = (hit) => /[\\/]WindowsApps(?:[\\/]|\)|$)/i.test(hit);
+const _commandVArgs = (wanted) => ['-lc', `command -v ${wanted.join(' ')}`];
+
+function _commandVFound(stdout, wanted) {
+  const found = new Set();
+  for (const line of String(stdout || '').split(/\r?\n/)) {
+    const base = line.trim().split('/').pop();
+    if (base && wanted.includes(base)) found.add(base);
+  }
+  return found;
+}
+
+function _shellToolsLine(wanted, found) {
+  const present = wanted.filter((name) => found.has(name));
+  const absent = wanted.filter((name) => !found.has(name));
+  return `- Shell tools at startup: ${present.length ? present.join(' ') : '(none)'}; absent: ${absent.length ? absent.join(' ') : '(none)'}.`;
 }
 
 function _probeShellToolsStartupState({
@@ -72,42 +129,74 @@ function _probeShellToolsStartupState({
   pathValue = process.env.PATH || '',
   _spawnSync = spawnSync,
 } = {}) {
-  const wanted = names.map((name) => String(name || '').trim()).filter(Boolean);
+  const wanted = _wantedShellTools(names);
   if (!wanted.length) return '';
-  let found;
   if (platform === 'win32') {
-    found = new Set();
+    const found = new Set();
     for (const name of wanted) {
       const hit = findPathExecutable(name, { pathValue, platform });
-      if (hit && !/[\\/]WindowsApps(?:[\\/]|\)|$)/i.test(hit)) found.add(name);
+      if (hit && !_isStoreStub(hit)) found.add(name);
     }
-  } else {
-    const shell = shellPath || _posixStartupShell();
-    if (!shell) return '';
-    let result;
-    try {
-      result = _spawnSync(shell, ['-lc', `command -v ${wanted.join(' ')}`], {
-        encoding: 'utf8',
-        env: { ...process.env, PATH: pathValue },
-        maxBuffer: 64 * 1024,
-        timeout: timeoutMs,
-        windowsHide: true,
-      });
-    } catch {
-      return '';
-    }
-    // `command -v a b c` exits non-zero when any name is missing; only a
-    // spawn failure or timeout means the answer is unknown.
-    if (!result || result.error) return '';
-    found = new Set();
-    for (const line of String(result.stdout || '').split(/\r?\n/)) {
-      const base = line.trim().split('/').pop();
-      if (base && wanted.includes(base)) found.add(base);
-    }
+    return _shellToolsLine(wanted, found);
   }
-  const present = wanted.filter((name) => found.has(name));
-  const absent = wanted.filter((name) => !found.has(name));
-  return `- Shell tools at startup: ${present.length ? present.join(' ') : '(none)'}; absent: ${absent.length ? absent.join(' ') : '(none)'}.`;
+  const shell = shellPath || _posixStartupShell();
+  if (!shell) return '';
+  let result;
+  try {
+    result = _spawnSync(shell, _commandVArgs(wanted), {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: pathValue },
+      maxBuffer: 64 * 1024,
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+  } catch {
+    return '';
+  }
+  // `command -v a b c` exits non-zero when any name is missing; only a
+  // spawn failure or timeout means the answer is unknown.
+  if (!result || result.error) return '';
+  return _shellToolsLine(wanted, _commandVFound(result.stdout, wanted));
+}
+
+async function _probeShellToolsStartupStateAsync({
+  platform = process.platform,
+  names = SHELL_TOOL_STARTUP_NAMES,
+  shellPath = null,
+  timeoutMs = 1500,
+  pathValue = process.env.PATH || '',
+} = {}) {
+  const wanted = _wantedShellTools(names);
+  if (!wanted.length) return '';
+  if (platform === 'win32') {
+    const hits = await findPathExecutablesAsync(wanted, { pathValue, platform });
+    return _shellToolsLine(wanted, new Set(wanted.filter((name) => hits.get(name) && !_isStoreStub(hits.get(name)))));
+  }
+  const shell = shellPath || _posixStartupShell();
+  if (!shell) return '';
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        shell,
+        _commandVArgs(wanted),
+        {
+          encoding: 'utf8',
+          env: { ...process.env, PATH: pathValue },
+          maxBuffer: 64 * 1024,
+          timeout: timeoutMs,
+          windowsHide: true,
+        },
+        (error, stdout) => {
+          // A non-zero exit (a name is missing) carries its exit code; a
+          // spawn failure, timeout or overflow means the answer is unknown.
+          if (error && (typeof error.code !== 'number' || error.killed)) resolve('');
+          else resolve(_shellToolsLine(wanted, _commandVFound(stdout, wanted)));
+        }
+      );
+    } catch {
+      resolve('');
+    }
+  });
 }
 
 // Walk up for a `.git` marker instead of shelling out to `git rev-parse`: it
@@ -240,8 +329,9 @@ function _repositoryChangeState(root) {
 // true when the session opened, not a permanent rule. `git init` or a move to
 // another directory changes it, which is why this reports the observation
 // rather than forbidding calls.
-export function describeGitStartupState({ cwd = process.cwd(), ...pathOptions } = {}) {
-  const installed = Boolean(findPathExecutable('git', pathOptions));
+export function describeGitStartupState({ cwd = process.cwd(), pathValue, platform } = {}) {
+  // The same answer the git tool's own availability gate uses.
+  const installed = gitExecutablePresent({ pathValue, platform });
   if (!installed) {
     return '- Git startup state: git is not installed here; git tool calls fail until something installs it.';
   }
@@ -363,7 +453,8 @@ function _gitIgnoredEntries(directory, names) {
  * composition never has to take the blocking probe.
  */
 export function prewarmGitStartupProbes(directories) {
-  const unanswered = [];
+  // The shell-tools line is composed beside the git lines (it needs no git).
+  const unanswered = [prewarmShellToolsStartupState()];
   for (const raw of Array.isArray(directories) ? directories : []) {
     if (!raw) continue;
     let directory;
@@ -404,10 +495,12 @@ export function prewarmGitStartupProbes(directories) {
   return Promise.all(unanswered).then(() => {});
 }
 
-/** Resolves once every in-flight startup git probe has finished. */
+/** Resolves once every in-flight startup probe has finished. */
 export async function settleGitStartupProbes() {
   await Promise.all(
-    [..._repositoryChangeStates.values(), ..._gitIgnoreObservations.values()].map((entry) => entry.pending)
+    [..._repositoryChangeStates.values(), ..._gitIgnoreObservations.values(), _shellToolsStartup]
+      .filter(Boolean)
+      .map((entry) => entry.pending)
   );
 }
 

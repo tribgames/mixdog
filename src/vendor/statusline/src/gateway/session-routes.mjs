@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { resolvePluginData } from '../../../../runtime/shared/plugin-paths.mjs';
-import { readJsonStateSync, updateJsonAtomicSync } from '../../../../runtime/shared/atomic-file.mjs';
+import { readJsonStateSync, updateJsonAtomic } from '../../../../runtime/shared/atomic-file.mjs';
 import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 const STORE_FILE = 'gateway-session-routes.json';
@@ -157,6 +157,90 @@ export function readLatestGatewayHostRoute(clientHostPid, options = {}) {
   return best;
 }
 
+// This process's route changes, in call order. Every session open writes one,
+// so each is a durable read-modify-write (lock, backup, fsync); run on the
+// event loop, a burst of opens blocked it for each. Changes queue instead and
+// one durable update off the loop lands every change queued until it reads
+// the store; the next starts after it. Order holds: a clear queued after a
+// write is applied after it.
+let queuedChanges = [];
+let draining = null;
+
+function applyChanges(curRaw, changes) {
+  const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+  const sessions = cur.sessions && typeof cur.sessions === 'object' ? { ...cur.sessions } : {};
+  const sessionHosts = cur.sessionHosts && typeof cur.sessionHosts === 'object' ? { ...cur.sessionHosts } : {};
+  const updatedAt = Date.now();
+  let wrote = false;
+  let changed = false;
+  for (const change of changes) {
+    if (change.entries) {
+      for (const { sid, route, pid } of change.entries) {
+        if (pid) {
+          sessionHosts[hostRouteKey(sid, pid)] = { ...route, sessionId: sid, clientHostPid: pid, updatedAt };
+        } else {
+          sessions[sid] = { ...route, sessionId: sid, updatedAt };
+        }
+      }
+      wrote = true;
+    } else if (change.pid) {
+      const key = hostRouteKey(change.sid, change.pid);
+      if (!key || !hasOwn(sessionHosts, key)) continue;
+      delete sessionHosts[key];
+      changed = true;
+    } else {
+      if (!hasOwn(sessions, change.sid)) continue;
+      delete sessions[change.sid];
+      changed = true;
+    }
+  }
+  if (wrote) {
+    return {
+      version: 2,
+      updatedAt,
+      sessions: pruneRouteMap(sessions, updatedAt, MAX_SESSION_ROUTES),
+      sessionHosts: pruneRouteMap(sessionHosts, updatedAt, MAX_HOST_ROUTES),
+    };
+  }
+  return changed ? { version: 2, updatedAt, sessions, sessionHosts } : undefined;
+}
+
+async function drainChanges() {
+  while (queuedChanges.length > 0) {
+    // One store per update: a change made while another data dir was current
+    // goes to that dir's store.
+    const path = queuedChanges[0].path;
+    let taken = false;
+    try {
+      await updateJsonAtomic(
+        path,
+        (current) => {
+          taken = true;
+          const batch = [];
+          while (queuedChanges.length > 0 && queuedChanges[0].path === path) batch.push(queuedChanges.shift());
+          return applyChanges(current, batch);
+        },
+        { compact: true, backup: true }
+      );
+    } catch {
+      // A route pin is best effort, as when this write was synchronous: the
+      // changes this update held are dropped, never retried out of order.
+      if (!taken) while (queuedChanges.length > 0 && queuedChanges[0].path === path) queuedChanges.shift();
+    }
+  }
+  draining = null;
+}
+
+function queueChange(change) {
+  queuedChanges.push({ ...change, path: gatewaySessionRoutesPath() });
+  if (!draining) draining = drainChanges();
+}
+
+/** Resolves once every route change queued so far is on disk (or failed). */
+export function gatewaySessionRoutesSettled() {
+  return draining ?? Promise.resolve();
+}
+
 export function writeGatewaySessionRoutes(entries = []) {
   const normalizedEntries = [];
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -167,30 +251,8 @@ export function writeGatewaySessionRoutes(entries = []) {
     normalizedEntries.push({ sid, route, pid });
   }
   if (normalizedEntries.length === 0) return false;
-  try {
-    updateJsonAtomicSync(gatewaySessionRoutesPath(), (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const sessions = cur.sessions && typeof cur.sessions === 'object' ? { ...cur.sessions } : {};
-      const sessionHosts = cur.sessionHosts && typeof cur.sessionHosts === 'object' ? { ...cur.sessionHosts } : {};
-      const updatedAt = Date.now();
-      for (const { sid, route, pid } of normalizedEntries) {
-        if (pid) {
-          sessionHosts[hostRouteKey(sid, pid)] = { ...route, sessionId: sid, clientHostPid: pid, updatedAt };
-        } else {
-          sessions[sid] = { ...route, sessionId: sid, updatedAt };
-        }
-      }
-      return {
-        version: 2,
-        updatedAt,
-        sessions: pruneRouteMap(sessions, updatedAt, MAX_SESSION_ROUTES),
-        sessionHosts: pruneRouteMap(sessionHosts, updatedAt, MAX_HOST_ROUTES),
-      };
-    }, { compact: true, backup: true });
-    return true;
-  } catch {
-    return false;
-  }
+  queueChange({ entries: normalizedEntries });
+  return true;
 }
 
 export function writeGatewaySessionRoute(sessionId, route, options = {}) {
@@ -200,24 +262,6 @@ export function writeGatewaySessionRoute(sessionId, route, options = {}) {
 export function clearGatewaySessionRoute(sessionId, options = {}) {
   const sid = normalizeGatewaySessionId(sessionId);
   if (!sid) return false;
-  const pid = normalizeClientHostPid(options?.clientHostPid);
-  try {
-    updateJsonAtomicSync(gatewaySessionRoutesPath(), (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const sessions = cur.sessions && typeof cur.sessions === 'object' ? { ...cur.sessions } : {};
-      const sessionHosts = cur.sessionHosts && typeof cur.sessionHosts === 'object' ? { ...cur.sessionHosts } : {};
-      if (pid) {
-        const key = hostRouteKey(sid, pid);
-        if (!key || !hasOwn(sessionHosts, key)) return cur;
-        delete sessionHosts[key];
-      } else {
-        if (!hasOwn(sessions, sid)) return cur;
-        delete sessions[sid];
-      }
-      return { version: 2, updatedAt: Date.now(), sessions, sessionHosts };
-    }, { compact: true, backup: true });
-    return true;
-  } catch {
-    return false;
-  }
+  queueChange({ sid, pid: normalizeClientHostPid(options?.clientHostPid) });
+  return true;
 }

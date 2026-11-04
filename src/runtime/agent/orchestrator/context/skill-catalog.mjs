@@ -2,10 +2,11 @@
 // Skill meta-tool.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync, readdirSync, statSync, watch as watch_ } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { maxMtimeRecursive, mtimeSignatureRecursive, mtimeSignatureText } from '../cache-mtime.mjs';
 import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
+import { createTreeWatchMemo } from '../../../shared/tree-watch-memo.mjs';
 import { PLUGIN_MANIFEST_FILES, pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
 import {
   parseSkillDocument,
@@ -361,8 +362,8 @@ const _skillsCache = new Map();
 // loop for tens to hundreds of ms with a large skill set. A root whose
 // recursive watcher has reported nothing since its last walk reuses that
 // walk's signature text instead; any event, watcher error or explicit
-// invalidation re-walks it. A watched root is trusted only once an event-loop
-// turn has passed since its walk.
+// invalidation re-walks it. A watched root is trusted from its first walk on:
+// sessions opening together in one event-loop turn share that walk.
 // Freshness contract: every write made through the app (addSkill, saveSkill,
 // setDisabledSkills, reloadSkills, settings/plugin mutations, peer-runtime
 // announcements) calls invalidateSkillsCache synchronously, which drops every
@@ -371,69 +372,19 @@ const _skillsCache = new Map();
 // delivers its event (watcher latency), or at the next explicit invalidation.
 // Roots that cannot be watched (missing, or unsupported by the platform) and
 // every plain-file gate path are stat'ed on every call as before.
-const _ROOT_WATCH_LIMIT = 64;
-const _rootWatches = new Map(); // root -> { watcher, dirty, text, settled }
-// Bumped by every closed root watch; part of each cached SKILL.md text stamp.
+// Bumped by every dropped root walk; part of each cached SKILL.md text stamp.
 let _skillTextGeneration = 0;
-
-function _closeRootWatch(root) {
-  const watch = _rootWatches.get(root);
-  if (!watch) return;
-  _rootWatches.delete(root);
+const _rootWalks = createTreeWatchMemo({
   // Any change under a skill root (or a lost watcher, or an invalidation)
   // makes the next load re-read SKILL.md text, whatever the file stamps say.
-  _skillTextGeneration += 1;
-  try {
-    watch.watcher.close();
-  } catch {
-    /* already closed */
-  }
-}
-
-function _closeAllRootWatches() {
-  for (const root of [..._rootWatches.keys()]) _closeRootWatch(root);
-}
-
-function _openRootWatch(root) {
-  let isDir = false;
-  try {
-    isDir = statSync(root).isDirectory();
-  } catch {
-    return null;
-  }
-  if (!isDir) return null;
-  if (_rootWatches.size >= _ROOT_WATCH_LIMIT) _closeAllRootWatches();
-  const watch = { watcher: null, dirty: true, text: null, settled: false };
-  try {
-    // A change anywhere below drops the root's reused walk; the watcher is
-    // closed with it (a re-walk re-opens one), so a churning folder never
-    // keeps a handle on directories being deleted.
-    watch.watcher = watch_(root, { recursive: true, persistent: false }, () => _closeRootWatch(root));
-    watch.watcher.on('error', () => _closeRootWatch(root));
-  } catch {
-    return null;
-  }
-  _rootWatches.set(root, watch);
-  return watch;
-}
+  onDrop: () => {
+    _skillTextGeneration += 1;
+  },
+});
 
 /** Signature text of one recursive gate root (see mtimeSignatureText). */
 function _rootSignatureText(root) {
-  const current = _rootWatches.get(root);
-  if (current && !current.dirty && current.settled) return current.text;
-  // Open the watcher BEFORE the walk: a change racing the walk then either
-  // shows in it or arrives as an event that drops the reused text.
-  const watch = current || _openRootWatch(root);
-  const text = mtimeSignatureText([root]);
-  if (watch && _rootWatches.get(root) === watch) {
-    watch.text = text;
-    watch.dirty = false;
-    watch.settled = false;
-    setImmediate(() => {
-      if (_rootWatches.get(root) === watch && watch.text === text) watch.settled = true;
-    }).unref?.();
-  }
-  return text;
+  return _rootWalks.get(root, (dir) => mtimeSignatureText([dir]));
 }
 
 export function collectSkillsCached(cwd) {
@@ -467,7 +418,7 @@ export function collectSkillsCached(cwd) {
 export function invalidateSkillsCache(cwd) {
   void cwd;
   _skillsCache.clear();
-  _closeAllRootWatches();
+  _rootWalks.dropAll();
 }
 
 /**

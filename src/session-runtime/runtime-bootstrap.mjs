@@ -4,6 +4,7 @@
 // provider-readiness state between them.
 import { performance } from 'node:perf_hooks';
 import { ensureStandaloneEnvironment } from './services/seeds.mjs';
+import { migrateOncePerProcess } from './boot/migrate-once.mjs';
 import { listOfficeJournals } from '../runtime/office/core/journal.mjs';
 import { bootProfile, profiledImport } from './boot-profile.mjs';
 import {
@@ -21,10 +22,14 @@ export function prepareStandaloneEnvironment() {
   const startedAt = performance.now();
   // Resolved per runtime start: this start's data folder, not the first one's.
   const dataDir = standaloneDataDir();
-  ensureStandaloneEnvironment({
-    rootDir: STANDALONE_ROOT,
-    dataDir,
-  });
+  // The env it sets and the seeded-copy sweep (a marker write when the
+  // shipped history moved) hold for the process while the data dir stays.
+  migrateOncePerProcess(dataDir, 'defaults-separation', () =>
+    ensureStandaloneEnvironment({
+      rootDir: STANDALONE_ROOT,
+      dataDir,
+    })
+  );
   // Office journals exist only for cross-process crash recovery, so startup just
   // prunes expired ones in the background. Surfacing them as session context made
   // every new session (agents included) re-announce unrelated leftovers for the

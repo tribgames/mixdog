@@ -10,6 +10,7 @@ import {
   shippedOrchestrationPath,
   userOrchestrationPath,
 } from '../../runtime/agent/orchestrator/runtime-core/orchestration.mjs';
+import { invalidateRulesSources } from '../../runtime/agent/orchestrator/session/manager/rules-source-cache.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
 import { publishAgentProfileChange } from '../agent-profile-changes.mjs';
 import { STANDALONE_ROOT } from '../runtime-paths.mjs';
@@ -116,6 +117,7 @@ export function createInstructionFilesApi(deps) {
   }
 
   async function announce() {
+    invalidateRulesSources();
     deps.invalidateContextStatusCache?.();
     await publishAgentProfileChange();
   }

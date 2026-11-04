@@ -114,6 +114,7 @@ import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
 import { createSessionControl } from './daemon-session-control.mjs';
 import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
 import { flushAllIndexWrites } from '../session-runtime/services/agent-tool/index-write-queue.mjs';
+import { gatewaySessionRoutesSettled } from '../vendor/statusline/src/gateway/session-routes.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -317,6 +318,13 @@ async function shutdown(reason, code = 0, error = null) {
     await flushAllIndexWrites();
   } catch (e) {
     log(`agent index drain failed: ${e?.message || e}`);
+  }
+  // Same for statusline route changes: the runtimes and agent workers that
+  // queue them are closed, so what they queued lands before exit.
+  try {
+    await gatewaySessionRoutesSettled();
+  } catch (e) {
+    log(`statusline route drain failed: ${e?.message || e}`);
   }
   // Host-side Computer Use workers and target claims are reaped only on an
   // explicit release; the runtime's deferred timer is unref'd and never fires
