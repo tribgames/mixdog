@@ -345,19 +345,38 @@ function darwinGet(account) {
   return null;
 }
 
-function spawnAsync(cmd, args) {
-  return new Promise((resolve) => {
+// A read somebody awaits (the warm-up) keeps the child and its pipes referenced.
+// A `background` read (nobody awaits it: stale and invalidation re-reads) starts
+// unref'd, so a short CLI/TUI run exits instead of waiting out `security`; the
+// promise's `hold()` references it again when a caller later starts awaiting it.
+// The bound is an AbortSignal timeout (an unref'd timer that kills the child
+// when it fires) instead of spawn's `timeout` option, whose referenced timer
+// would hold a background read's process for the whole bound; a referenced
+// child keeps the loop running, so the bound still fires for the awaited read.
+function spawnAsync(cmd, args, background = false) {
+  let hold = () => {};
+  const promise = new Promise((resolve) => {
     let child;
     try {
       child = spawn(cmd, args, {
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: KEYCHAIN_TIMEOUT_MS,
+        signal: AbortSignal.timeout(KEYCHAIN_TIMEOUT_MS),
       });
     } catch (error) {
       resolve({ status: null, stdout: '', error });
       return;
+    }
+    hold = () => {
+      child.ref();
+      child.stdout.ref();
+      child.stderr.ref();
+    };
+    if (background) {
+      child.unref();
+      child.stdout.unref();
+      child.stderr.unref();
     }
     let stdout = '';
     child.stdout.setEncoding('utf8');
@@ -368,19 +387,27 @@ function spawnAsync(cmd, args) {
     child.once('error', (error) => resolve({ status: null, stdout, error }));
     child.once('close', (status) => resolve({ status, stdout, error: null }));
   });
+  promise.hold = () => hold();
+  return promise;
 }
 
 // Re-asks the keychain about one account without blocking. An answer that was
 // overtaken meanwhile by this process (set, delete, invalidation) is dropped. A
 // failure other than "not found" keeps the cached answer and takes the account
 // out of the background set, so it is never re-read behind the user's back.
-function _rereadDarwin(account) {
+// `background`: nobody awaits it (its caller passes true); an awaiting caller
+// that joins a background read already in flight takes hold of it.
+function _rereadDarwin(account, background) {
   const generation = _cacheGenerations.get(account) || 0;
   const pending = _darwinRereads.get(account);
-  if (pending?.generation === generation) return pending.read;
+  if (pending?.generation === generation) {
+    if (!background) pending.hold();
+    return pending.read;
+  }
   const epoch = _cacheEpoch;
+  const spawned = spawnAsync('security', DARWIN_FIND_ARGS(account), background);
   const read = (async () => {
-    const r = await spawnAsync('security', DARWIN_FIND_ARGS(account));
+    const r = await spawned;
     if (_cacheEpoch !== epoch || (_cacheGenerations.get(account) || 0) !== generation) return;
     const previous = _cacheGet(account);
     if (!r.error && r.status === 0) {
@@ -396,20 +423,21 @@ function _rereadDarwin(account) {
   })().finally(() => {
     if (_darwinRereads.get(account)?.read === read) _darwinRereads.delete(account);
   });
-  _darwinRereads.set(account, { generation, read });
+  _darwinRereads.set(account, { generation, read, hold: spawned.hold });
   return read;
 }
 
 // One at a time, so a keychain that wants to ask the user asks once, not in parallel.
+// Only called for an invalidation, which nobody awaits.
 async function _rereadDarwinEach(accounts) {
-  for (const account of accounts) await _rereadDarwin(account);
+  for (const account of accounts) await _rereadDarwin(account, true);
 }
 
 // Called on every cached answer: past the refresh bound, start the re-read.
 function _refreshIfStale(account) {
   if (platform() !== 'darwin' || !_darwinReadable.has(account)) return;
   const entry = _secretCache.get(`${SERVICE}\0${account}`);
-  if (entry && Date.now() - entry.readAt > DARWIN_REFRESH_MS) void _rereadDarwin(account);
+  if (entry && Date.now() - entry.readAt > DARWIN_REFRESH_MS) void _rereadDarwin(account, true);
 }
 
 // An invalidation (another process changed these accounts): what is cached is
@@ -444,10 +472,13 @@ function _prewarmDarwin(accounts) {
   _darwinWarm = _darwinWarm.then(async () => {
     for (const account of accounts) {
       if (_cacheGet(account) !== undefined) continue;
-      await _rereadDarwin(account);
+      await _rereadDarwin(account, false);
       // An invalidation may have overtaken that read with a newer one (any
       // number of times): the warm is done only when the newest has landed.
-      for (let newest = _darwinRereads.get(account); newest; newest = _darwinRereads.get(account)) await newest.read;
+      for (let newest = _darwinRereads.get(account); newest; newest = _darwinRereads.get(account)) {
+        newest.hold();
+        await newest.read;
+      }
     }
   });
   return _darwinWarm;
@@ -1493,12 +1524,17 @@ function backend() {
   return selected;
 }
 
+// A cached answer. A cached absence (macOS remembers "not found") says only that
+// the keychain holds nothing, so the fallback file still answers, exactly as it
+// does for an uncached read.
+function _cachedSecret(account, cached) {
+  _refreshIfStale(account);
+  return cached ?? fallbackGet(account);
+}
+
 function getSecret(account) {
   const cached = _cacheGet(account);
-  if (cached !== undefined) {
-    _refreshIfStale(account);
-    return cached;
-  }
+  if (cached !== undefined) return _cachedSecret(account, cached);
   let value;
   try {
     value = backend().get(account);
@@ -1522,7 +1558,7 @@ function hasSecret(account) {
   const cached = _cacheGet(account);
   if (cached !== undefined) {
     _refreshIfStale(account);
-    return cached != null;
+    return cached != null || hasFallbackSecret(account);
   }
   if (platform() === 'win32') return fs.existsSync(dpApiFile(account));
   try {
@@ -1584,10 +1620,7 @@ function deleteSecret(account) {
 // event loop; other platforms keep their existing (sync) providers.
 async function getSecretAsync(account) {
   const cached = _cacheGet(account);
-  if (cached !== undefined) {
-    _refreshIfStale(account);
-    return cached;
-  }
+  if (cached !== undefined) return _cachedSecret(account, cached);
   const b = backend();
   if (!b.getAsync) return getSecret(account);
   if (_linuxLoaded()) return fallbackGet(account);
