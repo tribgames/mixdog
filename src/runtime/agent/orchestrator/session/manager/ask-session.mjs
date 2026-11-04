@@ -5,7 +5,7 @@
 // unwound (ask-turn-failure); the follow-up prompt FIFO is ask-queue and the
 // abort-aware call wrapper is ask-call-interrupt. This file owns the lock,
 // the loop and the runtime bookkeeping around each turn.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { admitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
 import {
   persistedAssistantTranscriptMetadata,
@@ -27,6 +27,13 @@ import { carryReportOnError, turnReportText, withEarlierReport } from '../loop/t
 import { finalizeAskTurnFailure } from './ask-turn-failure.mjs';
 import { armTurnTimeoutOnProviderError, reapTurnShellJobs } from './turn-reap.mjs';
 import { cacheWarmTurnKind, endCacheWarmTurn, failedTurnProvenance, noteCacheWarmTurn } from '../cache-warm.mjs';
+import { createTurnLifecycle } from '../../../../shared/turn-lifecycle.mjs';
+
+// Every turn an ask runs (its caller's, each follow-up drained behind it),
+// from its start to its outcome (shared/turn-lifecycle.mjs).
+const askTurns = createTurnLifecycle();
+/** Observe `sessionId`'s ask turns; returns the unsubscribe. */
+export const observeSessionTurns = askTurns.observe;
 
 export { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
 export {
@@ -218,7 +225,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
   // current session lock is released; it never delays completion. The
   // failed-turn retry identity is one-shot: a follow-up runs queued input,
   // never the retried turn. Nobody awaits it, so a failure is logged.
-  const followUpOpts = { ...askOpts, retryFailedTurn: undefined, retryTurnId: undefined, retryAttemptId: undefined };
+  const followUpOpts = {
+    ...askOpts,
+    retryFailedTurn: undefined,
+    retryTurnId: undefined,
+    retryAttemptId: undefined,
+    submissionId: undefined,
+  };
   const kickFollowUpAsk = () => {
     askSession(sessionId, '', null, onToolCall, cwdOverride, null, followUpOpts).catch(logFollowUpFailure(sessionId));
   };
@@ -246,6 +259,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
   // follow-up turn.
   let retryFailedTurn = askOpts.retryFailedTurn === true;
   let retryTurnId = askOpts.retryTurnId;
+  // The caller's submission is the first turn this ask runs.
+  let submissionIds = askOpts.submissionId ? [askOpts.submissionId] : [];
   try {
     // Turn loop (pendingMessages pattern): run the current prompt, then drain
     // any `agent type=send` messages that were queued while this turn was in
@@ -277,44 +292,61 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       // only a turn no queued input follows): this turn failing before it
       // runs (runAskTurn carries the report once it has) still hands them on.
       const earlierReport = result ? turnReportText(result) : '';
+      const turnId = randomUUID();
+      askTurns.started(sessionId, { turnId, startedAt: Date.now(), submissionIds });
+      submissionIds = [];
       let opened;
+      let turn;
       try {
-        // The previous turn's save has landed and this turn's base is on disk
-        // before the turn touches the session (one unsettled turn per session).
-        // The open runs right after, synchronously (before any await, so
-        // closeSession() can't interleave between load and registration);
-        // a turn that does not open gives back the writer claim it took.
-        opened = await settleAndOpenTurn(sessionId, { recoverCheckpoint: firstTurn }, () => {
-          const claimed = claimTurnRuntime({
-            sessionId,
-            askOpts,
-            emitStart: firstTurn,
+        try {
+          // The previous turn's save has landed and this turn's base is on disk
+          // before the turn touches the session (one unsettled turn per session).
+          // The open runs right after, synchronously (before any await, so
+          // closeSession() can't interleave between load and registration);
+          // a turn that does not open gives back the writer claim it took.
+          opened = await settleAndOpenTurn(sessionId, { recoverCheckpoint: firstTurn }, () => {
+            const claimed = claimTurnRuntime({
+              sessionId,
+              askOpts,
+              emitStart: firstTurn,
+            });
+            warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
+            firstTurn = false;
+            askGeneration = claimed.askGeneration;
+            return {
+              ...claimed,
+              ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
+            };
           });
-          warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
-          firstTurn = false;
-          askGeneration = claimed.askGeneration;
-          return {
-            ...claimed,
-            ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
-          };
+        } catch (error) {
+          throw carryReportOnError(error, earlierReport);
+        }
+        // From here the turn's own unwind (ask-turn-failure) acks or releases
+        // its entries; the queue keeps owning only the not-yet-started ones.
+        queue.markStarted();
+        turn = await runAskTurn({
+          sessionId,
+          opened,
+          input,
+          askOpts,
+          onToolCall,
+          cwdOverride,
+          transcript,
+          askStartedAt,
+          earlierReport,
         });
       } catch (error) {
-        throw carryReportOnError(error, earlierReport);
+        // An aborted turn names its abort's reason (a watchdog's stall error) as the cause.
+        const aborted = opened?.turnSignal?.aborted === true;
+        askTurns.settled(sessionId, {
+          turnId,
+          status: aborted ? 'cancelled' : 'failed',
+          error,
+          ...(aborted ? { abortCause: opened.turnSignal.reason } : {}),
+        });
+        throw error;
       }
-      // From here the turn's own unwind (ask-turn-failure) acks or releases
-      // its entries; the queue keeps owning only the not-yet-started ones.
-      queue.markStarted();
-      const turn = await runAskTurn({
-        sessionId,
-        opened,
-        input,
-        askOpts,
-        onToolCall,
-        cwdOverride,
-        transcript,
-        askStartedAt,
-        earlierReport,
-      });
+      askTurns.settled(sessionId, { turnId, status: 'done', result: turn.result });
       result = turn.result;
       endCacheWarmTurn(sessionId, warmTurn);
       // Turn complete. Drain the pending-message queue: any `agent type=send`

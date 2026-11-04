@@ -286,6 +286,8 @@ export async function createLocalSessionRuntime({
     pendingSessionReset: false,
     lastUserActivityAt: Date.now(),
     leadTurnEpoch: 0,
+    // The running turn's abort: { epoch, reason, cause } (intake/abort.mjs).
+    turnAbort: null,
     activePromptRestore: null,
     pushingFromDeferredEntry: false,
     flushDeferredBeforeImmediatePush: null,

@@ -107,7 +107,7 @@ export {
   resumeSession,
   recoverSessionAfterProcessRestart,
 } from './manager/session-lifecycle.mjs';
-export { askSession, _api_call_with_interrupt } from './manager/ask-session.mjs';
+export { askSession, observeSessionTurns, _api_call_with_interrupt } from './manager/ask-session.mjs';
 export {
   _sessionMessagesAdvancedBeyondCompactedOutgoing,
   _applyCompactFailurePersistToSession,

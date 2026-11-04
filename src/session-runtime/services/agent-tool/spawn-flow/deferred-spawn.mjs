@@ -30,8 +30,8 @@ export function createDeferredSpawn({
     forgetTerminalSession(prepared.tag, prepared.session.id);
   }
 
-  // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
-  // installs its progress watchdog, so prep is guarded by an internal
+  // prepareSpawn (ensureProvider/prepareAgentSession) runs before the first
+  // turn arms its progress watchdog, so prep is guarded by an internal
   // env-backed cap rather than per-call timeout knobs on the agent tool
   // surface. If prep wins the race its result is used. If the timeout wins,
   // the prepareSpawn promise may still resolve later with a fully-built

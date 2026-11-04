@@ -87,82 +87,6 @@ test('agent job completion uses immutable caller owner and never invokes stale n
   cleanupBackgroundTasks({ surface: 'agent', force: true });
 });
 
-test('the progress stamp keeps a working stage beside status running, whatever phase the runtime reads', () => {
-  const updates = [];
-  const flow = createSpawnFlow({
-    mgr: {},
-    upsertWorkerSessionDeferred(_session, _tag, patch) {
-      updates.push(patch);
-    },
-    sessionSurface: { canonical: true },
-  });
-  const stamp = flow.progressStamper({ id: 'sess_progress' }, 'progress-worker');
-  for (const stage of ['idle', 'done', 'error', null]) stamp({ messages: 2, stage });
-  for (const stage of ['connecting', 'requesting', 'streaming', 'tool_running', 'resource_wait']) stamp({ stage });
-  assert.deepEqual(
-    updates.map((patch) => [patch.status, patch.stage]),
-    [
-      ['running', 'running'],
-      ['running', 'running'],
-      ['running', 'running'],
-      ['running', 'running'],
-      ['running', 'connecting'],
-      ['running', 'requesting'],
-      ['running', 'streaming'],
-      ['running', 'tool_running'],
-      ['running', 'resource_wait'],
-    ]
-  );
-});
-
-test('a user-cancelled Agent turn settles the worker row as cancelled, not error', async () => {
-  const updates = [];
-  const flow = createSpawnFlow({
-    mgr: {
-      getSession: () => ({ messages: [] }),
-    },
-    upsertWorkerSessionDeferred(_session, _tag, patch) {
-      updates.push(patch);
-    },
-    emitSubagentEvent() {},
-    scheduleReap() {},
-    createTurnReviewCollector: () => ({
-      onToolResult() {},
-      complete() {},
-    }),
-    sessionSurface: {
-      canonical: true,
-      canRun: () => true,
-      async runTurn() {
-        throw new Error('cancelled by agent close');
-      },
-    },
-  });
-  const job = { taskId: 'task-agent-cancelled', status: 'cancelled' };
-
-  await assert.rejects(
-    flow.runSpawn(
-      {
-        args: {},
-        tag: 'cancelled-worker',
-        session: { id: 'sess_cancelled_worker' },
-        agent: 'worker',
-        preset: { provider: 'test-provider', model: 'test-model' },
-        presetName: 'worker-route',
-        workerCwd: 'C:\\Project\\tree',
-        prompt: 'cancel me',
-        watchdogPolicy: null,
-      },
-      { callerSessionId: 'sess_lead' },
-      job
-    ),
-    /cancelled by agent close/
-  );
-
-  assert.equal(updates.at(-1).status, 'cancelled');
-  assert.equal(updates.at(-1).stage, 'cancelled');
-});
-
 test("a spawn's host-set skill selection reaches the worker's turn on both runtimes; none is invented", async () => {
   const prepared = (args) => ({
     args,
@@ -173,7 +97,6 @@ test("a spawn's host-set skill selection reaches the worker's turn on both runti
     presetName: 'worker-route',
     workerCwd: 'C:\\Project\\tree',
     prompt: 'task with $payload-skill',
-    watchdogPolicy: null,
   });
   const common = {
     upsertWorkerSessionDeferred() {},
@@ -261,7 +184,6 @@ async function closeRunningWorker(partial) {
     presetName: 'worker-route',
     workerCwd: 'C:\\Project\\tree',
     prompt: 'work',
-    watchdogPolicy: null,
   };
   const lead = { callerSessionId: 'sess_close_lead', clientHostPid: process.pid };
   const job = flow.startJob(
@@ -380,7 +302,6 @@ test('agent-tree cancel of a running agent reports its own task to the owner onc
     presetName: 'review',
     workerCwd: 'C:/work',
     prompt: 'review it',
-    watchdogPolicy: null,
   };
   try {
     const job = flow.startJob(

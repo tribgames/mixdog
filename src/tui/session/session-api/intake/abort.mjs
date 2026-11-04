@@ -175,6 +175,9 @@ export function createAbortAction(bag) {
       keepsPrompt ? USER_CANCEL_KEEP_PROMPT_REASON : reason,
       { timeout: options?.timeout === true }
     );
+    // The stopped turn's settlement names this abort, and a caller's own
+    // cause (the progress watchdog's stall error) with it.
+    if (aborted !== false) flags.turnAbort = { epoch: flags.leadTurnEpoch, reason, cause: options?.cause ?? null };
     if (restoreState) {
       // A user Stop consumes this input even when no draft is requested.
       // Explicit draft reclamation also releases it; automatic interruptions

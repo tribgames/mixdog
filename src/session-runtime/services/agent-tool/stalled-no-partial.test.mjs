@@ -21,6 +21,8 @@ function stoppedJob(sessionId, taskId) {
   armTurnShellReap(sessionId, { askStartedAt: Date.now() - 1_000 });
 }
 const stall = () => new AgentStallAbortError('agent task stale (1ms without progress)');
+// The worker row follows the turn itself (worker-turns.mjs); these runs report only their job.
+const noTurns = { observe() {}, claim: () => ({ submissionId: 'turn', release() {} }) };
 
 test('a send ended by a terminal provider timeout names the stopped jobs in its error', async () => {
   const session = { id: 'timeout_send', agent: 'worker', messages: [] };
@@ -37,10 +39,7 @@ test('a send ended by a terminal provider timeout names the stopped jobs in its 
     registry: { tagForSession: () => 'worker', upsertWorkerSessionDeferred() {}, scheduleReap() {} },
     views: { isSessionBusy: () => false, renderJob: () => ({ status: 'running' }) },
     spawnFlow: {
-      agentWatchdogOverrides: () => ({}),
-      startProgressIdleWatchdog: () => ({ stop() {} }),
-      turnStartStamper: () => () => {},
-      progressStamper: () => () => {},
+      workerTurns: noTurns,
       workerNotifyFn: () => () => {},
       startJob: (_kind, _meta, fn) => {
         run = fn;
@@ -56,7 +55,7 @@ test('a spawn ended by a terminal provider timeout names the stopped jobs in its
   const session = { id: 'timeout_spawn', agent: 'worker' };
   const runner = createSpawnRunner({
     mgr: { getSession: () => ({ messages: [] }) },
-    upsertWorkerSessionDeferred() {},
+    workerTurns: noTurns,
     emitSubagentEvent() {},
     createTurnReviewCollector: () => ({ onToolResult() {}, complete() {} }),
     sessionSurface: {
@@ -79,7 +78,6 @@ test('a spawn ended by a terminal provider timeout names the stopped jobs in its
         presetName: 'worker-route',
         workerCwd: process.cwd(),
         prompt: 'work',
-        watchdogPolicy: null,
       },
       {},
       null
@@ -103,10 +101,7 @@ test('a send stalled with no partial output names the stopped background shell j
     registry: { tagForSession: () => 'worker', upsertWorkerSessionDeferred() {}, scheduleReap() {} },
     views: { isSessionBusy: () => false, renderJob: () => ({ status: 'running' }) },
     spawnFlow: {
-      agentWatchdogOverrides: () => ({}),
-      startProgressIdleWatchdog: () => ({ stop() {} }),
-      turnStartStamper: () => () => {},
-      progressStamper: () => () => {},
+      workerTurns: noTurns,
       workerNotifyFn: () => () => {},
       startJob: (_kind, _meta, fn) => {
         run = fn;
@@ -125,7 +120,7 @@ test('a spawn stalled with no partial output names the stopped background shell 
   const session = { id: 'stalled_spawn', agent: 'worker' };
   const runner = createSpawnRunner({
     mgr: { getSession: () => ({ messages: [] }) },
-    upsertWorkerSessionDeferred() {},
+    workerTurns: noTurns,
     emitSubagentEvent() {},
     createTurnReviewCollector: () => ({ onToolResult() {}, complete() {} }),
     sessionSurface: {
@@ -148,7 +143,6 @@ test('a spawn stalled with no partial output names the stopped background shell 
         presetName: 'worker-route',
         workerCwd: process.cwd(),
         prompt: 'work',
-        watchdogPolicy: null,
       },
       {},
       null

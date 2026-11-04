@@ -373,6 +373,9 @@ export function createStandaloneAgent({
   function disposeStatus() {
     disposed = true;
     stopMaintenance();
+    // Its session observers and armed watchdogs would outlive the tool, and a
+    // recreated tool would own the same sessions a second time.
+    spawnFlow.workerTurns.dispose();
     for (const stop of stopStatusSources) stop();
     sessionRecords.release();
   }

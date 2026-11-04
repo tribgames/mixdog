@@ -5,7 +5,6 @@
  * spec it produces live in ./spawn-plan.mjs.
  */
 import { presetKey, readAgentFirstResponseTimeoutMs, writeAgentStatuslineRoute } from '../helpers.mjs';
-import { resolveAgentWatchdogPolicy } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { prewarmGitStartupProbes } from '../../../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { getProvider } from '../../../../runtime/agent/orchestrator/providers/registry.mjs';
@@ -149,15 +148,6 @@ export function createSpawnPreparer({
       presetName: plan.presetName,
       workerCwd: effectiveCwd || plan.workerCwd,
       prompt: plan.prompt,
-      watchdogPolicy: resolveAgentWatchdogPolicy(
-        plan.agent,
-        agentWatchdogOverrides({
-          agent: plan.agent,
-          provider: plan.preset.provider,
-          model: plan.preset.model,
-          modelParameters: plan.preset.modelParameters,
-        })
-      ),
     };
   }
 

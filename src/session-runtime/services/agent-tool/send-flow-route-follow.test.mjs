@@ -17,7 +17,7 @@ function flow(session, config) {
     canUseSessionSurface: () => true,
     registry: { tagForSession: () => 'w-1' },
     views: { isSessionBusy: () => true },
-    spawnFlow: {},
+    spawnFlow: { workerTurns: { observe() {} } },
   });
   const send = () =>
     sendFlow.dispatchToExistingSession({ args: {}, session, sessionId: session.id, prompt: 'more' }, null);
@@ -61,7 +61,7 @@ test('a model picked just before the send is followed before its debounced write
     canUseSessionSurface: () => true,
     registry: { tagForSession: () => 'w-1' },
     views: { isSessionBusy: () => true },
-    spawnFlow: {},
+    spawnFlow: { workerTurns: { observe() {} } },
   });
   await sendFlow.dispatchToExistingSession({ args: {}, session, sessionId: session.id, prompt: 'more' }, null);
   assert.deepEqual(
@@ -109,7 +109,7 @@ test('an in-process reused worker takes an effort/Fast change of its agent route
     canUseSessionSurface: () => false,
     registry: { tagForSession: () => 'w-5' },
     views: { isSessionBusy: (id) => updates.length > 0 && id === 'sess_w5' },
-    spawnFlow: {},
+    spawnFlow: { workerTurns: { observe() {} } },
   });
   await sendFlow.dispatchToExistingSession({ args: {}, session, sessionId: session.id, prompt: 'more' }, null);
   assert.equal(updates.length, 1);
@@ -137,7 +137,7 @@ test('a busy in-process worker drops its hold when the agent route is saved back
     canUseSessionSurface: () => false,
     registry: { tagForSession: () => 'w-6' },
     views: { isSessionBusy: () => true },
-    spawnFlow: {},
+    spawnFlow: { workerTurns: { observe() {} } },
   });
   const send = () =>
     sendFlow.dispatchToExistingSession({ args: {}, session, sessionId: session.id, prompt: 'more' }, null);

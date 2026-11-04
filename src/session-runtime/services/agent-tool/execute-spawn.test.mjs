@@ -40,6 +40,7 @@ function harness({ busy = false, sessionSurface = {} } = {}) {
     registry,
     views: { isSessionBusy: () => busy, renderJob: () => ({ status: 'running' }) },
     spawnFlow: {
+      workerTurns: { observe() {} },
       startJob: () => {
         events.push(['startJob']);
         return {};

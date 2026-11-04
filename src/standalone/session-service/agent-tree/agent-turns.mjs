@@ -54,7 +54,6 @@ export function createAgentTurns({
   entryForSession,
   retainUnwatched,
   createSession,
-  takeWatchdogStop,
   takeCancelTranscript,
 }) {
   const createAgentChild = createAgentChildFactory({
@@ -89,6 +88,8 @@ export function createAgentTurns({
     // The trusted skill-selection text of the turn (a routine executor's
     // instructions); absent selects from the whole prompt, as any turn does.
     skillSelection,
+    // The submission's id, when the caller names the turn it waits on.
+    submissionId,
   } = {}) {
     await rehydrateAgentSessions();
     const sessionId = String(session?.id || session || '').trim();
@@ -108,8 +109,6 @@ export function createAgentTurns({
     if (typeof target !== 'function') {
       throw new TypeError('session runtime must implement submitAndWait');
     }
-    // A stop left over from an earlier turn must not relabel this one.
-    takeWatchdogStop(sessionId);
     takeCancelTranscript(sessionId);
     // Transcript length before this turn: where a watchdog stop's partial
     // output starts.
@@ -121,7 +120,7 @@ export function createAgentTurns({
     try {
       const content = agentTurnContent(prompt);
       const options = {
-        id: `agent-turn-${randomUUID()}`,
+        id: submissionId || `agent-turn-${randomUUID()}`,
         mode: 'prompt',
         priority: 'next',
         context,
@@ -134,7 +133,8 @@ export function createAgentTurns({
         throw carryReportOnError(new Error(String(detail.error || 'agent session turn failed')), detail.carriedReport);
       }
       if (detail?.status === 'cancelled') {
-        const stop = takeWatchdogStop(sessionId) || new Error('agent session turn cancelled');
+        // A watchdog stop surfaces as its stall error, which its abort named as the turn's cause.
+        const stop = detail.abortCause instanceof Error ? detail.abortCause : new Error('agent session turn cancelled');
         throw await withPartialHandoff(entry.runtime, sessionId, stop, messageStart);
       }
       // Only a completed turn has a result; a rejected submission (session
