@@ -8,7 +8,12 @@
  * returns raw PTY text; ANSI stripping, carriage-return collapsing and the line
  * cap happen here so the model only ever receives clean, bounded output.
  */
-import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
+import {
+  bridgeDiscoveryChanged,
+  readBridgeDiscovery,
+  readBridgeDiscoveryDetail,
+  readBridgeDiscoveryFresh,
+} from '../bridge-discovery.mjs';
 import {
   foldCarriageReturnFrames,
   foldConsecutiveDuplicateLines,
@@ -320,7 +325,7 @@ export async function executeTerminalTool(args, options = {}) {
     ...(validated.since !== undefined ? { since: validated.since } : {}),
     ...(isRun ? { command: validated.command } : {}),
   };
-  let discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  let discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery) return terminalToolError(unavailableMessage());
   let result;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -335,7 +340,7 @@ export async function executeTerminalTool(args, options = {}) {
     } catch (error) {
       if (error?.name === 'TimeoutError') return terminalToolError('terminal bridge timed out');
       if (options.signal?.aborted) return terminalToolError('terminal command cancelled');
-      const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+      const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
       if (!isRun && attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
         discovery = replacement;
         continue;

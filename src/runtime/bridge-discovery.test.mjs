@@ -5,7 +5,13 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { bridgeDiscoveryChanged, readBridgeDiscovery } from './bridge-discovery.mjs';
+import {
+  _bridgeDiscoverySettledForTest,
+  bridgeDiscoveryChanged,
+  onBridgeDiscoveryChange,
+  readBridgeDiscovery,
+  readBridgeDiscoveryFresh,
+} from './bridge-discovery.mjs';
 import { _resetWatchedFileCachesForTest } from './shared/watched-file-cache.mjs';
 import { eventually, settle, spySyncFs } from './shared/watched-file-cache.test-helpers.mjs';
 
@@ -23,10 +29,94 @@ function discoveryFixture(t) {
   });
   const publish = (port) =>
     writeFileSync(join(dir, FILE), JSON.stringify({ version: 1, port, token: 't', pid: process.pid }));
-  return { publish };
+  return { publish, path: join(dir, FILE) };
 }
 
 const port = () => readBridgeDiscovery(FILE)?.port ?? null;
+const freshPort = async () => (await readBridgeDiscoveryFresh(FILE))?.port ?? null;
+
+test('a fresh read that cannot parse the advertisement answers the last good one', async (t) => {
+  const { publish, path } = discoveryFixture(t);
+  publish(4000);
+  assert.equal(await freshPort(), 4000);
+  writeFileSync(path, '{"version":1,');
+  assert.equal(await freshPort(), 4000, 'a half-written file is no missing advertisement');
+});
+
+// The next read of `path` sees its bytes at once and returns them only on
+// `release()`; `reached` resolves once it has read them.
+function holdNextRead(t, path) {
+  const readFile = fsp.readFile;
+  let holdNext = true;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let reachedRead;
+  const reached = new Promise((resolve) => {
+    reachedRead = resolve;
+  });
+  t.mock.method(fsp, 'readFile', async (target, ...rest) => {
+    const text = await readFile(target, ...rest);
+    if (holdNext && String(target) === path) {
+      holdNext = false;
+      reachedRead();
+      await held;
+    }
+    return text;
+  });
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  return { reached, release };
+}
+
+test('a fresh read overtaken by a newer one answers the newer endpoint and keeps it cached', async (t) => {
+  const { publish, path } = discoveryFixture(t);
+  publish(4000);
+  assert.equal(port(), 4000);
+  const { reached, release } = holdNextRead(t, path);
+  let changes = 0;
+  t.after(onBridgeDiscoveryChange((changed) => changed === path && (changes += 1)));
+
+  const old = freshPort();
+  await reached;
+  publish(4001);
+  assert.equal(await freshPort(), 4001);
+  release();
+  assert.equal(await old, 4001, 'the overtaken read answers what is current');
+  assert.equal(port(), 4001, 'the overtaken read stored nothing');
+  // Every re-read the watch or the stores scheduled has applied its result.
+  await _bridgeDiscoverySettledForTest(path);
+  assert.equal(port(), 4001, 'the overtaken read did not roll the copy back');
+  assert.equal(changes, 1, 'one replacement, one notification');
+});
+
+test('a fresh read overtaken by a cold availability read answers what that read cached', async (t) => {
+  const { publish, path } = discoveryFixture(t);
+  publish(4000);
+  const { reached, release } = holdNextRead(t, path);
+
+  // A request's first read is out when availability is first asked.
+  const old = freshPort();
+  await reached;
+  publish(4001);
+  assert.equal(port(), 4001, 'the cold availability read sees the republished bridge');
+  release();
+  assert.equal(await old, 4001, 'the request goes to the endpoint the cold read cached');
+  assert.equal(port(), 4001, 'the overtaken read stored nothing');
+});
+
+test('a fresh read sees a republished bridge at once, without synchronous fs', async (t) => {
+  const { publish } = discoveryFixture(t);
+  publish(4000);
+  assert.equal(port(), 4000);
+  const calls = spySyncFs(t);
+  publish(4001);
+  calls.splice(0);
+  assert.equal(await freshPort(), 4001);
+  assert.deepEqual([...calls], []);
+  assert.equal(port(), 4001, 'the watched copy learns the fresh read');
+});
 
 test('warm discovery reads touch no filesystem; a missing file appears through the watch', async (t) => {
   const { publish } = discoveryFixture(t);

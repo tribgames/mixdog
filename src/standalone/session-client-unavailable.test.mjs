@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { acquireDaemonOwnerLock, daemonOwnerLockPath } from './daemon-owner-lock.mjs';
 import { ensureDaemon } from './session-client.mjs';
 
 import { makeTempDirSync } from '../../scripts/lib/scoped-temp.mjs';
@@ -100,12 +101,23 @@ setInterval(() => {}, 1_000);
 
 test('a live owner that never publishes is named when no candidate was spawned', async (t) => {
   const env = fixture(t);
-  const claimedAt = new Date().toISOString();
-  writeFileSync(
-    join(env.dataDir, 'daemon-owner.json'),
-    JSON.stringify({ kind: 'mixdog-daemon', pid: process.pid, claimedAt })
-  );
-  const error = await unavailableError({ attempts: 1, readyTimeoutMs: 300 });
+  // A live owner is the holder of the owner lock (here this process); its
+  // record only names it.
+  const lock = await acquireDaemonOwnerLock(daemonOwnerLockPath(env.dataDir));
+  let error;
+  let claimedAt;
+  try {
+    assert.ok(lock.held);
+    claimedAt = new Date().toISOString();
+    writeFileSync(
+      join(env.dataDir, 'daemon-owner.json'),
+      JSON.stringify({ kind: 'mixdog-daemon', pid: process.pid, claimedAt })
+    );
+    error = await unavailableError({ attempts: 1, readyTimeoutMs: 300 });
+  } finally {
+    // Before the fixture's removal: the open lock file keeps its dir busy on Windows.
+    lock.release?.();
+  }
   assert.deepEqual(error.message.split('\n'), [
     'daemon session endpoint is unavailable',
     `daemon owner: pid=${process.pid} (claimed ${claimedAt}) held the lock but never published an endpoint`,

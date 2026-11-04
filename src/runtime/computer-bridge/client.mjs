@@ -20,7 +20,7 @@ import {
   computerImageDimensions,
 } from './result-canonical.mjs';
 import { computerErrorCode } from './error-code.mjs';
-import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
+import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryFresh } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
 import { linuxCaptureFallback, linuxComputerPreflight } from './linux-readiness.mjs';
@@ -181,7 +181,7 @@ async function postWithBridgeRecovery(discovery, command, encoded, sessionId, co
     try {
       const response = await postComputerCommand(bridge, encoded, { signal: context?.signal });
       if (response.status === 401 && attempt === 0 && isReplaySafeComputerCommand(command)) {
-        const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+        const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
         if (bridgeDiscoveryChanged(bridge, replacement)) {
           await response.body?.cancel().catch(() => undefined);
           bridge = replacement;
@@ -194,7 +194,7 @@ async function postWithBridgeRecovery(discovery, command, encoded, sessionId, co
       const timedOut = error?.name === 'TimeoutError';
       const mutationMayHaveExecuted = computerMutationMayHaveExecuted(command);
       if (attempt === 0 && !externallyAborted && !timedOut) {
-        const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+        const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
         if (bridgeDiscoveryChanged(bridge, replacement)) {
           if (isReplaySafeComputerCommand(command)) {
             bridge = replacement;
@@ -269,7 +269,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
 }
 
 async function executeComputerToolInner(rawArgs, context, note) {
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery) return computerErrorResult(`Error: ${BRIDGE_UNAVAILABLE_MESSAGE}`);
   // Resolve the argument shape once so validation, host translation, and the
   // canonical result text all read the same input.
@@ -392,7 +392,7 @@ async function settlePendingComputerWork(value, command, bridge, sessionId, cont
 }
 
 async function sendComputerSessionControl(sessionId, action, timeoutMs, extra = {}) {
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery) return false;
   try {
     const response = await postComputerCommand(
@@ -415,7 +415,7 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs, extra = 
  *  field ref the agent named (desktop secret-input.ts bindComputerSecret).
  *  Answers 'bound' or 'no_field'; no desktop or an unknown answer is 'blocked'. */
 export async function computerSecretBind(sessionId, requestId, { ref = '', windowId = '', signal } = {}) {
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery || !sessionId || !requestId) return 'blocked';
   try {
     const response = await postComputerCommand(
@@ -443,7 +443,7 @@ export async function computerSecretBind(sessionId, requestId, { ref = '', windo
  *  ('entered', 'no_field', 'page_changed', 'blocked', 'expired'); no desktop
  *  or an unknown answer is 'blocked'. */
 export async function computerSecretInput(sessionId, requestId, { ref = '', windowId = '', signal } = {}) {
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery || !sessionId || !requestId) return 'blocked';
   try {
     const response = await postComputerCommand(

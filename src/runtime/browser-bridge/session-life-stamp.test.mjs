@@ -9,6 +9,7 @@ test('a browser command carries the session life mark, which changes when the se
   t.mock.module('../bridge-discovery.mjs', {
     namedExports: {
       readBridgeDiscovery: () => ({ port: 12345, token: 'test-only-token' }),
+      readBridgeDiscoveryFresh: async () => ({ port: 12345, token: 'test-only-token' }),
       readBridgeDiscoveryDetail: () => ({ reason: 'missing' }),
       bridgeDiscoveryChanged,
     },

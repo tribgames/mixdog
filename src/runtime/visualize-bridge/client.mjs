@@ -5,7 +5,12 @@
  * Request: POST /command { sessionId, cwd, action, input }.
  * Response: { ok:true, text, tabs?, path? } | { ok:false, error }.
  */
-import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
+import {
+  bridgeDiscoveryChanged,
+  readBridgeDiscovery,
+  readBridgeDiscoveryDetail,
+  readBridgeDiscoveryFresh,
+} from '../bridge-discovery.mjs';
 import { visualizeOwnerToolMeta } from './tool-meta.mjs';
 
 const DISCOVERY_FILE = 'visualize-bridge.json';
@@ -189,7 +194,7 @@ export async function executeVisualizeTool(args, options = {}) {
     // The call's id: the host names it in its turn-end record of opens whose tab is gone.
     ...(options.callId ? { callId: String(options.callId) } : {}),
   };
-  let discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  let discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery) return toolError(unavailableMessage());
   let result;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -206,7 +211,7 @@ export async function executeVisualizeTool(args, options = {}) {
     } catch (error) {
       if (error?.name === 'TimeoutError') return toolError('visualize bridge timed out');
       if (options.signal?.aborted) return toolError('visualize command cancelled');
-      const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+      const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
       if (attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
         discovery = replacement;
         continue;

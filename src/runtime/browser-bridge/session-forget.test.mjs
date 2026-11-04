@@ -7,6 +7,7 @@ test('deleting a session forgets its browser bookkeeping, so a later turn start 
   t.mock.module('../bridge-discovery.mjs', {
     namedExports: {
       readBridgeDiscovery: () => ({ port: 12345, token: 'test-only-token' }),
+      readBridgeDiscoveryFresh: async () => ({ port: 12345, token: 'test-only-token' }),
       readBridgeDiscoveryDetail: () => ({ reason: 'missing' }),
       bridgeDiscoveryChanged,
     },

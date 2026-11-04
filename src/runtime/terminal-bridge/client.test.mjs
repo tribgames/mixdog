@@ -13,6 +13,7 @@ import {
   terminalBridgeAvailableSync,
   validateTerminalArgs,
 } from './client.mjs';
+import { nextBridgeDiscoveryChange } from '../bridge-discovery.test-support.mjs';
 import { TOOL_DEFS } from './tool-defs.mjs';
 
 async function withBridge(handler, run) {
@@ -311,10 +312,13 @@ test('availability follows a fresh discovery file', async () => {
   process.env.MIXDOG_DATA_DIR = directory;
   try {
     assert.equal(terminalBridgeAvailableSync(), false);
+    // The gate's watched copy learns the new file through its watch.
+    const changed = nextBridgeDiscoveryChange(join(directory, 'terminal-bridge.json'));
     await writeFile(
       join(directory, 'terminal-bridge.json'),
       JSON.stringify({ version: 1, port: 1234, token: 't', pid: process.pid })
     );
+    await changed;
     assert.equal(terminalBridgeAvailableSync(), true);
     const result = await executeTerminalTool({ action: 'list' }, { sessionId: '' });
     assert.match(result.content[0].text, /session context/);

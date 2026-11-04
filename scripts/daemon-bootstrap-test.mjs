@@ -14,10 +14,16 @@ test('a client waits for the live singleton winner to publish discovery', async 
   process.env.MIXDOG_RUNTIME_ROOT = runtimeRoot;
   process.env.MIXDOG_DATA_DIR = dataDir;
   let server = null;
+  let lock = null;
   try {
     const { mkdirSync } = await import('node:fs');
     mkdirSync(runtimeRoot, { recursive: true });
     mkdirSync(dataDir, { recursive: true });
+    // The live winner is the holder of the owner lock (here this process);
+    // its record only names it.
+    const { acquireDaemonOwnerLock, daemonOwnerLockPath } = await import('../src/standalone/daemon-owner-lock.mjs');
+    lock = await acquireDaemonOwnerLock(daemonOwnerLockPath(dataDir));
+    assert.ok(lock.held);
     writeFileSync(
       join(dataDir, 'daemon-owner.json'),
       JSON.stringify({
@@ -67,6 +73,8 @@ test('a client waits for the live singleton winner to publish discovery', async 
     assert.equal(discovery.pid, process.pid);
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
+    // Before the removal: the open lock file keeps its dir busy on Windows.
+    lock?.release?.();
     if (previousRuntimeRoot === undefined) delete process.env.MIXDOG_RUNTIME_ROOT;
     else process.env.MIXDOG_RUNTIME_ROOT = previousRuntimeRoot;
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;

@@ -8,7 +8,12 @@
  * surface, and the async executor behind actual tool calls.
  */
 import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-schema.mjs';
-import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
+import {
+  bridgeDiscoveryChanged,
+  readBridgeDiscovery,
+  readBridgeDiscoveryDetail,
+  readBridgeDiscoveryFresh,
+} from '../bridge-discovery.mjs';
 import { mailLinkFor } from './mail-links.mjs';
 import { sessionLifeMark } from '../agent/orchestrator/session/human-gate/session-life.mjs';
 import { traceBrowserTiming } from './timing.mjs';
@@ -41,7 +46,7 @@ const browserSessions = new Set();
  *  first command marks it live there). */
 export async function beginBrowserTurn(sessionId, turnId) {
   if (!browserSessions.has(sessionId)) return;
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery || !(turnId > 0)) return;
   rememberBrowserTurn(sessionId, turnId, discovery);
   const result = await requestBridgeWithin(
@@ -100,7 +105,7 @@ const SECRET_FILL_OUTCOMES = new Set(['entered', 'no_field', 'page_changed', 'bl
  *  host answers only the outcome ('entered', 'no_field', 'page_changed',
  *  'blocked', 'expired'); no desktop or an unknown answer is 'blocked'. */
 export async function browserSecretInput(sessionId, requestId, { signal } = {}) {
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery || !sessionId || !requestId) return 'blocked';
   try {
     const result = await requestBridgeWithin(
@@ -123,7 +128,7 @@ export async function browserSecretInput(sessionId, requestId, { signal } = {}) 
  *  `page_url` says where the page is now. null when the desktop is absent or
  *  refuses. */
 export async function browserHandoffPage(sessionId, action, fields = {}, { signal } = {}) {
-  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery || !sessionId) return null;
   try {
     const result = await requestBridgeWithin(
@@ -357,7 +362,7 @@ export async function executeBrowserTool(args, options = {}) {
   if (Buffer.byteLength(encodedPayload) > MAX_REQUEST_BYTES) {
     return browserToolError(`browser command exceeds ${MAX_REQUEST_BYTES} bytes`);
   }
-  let discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  let discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery) return browserToolError(unavailableMessage());
   browserSessions.add(sessionId);
   rememberBrowserTurn(sessionId, payload.turn_id, discovery);
@@ -379,7 +384,7 @@ export async function executeBrowserTool(args, options = {}) {
         return settleFailure('browser bridge timed out and cancelled the active command');
       }
       if (options.signal?.aborted) return settleFailure('browser command cancelled');
-      const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+      const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
       if (attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
         if (RETRYABLE_ACTIONS.has(validated.action)) {
           discovery = replacement;

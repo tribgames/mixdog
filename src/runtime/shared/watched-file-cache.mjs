@@ -251,12 +251,25 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
     clearTimeout(entry.timer);
     entries.delete(path);
     release(entry.watchDir);
+    checkSettled(path);
     return entry;
   };
 
   // Re-reads in flight across every entry, and those waiting for a slot.
   let reading = 0;
   const waiting = [];
+
+  // Test seam: path -> resolvers waiting for it to have no re-read due,
+  // queued or running.
+  const settledWaiters = new Map();
+  const checkSettled = (path) => {
+    const resolvers = settledWaiters.get(path);
+    if (!resolvers) return;
+    const entry = entries.get(path);
+    if (entry && (entry.timer || entry.loading || entry.queued)) return;
+    settledWaiters.delete(path);
+    for (const resolve of resolvers) resolve();
+  };
 
   const reread = (path, entry) => {
     if (entry.loading) {
@@ -308,7 +321,10 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
         reading -= 1;
         entry.loading = false;
         startWaiting();
-        if (!current()) return;
+        if (!current()) {
+          checkSettled(path);
+          return;
+        }
         // A watch that starts only now may have missed a write before it.
         if (attach(path, entry)) entry.again = true;
         // Debounced like any event: a read started at once could still hold
@@ -317,6 +333,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
           entry.again = false;
           scheduleReread(path, entry);
         }
+        checkSettled(path);
       });
   };
 
@@ -382,6 +399,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
     entries.clear();
     unwatchable.clear();
     waiting.length = 0;
+    for (const path of [...settledWaiters.keys()]) checkSettled(path);
   };
 
   const cache = {
@@ -407,11 +425,32 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null, o
         if (!entry) store(path, holder, undefined, error);
         throw error;
       }
-      return store(path, holder, loaded.value).value;
+      const value = store(path, holder, loaded.value).value;
+      // A fresh read may replace an entry whose re-read was due.
+      checkSettled(path);
+      return value;
     },
     /** The cached value (the last one read), or undefined. */
     peek(path) {
       return entries.get(path)?.value;
+    },
+    /** Test seam: resolves once `path` has no re-read due, queued or running,
+     *  the last one's result applied; rejects after `timeoutMs`. That deadline
+     *  is also what keeps the process alive meanwhile: the re-read's timer and
+     *  the watches are unref'd. */
+    _settledForTest(path, timeoutMs = 5_000) {
+      return new Promise((resolve, reject) => {
+        const deadline = setTimeout(
+          () => reject(new Error(`${path} had a re-read pending after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+        const settled = () => {
+          clearTimeout(deadline);
+          resolve();
+        };
+        settledWaiters.set(path, [...(settledWaiters.get(path) ?? []), settled]);
+        checkSettled(path);
+      });
     },
     /** Write-through after this process wrote `path`. The file is read back
      *  (debounced, so the read holds no handle across the writer's next

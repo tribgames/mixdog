@@ -436,6 +436,38 @@ test('a write landing while the previous re-read is in flight is observed', asyn
   assert.equal(cache.get(path), 'foreign write, longer');
 });
 
+test('the settled seam resolves only once the due re-read has applied its result', async (t) => {
+  const { dir, cache, reads } = noticing(t);
+  const path = join(dir, 'record.json');
+  writeFileSync(path, 'loaded');
+  cache.get(path);
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let reached;
+  const out = new Promise((resolve) => {
+    reached = resolve;
+  });
+  reads.before = () => {
+    reads.before = async () => {};
+    reached();
+    return gate;
+  };
+  writeFileSync(path, 'external write');
+  // Our own write-through schedules the re-read whatever the watch delivers.
+  cache.set(path, 'own write');
+  let settled = false;
+  const done = cache._settledForTest(path).then(() => {
+    settled = true;
+  });
+  await out;
+  assert.equal(settled, false, 'a re-read in flight is not settled');
+  release();
+  await done;
+  assert.equal(cache.peek(path), 'external write', 'its result was applied before it settled');
+});
+
 test('closing a cache releases its watchers, and later reads leave none behind', (t) => {
   const watching = trackWatchers(t);
   const { cache, file } = fixture(t);
