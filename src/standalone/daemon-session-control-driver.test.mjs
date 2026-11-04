@@ -23,7 +23,9 @@ import { createSessionControl } from './daemon-session-control.mjs';
 const dataRoot = mkdtempSync(join(tmpdir(), 'session-control-driver-'));
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = dataRoot;
-test.after(() => {
+test.after(async () => {
+  // A held session writer lock keeps its file (and the dir) from being removed on Windows.
+  (await import('../runtime/agent/orchestrator/session/store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   rmSync(dataRoot, { recursive: true, force: true });

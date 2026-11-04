@@ -12,7 +12,12 @@ import {
   persistedUserTranscriptMetadata,
 } from '../../../../shared/transcript-metadata.mjs';
 import { drainPendingMessages, hydratePendingMessages } from './pending-messages.mjs';
-import { _unlinkParentAbortListener, _getRuntimeEntry, _evictTerminalSessionRuntime } from './runtime-liveness.mjs';
+import {
+  _detachTurnController,
+  _unlinkParentAbortListener,
+  _getRuntimeEntry,
+  _evictTerminalSessionRuntime,
+} from './runtime-liveness.mjs';
 import { acquireSessionLock } from './session-lock.mjs';
 import { createAskPromptQueue } from './ask-queue.mjs';
 import { armTurnDurability, claimTurnRuntime, settleAndOpenTurn } from './ask-turn-open.mjs';
@@ -190,13 +195,7 @@ function noteTurnForCacheWarm(sessionId, claimed, input) {
  *  swapped it). The rest of the runtime entry stays intact so agent type=list
  *  can still surface the final stage (done/error/cancelling). */
 function detachAskRuntime(sessionId, askGeneration) {
-  const entry = _getRuntimeEntry(sessionId);
-  if (entry && entry.generation === askGeneration) {
-    _unlinkParentAbortListener(entry);
-    entry.controller = null;
-    // Detach the live session reference; ask is over.
-    entry.session = null;
-  }
+  _detachTurnController(sessionId, askGeneration);
   // Final-stage runtime diagnostics are useful only while the turn is
   // unwinding. Once its controller is detached, retaining the full entry
   // (and any accidental references hanging from it) for the host lifetime

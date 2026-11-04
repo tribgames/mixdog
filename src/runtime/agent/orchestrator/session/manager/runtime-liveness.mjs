@@ -660,6 +660,20 @@ export function _unlinkParentAbortListener(entry) {
   }
   entry.parentAbortLink = null;
 }
+/** The ask of `generation` is over: its controller and live session reference
+ *  go (closeSession may have swapped the controller — then nothing does). The
+ *  terminal stage was announced while the controller was still live, so this
+ *  is the moment the turn stops counting as in flight, and it says so. */
+export function _detachTurnController(id, generation) {
+  const entry = id ? _runtimeState.get(id) : null;
+  if (!entry || entry.generation !== generation) return false;
+  _unlinkParentAbortListener(entry);
+  const wasInFlight = isTurnInFlight(entry);
+  entry.controller = null;
+  entry.session = null;
+  if (wasInFlight && !isTurnInFlight(entry)) emitSessionActivityChange(id);
+  return true;
+}
 export function _clearSessionRuntime(id) {
   if (id) {
     _stopToolActivityHeartbeat(id);

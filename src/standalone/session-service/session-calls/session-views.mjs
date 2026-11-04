@@ -143,7 +143,7 @@ function createSessionUnsubscribe(ctx) {
   const { log, externalViewEntries } = ctx;
   const { externalEntryForView, sessionOwner } = ctx.projection;
   const { subscriberToken, dropPendingViewer } = ctx.viewers;
-  const { sessionBusy, releaseProjection, startEvictionSweep } = ctx.retention;
+  const { sessionBusy, releaseProjection } = ctx.retention;
   const { destroy } = ctx.entries;
   const { releaseStoredSession } = ctx.storedReader;
 
@@ -158,6 +158,7 @@ function createSessionUnsubscribe(ctx) {
         const token = subscriberToken(viewer);
         if (token) external.subscribers?.delete(token);
         if ((external.subscribers?.size || 0) === 0) externalViewEntries.delete(id);
+        ctx.viewers.viewersChanged(id);
       }
       // The last cold view left: its disk projection turns idle, kept within
       // the store's idle budget so a revisit skips the parse.
@@ -177,8 +178,8 @@ function createSessionUnsubscribe(ctx) {
       }
       entry.retainedAt = Date.now();
       releaseProjection(entry);
-      startEvictionSweep();
     }
+    ctx.viewers.viewersChanged(id);
     log(`session unsubscribed session=${id}${token ? ` client=${token}` : ''}`);
     return { sessionId: id, unsubscribed: true };
   }

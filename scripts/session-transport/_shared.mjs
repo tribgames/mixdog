@@ -217,7 +217,6 @@ async function withDaemon(
   {
     sessionFactory = async () => createStubSessionRuntime(),
     idleEvictMs = null,
-    evictSweepMs = null,
     onClientRegistered = null,
     softRssMb = null,
     rssBytes = undefined,
@@ -233,7 +232,6 @@ async function withDaemon(
     publishIntervalMs: 5,
     onFrame: (frame, targetTokens) => transport.broadcast(frame, targetTokens),
     idleEvictMs,
-    evictSweepMs,
     softRssMb,
     desktopRuntime,
     ...(rssBytes ? { rssBytes } : {}),
@@ -244,7 +242,6 @@ async function withDaemon(
       return service.handleCall(name, args, ctx);
     },
     clientGraceMs: 50,
-    sweepMs: 50,
     onClientsEmpty: () => {
       clientsEmptyReason = 'empty';
     },

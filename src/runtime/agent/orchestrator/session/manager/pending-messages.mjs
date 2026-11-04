@@ -89,6 +89,25 @@ const _sessionPendingMessages = new Map();
 // never touch the global spool (or its cross-process lock).
 const _hydratedPendingMessages = new Map();
 const _pendingHydrations = new Map();
+const _queueListeners = new Set();
+
+/** `listener(sessionId)` whenever input joins or leaves a session's queue: a
+ *  session holding queued input is not idle (the daemon's idle clock). */
+export function onPendingMessagesChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  _queueListeners.add(listener);
+  return () => _queueListeners.delete(listener);
+}
+
+function queueChanged(sessionId) {
+  for (const listener of [..._queueListeners]) {
+    try {
+      listener(sessionId);
+    } catch {
+      /* an observer never affects the queue */
+    }
+  }
+}
 
 function pendingIdStillQueued(sessionId, id) {
   for (const map of [_sessionPendingMessages, _pendingPersistBuffers, _hydratedPendingMessages]) {
@@ -135,13 +154,16 @@ function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
   // Delivered for good: the claim copy is no longer a recovery source.
   dropPendingClaims(sessionId, ids);
   const purgeMemory = () => {
+    let purged = false;
     for (const map of [_pendingPersistBuffers, _sessionPendingMessages, _hydratedPendingMessages]) {
       const q = map.get(sessionId);
       if (!Array.isArray(q)) continue;
       const kept = q.filter((entry) => !ids.has(pendingMessageId(entry)));
+      purged ||= kept.length !== q.length;
       if (kept.length > 0) map.set(sessionId, kept);
       else map.delete(sessionId);
     }
+    if (purged) queueChanged(sessionId);
   };
   purgeMemory();
   // Re-read at settlement: the map state may have been replaced meanwhile.
@@ -260,6 +282,7 @@ export function releasePendingMessages(sessionId, deliveredEntries) {
     // was already flushed keeps its single spool row while one that never
     // reached disk gets written now (restart replays it exactly once).
     for (const entry of restored) schedulePendingMessagePersist(sessionId, entry);
+    queueChanged(sessionId);
   }
   dropPendingClaims(sessionId, releasedIds);
   pruneEmptyPendingIdSet(_inDeliveryPendingIds, sessionId);
@@ -377,6 +400,7 @@ export function hydratePendingMessages(sessionId) {
       const existing = _hydratedPendingMessages.get(sessionId) || [];
       existing.push(...hydrated);
       _hydratedPendingMessages.set(sessionId, existing);
+      queueChanged(sessionId);
     }
     return hydrated.length;
   })();
@@ -455,6 +479,7 @@ export function enqueuePendingMessage(sessionId, message) {
   }
   q.push(entry);
   const bufferedDepth = schedulePendingMessagePersist(sessionId, entry);
+  queueChanged(sessionId);
   const wake = pendingEntryWake(entry);
   if (wake) {
     interruptTaskWaitForSession(
@@ -527,6 +552,7 @@ export function drainPendingMessages(sessionId) {
   // This path is deliberately memory-only: no file lock, stat, parse, or
   // atomic rename can run in the agent-completion tick.
   const buffered = takeBufferedPendingMessages(sessionId);
+  if (memory.length > 0 || hydrated.length > 0 || buffered.length > 0) queueChanged(sessionId);
   // A completion that reached the spool and was never acknowledged was never
   // delivered to the model (delivery acknowledges and removes it), so it
   // survives a restart: the hydrated disk entries drain like live in-memory
@@ -657,6 +683,7 @@ export function _dropPendingMessageState(id, { clearPersisted = true } = {}) {
       /* ignore */
     }
   }
+  queueChanged(id);
 }
 
 /**
