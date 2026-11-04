@@ -9,6 +9,11 @@
 import { randomUUID } from 'node:crypto';
 import { loadSession } from '../store.mjs';
 import { durableTranscriptBase } from '../store/transcript-durability.mjs';
+import {
+  claimSessionWriterOrThrow,
+  releaseSessionWriter,
+  sessionWriterReopened,
+} from '../store/session-writer-claim.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
 import { linkParentSignalToSession, markSessionAskStart, _touchRuntime } from './runtime-liveness.mjs';
@@ -28,17 +33,44 @@ import { createAskTurnState, createCloseSnapshot, createTurnCheckpointScheduler 
  *  new checkpoint names a base that is on disk. Throws TurnPersistenceError
  *  when a save does not land; other sessions never wait on this one. */
 export async function settleTurnBase(sessionId, { recoverCheckpoint }) {
-  await awaitPreviousTurnDurable(sessionId);
-  const session = loadSession(sessionId);
-  // claimTurnRuntime reports a missing or closed session.
-  if (!session || session.closed === true) return;
-  adoptDiskGeneration(session, sessionId);
-  if (recoverCheckpoint) _recoverTurnCheckpointDurably(session, sessionId);
-  await ensureDurableTranscript(session);
-  // This turn's checkpoint replaces the session's checkpoint file. Whatever
-  // is still there (a conflict, an unreadable header, a crashed turn this
-  // ask did not recover) is set aside first, never overwritten.
-  setAsideUnrecoveredCheckpoint(session, sessionId);
+  // Writer claim before anything the turn reads or saves: a session another
+  // live process holds is refused before any work, never overwritten
+  // afterwards — and the previous turn's retried save writes as this ask.
+  const claim = claimSessionWriterOrThrow(sessionId);
+  let opened = false;
+  try {
+    await awaitPreviousTurnDurable(sessionId);
+    const session = loadSession(sessionId);
+    // claimTurnRuntime reports a missing or closed session.
+    if (!session || session.closed === true) return;
+    adoptDiskGeneration(session, sessionId);
+    if (recoverCheckpoint) _recoverTurnCheckpointDurably(session, sessionId);
+    await ensureDurableTranscript(session);
+    // This turn's checkpoint replaces the session's checkpoint file. Whatever
+    // is still there (a conflict, an unreadable header, a crashed turn this
+    // ask did not recover) is set aside first, never overwritten.
+    setAsideUnrecoveredCheckpoint(session, sessionId);
+    sessionWriterReopened(sessionId);
+    opened = true;
+    return claim;
+  } finally {
+    // A claim this ask took goes back when the turn does not open on it.
+    if (claim.fresh && !opened) void releaseSessionWriter(sessionId);
+  }
+}
+
+/** settleTurnBase, then `open` — the turn's synchronous runtime claim — at
+ *  once, before anything can interleave. A writer claim this turn took goes
+ *  back when the turn does not open on it, however that fails. Returns what
+ *  `open` returns. */
+export async function settleAndOpenTurn(sessionId, { recoverCheckpoint }, open) {
+  const claim = await settleTurnBase(sessionId, { recoverCheckpoint });
+  try {
+    return open();
+  } catch (error) {
+    if (claim?.fresh) void releaseSessionWriter(sessionId);
+    throw error;
+  }
 }
 
 /** Loads the session for a new turn and reconciles its on-disk lifecycle:

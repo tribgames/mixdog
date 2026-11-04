@@ -22,6 +22,8 @@ test.after(async () => {
   // A delete queues its summary-index removal: let it land before the
   // folders it writes into are removed.
   await settleSummaryIndexWrites();
+  // A held session writer lock keeps its file (and the dir) from being removed on Windows.
+  (await import('../runtime/agent/orchestrator/session/store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   for (const [key, value] of [
     ['MIXDOG_HOME', previous.home],
     ['MIXDOG_DATA_DIR', previous.data],

@@ -7,6 +7,11 @@ import { getProvider } from '../../providers/registry.mjs';
 import { invalidateContextUsageSnapshot, invalidateProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
+import {
+  claimSessionWriterOrThrow,
+  releaseSessionWriter,
+  sessionWriterReopened,
+} from '../store/session-writer-claim.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
@@ -513,7 +518,8 @@ export function updateSessionRoute(id, route = {}, options = {}) {
   if (routeChanged) applyPendingWorkspaceReroot(session);
   refreshSessionBp3Environment(session, session.cwd);
   session.updatedAt = Date.now();
-  setLiveSession(session);
+  // saveSessionAsync publishes the live copy once the save is admitted: a
+  // refused one (another process writes the session) must not be cached here.
   void saveSessionAsync(session, { expectedGeneration: session.generation }).catch((err) => {
     try {
       process.stderr.write(`[session] route update save failed: ${err?.message || err}\n`);
@@ -612,6 +618,22 @@ function _refreshResumedTools(session, sessionId, preset) {
 }
 
 export async function resumeSession(sessionId, preset, options = {}) {
+  // The writer claim comes before the read: a session another live process
+  // holds is refused here, and no other process can write between this read
+  // and this process's saves.
+  const claim = claimSessionWriterOrThrow(sessionId);
+  let resumed = null;
+  try {
+    resumed = _resumeClaimedSession(sessionId, preset, options);
+    if (resumed) sessionWriterReopened(sessionId);
+    return resumed;
+  } finally {
+    // A claim this resume took goes back when nothing was resumed on it.
+    if (claim.fresh && !resumed) void releaseSessionWriter(sessionId);
+  }
+}
+
+function _resumeClaimedSession(sessionId, preset, options) {
   const session = loadSession(sessionId);
   if (!session) return null;
   // Resuming a closed session is a resurrection attempt — refuse. The guarded

@@ -39,6 +39,12 @@ import {
 } from './store/summary-cache.mjs';
 import { _shouldDrop, _sessionWriteAuthorityRefusal } from './store/write-admission.mjs';
 import {
+  sessionWriterRefusal,
+  refuseSessionWrite,
+  releaseHeldSessionWriters,
+  releaseIdleSessionWriterClaim,
+} from './store/session-writer-claim.mjs';
+import {
   lifecycleOfSessionDocument as _lifecycleOfSessionDocument,
   stampSessionScratch as _stampSessionScratch,
   announcePendingOwnCommit as _announcePendingOwnCommit,
@@ -49,8 +55,11 @@ import {
 // modules; re-exported so prior importers of store.mjs stay unchanged.
 export { readSessionLifecycleFromDisk, readSessionLifecycleStateFromDisk } from './store/lifecycle-read.mjs';
 export { evictLiveSession, evictIdleLiveSessions } from './store/live-cache-eviction.mjs';
+import { evictLiveSession } from './store/live-cache-eviction.mjs';
 import {
   setLiveSession,
+  _droppedSaveIds,
+  hasSessionSaveFailure,
   _recordSaveFailure,
   _recordSaveDrop,
   _clearSaveStateIfCurrent,
@@ -75,6 +84,7 @@ import {
   _clearDebounce,
   _releasePayloadIncarnation,
   _releasePendingSlot,
+  _hasPendingPersistence,
 } from './store/pending-saves.mjs';
 import {
   _commitSessionWrite,
@@ -128,7 +138,32 @@ function _startAsyncSave(id, payload) {
 
 // Self-registered exit drain; bare 'exit' hook stays as idempotent backup. Use the more comprehensive
 // drainSessionStore so debounce + scheduled + writing payloads all flush.
-process.on('exit', drainSessionStore);
+// Ahead of every other exit hook: the drain writes as the sessions' writer and
+// then lets the writer locks go, before any later hook may remove the folders
+// that hold them (a held lock file cannot be deleted on Windows).
+process.prependListener('exit', drainSessionStore);
+
+/**
+ * Idle unload (codex `thread_unload_delay`): give up `id`'s writer lock while
+ * the session sits idle here, so another Mixdog process may open it. Kept
+ * (false) while a write of it is outstanding or its last save dropped or
+ * failed — this process's copy is then the only complete one. Its in-memory
+ * copy goes with the lock, so the next resume or turn takes the lock again and
+ * reads the record from disk; a save of a copy kept elsewhere takes it again
+ * only while the record is still the one let go here. Safe to call any time
+ * the caller knows no turn of `id` runs in this process. Never blocks: a
+ * rename still landing keeps the lock until it has, and the promise resolves
+ * whether the lock went.
+ */
+export function releaseIdleSessionWriter(id) {
+  if (!id || _hasPendingPersistence(id) || _droppedSaveIds.has(id) || hasSessionSaveFailure(id)) {
+    return Promise.resolve(false);
+  }
+  const released = releaseIdleSessionWriterClaim(id);
+  if (!released) return Promise.resolve(false);
+  evictLiveSession(id);
+  return released;
+}
 
 /**
  * Persist a session. `opts.expectedGeneration` guards against resurrecting a
@@ -141,6 +176,15 @@ process.on('exit', drainSessionStore);
 export function saveSession(session, opts) {
   _ensureLifecycleFields(session);
   const id = session.id;
+  // Another process writes this session (or wrote it after this copy was
+  // read): nothing is published or queued, and the refusal is reported. A
+  // copy this process already let go ends as a dropped save.
+  const writerRefusal = sessionWriterRefusal(session);
+  if (writerRefusal) {
+    const err = refuseSessionWrite(writerRefusal);
+    if (err && opts?.sync) throw err;
+    return;
+  }
   // PRE-ADMISSION for EVERY entry mode (sync, immediate, debounced): a
   // foreign/ambiguous/unreadable canonical record is never cached as locally
   // owned, not even transiently, so this runs BEFORE setLiveSession and the
@@ -446,7 +490,8 @@ const DRAIN_BUDGET_MS = 400;
  *      by _acquireWriteCommit;
  *   3. retire commits already in progress within the shared deadline;
  *   4. sync-write the newest payload per id with a FRESH guard, under its OWN
- *      epoch and the remaining budget.
+ *      epoch and the remaining budget, each as the session's writer;
+ *   5. release every writer lock this process holds.
  * So no older worker write can rename over the newest state afterwards, and
  * no step can block process exit indefinitely.
  */
@@ -466,6 +511,14 @@ export function drainSessionStore() {
   // ── 4. write the newest state per id under a FRESH (uncancelled) guard ──
   for (const [id, entry] of newest) {
     try {
+      // Written only as the session's writer: a snapshot parked by a session
+      // that never took the lock takes it here, like any unlocked save, and a
+      // refused one is reported, never written.
+      const writerRefusal = sessionWriterRefusal(entry.session);
+      if (writerRefusal) {
+        refuseSessionWrite(writerRefusal);
+        continue;
+      }
       // The commit shares the SAME deadline and keeps the snapshot's own
       // epoch. Once the deadline is spent the budget is 0: an UNCONTENDED
       // id still commits (no wait is needed for a free lock), a contended
@@ -504,6 +557,8 @@ export function drainSessionStore() {
   } catch {
     /* best-effort */
   }
+  // Nothing is left to write: this process stops being any session's writer.
+  releaseHeldSessionWriters();
 }
 
 /** Drain step 1: the newest payload per id, by SAVE EPOCH. */

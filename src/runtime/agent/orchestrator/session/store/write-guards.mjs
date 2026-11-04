@@ -170,6 +170,22 @@ export function releaseWriteCommit(control) {
 }
 
 /**
+ * Settles once no commit holds this id's rename lock: null when none holds it
+ * now, else a promise resolved by that commit's own release (its
+ * Atomics.notify, through Atomics.waitAsync) — the thread never waits.
+ */
+export function writeCommitSettled(id) {
+  const control = _writeControls.get(id);
+  if (!control || Atomics.load(control, 1) === 0) return null;
+  return (async () => {
+    while (Atomics.load(control, 1) !== 0) {
+      const waiting = Atomics.waitAsync(control, 1, 1);
+      if (waiting.async) await waiting.value;
+    }
+  })();
+}
+
+/**
  * Wait until no commit holds this id's rename lock. `timeoutMs` bounds the
  * wait: the exit drain must never hang behind a worker/thread that is stuck
  * inside its commit, and a timeout is safe — the caller's own write still

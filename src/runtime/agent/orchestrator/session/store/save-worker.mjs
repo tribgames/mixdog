@@ -35,6 +35,7 @@ import {
   _sessionStoreTestMode,
 } from './save-fault.mjs';
 import { connectOwnCommitPeer } from './canonical-reader.mjs';
+import { sessionWriterRefusal, refuseSessionWrite } from './session-writer-claim.mjs';
 import { getPluginData } from '../../config.mjs';
 import { captureTranscriptSnapshot, recordLandedTranscript } from './transcript-durability.mjs';
 
@@ -115,7 +116,12 @@ function _publishAdmittedLiveSession(session) {
   }
 }
 
-function _refuseUnownedWrite(id) {
+function _refuseUnownedWrite(session) {
+  const id = session?.id;
+  // Another process writes this session (or wrote it after this copy was
+  // read); a copy this process already let go is a dropped no-op instead.
+  const writerRefusal = sessionWriterRefusal(session);
+  if (writerRefusal) return refuseSessionWrite(writerRefusal) ?? SAVE_OUTCOME_DROPPED;
   if (!_writeAuthorityCheck || !id) return null;
   let refusal = null;
   // A THROWN check is a refusal, never acceptance.
@@ -645,7 +651,8 @@ export function saveSessionAsync(session, opts, options = {}) {
   // PRE-ADMISSION: strict canonical authority BEFORE anything is published.
   // A refusal publishes no live snapshot and no optimistic summary row, so a
   // foreign/ambiguous record is never cached as owned even transiently.
-  const unowned = _refuseUnownedWrite(id);
+  const unowned = _refuseUnownedWrite(session);
+  if (unowned === SAVE_OUTCOME_DROPPED) return Promise.resolve(unowned);
   if (unowned) return Promise.reject(unowned);
   try {
     _ensureLifecycleFields(session);
@@ -718,7 +725,11 @@ export function saveSessionAsyncDeferred(session, opts) {
   // async save and the exit drain unchanged.
   const epoch = _nextSaveEpoch();
   return new Promise((resolve, reject) => {
-    const unowned = _refuseUnownedWrite(session?.id);
+    const unowned = _refuseUnownedWrite(session);
+    if (unowned === SAVE_OUTCOME_DROPPED) {
+      resolve(unowned);
+      return;
+    }
     if (unowned) {
       reject(unowned);
       return;

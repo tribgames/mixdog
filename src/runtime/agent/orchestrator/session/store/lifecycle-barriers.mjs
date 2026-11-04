@@ -45,6 +45,12 @@ import { _uncacheSessionSummary, _queueSessionSummaryUpsert } from './summary-ca
 import { _savePending, _clearDebounce } from './pending-saves.mjs';
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { loadSession } from './load-session.mjs';
+import {
+  claimSessionWriter,
+  releaseSessionWriter,
+  releaseSessionWriterAfterBarrier,
+  sessionWriterRefusalError,
+} from './session-writer-claim.mjs';
 
 // Cancellation truth, single rule: an UNCONFIRMED stop outranks a confirmed
 // one, in either direction (already on disk, or requested by this close). A
@@ -207,6 +213,32 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
   return _markSessionClosed(id, reason, options, null);
 }
 
+/**
+ * Run a barrier as the session's writer. Another live process holding the
+ * writer claim refuses the barrier (surfaced like a failed commit). A landed
+ * barrier ends this process's tenure, so the claim is given up; a barrier
+ * that did not land leaves a claim this process already held in place.
+ */
+function _asSessionWriter(id, reason, action, barrier) {
+  let claim;
+  try {
+    claim = claimSessionWriter(id);
+  } catch (error) {
+    _recordLifecycleCommitFailure(id, sessionWriterRefusalError({ id, reason: 'unclaimable', cause: error }), reason);
+    return null;
+  }
+  if (!claim.held) {
+    const err = sessionWriterRefusalError({ id, reason: 'claimed', path: claim.path });
+    err.message = `${err.message} — refusing to ${action}`;
+    _recordLifecycleCommitFailure(id, err, reason);
+    return null;
+  }
+  const result = barrier();
+  if (typeof result === 'number') releaseSessionWriterAfterBarrier(id);
+  else if (claim.fresh) void releaseSessionWriter(id);
+  return result;
+}
+
 function _markSessionClosed(id, reason, options, attempt) {
   // Only a fresh failure from THIS attempt may be observed by closeSession's
   // durable-barrier check — a veto must not surface a stale error.
@@ -215,6 +247,10 @@ function _markSessionClosed(id, reason, options, attempt) {
   // taking the non-reentrant Atomics commit lock. A veto must also precede
   // pending-save cancellation so debounce durability remains intact.
   if (_runtimeLivenessVeto(id, options)) return null;
+  return _asSessionWriter(id, reason, 'close', () => _plantTombstone(id, reason, options, attempt));
+}
+
+function _plantTombstone(id, reason, options, attempt) {
   const closeGuard = _guardedSaveOptions(id);
   const commitControl = _acquireWriteCommit(closeGuard);
   if (commitControl === false) return null;
@@ -299,6 +335,10 @@ export function bumpSessionGeneration(id, reason = 'detach', options = {}) {
 
 function _bumpSessionGeneration(id, reason, options, attempt) {
   clearSessionLifecycleCommitError(id);
+  return _asSessionWriter(id, reason, 'detach', () => _plantDetach(id, reason, options, attempt));
+}
+
+function _plantDetach(id, reason, options, attempt) {
   // The detach barrier is a canonical write and MUST take the same commit
   // lock as markSessionClosed. Cancellation alone is not a barrier: a writer
   // that already passed its cancellation check can still be holding (or

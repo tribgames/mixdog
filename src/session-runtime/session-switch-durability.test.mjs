@@ -19,6 +19,7 @@ const { orchestrationInstructions } = await import('../runtime/agent/orchestrato
 test.after(async () => {
   await settleSessionSummaryIndex();
   await (await import('../runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs')).flushSessionCloseMetrics();
+  (await import('../runtime/agent/orchestrator/session/store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   rmSync(root, { recursive: true, force: true });

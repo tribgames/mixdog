@@ -29,7 +29,9 @@ const { createCloseFlow } = await import('../../services/agent-tool/close-flow.m
 
 const roots = [];
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
-test.after(() => {
+test.after(async () => {
+  // A held session writer lock keeps its file (and the dir) from being removed on Windows.
+  (await import('../../../runtime/agent/orchestrator/session/store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   for (const dir of roots) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

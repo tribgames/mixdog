@@ -9,7 +9,9 @@ import test, { after } from 'node:test';
 // The session store resolves its data dir once per process.
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-usage-readout-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
-after(() => {
+after(async () => {
+  // A held session writer lock keeps its file (and the dir) from being removed on Windows.
+  (await import('./store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   delete process.env.MIXDOG_DATA_DIR;
   rmSync(dataDir, { recursive: true, force: true });
 });

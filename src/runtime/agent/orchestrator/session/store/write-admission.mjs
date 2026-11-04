@@ -15,6 +15,7 @@ import {
 import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import { _setSessionWriteAuthorityCheck } from './save-worker.mjs';
 import { isSessionWriteFenced } from './live-state.mjs';
+import { sessionWriterHeldElsewhere } from './session-writer-claim.mjs';
 
 const _observeStamp = (target) => {
   try {
@@ -73,6 +74,12 @@ function _writeAuthorityRecord(target, attempt) {
  */
 export function _shouldDrop(id, opts, attempt = null) {
   if (_isCancelledWrite(opts) || isSessionWriteFenced(id)) return true;
+  // Another live process is this session's writer: its record is the history.
+  try {
+    if (sessionWriterHeldElsewhere(id)) return true;
+  } catch {
+    return true;
+  }
   const expected = typeof opts?.expectedGeneration === 'number' ? opts.expectedGeneration : null;
   const target = sessionPath(id);
   let record;
