@@ -282,19 +282,25 @@ const CATALOG_RECORD_READ = {
 
 function rowFromSession(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
-  const preview =
-    messages
-      .filter((message) => message?.role === 'user')
-      // Cold-path mirror of isSessionPreviewNoise's synthetic skips: compact
-      // handoffs and runtime notices must not become session titles.
-      .filter(
-        (message) =>
-          !/^\s*(?:a previous model worked on this task|re-attached after compaction\b|reference files:\s|\[mixdog-runtime\]|the async (?:agent|shell) task\b)/i.test(
-            messageText(message.content)
-          )
+  // The first user message with text left after cleaning: later messages are
+  // never cleaned (a long conversation's pasted logs cost seconds of regex
+  // work on the loop otherwise).
+  let preview = '';
+  for (const message of messages) {
+    if (message?.role !== 'user') continue;
+    const text = messageText(message.content);
+    // Cold-path mirror of isSessionPreviewNoise's synthetic skips: compact
+    // handoffs and runtime notices must not become session titles.
+    if (
+      /^\s*(?:a previous model worked on this task|re-attached after compaction\b|reference files:\s|\[mixdog-runtime\]|the async (?:agent|shell) task\b)/i.test(
+        text
       )
-      .map((message) => cleanText(messageText(message.content)))
-      .find(Boolean) || '';
+    ) {
+      continue;
+    }
+    preview = cleanText(text);
+    if (preview) break;
+  }
   // The last-message line comes from the transcript like the summary index
   // derives it; without it a session saved after the index was written lost
   // its contact-row preview whenever its row came from this file read.
@@ -400,10 +406,6 @@ function deepFreeze(value) {
 
 /** The session ids (`<id>.json`) of `directory`, or null when it cannot be
  *  enumerated. */
-function listSessionIds(directory) {
-  return runFsStepsSync(listSessionIdsStep(directory));
-}
-
 function* listSessionIdsStep(directory) {
   let names;
   try {
@@ -416,12 +418,12 @@ function* listSessionIdsStep(directory) {
 
 /** Every `.json` entry of an enumerable `directory`, or null when it cannot
  *  be enumerated. */
-function scanSessionEntries(directory, indexRowsById, forceRead) {
-  const sessionIds = listSessionIds(directory);
+function* scanSessionEntriesSteps(directory, indexRowsById, forceRead) {
+  const sessionIds = yield* listSessionIdsStep(directory);
   if (!sessionIds) return null;
   const entries = new Map();
   for (const storageId of sessionIds) {
-    const entry = reconcileSessionFile(directory, storageId, indexRowsById.get(storageId), forceRead);
+    const entry = yield* reconcileSessionFileSteps(directory, storageId, indexRowsById.get(storageId), forceRead);
     if (entry) entries.set(storageId, entry);
   }
   return { entries };
@@ -438,38 +440,40 @@ function* settledEntrySteps(directory, storageId, entry, retained, forceRead) {
   return yield* reconcileSessionFileSteps(directory, storageId, retained, forceRead);
 }
 
-/** scanSessionEntries with every stat, listing and read awaited, one file at
- *  a time: a full authoritative rescan strict-reads every session file (≈4 s
+/** scanSessionEntriesSteps run awaited (see runFsStepsAsync), one file at a
+ *  time: a full authoritative rescan strict-reads every session file (≈4 s
  *  for 1.8k files / 1.3 GB), and neither the whole scan nor one slow read may
  *  hold the daemon loop. Files change while it awaits, so the answer is
- *  settled by a final pass: the directory is listed again, a file whose stamp
- *  moved since its read (or that appeared) is reconciled again, and a file
- *  that is no longer listed is dropped — the entries match storage as that
- *  pass saw it. That pass is a stat per file. */
-async function scanSessionEntriesAsync(directory, indexRowsById, forceRead, onSettle) {
-  const sessionIds = await runFsStepsAsync(listSessionIdsStep(directory));
-  if (!sessionIds) {
-    onSettle?.();
-    return null;
-  }
-  const scanned = new Map();
-  for (const storageId of sessionIds) {
-    const entry = await runFsStepsAsync(
-      reconcileSessionFileSteps(directory, storageId, indexRowsById.get(storageId), forceRead)
-    );
-    if (entry) scanned.set(storageId, entry);
-  }
+ *  settled by one final pass: the directory is listed again, a file whose
+ *  stamp moved since its read (or that appeared) is reconciled again, and a
+ *  file that is no longer listed is dropped — the entries match storage as
+ *  that pass saw it. That pass is a stat per file, so the work is bounded by
+ *  the store, never by how fast it is written to. Resolves `{ entries,
+ *  dirStamp }`, `dirStamp` being the directory's stamp taken just before that
+ *  pass: a catalog installed under it is found changed by the next refresh's
+ *  stamp check when a create, delete or rename lands after the pass, which is
+ *  all the steady state offers any catalog (the index upserts of the store's
+ *  own saves and the background verification cover the rest). Null when the
+ *  directory cannot be enumerated. */
+function* scanSessionEntriesSettledSteps(directory, indexRowsById, forceRead, onSettle) {
+  const scan = yield* scanSessionEntriesSteps(directory, indexRowsById, forceRead);
   onSettle?.();
-  const settledIds = await runFsStepsAsync(listSessionIdsStep(directory));
+  if (!scan) return null;
+  const dirStamp = yield* observeStampStep(directory);
+  const settledIds = yield* listSessionIdsStep(directory);
   if (!settledIds) return null;
   const entries = new Map();
   for (const storageId of settledIds) {
-    const entry = await runFsStepsAsync(
-      settledEntrySteps(directory, storageId, scanned.get(storageId), indexRowsById.get(storageId), forceRead)
+    const entry = yield* settledEntrySteps(
+      directory,
+      storageId,
+      scan.entries.get(storageId),
+      indexRowsById.get(storageId),
+      forceRead
     );
     if (entry) entries.set(storageId, entry);
   }
-  return { entries };
+  return { entries, dirStamp };
 }
 
 /** The row an entry contributes, or null. */
@@ -508,7 +512,7 @@ export async function scanSessionFilesAsync(indexRowsById, forceRead, { onSettle
     onSettle?.();
     return STAMP_ABSENT_CODES.has(error?.code) ? [] : null;
   }
-  const scan = await scanSessionEntriesAsync(directory, indexRowsById, forceRead, onSettle);
+  const scan = await runFsStepsAsync(scanSessionEntriesSettledSteps(directory, indexRowsById, forceRead, onSettle));
   return scan && assembleCatalog(scan.entries, indexRowsById);
 }
 
@@ -680,6 +684,9 @@ function changedIndexIds(previous, next) {
 const CATALOG_VERIFY_INTERVAL_MS = 10_000;
 const CATALOG_VERIFY_BATCH = 32;
 
+/** refreshSteps without a cold scan found no catalog to reconcile. */
+const NEEDS_COLD_SCAN = Symbol('needs-cold-scan');
+
 function unlistableRefresh() {
   return { rows: null, catalog: null, fresh: false, changedIds: null, absent: false };
 }
@@ -703,7 +710,7 @@ function newSessionCatalog(directory, dirStamp, index, scan) {
 /** Brings an existing `catalog` up to date with the index, the directory and
  *  the `hinted` ids: `{ changed, changedIds }`, or null when the directory
  *  can no longer be enumerated. */
-function reconcileKnownCatalog(catalog, directory, dirStamp, index, hinted) {
+function* reconcileKnownCatalogSteps(catalog, directory, dirStamp, index, hinted) {
   let changed = false;
   const changedIds = new Set();
   // Files the background pass found with a new full stamp: their index row
@@ -718,7 +725,7 @@ function reconcileKnownCatalog(catalog, directory, dirStamp, index, hinted) {
     changed = true;
   }
   if (!catalog.dirSettled || !sameSessionStamp(catalog.dirStamp, dirStamp)) {
-    const sessionIds = listSessionIds(directory);
+    const sessionIds = yield* listSessionIdsStep(directory);
     if (!sessionIds) return null;
     const present = new Set(sessionIds);
     for (const id of catalog.entries.keys()) {
@@ -732,9 +739,14 @@ function reconcileKnownCatalog(catalog, directory, dirStamp, index, hinted) {
     catalog.dirSettled = isSettledSessionStamp(dirStamp);
   }
   for (const id of ids) {
-    const entry = reconcileSessionFile(directory, id, index.rowsById.get(id), forced.has(id));
-    if (entry) catalog.entries.set(id, entry);
-    else catalog.entries.delete(id);
+    const before = catalog.entries.get(id);
+    const entry = yield* reconcileSessionFileSteps(directory, id, index.rowsById.get(id), forced.has(id));
+    // Awaited, another refresh may have reconciled this id meanwhile (it
+    // read later than this one began): its entry stands.
+    if (catalog.entries.get(id) === before) {
+      if (entry) catalog.entries.set(id, entry);
+      else catalog.entries.delete(id);
+    }
     changedIds.add(id);
     changed = true;
   }
@@ -773,6 +785,9 @@ export function createOrdinaryCatalog() {
   // next refresh re-reconciles them against the index row and the file.
   let hintedIds = new Set();
   const listeners = new Set();
+  // Bumped by clear(): a build that started before it must not install.
+  let clearEpoch = 0;
+  let building = null;
 
   function adoptIndex({ index, cacheable }) {
     if (cacheable) summaryIndexCache = index;
@@ -801,11 +816,37 @@ export function createOrdinaryCatalog() {
    * scan; otherwise `changedIds` are the ids whose entry was dropped or
    * re-reconciled by this call.
    */
-  function refresh(index, { assemble = true } = {}) {
+  function refresh(index, options) {
+    return runFsStepsSync(refreshSteps(index, options, scanSessionEntriesSteps));
+  }
+
+  /** refresh with every stat, listing and read awaited, for the daemon loop.
+   *  A first (cold) catalog is built by `warm`, never here. The listing is
+   *  what refresh() answers at the moment this resolves: a clear() meanwhile
+   *  makes the answer start over against the new state. */
+  async function refreshAsync(index, options) {
+    for (;;) {
+      const epoch = clearEpoch;
+      const result = await runFsStepsAsync(refreshSteps(index, options, null));
+      if (result === NEEDS_COLD_SCAN) {
+        if (!(await warm(index))) return unlistableRefresh();
+        // The build took a while: the index upserts of saves that landed
+        // meanwhile are what re-reconciles those sessions.
+        index = await loadIndexAsync();
+      } else if (epoch === clearEpoch) {
+        return result;
+      }
+    }
+  }
+
+  /** `coldScan(directory, indexRowsById, forceRead)`: the steps that build the
+   *  first catalog, or null when the caller must have one built first (then
+   *  NEEDS_COLD_SCAN). */
+  function* refreshSteps(index, { assemble = true } = {}, coldScan) {
     const directory = join(dataDir(), 'sessions');
     let dirStamp;
     try {
-      dirStamp = statSessionStamp(directory);
+      dirStamp = yield* statStampStep(directory);
     } catch (error) {
       dropSessionCatalog();
       const absent = STAMP_ABSENT_CODES.has(error?.code);
@@ -813,28 +854,70 @@ export function createOrdinaryCatalog() {
     }
     let catalog = sessionCatalog?.directory === directory ? sessionCatalog : null;
     const fresh = !catalog;
+    if (fresh && !coldScan) return NEEDS_COLD_SCAN;
     let changed = true;
     let changedIds = new Set();
     const hinted = hintedIds;
     hintedIds = new Set();
     if (fresh) {
-      const scan = scanSessionEntries(directory, index.rowsById, false);
+      const scan = yield* coldScan(directory, index.rowsById, false);
       if (!scan) return unlistableRefresh();
       catalog = newSessionCatalog(directory, dirStamp, index, scan);
       sessionCatalog = catalog;
     } else {
-      const reconciled = reconcileKnownCatalog(catalog, directory, dirStamp, index, hinted);
+      const reconciled = yield* reconcileKnownCatalogSteps(catalog, directory, dirStamp, index, hinted);
       if (!reconciled) {
-        dropSessionCatalog();
+        if (sessionCatalog === catalog) dropSessionCatalog();
         return unlistableRefresh();
       }
       ({ changed, changedIds } = reconciled);
     }
     if (changed) catalog.rows = null;
     if (assemble) rowsOf(catalog);
-    armCatalogVerify(catalog);
+    if (sessionCatalog === catalog) armCatalogVerify(catalog);
     // Rows (and everything in them) are frozen: callers share them read-only.
     return { rows: assemble ? catalog.rows.slice() : null, catalog, fresh, changedIds, absent: false };
+  }
+
+  /** Starts the awaited cold build of the catalog of `directory`. */
+  function startBuild(directory, index) {
+    const flight = { directory, epoch: clearEpoch, done: null };
+    flight.done = (async () => {
+      try {
+        const scan = await runFsStepsAsync(scanSessionEntriesSettledSteps(directory, index.rowsById, false));
+        if (!scan) return false;
+        // A clear() since the build began means its scan describes a catalog
+        // that was dropped on purpose: the waiters build again.
+        if (flight.epoch === clearEpoch && sessionCatalog?.directory !== directory) {
+          dropSessionCatalog();
+          sessionCatalog = newSessionCatalog(directory, scan.dirStamp, index, scan);
+        }
+        return true;
+      } finally {
+        if (building === flight) building = null;
+      }
+    })();
+    return flight;
+  }
+
+  /**
+   * Resolves once a catalog of the sessions directory is installed (true), or
+   * false when the directory cannot be enumerated. The first catalog is built
+   * with every stat, listing and read awaited, so the daemon loop is never
+   * held for the whole cold scan, and it is installed under the directory
+   * stamp its last clean pass ended on (see scanSessionEntriesSettledSteps),
+   * so a refresh right after it only reconciles what changed since. Callers
+   * share one build; one that a clear() invalidated is followed by the next.
+   */
+  async function warm(index) {
+    const directory = join(dataDir(), 'sessions');
+    for (;;) {
+      if (sessionCatalog?.directory === directory) return true;
+      if (building?.directory !== directory || building.epoch !== clearEpoch) building = startBuild(directory, index);
+      const flight = building;
+      const built = await flight.done;
+      if (flight.epoch === clearEpoch) return built;
+    }
   }
 
   /** The (frozen) listing of a reconciled catalog, assembled on demand. */
@@ -893,6 +976,7 @@ export function createOrdinaryCatalog() {
     loadIndex,
     loadIndexAsync,
     refresh,
+    refreshAsync,
     rowsOf,
     /** The row `id` contributes to the current catalog. */
     entryRow: (catalog, id) => entryRow(catalog.entries.get(id), id, catalog.index.rowsById),
@@ -914,6 +998,8 @@ export function createOrdinaryCatalog() {
     },
     /** Forget the catalog and the parsed summary index. */
     clear() {
+      clearEpoch += 1;
+      building = null;
       dropSessionCatalog();
       summaryIndexCache = null;
       hintedIds = new Set();
