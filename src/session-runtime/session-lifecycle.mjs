@@ -34,8 +34,6 @@ export function createSessionLifecycle(deps) {
     providerModelWarmupDelayMs,
     modelCatalogWarmupDelayMs,
     statuslineUsageWarmupDelayMs,
-    statuslineUsageRefreshDelayMs,
-    backgroundBusyRetryMs,
     providerWarmupEnabled,
     modelPrefetchEnabled,
     modelCatalogWarmupEnabled,
@@ -65,7 +63,8 @@ export function createSessionLifecycle(deps) {
     scheduleProviderModelWarmup,
     scheduleModelCatalogWarmup,
     scheduleStatuslineUsageWarmup,
-    scheduleStatuslineUsageRefresh,
+    refreshStatuslineUsageAfterTurn,
+    wakeDeferredWarmups,
   } = createWarmupSchedulers({
     timers: warmupTimers,
     bootProfile,
@@ -94,8 +93,6 @@ export function createSessionLifecycle(deps) {
       providerModelWarmupDelayMs,
       modelCatalogWarmupDelayMs,
       statuslineUsageWarmupDelayMs,
-      statuslineUsageRefreshDelayMs,
-      backgroundBusyRetryMs,
     },
     flags: {
       providerWarmupEnabled,
@@ -112,6 +109,7 @@ export function createSessionLifecycle(deps) {
     scheduleSearchRuntimeWarmup,
     scheduleChannelStart,
     scheduleAutomationAutostart,
+    wakeDeferredPrewarms,
   } = createPrewarmSchedulers({
     timers: prewarmTimers,
     bootProfile,
@@ -126,13 +124,18 @@ export function createSessionLifecycle(deps) {
     delays: {
       codeGraphPrewarmDelayMs,
       channelStartDelayMs,
-      backgroundBusyRetryMs,
     },
     flags: {
       codeGraphPrewarmEnabled,
     },
     state: prewarmState,
   });
+  // Every busy-state change of the runtime (boot/config) re-checks both sets
+  // of parked jobs.
+  rt.wakeDeferredWarmups = () => {
+    wakeDeferredWarmups();
+    wakeDeferredPrewarms();
+  };
 
   // Session transcript writer lives in session-transcript.mjs; the facade
   // injects the mutable session/cwd state it needs.
@@ -148,7 +151,7 @@ export function createSessionLifecycle(deps) {
     scheduleProviderModelWarmup,
     scheduleModelCatalogWarmup,
     scheduleStatuslineUsageWarmup,
-    scheduleStatuslineUsageRefresh,
+    refreshStatuslineUsageAfterTurn,
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
     scheduleSearchRuntimeWarmup,

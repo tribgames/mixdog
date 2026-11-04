@@ -74,7 +74,6 @@ function fixture(extra = {}, deps = {}) {
       state.route = { ...state.route, effectiveEffort: state.route.effort, selectedContextWindow: 512_000 };
     },
     refreshStatuslineUsageSnapshot() {},
-    scheduleStatuslineUsageRefresh() {},
     invalidateContextStatusCache() {},
     statusRoutes: {},
     mgr: {

@@ -13,7 +13,6 @@ function harness(overrides = {}) {
     log: (line) => log.push(line),
     nowMs: () => 1_000,
     clientGraceMs: 30,
-    sweepMs: 20,
     onClientsEmpty: () => {
       events.empty += 1;
     },
@@ -66,11 +65,34 @@ test('dropping the last lifecycle client arms the grace timer once and signals s
   }
 });
 
-test('the sweep drops clients whose lead pid is gone and a new lifecycle client cancels grace', async () => {
+/** The frame stream's view of one client: attach, then close. */
+function attachStream(registry, token) {
+  registry.clients.get(token).sse = {};
+  registry.noteStreamAttached(token);
+}
+function closeStream(registry, token) {
+  registry.clients.get(token).sse = null;
+  registry.noteStreamClosed(token);
+}
+
+test('an idle registry arms no repeating timer', (t) => {
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const { registry } = harness();
+  try {
+    attachStream(registry, registry.register({ leadPid: process.pid, cwd: null }));
+    registry.register({ leadPid: 0, cwd: null, remote: true });
+    assert.equal(intervals.mock.callCount(), 0);
+  } finally {
+    registry.close();
+  }
+});
+
+test('a local client whose stream closes after its lead pid died is dropped at once', async () => {
   const { registry, events } = harness();
   try {
     const dead = registry.register({ leadPid: DEAD_PID, cwd: null });
-    await sleep(50);
+    attachStream(registry, dead);
+    closeStream(registry, dead);
     assert.deepEqual(events.dropped, [{ token: dead, reason: 'lead pid gone' }]);
     registry.register({ leadPid: process.pid, cwd: null });
     await sleep(60);
@@ -80,32 +102,74 @@ test('the sweep drops clients whose lead pid is gone and a new lifecycle client 
   }
 });
 
-test('the sweep never applies the lead-pid check to a remote client', async () => {
+test('a local client is dropped when it holds no stream for a whole lease, never while it holds one', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const { registry, events } = harness();
   try {
-    const token = registry.register({ leadPid: DEAD_PID, cwd: null, remote: true });
-    assert.equal(registry.clients.get(token).remote, true);
-    await sleep(60);
-    assert.deepEqual(events.dropped, [], 'a pid from another machine is meaningless here');
-    assert.ok(registry.clients.has(token));
+    const never = registry.register({ leadPid: process.pid, cwd: null, lifecycle: false });
+    const held = registry.register({ leadPid: process.pid, cwd: null, lifecycle: false });
+    attachStream(registry, held);
+    t.mock.timers.tick(29_999);
+    assert.deepEqual(events.dropped, []);
+    t.mock.timers.tick(1);
+    assert.deepEqual(events.dropped, [{ token: never, reason: 'stream lapsed' }]);
+    t.mock.timers.tick(300_000);
+    assert.ok(registry.clients.has(held), 'an open stream is the local lease');
+    closeStream(registry, held);
+    t.mock.timers.tick(10_000);
+    attachStream(registry, held);
+    t.mock.timers.tick(300_000);
+    assert.ok(registry.clients.has(held), 'a reattach inside the lease keeps the client');
+    closeStream(registry, held);
+    t.mock.timers.tick(30_000);
+    assert.deepEqual(events.dropped.at(-1), { token: held, reason: 'stream lapsed' });
   } finally {
     registry.close();
   }
 });
 
-test('a remote client is dropped once its lease passes, and a heartbeat touch renews it', async () => {
-  const clock = { now: 1_000 };
-  const { registry, events } = harness({ nowMs: () => clock.now });
+test('a call in flight holds a client like its lease: never dropped mid-call, deadline restarts at settle', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { registry, events } = harness();
   try {
-    const token = registry.register({ leadPid: 0, cwd: null, remote: true, leaseMs: 5_000 });
+    const local = registry.register({ leadPid: process.pid, cwd: null, lifecycle: false });
+    const remote = registry.register({ leadPid: 0, cwd: null, remote: true, leaseMs: 5_000, lifecycle: false });
+    for (const token of [local, remote]) {
+      registry.noteCallStarted(token);
+      registry.noteCallStarted(token);
+    }
+    t.mock.timers.tick(120_000);
+    assert.deepEqual(events.dropped, [], 'a client with a call in flight is alive');
+    for (const token of [local, remote]) registry.noteCallSettled(token);
+    t.mock.timers.tick(120_000);
+    assert.deepEqual(events.dropped, [], 'one call still runs');
+    for (const token of [local, remote]) registry.noteCallSettled(token);
+    t.mock.timers.tick(4_999);
+    assert.deepEqual(events.dropped, []);
+    t.mock.timers.tick(1);
+    assert.deepEqual(events.dropped, [{ token: remote, reason: 'lease expired' }]);
+    t.mock.timers.tick(25_000);
+    assert.deepEqual(events.dropped.at(-1), { token: local, reason: 'stream lapsed' });
+  } finally {
+    registry.close();
+  }
+});
+
+test('a remote client ignores the lead pid and stream state: only its lease drops it', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { registry, events } = harness();
+  try {
+    const token = registry.register({ leadPid: DEAD_PID, cwd: null, remote: true, leaseMs: 5_000 });
+    assert.equal(registry.clients.get(token).remote, true);
     assert.equal(registry.clients.get(token).leaseMs, 5_000);
-    clock.now += 4_000;
+    attachStream(registry, token);
+    closeStream(registry, token);
+    assert.deepEqual(events.dropped, [], 'a pid from another machine is meaningless here');
+    t.mock.timers.tick(4_000);
     assert.equal(registry.touch(token), true);
-    clock.now += 4_000;
-    await sleep(50);
+    t.mock.timers.tick(4_000);
     assert.deepEqual(events.dropped, [], 'renewed lease is still valid');
-    clock.now += 2_000;
-    await sleep(50);
+    t.mock.timers.tick(1_000);
     assert.deepEqual(events.dropped, [{ token, reason: 'lease expired' }]);
     assert.equal(registry.touch(token), false, 'a dropped client cannot be touched');
   } finally {

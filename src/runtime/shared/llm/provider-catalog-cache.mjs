@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { ANTIGRAVITY_MODELS, ANTIGRAVITY_PRICING_ALIASES, normalizeGrokModelId } from './provider-model-identities.mjs';
@@ -32,14 +33,53 @@ function num(value) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
+function parseRosterFile(text) {
+  const raw = JSON.parse(text);
+  return [raw?.models, raw].find(Array.isArray) ?? [];
+}
+
+// While set, roster reads are served from this file name → rows map instead
+// of the disk (see withRosterSnapshot).
+let rosterSnapshot = null;
+
 function readModelsFromCacheFile(fileName) {
+  if (rosterSnapshot) return rosterSnapshot.get(fileName) ?? [];
   try {
     const file = join(resolvePluginData(), fileName);
     if (!existsSync(file)) return [];
-    const raw = JSON.parse(readFileSync(file, 'utf-8'));
-    return [raw?.models, raw].find(Array.isArray) ?? [];
+    return parseRosterFile(readFileSync(file, 'utf-8'));
   } catch {
     return [];
+  }
+}
+
+/** Every live-roster file, each read once off the event loop: file name → rows. */
+export async function readRosterSnapshot() {
+  const files = [...new Set(rosterProviders().flatMap((provider) => providerRosterFiles(provider)))];
+  const dir = resolvePluginData();
+  return new Map(
+    await Promise.all(
+      files.map(async (fileName) => {
+        try {
+          return [fileName, parseRosterFile(await readFile(join(dir, fileName), 'utf-8'))];
+        } catch {
+          return [fileName, []];
+        }
+      })
+    )
+  );
+}
+
+/** Run the synchronous `fn` with every roster read served from `snapshot`, so
+ *  a pass over many models reads no file. `fn` must not await: the snapshot
+ *  is only in force for its synchronous run. */
+export function withRosterSnapshot(snapshot, fn) {
+  const previous = rosterSnapshot;
+  rosterSnapshot = snapshot;
+  try {
+    return fn();
+  } finally {
+    rosterSnapshot = previous;
   }
 }
 

@@ -28,7 +28,7 @@ function fixture(overrides = {}) {
       },
     },
     envFlag: () => false,
-    delays: { codeGraphPrewarmDelayMs: 0, channelStartDelayMs: 0, backgroundBusyRetryMs: 5 },
+    delays: { codeGraphPrewarmDelayMs: 0, channelStartDelayMs: 0 },
     flags: { codeGraphPrewarmEnabled: true },
     state,
     ...overrides,
@@ -58,18 +58,49 @@ test('a disabled code graph prewarm never arms a timer', () => {
   assert.equal(timers.codeGraphPrewarmTimer, undefined);
 });
 
-test('an in-flight code graph prewarm defers the next one and re-arms for the queued cwd', async () => {
-  const { schedulers, profiles, state } = fixture();
-  state.codeGraphPrewarmInFlight = true;
+test('an in-flight code graph prewarm defers the next one with no timer; its end runs the queued cwd', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const warmed = [];
+  const { schedulers, profiles, state, timers } = fixture({
+    getCodeGraphModule: async () => {
+      await gate;
+      return { prewarmCodeGraphIfProject: (cwd) => warmed.push(cwd) };
+    },
+  });
   schedulers.scheduleCodeGraphPrewarm(0, 'cwd');
   await tick();
-  assert.deepEqual(profiles[0], ['code-graph:prewarm-deferred', { reason: 'in-flight' }]);
+  assert.equal(state.codeGraphPrewarmInFlight, true);
+  schedulers.scheduleCodeGraphPrewarm(0, 'cwd');
+  await tick();
+  assert.deepEqual(profiles.at(-1), ['code-graph:prewarm-deferred', { reason: 'in-flight' }]);
+  assert.equal(timers.codeGraphPrewarmTimer, null, 'an in-flight prewarm is not polled');
   assert.equal(state.codeGraphPrewarmQueuedCwd, 'C:\\proj');
-  state.codeGraphPrewarmInFlight = false;
+  release();
   await tick(15);
-  assert.ok(events(profiles).includes('code-graph:prewarm:start'));
-  assert.ok(events(profiles).includes('code-graph:prewarm:scheduled'));
+  assert.deepEqual(warmed, ['C:\\proj', 'C:\\proj']);
   assert.equal(state.codeGraphPrewarmQueuedCwd, '');
+});
+
+test('a busy turn parks the code graph prewarm until the runtime wakes it', async () => {
+  let turns = 1;
+  const warmed = [];
+  const { schedulers, profiles, timers } = fixture({
+    getActiveTurnCount: () => turns,
+    getCodeGraphModule: async () => ({ prewarmCodeGraphIfProject: (cwd) => warmed.push(cwd) }),
+  });
+  schedulers.scheduleCodeGraphPrewarm(0, 'cwd');
+  await tick();
+  assert.deepEqual(profiles[0], ['code-graph:prewarm-deferred', { reason: 'turn-active' }]);
+  assert.equal(timers.codeGraphPrewarmTimer, null, 'a busy runtime is not polled');
+  await tick(20);
+  assert.deepEqual(warmed, []);
+  turns = 0;
+  schedulers.wakeDeferredPrewarms();
+  await tick();
+  assert.deepEqual(warmed, ['C:\\proj']);
 });
 
 test('channel start runs once for active automation and the promise is shared while in flight', async () => {
@@ -98,10 +129,13 @@ test('channel start stays down without automation and defers while a turn is act
   busy.schedulers.scheduleChannelStart(0);
   await tick();
   assert.deepEqual(busy.profiles[1], ['channels:start-deferred', { reason: 'turn-active' }]);
+  assert.equal(busy.timers.channelStartTimer, null, 'a busy runtime is not polled');
+  await tick(20);
   assert.equal(busy.starts.length, 0);
   turns = 0;
-  await tick(15);
-  assert.equal(busy.starts.length, 1, 'the deferred start re-armed on the busy retry delay');
+  busy.schedulers.wakeDeferredPrewarms();
+  await tick();
+  assert.equal(busy.starts.length, 1, 'the runtime going idle runs the parked start');
 });
 
 test('a failed channel start is profiled and releases the shared promise', async () => {

@@ -28,13 +28,14 @@ class Response extends EventEmitter {
   }
 }
 
-function fixture(t) {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+function fixture(t, { remote = true } = {}) {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   let closed = 0;
   const clients = new Map([
     [
       'client',
       {
+        remote,
         sse: null,
         paused: false,
         pending: new Map(),
@@ -64,6 +65,26 @@ test('attachment backpressure defers the backlog until drain', (t) => {
   assert.deepEqual(response.frames(), []);
   response.emit('drain');
   assert.deepEqual(response.frames(), [frame]);
+});
+
+test('a local stream stays silent at rest: no keepalive frame and no repeating timer', (t) => {
+  const { stream } = fixture(t, { remote: false });
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const response = new Response();
+  stream.attachSse('client', response);
+  t.mock.timers.tick(120_000);
+  assert.deepEqual(response.writes, [': attached\n\n']);
+  assert.equal(intervals.mock.callCount(), 0);
+  response.end();
+});
+
+test('a remote stream gets a keepalive comment every period', (t) => {
+  const { stream } = fixture(t);
+  const response = new Response();
+  stream.attachSse('client', response);
+  t.mock.timers.tick(30_000);
+  assert.deepEqual(response.writes, [': attached\n\n', ': ka\n\n', ': ka\n\n']);
+  response.end();
 });
 
 test('keepalives do not write while the response is backpressured', (t) => {
@@ -445,11 +466,11 @@ test('a session-state patch frame queued behind its full frame is delivered afte
   response.end();
 });
 
-test('a stream paused past a keepalive period reports what is still buffered', (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+test('a local stream paused past the stall deadline reports what is still buffered, once', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   let now = 1_000;
   const diagnostics = [];
-  const client = { sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
+  const client = { remote: false, sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
   const stream = createSessionFrameStream({
     clients: new Map([['client', client]]),
     maxPendingBytes: 1_024,
@@ -477,6 +498,9 @@ test('a stream paused past a keepalive period reports what is still buffered', (
       maxPendingBytes: 1_024,
     },
   ]);
+  now += 60_000;
+  t.mock.timers.tick(60_000);
+  assert.equal(diagnostics.length, 1, 'one deadline per pause, not a repeating check');
   response.end();
 });
 

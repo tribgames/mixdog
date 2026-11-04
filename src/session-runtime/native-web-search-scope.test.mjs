@@ -16,6 +16,7 @@ function createSearchRuntime(t, id, model) {
   const session = { id, mcpScopeId: `search-scope-${id}`, cwd: process.cwd(), owner: 'cli' };
   const rt = {
     closeRequested: false,
+    wakeDeferredWarmups() {},
     config: { providers: {}, webSearchRoute: route },
   };
   const requests = [];

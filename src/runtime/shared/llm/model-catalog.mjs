@@ -14,11 +14,12 @@
  * native endpoint exposed (usually nothing beyond the id).
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { resolvePluginData } from '../plugin-paths.mjs';
-import { writeJsonAtomicSync } from '../atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../atomic-file.mjs';
 import {
   capabilityFlag,
   rosterRowMetadata,
@@ -26,6 +27,8 @@ import {
   providerPricingModelSync,
   cachedProviderModelListsSync,
   providerCachedModelsSync,
+  readRosterSnapshot,
+  withRosterSnapshot,
 } from './provider-catalog-cache.mjs';
 import {
   modelsDevProviderId,
@@ -213,10 +216,9 @@ const PRICING_OVERRIDES = {
   },
 };
 
-function readDiskCatalog(filePath) {
+async function readDiskCatalog(filePath) {
   try {
-    if (!existsSync(filePath)) return null;
-    const raw = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const raw = JSON.parse(await readFile(filePath, 'utf-8'));
     return raw?.data ? raw : null;
   } catch {
     return null;
@@ -243,7 +245,7 @@ function createCatalogSource({ url, cacheFile, project, label = '' }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       try {
-        writeJsonAtomicSync(
+        await writeJsonAtomicAsync(
           cachePath(),
           { fetchedAt: Date.now(), data },
           { lock: true, compact: true, fsyncDir: true, timeoutMs: 1000 }
@@ -260,7 +262,7 @@ function createCatalogSource({ url, cacheFile, project, label = '' }) {
       process.stderr.write(`[model-catalog] ${label}fetch failed: ${err.message}\n`);
       fetchedRemote = false;
       retryAt = Date.now() + PRICING_CATALOG_RETRY_MS;
-      const raw = readDiskCatalog(cachePath());
+      const raw = await readDiskCatalog(cachePath());
       if (raw?.data) {
         cache = project(raw.data);
         cacheAt = raw.fetchedAt || Date.now();
@@ -915,6 +917,10 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
 
 /** Include wire ids, not just picker rows, in automatic price coverage. */
 export function auditModelPricing(models, provider) {
+  return pricingAuditRows(models, provider, getModelMetadataSync);
+}
+
+function pricingAuditRows(models, provider, metadataOf) {
   const rows = [];
   for (const model of models || []) {
     const ids = new Set(
@@ -922,7 +928,7 @@ export function auditModelPricing(models, provider) {
     );
     for (const id of ids) {
       const owner = provider || model.provider;
-      const meta = getModelMetadataSync(id, owner);
+      const meta = metadataOf(id, owner);
       const required = [
         'inputCostPerM',
         'outputCostPerM',
@@ -946,6 +952,11 @@ export function auditModelPricing(models, provider) {
 export function pricingCatalogRevisionSync() {
   warmFromDiskSync();
   warmModelsDevFromDiskSync();
+  return pricingCatalogRevision();
+}
+
+// The revision of the resident overlays, without warming them from disk.
+function pricingCatalogRevision() {
   const aliases = providerCachedModelsSync('antigravity-oauth').map(({ id, wire, pricingModel }) => ({
     id,
     wire,
@@ -957,20 +968,28 @@ export function pricingCatalogRevisionSync() {
 }
 
 let lastAuditedRevision = null;
-function auditCachedModelPricing() {
-  const revision = pricingCatalogRevisionSync();
-  const rows = Object.entries(cachedProviderModelListsSync()).flatMap(([provider, models]) =>
-    auditModelPricing(models, provider)
-  );
-  const unpriced = rows.filter((row) => !row.priced);
-  if (revision !== lastAuditedRevision && unpriced.length) {
-    process.stderr.write(
-      `[model-pricing] ${unpriced.length}/${rows.length} catalog routes have no complete price: ${unpriced
-        .map((row) => `${row.provider}/${row.model} (${row.missingRates.join(', ')})`)
-        .join('; ')}\n`
+// Runs after the overlays loaded, so it judges the resident tables as they are
+// (no disk warm), and reads each roster file once, asynchronously, for the
+// whole pass instead of once per model.
+async function auditCachedModelPricing() {
+  const snapshot = await readRosterSnapshot();
+  withRosterSnapshot(snapshot, () => {
+    const revision = pricingCatalogRevision();
+    const metadataOf = (id, provider) =>
+      lookupModelMetadata(id, provider, litellmSource.cache || {}, modelsDevSource.cache || {});
+    const rows = Object.entries(cachedProviderModelListsSync()).flatMap(([provider, models]) =>
+      pricingAuditRows(models, provider, metadataOf)
     );
-  }
-  lastAuditedRevision = revision;
+    const unpriced = rows.filter((row) => !row.priced);
+    if (revision !== lastAuditedRevision && unpriced.length) {
+      process.stderr.write(
+        `[model-pricing] ${unpriced.length}/${rows.length} catalog routes have no complete price: ${unpriced
+          .map((row) => `${row.provider}/${row.model} (${row.missingRates.join(', ')})`)
+          .join('; ')}\n`
+      );
+    }
+    lastAuditedRevision = revision;
+  });
 }
 
 /**
@@ -981,7 +1000,7 @@ function auditCachedModelPricing() {
 export async function refreshCatalog() {
   // A failed refresh must retain the last usable price table on disk.
   const [litellm] = await Promise.all([loadCatalog({ force: true }), loadModelsDevCatalog({ force: true })]);
-  auditCachedModelPricing();
+  await auditCachedModelPricing();
   return litellm;
 }
 
@@ -994,7 +1013,7 @@ export async function warmModelMetadataCatalogs() {
 export async function warmCatalogsInBackground() {
   try {
     await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
-    auditCachedModelPricing();
+    await auditCachedModelPricing();
   } catch {
     /* never throw — boot/statusline must not fail on catalog warm */
   }

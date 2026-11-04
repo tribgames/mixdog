@@ -17,7 +17,13 @@ let importSeq = 0;
 // and record decisions under test are the real ones.
 async function harness(t, { prepare } = {}) {
   const calls = { created: [], prepared: 0, resumed: [] };
-  const rt = { session: null, reservedSessionId: null, sessionCreatePromise: null, mode: 'full' };
+  const rt = {
+    session: null,
+    reservedSessionId: null,
+    sessionCreatePromise: null,
+    mode: 'full',
+    wakeDeferredWarmups() {},
+  };
   initSessionAddress(rt);
   const store = new Map();
   const mgr = { getSession: (id) => store.get(id) || null };

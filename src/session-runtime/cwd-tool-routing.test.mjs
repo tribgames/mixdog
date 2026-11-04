@@ -44,6 +44,9 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   };
   t.mock.module('../lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });
   const provider = { name: 'openai', send: () => assert.fail('unexpected provider request') };
+  // The registry memoizes one startup refresh per catalog epoch; a fresh
+  // promise per call would spin provider readiness in microtasks.
+  const startupCatalogRefresh = Promise.resolve();
   t.mock.module('../runtime/agent/orchestrator/providers/registry.mjs', {
     namedExports: {
       initProviders: async () => {},
@@ -54,7 +57,7 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
       providerReadsImages: () => true,
       providerModelVisionOverride: () => undefined,
       providerCatalogRevision: () => 0,
-      refreshProviderCatalogsOnStartup: async () => {},
+      refreshProviderCatalogsOnStartup: () => startupCatalogRefresh,
       refreshCatalogs: async () => {},
       disableProvider: noop,
     },
@@ -67,7 +70,8 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
         scheduleProviderModelWarmup: noop,
         scheduleModelCatalogWarmup: noop,
         scheduleStatuslineUsageWarmup: noop,
-        scheduleStatuslineUsageRefresh: noop,
+        refreshStatuslineUsageAfterTurn: noop,
+        wakeDeferredWarmups: noop,
       }),
     },
   });
@@ -80,6 +84,7 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
         invokeChannelStart: noop,
         scheduleChannelStart: noop,
         scheduleAutomationAutostart: noop,
+        wakeDeferredPrewarms: noop,
       }),
     },
   });

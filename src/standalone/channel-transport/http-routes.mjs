@@ -143,6 +143,8 @@ export function createChannelRoutes({
     if (!c) return sendError(res, 'unknown client token', 404);
     registry.forgetReplaysFor(clientToken);
     c.lastSeen = Date.now();
+    // A call in flight proves its client alive, like an open stream.
+    registry.noteCallStarted(clientToken);
     try {
       const result = await dispatch.dispatchCall(body, c, clientToken);
       sendJson(res, { result });
@@ -157,6 +159,8 @@ export function createChannelRoutes({
         },
         200
       );
+    } finally {
+      registry.noteCallSettled(clientToken);
     }
   }
 

@@ -1,7 +1,9 @@
 // session-client/frame-stream.mjs
 // The GET /events frame stream of one session attachment: one live request at
-// a time, a liveness deadline (keepalive silence is detected independently
-// from TCP close), frame delivery, and loss reporting. Outcomes go to the
+// a time, a liveness deadline when `livenessMs` is set (a remote stream's
+// keepalive silence is detected independently from TCP close; a loopback
+// stream is lost only when its socket ends), frame delivery, and loss
+// reporting. Outcomes go to the
 // owner: onHealthy on the first bytes, onLoss for a transient loss worth a
 // reconnect, onFatal for a token/route rejection.
 import http from 'node:http';
@@ -50,6 +52,7 @@ export function createFrameStream({
     };
     const armLiveness = () => {
       clearLiveness();
+      if (!livenessMs) return;
       livenessTimer = setTimeout(() => {
         if (req !== current || stopped) return;
         lost(`sse liveness timeout after ${livenessMs}ms`);

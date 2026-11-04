@@ -29,7 +29,7 @@ test('daemon start expires an abandoned staged original within about the TTL wit
   startAttachmentGc();
   await settle(50); // the dynamic import arms the prune timer
 
-  // Stay clear of the 6-hourly census: only the staged-originals timer may act.
+  // Stay within the TTL plus one step: only the staged-originals deadline acts.
   const step = STAGED_ORIGINALS_TTL_MS / 4;
   for (let elapsed = 0; elapsed <= STAGED_ORIGINALS_TTL_MS + step; elapsed += step) {
     mock.timers.tick(step);

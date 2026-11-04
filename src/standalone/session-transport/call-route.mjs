@@ -45,7 +45,17 @@ function cachedDispatch(cached, callId, signature) {
   return cached.promise;
 }
 
-export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs, workGate = createWorkGate() }) {
+export function createCallRoute({
+  handleCall,
+  clients,
+  lanes,
+  callCache,
+  nowMs,
+  workGate = createWorkGate(),
+  // A call in flight proves its client alive (client-grace holds its lease).
+  onCallStarted,
+  onCallSettled,
+}) {
   return async function handleCallRequest(body, res) {
     const clientToken = body.token ? String(body.token) : null;
     const c = clientToken ? clients.get(clientToken) : null;
@@ -54,6 +64,15 @@ export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs, 
       return;
     }
     c.lastSeen = nowMs();
+    onCallStarted(clientToken);
+    try {
+      await answerCall(clientToken, c, body, res);
+    } finally {
+      onCallSettled(clientToken);
+    }
+  };
+
+  async function answerCall(clientToken, c, body, res) {
     const name = String(body.name || '');
     const callId = body.callId ? String(body.callId) : null;
     const args = body.args || {};
@@ -108,7 +127,7 @@ export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs, 
         200
       );
     }
-  };
+  }
 }
 
 /** `{ details }` when the error's details are a JSON-safe object, else {}. */

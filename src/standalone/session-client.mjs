@@ -541,7 +541,9 @@ export async function attachSession({
   onStreamReconnect = () => {},
   streamReconnectBaseMs = EVENT_STREAM_RECONNECT_BASE_MS,
   streamReconnectMaxMs = EVENT_STREAM_RECONNECT_MAX_MS,
-  streamLivenessTimeoutMs = EVENT_STREAM_LIVENESS_TIMEOUT_MS,
+  // Defaults by transport: a remote stream watches the daemon's keepalives, a
+  // loopback stream (which carries none) ends only with its socket.
+  streamLivenessTimeoutMs = null,
   streamReconnectBudgetMs = EVENT_STREAM_RECONNECT_BUDGET_MS,
   remote = false,
   leaseMs = 30_000,
@@ -583,7 +585,7 @@ export async function attachSession({
     reconnectBaseMs: streamReconnectBaseMs,
     reconnectMaxMs: streamReconnectMaxMs,
     reconnectBudgetMs: streamReconnectBudgetMs,
-    livenessTimeoutMs: streamLivenessTimeoutMs,
+    livenessTimeoutMs: streamLivenessTimeoutMs ?? (remote ? EVENT_STREAM_LIVENESS_TIMEOUT_MS : 0),
     readDiscovery,
     probeHealth,
     pidAlive,

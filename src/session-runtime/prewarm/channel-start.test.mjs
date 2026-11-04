@@ -16,7 +16,7 @@ test('rescheduling automation autostart cancels the pending timer instead of lea
     },
     channels: { start: async () => {} },
     envFlag: () => false,
-    delays: { channelStartDelayMs: 0, backgroundBusyRetryMs: 0 },
+    delays: { channelStartDelayMs: 0 },
     state: { channelStartPromise: null },
   });
   scheduleAutomationAutostart(20);

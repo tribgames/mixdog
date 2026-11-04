@@ -45,7 +45,6 @@ export const MODEL_PROXY_HEARTBEAT_MS = 5_000;
 export const MODEL_PROXY_LEASE_MS = 20_000;
 const CLAIM_TIMEOUT_MS = 10_000;
 const LEASE_MS = MODEL_PROXY_LEASE_MS;
-const SWEEP_MS = 2_000;
 const WIRE_MAX_DEPTH = 64;
 const BYTES_TAG = '__mixdogWireBytes';
 const ERROR_TAG = '__mixdogWireError';
@@ -201,17 +200,12 @@ function abortReason(signal) {
 export class ModelProxyChannel {
   #publisher = null;
   #entries = new Map();
-  #sweepTimer = null;
-  #now;
   #claimTimeoutMs;
   #leaseMs;
-  #sweepMs;
 
-  constructor({ now = Date.now, claimTimeoutMs = CLAIM_TIMEOUT_MS, leaseMs = LEASE_MS, sweepMs = SWEEP_MS } = {}) {
-    this.#now = now;
+  constructor({ claimTimeoutMs = CLAIM_TIMEOUT_MS, leaseMs = LEASE_MS } = {}) {
     this.#claimTimeoutMs = claimTimeoutMs;
     this.#leaseMs = leaseMs;
-    this.#sweepMs = sweepMs;
   }
 
   #clientPresent = true;
@@ -301,8 +295,10 @@ export class ModelProxyChannel {
   disconnect(reason = 'the desktop client disconnected') {
     const entries = [...this.#entries.values()];
     this.#entries.clear();
-    this.#stopSweep();
-    for (const entry of entries) this.#settle(entry, false, new ModelProxyUnavailableError(reason));
+    for (const entry of entries) {
+      this.#disarm(entry);
+      this.#settle(entry, false, new ModelProxyUnavailableError(reason));
+    }
   }
 
   /**
@@ -320,7 +316,6 @@ export class ModelProxyChannel {
     } catch (error) {
       return Promise.reject(error);
     }
-    const now = this.#now();
     return new Promise((resolve, reject) => {
       const entry = {
         id: `mp_${randomUUID().replaceAll('-', '')}`,
@@ -335,16 +330,14 @@ export class ModelProxyChannel {
         signal,
         onAbort: null,
         settled: false,
-        claimDeadline: now + this.#claimTimeoutMs,
-        lastSeenAt: now,
-        cancelledAt: 0,
+        deadline: null,
       };
       if (signal) {
         entry.onAbort = () => this.#cancel(entry, abortReason(signal));
         signal.addEventListener('abort', entry.onAbort, { once: true });
       }
       this.#entries.set(entry.id, entry);
-      this.#ensureSweep();
+      this.#arm(entry, this.#claimTimeoutMs);
       this.#publish();
     });
   }
@@ -374,7 +367,7 @@ export class ModelProxyChannel {
     const entry = this.#entries.get(String(id || ''));
     if (entry?.state !== 'pending') return null;
     entry.state = 'claimed';
-    entry.lastSeenAt = this.#now();
+    this.#arm(entry, this.#leaseMs);
     const payload = entry.payload;
     entry.payload = null;
     this.#publish();
@@ -384,8 +377,8 @@ export class ModelProxyChannel {
   async event(id, eventsText) {
     const entry = this.#entries.get(String(id || ''));
     if (!entry || entry.state === 'pending') return { cancelled: true, results: '[]' };
-    entry.lastSeenAt = this.#now();
     if (entry.state === 'cancelled') return { cancelled: true, results: '[]' };
+    this.#arm(entry, this.#leaseMs);
     const events = decodeModelProxyWire(eventsText);
     const results = [];
     for (const event of Array.isArray(events) ? events : []) {
@@ -401,7 +394,7 @@ export class ModelProxyChannel {
         results.push({ ok: false, error: modelProxyErrorToWire(error) });
       }
     }
-    entry.lastSeenAt = this.#now();
+    if (entry.state === 'claimed' && this.#entries.get(entry.id) === entry) this.#arm(entry, this.#leaseMs);
     return { cancelled: entry.state !== 'claimed', results: encodeModelProxyWire(results) };
   }
 
@@ -409,6 +402,7 @@ export class ModelProxyChannel {
     const entry = this.#entries.get(String(id || ''));
     if (!entry || entry.state === 'pending') return false;
     this.#entries.delete(entry.id);
+    this.#disarm(entry);
     if (entry.state === 'cancelled') {
       this.#publish();
       return true;
@@ -436,7 +430,6 @@ export class ModelProxyChannel {
 
   /** PC liveness for its running calls; answers which of them to stop. */
   heartbeat(ids) {
-    const now = this.#now();
     const cancelled = [];
     for (const raw of Array.isArray(ids) ? ids : []) {
       const id = String(raw || '');
@@ -445,7 +438,7 @@ export class ModelProxyChannel {
         cancelled.push(id);
         continue;
       }
-      entry.lastSeenAt = now;
+      this.#arm(entry, this.#leaseMs);
     }
     return { cancelled };
   }
@@ -465,7 +458,7 @@ export class ModelProxyChannel {
     try {
       this.#publisher?.(this.snapshot());
     } catch {
-      /* the sweep fails unclaimed calls if the client never hears of them */
+      /* the claim deadline fails unclaimed calls if the client never hears of them */
     }
   }
 
@@ -487,46 +480,40 @@ export class ModelProxyChannel {
   #cancel(entry, reason) {
     if (entry.settled) return;
     this.#settle(entry, false, reason);
-    if (entry.state === 'pending') this.#entries.delete(entry.id);
-    else {
+    if (entry.state === 'pending') {
+      this.#entries.delete(entry.id);
+      this.#disarm(entry);
+    } else {
       entry.state = 'cancelled';
-      entry.cancelledAt = this.#now();
+      this.#arm(entry, this.#leaseMs);
     }
     this.#publish();
   }
 
-  #ensureSweep() {
-    if (this.#sweepTimer) return;
-    this.#sweepTimer = setInterval(() => this.sweep(), this.#sweepMs);
-    this.#sweepTimer.unref?.();
+  /** One deadline per call, for the state it is in: the claim window while
+   *  pending, the lease (renewed by every claim, event and heartbeat) while
+   *  claimed, and the retention of an unacknowledged cancel. */
+  #arm(entry, delayMs) {
+    clearTimeout(entry.deadline);
+    entry.deadline = setTimeout(() => this.#expire(entry), delayMs);
+    entry.deadline.unref?.();
   }
 
-  #stopSweep() {
-    if (!this.#sweepTimer) return;
-    clearInterval(this.#sweepTimer);
-    this.#sweepTimer = null;
+  #disarm(entry) {
+    clearTimeout(entry.deadline);
+    entry.deadline = null;
   }
 
-  /** Expire unclaimed calls, silent clients and acknowledged-never cancels. */
-  sweep() {
-    const now = this.#now();
-    let changed = false;
-    for (const entry of [...this.#entries.values()]) {
-      if (entry.state === 'pending' && now >= entry.claimDeadline) {
-        this.#entries.delete(entry.id);
-        this.#settle(entry, false, new ModelProxyUnavailableError('the desktop client did not pick up the model call'));
-        changed = true;
-      } else if (entry.state === 'claimed' && now - entry.lastSeenAt > this.#leaseMs) {
-        this.#entries.delete(entry.id);
-        this.#settle(entry, false, new ModelProxyUnavailableError('the desktop client stopped responding'));
-        changed = true;
-      } else if (entry.state === 'cancelled' && now - entry.cancelledAt > this.#leaseMs) {
-        this.#entries.delete(entry.id);
-        changed = true;
-      }
+  #expire(entry) {
+    entry.deadline = null;
+    if (this.#entries.get(entry.id) !== entry) return;
+    this.#entries.delete(entry.id);
+    if (entry.state === 'pending') {
+      this.#settle(entry, false, new ModelProxyUnavailableError('the desktop client did not pick up the model call'));
+    } else if (entry.state === 'claimed') {
+      this.#settle(entry, false, new ModelProxyUnavailableError('the desktop client stopped responding'));
     }
-    if (changed) this.#publish();
-    if (!this.#entries.size) this.#stopSweep();
+    this.#publish();
   }
 }
 

@@ -1,24 +1,16 @@
 /**
  * session-transport/client-registry.mjs — the attached-client registry:
  * registration (with timed-out-registration replay, see
- * client-registry/registration-replays), drop, and the dead-lead sweep plus
- * no-clients grace timer (client-registry/client-grace).
+ * client-registry/registration-replays), drop, and each client's lease
+ * deadline plus the no-clients grace timer (client-registry/client-grace).
  */
 import { randomUUID } from 'node:crypto';
 import { parsePid } from '../../runtime/shared/pid-liveness.mjs';
 import { createRegistrationReplays } from './client-registry/registration-replays.mjs';
 import { createClientGrace, clampLeaseMs } from './client-registry/client-grace.mjs';
 
-export function createClientRegistry({
-  log,
-  nowMs,
-  clientGraceMs,
-  sweepMs,
-  onClientsEmpty,
-  onClientRegistered,
-  onClientDropped,
-}) {
-  // token -> { token, leadPid, cwd, lifecycle, remote, leaseMs, sse, pending, lastSeen }
+export function createClientRegistry({ log, nowMs, clientGraceMs, onClientsEmpty, onClientRegistered, onClientDropped }) {
+  // token -> { token, leadPid, cwd, lifecycle, remote, leaseMs, leaseTimer, sse, pending, lastSeen }
   const clients = new Map();
   let closed = false;
   const replays = createRegistrationReplays({ clients, log });
@@ -26,8 +18,6 @@ export function createClientRegistry({
     clients,
     log,
     clientGraceMs,
-    sweepMs,
-    nowMs,
     onClientsEmpty,
     isClosed: () => closed,
     dropClient: (token, reason) => dropClient(token, reason),
@@ -36,6 +26,7 @@ export function createClientRegistry({
   function removeClientRecord(token) {
     const c = clients.get(token);
     if (!c) return;
+    grace.clearLease(c);
     if (c.lifecycle) grace.noteLifecycleDropped(c);
     try {
       c.sse?.end?.();
@@ -64,7 +55,33 @@ export function createClientRegistry({
     const c = clients.get(token);
     if (!c) return false;
     c.lastSeen = nowMs();
+    grace.noteTouched(c);
     return true;
+  }
+
+  /** The frame stream attached a response for `token`. */
+  function noteStreamAttached(token) {
+    const c = clients.get(token);
+    if (c) grace.noteStreamAttached(c);
+  }
+
+  /** A /call of `token` started or settled: a call in flight holds its lease. */
+  function noteCallStarted(token) {
+    const c = clients.get(token);
+    if (c) grace.noteCallStarted(c);
+  }
+
+  function noteCallSettled(token) {
+    const c = clients.get(token);
+    if (c) grace.noteCallSettled(c);
+  }
+
+  /** A response of `token` closed (the client's `sse` says whether another
+   *  already replaced it). */
+  function noteStreamClosed(token) {
+    const c = clients.get(token);
+    if (c) grace.noteStreamClosed(c);
+    grace.maybeArm('sse closed');
   }
 
   function register({
@@ -101,9 +118,11 @@ export function createClientRegistry({
       pending: new Map(),
       pendingBytes: 0,
       lastSeen: nowMs(),
+      leaseTimer: null,
+      callsInFlight: 0,
     });
     if (identity.lifecycle) grace.noteLifecycleClient();
-    grace.startSweep();
+    grace.noteRegistered(clients.get(token));
     log(
       `client registered token=${token} lead=${identity.leadPid} cwd=${identity.cwd || '-'}` +
         ` lifecycle=${identity.lifecycle} kind=${identity.clientKind}` +
@@ -141,6 +160,10 @@ export function createClientRegistry({
     dropClient,
     register,
     touch,
+    noteStreamAttached,
+    noteStreamClosed,
+    noteCallStarted,
+    noteCallSettled,
     close,
   };
 }

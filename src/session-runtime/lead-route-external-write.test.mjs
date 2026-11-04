@@ -108,7 +108,6 @@ function runtime({ route, beforeWrite = () => {} }) {
     saveConfigAndAdopt: lifecycle.saveConfigAndAdopt,
     refreshRouteEffort: async () => {},
     refreshStatuslineUsageSnapshot() {},
-    scheduleStatuslineUsageRefresh() {},
     invalidateContextStatusCache() {},
     invalidateProviderCaches() {},
     invalidatePreSessionToolSurface() {},

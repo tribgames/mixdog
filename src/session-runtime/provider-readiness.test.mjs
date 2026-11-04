@@ -6,7 +6,11 @@ import { createProviderReadiness } from './provider-readiness.mjs';
 function harness({ prewarm = Promise.resolve() } = {}) {
   const inits = [];
   const registryWrites = [];
-  const rt = { config: { providers: { demo: { enabled: true, apiKey: 'old-key' } } }, closeRequested: false };
+  const rt = {
+    config: { providers: { demo: { enabled: true, apiKey: 'old-key' } } },
+    closeRequested: false,
+    wakeDeferredWarmups() {},
+  };
   const catalogRefresh = Promise.resolve();
   const reg = {
     initProviders: async (providers) => {
@@ -90,7 +94,7 @@ function fakeKeychain() {
 }
 
 function readinessOn(keychain) {
-  const rt = { config: { providers: {} }, closeRequested: false };
+  const rt = { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} };
   return createProviderReadiness({
     rt,
     keychain,

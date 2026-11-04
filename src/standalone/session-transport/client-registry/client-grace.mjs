@@ -1,7 +1,10 @@
 /**
  * client-registry/client-grace.mjs — the no-clients grace timer that lets the
- * daemon shut itself down through the session front door, and the dead-lead
- * sweep that drops clients whose owning process died.
+ * daemon shut itself down through the session front door, and each client's
+ * lease deadline. A remote client's lease is its heartbeat; a local client's
+ * lease is its open event stream: the deadline runs only while it holds none,
+ * and a stream that closes after its lead process died drops it at once. A
+ * call of the client's own in flight holds either lease.
  */
 import { isPidAlive } from '../../../runtime/shared/pid-liveness.mjs';
 
@@ -26,18 +29,8 @@ function remoteClientGraceMs() {
     : REMOTE_CLIENT_GRACE_DEFAULT_MS;
 }
 
-export function createClientGrace({
-  clients,
-  log,
-  clientGraceMs,
-  sweepMs,
-  nowMs = () => Date.now(),
-  onClientsEmpty,
-  isClosed,
-  dropClient,
-}) {
+export function createClientGrace({ clients, log, clientGraceMs, onClientsEmpty, isClosed, dropClient }) {
   let graceTimer = null;
-  let sweepTimer = null;
   let everHadLifecycleClient = false;
   let signalled = false;
   // Whether the most recently departed lifecycle client was remote; it picks
@@ -62,13 +55,11 @@ export function createClientGrace({
   function maybeArm(reason) {
     if (isClosed() || !everHadLifecycleClient || typeof onClientsEmpty !== 'function') return;
     if (lifecycleClientCount() > 0) return;
-    // Never re-arm an ALREADY armed grace: the 5s sweep also calls this, and
-    // cancel+rearm on every tick pushed the 10s deadline out forever — the
-    // daemon could never self-shut down through the session front door.
-    // Once the grace has fired, the sweep must not arm it again either: the
-    // shutdown signal was already sent, and re-arming repeated it every sweep
-    // tick for as long as the daemon took to go down. A lifecycle client that
-    // attaches again clears the latch, because that daemon is staying up.
+    // Never re-arm an ALREADY armed grace: every stream close also calls
+    // this, and cancel+rearm pushed the deadline out for as long as closes
+    // kept coming. Once the grace has fired it is not armed again either: the
+    // shutdown signal was already sent. A lifecycle client that attaches again
+    // clears the latch, because that daemon is staying up.
     if (graceTimer || signalled) return;
     graceTimer = setTimeout(
       () => {
@@ -97,30 +88,81 @@ export function createClientGrace({
     cancel();
   }
 
-  function startSweep() {
-    if (sweepTimer || isClosed()) return;
-    sweepTimer = setInterval(() => {
-      for (const [token, c] of [...clients]) {
-        if (c.remote) {
-          // Its owning process is on another machine: liveness is the lease.
-          if (nowMs() - c.lastSeen > c.leaseMs) dropClient(token, 'lease expired');
-          continue;
-        }
-        // A client whose owning process died can never read its stream again.
-        if (c.leadPid && !isPidAlive(c.leadPid)) dropClient(token, 'lead pid gone');
-      }
-      maybeArm('sweep');
-    }, sweepMs);
-    sweepTimer.unref?.();
+  function clearLease(c) {
+    if (!c.leaseTimer) return;
+    clearTimeout(c.leaseTimer);
+    c.leaseTimer = null;
+  }
+
+  // One deadline per client, `leaseMs` from now; re-arming replaces it. A call
+  // of its own in flight proves the client alive, so none runs meanwhile; a
+  // local client's open stream does the same.
+  function renewLease(c) {
+    clearLease(c);
+    if (isClosed() || c.callsInFlight > 0) return;
+    if (!c.remote && c.sse) return;
+    const reason = c.remote ? 'lease expired' : 'stream lapsed';
+    c.leaseTimer = setTimeout(() => {
+      c.leaseTimer = null;
+      if (clients.get(c.token) === c) dropClient(c.token, reason);
+    }, c.leaseMs);
+    c.leaseTimer.unref?.();
+  }
+
+  /** A new client: a remote one starts its heartbeat lease, a local one the
+   *  deadline its first stream attach clears. */
+  function noteRegistered(c) {
+    renewLease(c);
+  }
+
+  /** A heartbeat from a remote client renews its lease. */
+  function noteTouched(c) {
+    if (c.remote) renewLease(c);
+  }
+
+  function noteStreamAttached(c) {
+    if (!c.remote) clearLease(c);
+  }
+
+  function noteStreamClosed(c) {
+    if (c.remote || c.sse) return;
+    // Its owning process died: it can never read a stream again.
+    if (c.leadPid && !isPidAlive(c.leadPid)) {
+      dropClient(c.token, 'lead pid gone');
+      return;
+    }
+    renewLease(c);
+  }
+
+  function noteCallStarted(c) {
+    c.callsInFlight += 1;
+    clearLease(c);
+  }
+
+  /** The deadline restarts from the settle of the client's last call. */
+  function noteCallSettled(c) {
+    c.callsInFlight = Math.max(0, c.callsInFlight - 1);
+    if (c.callsInFlight === 0) renewLease(c);
   }
 
   function stopTimers() {
     cancel();
-    if (sweepTimer) {
-      clearInterval(sweepTimer);
-      sweepTimer = null;
-    }
+    for (const c of clients.values()) clearLease(c);
   }
 
-  return { lifecycleClientCount, cancel, maybeArm, noteLifecycleClient, noteLifecycleDropped, startSweep, stopTimers };
+  return {
+    lifecycleClientCount,
+    cancel,
+    maybeArm,
+    noteLifecycleClient,
+    noteLifecycleDropped,
+    noteRegistered,
+    noteTouched,
+    noteStreamAttached,
+    noteStreamClosed,
+    noteCallStarted,
+    noteCallSettled,
+    clearLease,
+    stopTimers,
+  };
 }

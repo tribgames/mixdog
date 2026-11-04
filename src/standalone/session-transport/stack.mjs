@@ -70,7 +70,6 @@ export function createTransportStack({
   drain,
   log,
   clientGraceMs,
-  sweepMs,
   onClientsEmpty,
   onClientRegistered,
   onClientDropped,
@@ -93,7 +92,6 @@ export function createTransportStack({
     log,
     nowMs,
     clientGraceMs,
-    sweepMs,
     onClientsEmpty,
     onClientRegistered,
     onClientDropped,
@@ -104,10 +102,15 @@ export function createTransportStack({
     maxPendingBytes: SSE_PENDING_MAX_BYTES,
     nowMs,
     onDiagnostic: (entry) => log(`transcript-stream ${JSON.stringify(entry)}`),
-    // The stream proves receipt of its token, ending registration replay.
-    onAttached: registry.forgetReplaysFor,
-    // Stream loss alone does not remove a client or its live session.
-    onClosed: () => registry.maybeArmGrace('sse closed'),
+    // The stream proves receipt of its token, ending registration replay, and
+    // holds a local client's lease.
+    onAttached: (token) => {
+      registry.forgetReplaysFor(token);
+      registry.noteStreamAttached(token);
+    },
+    // Stream loss alone does not remove a live client or its session: only a
+    // dead lead process or a lapsed lease does.
+    onClosed: (token) => registry.noteStreamClosed(token),
   });
   const handleRequest = createTransportRoutes({
     serverToken,
@@ -115,7 +118,16 @@ export function createTransportStack({
     readBody: body.readBody,
     registry,
     lanes,
-    callRoute: createCallRoute({ handleCall, clients, lanes, callCache, nowMs, workGate }),
+    callRoute: createCallRoute({
+      handleCall,
+      clients,
+      lanes,
+      callCache,
+      nowMs,
+      workGate,
+      onCallStarted: registry.noteCallStarted,
+      onCallSettled: registry.noteCallSettled,
+    }),
     workGate,
     attachSse,
     getStatus,

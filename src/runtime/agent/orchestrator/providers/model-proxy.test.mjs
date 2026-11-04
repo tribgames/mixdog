@@ -282,24 +282,64 @@ test('without a connected client every call fails fast and never falls back', as
   channel.setClientPresent(true);
 
   // A client that never picks a call up, or goes silent while running one.
-  let now = 1_000;
-  const timed = new ModelProxyChannel({ now: () => now, claimTimeoutMs: 100, leaseMs: 200, sweepMs: 60_000 });
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const timed = new ModelProxyChannel({ claimTimeoutMs: 100, leaseMs: 200 });
   const ids = [];
   t.after(timed.attachPublisher((snapshot) => ids.push(...snapshot.requests.map((request) => request.id))));
   const unclaimed = new ModelProxyProvider('openai', {}, timed).send([], 'm', undefined, {});
-  now += 150;
-  timed.sweep();
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(150);
   await assert.rejects(unclaimed, { code: 'MODEL_PROXY_UNAVAILABLE', message: /did not pick up/ });
   const silent = new ModelProxyProvider('openai', {}, timed).send([], 'm', undefined, {});
+  await new Promise((resolve) => setImmediate(resolve));
   op(timed, 'claim', ids.at(-1));
-  now += 150;
+  t.mock.timers.tick(150);
   op(timed, 'heartbeat', [ids.at(-1)]);
-  now += 150;
-  timed.sweep();
+  t.mock.timers.tick(150);
   assert.deepEqual(timed.snapshot(), { requests: [], cancelled: [] });
-  now += 250;
-  timed.sweep();
+  t.mock.timers.tick(100);
   await assert.rejects(silent, { code: 'MODEL_PROXY_UNAVAILABLE', message: /stopped responding/ });
+});
+
+test('the channel runs no periodic timer: one deadline per call, gone once the call settles', async (t) => {
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const cleared = new Set();
+  const armed = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  t.mock.method(globalThis, 'setTimeout', (fn, ms, ...rest) => {
+    const handle = realSetTimeout(fn, ms, ...rest);
+    armed.push({ handle, ms });
+    return handle;
+  });
+  t.mock.method(globalThis, 'clearTimeout', (handle) => {
+    if (handle) cleared.add(handle);
+    return realClearTimeout(handle);
+  });
+  const channel = new ModelProxyChannel({ claimTimeoutMs: 1_000, leaseMs: 2_000 });
+  const ids = [];
+  t.after(channel.attachPublisher((snapshot) => ids.push(...snapshot.requests.map((request) => request.id))));
+  const running = new ModelProxyProvider('openai', {}, channel).send([], 'm', undefined, {});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    armed.map((timer) => timer.ms),
+    [1_000],
+    'a request arms its claim deadline'
+  );
+  op(channel, 'claim', ids.at(-1));
+  op(channel, 'heartbeat', [ids.at(-1)]);
+  assert.deepEqual(
+    armed.map((timer) => timer.ms),
+    [1_000, 2_000, 2_000],
+    'claim and heartbeat each replace the deadline with a fresh lease'
+  );
+  op(channel, 'resolve', ids.at(-1), true, encodeModelProxyWire({ ok: 1 }), null);
+  assert.deepEqual(await running, { ok: 1 });
+  assert.equal(intervals.mock.callCount(), 0, 'no setInterval at all');
+  assert.ok(
+    armed.every((timer) => cleared.has(timer.handle)),
+    'every deadline is cleared once the call settles'
+  );
 });
 
 test('proxy mode never looks up a server-side model credential', async (t) => {

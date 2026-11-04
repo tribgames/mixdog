@@ -208,6 +208,7 @@ test('the production timer is a single 30s unrefed loop that samples then runs o
   assert.match(lines[0], /^daemon-telemetry reason=boot /);
   assert.equal(intervalTicks.length, 0);
 
+  telemetry.noteActivity();
   timers[0].fn();
   assert.equal(lines.length, 2);
   assert.match(lines[1], /^daemon-telemetry reason=periodic /);
@@ -224,6 +225,22 @@ test('the production timer is a single 30s unrefed loop that samples then runs o
   const custom = fixture();
   custom.telemetry.start(50);
   assert.equal(custom.timers[0].ms, 50);
+});
+
+test('the tick watches lag every window but writes a memory line only after daemon activity', () => {
+  const { telemetry, lines, timers, intervalTicks } = fixture();
+  telemetry.start();
+  timers[0].fn();
+  timers[0].fn();
+  assert.deepEqual(lines, [], 'a daemon at rest logs nothing');
+  assert.deepEqual(intervalTicks, ['lag', 'lag'], 'the stall watch still runs');
+  telemetry.noteActivity();
+  telemetry.noteActivity();
+  timers[0].fn();
+  timers[0].fn();
+  assert.equal(lines.length, 1, 'one line for the window that saw activity');
+  assert.match(lines[0], /^daemon-telemetry reason=periodic /);
+  telemetry.stop();
 });
 
 test('onStart runs once when the loop starts, before its first tick, and a throw stays contained', () => {

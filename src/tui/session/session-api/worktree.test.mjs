@@ -19,6 +19,8 @@ function wire(api) {
     lanes: { dispatch: (_owner, task) => task() },
     callCache: { get: () => null, track: () => {} },
     nowMs: () => 0,
+    onCallStarted() {},
+    onCallSettled() {},
   });
   return createAttachmentCalls({
     request: async ({ body }) => {

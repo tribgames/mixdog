@@ -1,8 +1,10 @@
-// Periodic daemon memory + in-flight work telemetry.
+// Daemon memory + in-flight work telemetry.
 //
-// Owns the single unref'd 30s diagnostics loop (event-loop lag rides
-// onInterval on the same tick) so a crash still has a recent
-// RSS/heap/limit/work record in daemon.log. The V8 heap limit is
+// Owns the single unref'd 30s stall-watch loop: event-loop lag rides
+// onInterval on every tick. The memory/work line is written only for a window
+// in which the daemon reported activity (calls, published frames), so a crash
+// during work still has a recent RSS/heap/limit/work record in daemon.log
+// while a daemon at rest writes nothing. The V8 heap limit is
 // process-specific (heap_size_limit) and is never inferred from host
 // free RAM. Lines contain only counters — no session bodies, tokens,
 // or env. Retention is the daemon log's existing rotate-and-keep bound.
@@ -198,6 +200,7 @@ export function createDaemonTelemetry({
 } = {}) {
   let timer = null;
   let gcTracker = null;
+  let activeSinceLastLine = false;
 
   function emit(reason = 'periodic') {
     try {
@@ -224,7 +227,10 @@ export function createDaemonTelemetry({
   }
 
   function tick() {
-    emit('periodic');
+    if (activeSinceLastLine) {
+      activeSinceLastLine = false;
+      emit('periodic');
+    }
     try {
       onInterval?.();
     } catch {
@@ -259,5 +265,10 @@ export function createDaemonTelemetry({
     gcTracker = null;
   }
 
-  return { emit, start, stop };
+  /** The daemon did work: the next window writes its memory/work line. */
+  function noteActivity() {
+    activeSinceLastLine = true;
+  }
+
+  return { emit, start, stop, noteActivity };
 }

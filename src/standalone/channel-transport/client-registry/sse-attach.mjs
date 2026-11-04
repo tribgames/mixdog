@@ -1,7 +1,8 @@
 // Binding a registered client's notify stream: the SSE response headers, the
 // prelude that flushes them, frames buffered while the client had no stream,
-// the keepalive comment, and stream-loss bookkeeping.
-const KEEPALIVE_MS = 15_000;
+// and stream-loss bookkeeping. The channel transport binds 127.0.0.1 only, so
+// every stream is loopback: a dead peer closes the socket, and no keepalive
+// bytes are needed to detect it.
 
 export function attachClientStream({ client, res, stickyFrame, onClosed }) {
   res.writeHead(200, {
@@ -28,14 +29,7 @@ export function attachClientStream({ client, res, stickyFrame, onClosed }) {
       res.write(`data: ${stickyFrame}\n\n`);
     } catch {}
   }
-  const ka = setInterval(() => {
-    try {
-      res.write(': ka\n\n');
-    } catch {}
-  }, KEEPALIVE_MS);
-  ka.unref?.();
   const cleanup = () => {
-    clearInterval(ka);
     if (client.sse === res) client.sse = null;
     onClosed();
   };

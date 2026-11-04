@@ -2,7 +2,13 @@
 // onto the queued frame it builds on, and terminal byte streams concatenate.
 // Keep socket ownership and bounded backlog policy here.
 const TERMINAL_BACKLOG_MAX_CHARS = 256 * 1024;
+// Only a remote client's stream carries keepalives: it crosses an ssh tunnel
+// whose half-open socket delivers neither bytes nor a FIN, so the client's
+// silence deadline (session-client/frame-stream) is its only loss signal. A
+// loopback stream ends with the socket and stays silent at rest.
 const KEEPALIVE_MS = 15_000;
+// How long a paused stream waits for 'drain' before the stall is reported.
+const STALL_REPORT_MS = 15_000;
 
 function terminalDataFrame(frame) {
   return frame?.type === 'desktop-event' &&
@@ -133,17 +139,32 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     } catch {}
   }
 
+  function clearStallWatch(client) {
+    if (!client.stallTimer) return;
+    clearTimeout(client.stallTimer);
+    client.stallTimer = null;
+  }
+
+  // One deadline per pause, cleared by the drain that ends it.
   function pause(client) {
-    if (!client.paused) client.pausedAt = nowMs();
+    if (!client.paused) {
+      client.pausedAt = nowMs();
+      const res = client.sse;
+      clearStallWatch(client);
+      client.stallTimer = setTimeout(() => {
+        client.stallTimer = null;
+        if (client.sse === res && client.paused) reportStall(client, res);
+      }, STALL_REPORT_MS);
+      client.stallTimer.unref?.();
+    }
     client.paused = true;
   }
 
-  // A stream paused across a keepalive period: bytes still buffered mean the
+  // A stream paused past the stall deadline: bytes still buffered mean the
   // consumer stopped reading; none buffered means a drain that never fired.
   function reportStall(client, res) {
     if (typeof onDiagnostic !== 'function') return;
     const atMs = nowMs();
-    if (atMs - client.pausedAt < KEEPALIVE_MS) return;
     try {
       onDiagnostic({
         stage: 'stream-stalled',
@@ -289,6 +310,7 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     const previous = client.sse;
     client.sse = res;
     client.paused = false;
+    clearStallWatch(client);
     if (paused) pause(client);
     client.lastSeen = nowMs();
     // Replacement transfers ownership before closing the old stream, so its
@@ -301,6 +323,7 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     const onDrain = () => {
       if (client.sse !== res) return;
       client.paused = false;
+      clearStallWatch(client);
       flushPending(client);
     };
     const cleanup = () => {
@@ -312,26 +335,25 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
       if (client.sse === res) {
         client.sse = null;
         client.paused = false;
+        clearStallWatch(client);
       }
-      onClosed();
+      onClosed(token);
     };
     cleanups.set(res, cleanup);
     res.on('drain', onDrain);
     res.on('close', cleanup);
     res.on('error', cleanup);
-    keepAlive = setInterval(() => {
-      if (client.sse !== res) return;
-      if (client.paused) {
-        reportStall(client, res);
-        return;
-      }
-      try {
-        if (res.write(': ka\n\n') === false) pause(client);
-      } catch {
-        retireStream(res);
-      }
-    }, KEEPALIVE_MS);
-    keepAlive.unref?.();
+    if (client.remote) {
+      keepAlive = setInterval(() => {
+        if (client.sse !== res || client.paused) return;
+        try {
+          if (res.write(': ka\n\n') === false) pause(client);
+        } catch {
+          retireStream(res);
+        }
+      }, KEEPALIVE_MS);
+      keepAlive.unref?.();
+    }
     flushPending(client);
     return true;
   }

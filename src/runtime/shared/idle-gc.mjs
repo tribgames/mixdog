@@ -9,7 +9,9 @@
 // The sweep runs ONLY while the host reports itself idle, so its pause never
 // lands inside a turn, and it goes through the in-process inspector rather
 // than --expose-gc: no launch flag, no debugger port, and none of the detached
-// contexts the vm.runInNewContext('gc') trick leaves behind.
+// contexts the vm.runInNewContext('gc') trick leaves behind. It is driven by
+// one deadline, `idleMs` after the host's last reported activity: a host at
+// rest checks once and then arms nothing until something happens again.
 
 import { Session } from 'node:inspector';
 
@@ -22,11 +24,14 @@ const MB = 1024 * 1024;
 // so the heap looks unchanged from the last sweep for as long as nothing does.
 let releaseSeq = 0;
 let lastReleaseAt = 0;
+// The armed sweeps of this process, told about every release.
+const armedSweeps = new Set();
 
 /** A large amount of memory just became unreachable in this process. */
 export function noteMemoryRelease() {
   releaseSeq += 1;
   lastReleaseAt = Date.now();
+  for (const noteActivity of armedSweeps) noteActivity();
 }
 
 function envNumber(name, fallback, min = 0) {
@@ -83,7 +88,6 @@ export function createIdleGc({
   // Long enough that the pause between two turns of one conversation never
   // triggers a sweep, short enough that a desktop left alone reclaims soon.
   const idleMs = envNumber('MIXDOG_IDLE_GC_IDLE_MS', 60_000, 1_000);
-  const checkMs = Math.max(5_000, Math.round(idleMs / 4));
   // Under this the sweep costs more than it returns. Measured on the live
   // daemon hosting six sessions: heapUsed 102MB against a 180MB committed
   // total. The previous 192MB floor sat above the heap this process actually
@@ -105,6 +109,7 @@ export function createIdleGc({
   // noteMemoryRelease) before running again.
   const growthBytes = envNumber('MIXDOG_IDLE_GC_GROWTH_MB', 64) * MB;
 
+  let armed = false;
   let timer = null;
   let lastBusyAt = Date.now();
   let lastSweptHeap = 0;
@@ -184,30 +189,61 @@ export function createIdleGc({
     }
   }
 
-  function arm() {
-    if (!enabled || timer) return false;
+  function schedule(delayMs) {
     // Unref'd: reclaiming memory must never be the reason a process stays up.
-    timer = setInterval(() => {
-      void tick();
-    }, checkMs);
+    timer = setTimeout(() => {
+      timer = null;
+      // Activity since this deadline was armed moved it later.
+      const remainingMs = lastBusyAt + idleMs - Date.now();
+      if (remainingMs > 0) {
+        schedule(remainingMs);
+        return;
+      }
+      void tick().then((decision) => {
+        // Only a host still settling has a later deadline of its own; busy
+        // work reports its end as activity, and every other outcome waits
+        // for the next activity.
+        if (decision === 'settling' && armed && !timer) schedule(lastBusyAt + idleMs - Date.now());
+      });
+    }, Math.max(0, delayMs));
     timer.unref?.();
+  }
+
+  /** The host did work (a call, a published frame, a release): the idle
+   *  deadline moves to `idleMs` from now. */
+  function noteActivity() {
+    if (!armed) return;
+    lastBusyAt = Date.now();
+    // A pending deadline that fires early re-arms for the remainder, so a
+    // burst of activity costs no timer churn.
+    if (!timer) schedule(idleMs);
+  }
+
+  function arm() {
+    if (!enabled || armed) return false;
+    armed = true;
+    armedSweeps.add(noteActivity);
+    schedule(idleMs);
     return true;
   }
 
   function disarm() {
-    if (!timer) return;
-    clearInterval(timer);
+    if (!armed) return;
+    armed = false;
+    armedSweeps.delete(noteActivity);
+    clearTimeout(timer);
     timer = null;
   }
 
   return {
     arm,
     disarm,
+    noteActivity,
     get armed() {
-      return timer !== null;
+      return armed;
     },
     /** Drives one cycle synchronously for tests; returns the decision taken. */
     _tickForTest: tick,
-    _configForTest: { enabled, idleMs, checkMs, minHeapBytes, minSlackBytes, minExternalBytes, growthBytes },
+    _configForTest: { enabled, idleMs, minHeapBytes, minSlackBytes, minExternalBytes, growthBytes },
   };
 }

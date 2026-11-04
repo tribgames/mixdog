@@ -130,6 +130,46 @@ test('a large release re-arms one sweep once the host is idle again, never while
   });
 });
 
+test('an armed host checks once per idle deadline after activity and never on its own', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  await withEnv(
+    {
+      MIXDOG_IDLE_GC_IDLE_MS: '1000',
+      MIXDOG_IDLE_GC_MIN_HEAP_MB: '65536',
+      MIXDOG_IDLE_GC_MIN_SLACK_MB: '65536',
+      MIXDOG_IDLE_GC_MIN_EXTERNAL_MB: '65536',
+    },
+    async () => {
+      let probes = 0;
+      const gc = createIdleGc({
+        isBusy: () => {
+          probes += 1;
+          return false;
+        },
+      });
+      try {
+        assert.equal(gc.arm(), true);
+        t.mock.timers.tick(60_000);
+        assert.equal(probes, 1, 'one deadline after arming, then silence');
+        gc.noteActivity();
+        t.mock.timers.tick(500);
+        gc.noteActivity();
+        t.mock.timers.tick(999);
+        assert.equal(probes, 1, 'activity moves the deadline instead of adding checks');
+        t.mock.timers.tick(1);
+        assert.equal(probes, 2);
+        t.mock.timers.tick(60_000);
+        assert.equal(probes, 2);
+        noteMemoryRelease();
+        t.mock.timers.tick(1_000);
+        assert.equal(probes, 3, 'an announced release is activity too');
+      } finally {
+        gc.disarm();
+      }
+    }
+  );
+});
+
 test('MIXDOG_IDLE_GC=0 keeps the timer disarmed', async () => {
   await withEnv({ MIXDOG_IDLE_GC: '0' }, async () => {
     const gc = createIdleGc({ isBusy: () => false });

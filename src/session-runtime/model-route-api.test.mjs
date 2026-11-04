@@ -67,7 +67,6 @@ function fixture({
       state.route = { ...state.route, effectiveEffort: state.route.effort };
     },
     refreshStatuslineUsageSnapshot() {},
-    scheduleStatuslineUsageRefresh() {},
     invalidateContextStatusCache: () => calls.push(['invalidateContextStatusCache']),
     invalidateProviderCaches: () => calls.push(['invalidateProviderCaches']),
     invalidatePreSessionToolSurface: () => calls.push(['invalidatePreSessionToolSurface']),

@@ -1,18 +1,18 @@
-// The per-process heartbeat file under <runtime>/channel-clients/ that tells
-// the daemon which client processes are alive, plus the sweep that removes
-// rows whose pid died or whose stamp went stale.
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFile } from 'node:fs';
+// The per-process client file under <runtime>/channel-clients/ that names a
+// live client process, plus the sweep that removes rows whose pid died. The
+// file is written once when the first runtime of the process starts and
+// removed when the last one stops (or the process exits): its pid is the
+// liveness, so nothing rewrites it on a timer.
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPidAlive } from '../../../runtime/shared/pid-liveness.mjs';
 
-const HEARTBEAT_INTERVAL_MS = 5_000;
 const EXIT_CLEANUPS = new Set();
 let exitHookInstalled = false;
+// Client file path -> runtimes of this process that hold it.
+const holders = new Map();
 
-export function pruneStaleChannelClientHeartbeats(
-  clientDir,
-  { now = Date.now(), maxAgeMs = 30_000, pidAlive = isPidAlive } = {}
-) {
+export function pruneStaleChannelClientHeartbeats(clientDir, { pidAlive = isPidAlive } = {}) {
   let removed = 0;
   try {
     for (const name of readdirSync(clientDir)) {
@@ -23,13 +23,7 @@ export function pruneStaleChannelClientHeartbeats(
         row = JSON.parse(readFileSync(target, 'utf8'));
       } catch {}
       const pid = Number(row?.pid);
-      const updatedAt = Number(row?.updatedAt);
-      const stale =
-        !Number.isInteger(pid) ||
-        pid <= 0 ||
-        !Number.isFinite(updatedAt) ||
-        now - updatedAt > Math.max(5_000, Number(maxAgeMs) || 30_000) ||
-        !pidAlive(pid);
+      const stale = !Number.isInteger(pid) || pid <= 0 || !pidAlive(pid);
       if (!stale) continue;
       try {
         rmSync(target, { force: true });
@@ -61,42 +55,35 @@ function registerExitCleanup(cleanup) {
 
 export function createClientHeartbeat({ clientDir, cwd }) {
   const clientPath = join(clientDir, `${process.pid}.json`);
-  let timer = null;
   let unregisterExit = null;
-  let dirReady = false;
-
-  function write() {
-    try {
-      if (!dirReady) {
-        mkdirSync(clientDir, { recursive: true });
-        pruneStaleChannelClientHeartbeats(clientDir);
-        dirReady = true;
-      }
-      writeFile(clientPath, JSON.stringify({ pid: process.pid, cwd, updatedAt: Date.now() }), () => {});
-    } catch {}
-  }
 
   function stop() {
-    if (unregisterExit) {
-      const unregister = unregisterExit;
-      unregisterExit = null;
-      unregister();
+    if (!unregisterExit) return;
+    const unregister = unregisterExit;
+    unregisterExit = null;
+    unregister();
+    const remaining = (holders.get(clientPath) || 1) - 1;
+    if (remaining > 0) {
+      holders.set(clientPath, remaining);
+      return;
     }
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
+    holders.delete(clientPath);
     try {
       rmSync(clientPath, { force: true });
     } catch {}
   }
 
   function start() {
-    if (timer) return;
-    write();
-    timer = setInterval(write, HEARTBEAT_INTERVAL_MS);
-    timer.unref?.();
-    unregisterExit ||= registerExitCleanup(stop);
+    if (unregisterExit) return;
+    unregisterExit = registerExitCleanup(stop);
+    const count = holders.get(clientPath) || 0;
+    holders.set(clientPath, count + 1);
+    if (count > 0) return;
+    try {
+      mkdirSync(clientDir, { recursive: true });
+      pruneStaleChannelClientHeartbeats(clientDir);
+      writeFileSync(clientPath, JSON.stringify({ pid: process.pid, cwd, updatedAt: Date.now() }));
+    } catch {}
   }
 
   return { start, stop };
