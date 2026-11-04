@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 </p>
 
 <p align="center">
-  <a href="https://aiscroll.io/mixdog/"><b>Website</b></a> ·
+  <a href="https://mixdog.ai/"><b>Website</b></a> ·
   <a href="benchmarks/terminal-bench-2.1/"><b>Benchmarks</b></a> ·
   <a href="#documentation"><b>Docs</b></a>
 </p>
