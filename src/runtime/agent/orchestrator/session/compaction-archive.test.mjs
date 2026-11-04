@@ -577,7 +577,13 @@ test('an append that the handle writes only in part is completed before it is ac
   t.mock.method(proto, 'write', function shortWrite(data, ...args) {
     if (typeof data === 'string') {
       const bytes = Buffer.from(data, args[1] || 'utf8');
-      return realWrite.call(this, bytes.subarray(0, Math.ceil(bytes.length / 2)), 0, Math.ceil(bytes.length / 2), args[0]);
+      return realWrite.call(
+        this,
+        bytes.subarray(0, Math.ceil(bytes.length / 2)),
+        0,
+        Math.ceil(bytes.length / 2),
+        args[0]
+      );
     }
     const [offset, length, position] = args;
     return realWrite.call(this, data, offset, Math.max(1, Math.ceil(length / 2)), position);
@@ -664,7 +670,10 @@ test('the archive is capped by dropping its oldest segments, and links each to t
   scheduleCompactionArchive({ session, before: itemsOf(5, 4, 2_000), after: [], maxBytes: 20_000 });
   await flushCompactionArchiveWrites();
   assert.deepEqual(
-    archiveLines(session.id).map((line) => ({ seq: compactionSegmentHead(line).seq, prev: compactionSegmentHead(line).prev })),
+    archiveLines(session.id).map((line) => ({
+      seq: compactionSegmentHead(line).seq,
+      prev: compactionSegmentHead(line).prev,
+    })),
     [
       { seq: 4, prev: 'seg3' },
       { seq: 5, prev: 'seg4' },
@@ -853,7 +862,12 @@ test('a compaction capture writes nothing on the event loop: no sync fs write, l
   const calls = await syncFsCalls(async () => {
     // Appends, then one over the cap (a rewrite).
     for (const seq of [2, 3, 4]) {
-      const scheduled = scheduleCompactionArchive({ session, before: itemsOf(seq, 3, 1_500), after: [], maxBytes: 12_000 });
+      const scheduled = scheduleCompactionArchive({
+        session,
+        before: itemsOf(seq, 3, 1_500),
+        after: [],
+        maxBytes: 12_000,
+      });
       assert.ok(await scheduled.written);
     }
     await flushCompactionArchiveWrites();

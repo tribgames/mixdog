@@ -11,7 +11,7 @@ import { listStoredSessionSummariesAsync } from './store-summary-reader.mjs';
 // The daemon's session.list storage refresh strict-reads every session file
 // (≈4 s on a 1.8k-file store): it must hand the event loop back between
 // slices and still answer exactly what a rescan of the settled store answers.
-test('the storage refresh yields between files and answers a rescan of the settled store', async (t) => {
+test('the storage refresh yields between files and answers a rescan of the settled store', async () => {
   isolateDataDir('mixdog-refresh-yield-');
   for (let index = 0; index < 12; index += 1) replace(`sess_yield_${index}`, `prompt ${index}`);
   let turns = 0;
@@ -48,7 +48,7 @@ const ids = (rows) => rows.map((row) => row.id).sort();
 
 // What a yielding rescan returns must be storage as it is when it returns,
 // exactly as the one-piece rescan's answer is.
-test('a session deleted during the rescan is not in its answer', async (t) => {
+test('a session deleted during the rescan is not in its answer', async () => {
   isolateDataDir('mixdog-refresh-delete-');
   for (let index = 0; index < 12; index += 1) replace(`sess_yield_${index}`, `prompt ${index}`);
   const rows = await refreshWhile(() => unlinkSync(fileOf('sess_yield_0')));
@@ -56,7 +56,7 @@ test('a session deleted during the rescan is not in its answer', async (t) => {
   assert.deepEqual(rows, await listStoredSessionSummariesAsync({ refreshFromStorage: true }));
 });
 
-test('a session created during the rescan is in its answer', async (t) => {
+test('a session created during the rescan is in its answer', async () => {
   isolateDataDir('mixdog-refresh-create-');
   for (let index = 0; index < 12; index += 1) replace(`sess_yield_${index}`, `prompt ${index}`);
   const rows = await refreshWhile(() => replace('sess_yield_00', 'created mid-scan'));
@@ -64,7 +64,7 @@ test('a session created during the rescan is in its answer', async (t) => {
   assert.deepEqual(rows, await listStoredSessionSummariesAsync({ refreshFromStorage: true }));
 });
 
-test('a session rewritten during the rescan answers its new content', async (t) => {
+test('a session rewritten during the rescan answers its new content', async () => {
   isolateDataDir('mixdog-refresh-rewrite-');
   for (let index = 0; index < 12; index += 1) replace(`sess_yield_${index}`, `prompt ${index}`);
   const rows = await refreshWhile(() => rewriteInPlace('sess_yield_0', 'rewritten mid-scan, longer'));

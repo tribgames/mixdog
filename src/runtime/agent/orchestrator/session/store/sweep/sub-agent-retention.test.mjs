@@ -58,7 +58,8 @@ async function withStore(t, run) {
     const mtime = Math.max(at, Number(doc.updatedAt) || 0) / 1000;
     utimesSync(path, mtime, mtime);
   };
-  const members = async () => (await sweepStaleSessions({ retainSubAgents: true, isSessionLive: () => false })).subAgents;
+  const members = async () =>
+    (await sweepStaleSessions({ retainSubAgents: true, isSessionLive: () => false })).subAgents;
   const flags = {};
   const calls = [];
   const apply = (list, options = {}) =>

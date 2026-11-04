@@ -36,7 +36,11 @@ function probe(path, known, fields) {
     return { unreadable: true };
   }
   if (!header) return { unreadable: true };
-  return { header, stamp: before, settled: isSettledSessionStamp(before) && sameSessionStamp(before, stampOrNull(path)) };
+  return {
+    header,
+    stamp: before,
+    settled: isSettledSessionStamp(before) && sameSessionStamp(before, stampOrNull(path)),
+  };
 }
 
 serveWorkerRequests(({ fields, entries }) => entries.map(([path, known]) => probe(path, known, fields)));

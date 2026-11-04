@@ -44,11 +44,7 @@ import {
 import { isRealTurnMessage } from './compact/user-message-kind.mjs';
 import { sessionModeOf } from './agent-mode.mjs';
 import { byActivityThenId } from './catalog-db/schema.mjs';
-import {
-  sessionStampOf,
-  sameSessionStamp,
-  isSettledSessionStamp,
-} from './store/canonical-reader.mjs';
+import { sessionStampOf, sameSessionStamp, isSettledSessionStamp } from './store/canonical-reader.mjs';
 
 export const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 

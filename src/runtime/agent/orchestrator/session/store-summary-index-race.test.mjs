@@ -153,5 +153,9 @@ test('a retry after a compaction does not extend the rows of the replaced base',
     const index = await catalog.loadIndexAsync();
 
     assert.equal(raced(), true, 'the compaction ran inside the read');
-    assert.equal(index.rowsById.get('s5')?.updatedAt, 10_000, 'the committed row, not the cached base plus a truncated log');
+    assert.equal(
+      index.rowsById.get('s5')?.updatedAt,
+      10_000,
+      'the committed row, not the cached base plus a truncated log'
+    );
   }));

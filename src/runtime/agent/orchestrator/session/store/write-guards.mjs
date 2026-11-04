@@ -183,7 +183,10 @@ function _untilHolderMoves(control, holder) {
   if (!waiting.async) return Promise.resolve();
   return new Promise((resolve, reject) => {
     let waiters = _commitWaiters.get(holder);
-    if (!waiters) _commitWaiters.set(holder, (waiters = new Set()));
+    if (!waiters) {
+      waiters = new Set();
+      _commitWaiters.set(holder, waiters);
+    }
     const settle = (finish) => (value) => {
       waiters.delete(fail);
       if (waiters.size === 0 && _commitWaiters.get(holder) === waiters) _commitWaiters.delete(holder);

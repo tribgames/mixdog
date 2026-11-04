@@ -202,7 +202,11 @@ test('the built turn carries its prompt origin and retry provenance; the pre-com
     sessionStartMetaInjected: true,
   };
   const scheduled = [];
-  const opened = { ...turnFor(session), checkpoint: { schedule: (flag) => scheduled.push(flag), landed: async () => true }, turnToken: 'tk' };
+  const opened = {
+    ...turnFor(session),
+    checkpoint: { schedule: (flag) => scheduled.push(flag), landed: async () => true },
+    turnToken: 'tk',
+  };
   buildCalls.length = 0;
   const prepared = await prepareAskTurn({
     sessionId: 's8',

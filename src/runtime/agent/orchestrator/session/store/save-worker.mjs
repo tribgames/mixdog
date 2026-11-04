@@ -601,10 +601,7 @@ function _recoverExitedWorker(worker) {
   _strandedWrites.delete(worker);
   _strandedByThread.delete(ownerThreadId);
   _clearProgressWatch(worker);
-  releaseExitedOwnerCommits(
-    stranded.map(({ buffer }) => buffer).filter(Boolean),
-    ownerThreadId
-  );
+  releaseExitedOwnerCommits(stranded.map(({ buffer }) => buffer).filter(Boolean), ownerThreadId);
   for (const { id, scratchPath } of stranded) {
     _discardSaveTmp(scratchPath);
     if (_awaitingExitOf(id) !== worker) continue;

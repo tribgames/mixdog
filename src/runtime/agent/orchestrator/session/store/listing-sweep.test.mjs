@@ -193,7 +193,11 @@ test('retention cap applies to ownerless legacy records, never agent or user con
       status: 'error',
       updatedAt: now - 30 * DAY,
     });
-    const result = await sweepStaleSessions(HOUR, { isSessionLive: () => false, openMaxCount: 2, openMaxAgeMs: 20 * DAY });
+    const result = await sweepStaleSessions(HOUR, {
+      isSessionLive: () => false,
+      openMaxCount: 2,
+      openMaxAgeMs: 20 * DAY,
+    });
     assert.equal(result.openPruned, 3);
     assert.deepEqual(
       result.openPrunedDetails.map((d) => d.id),

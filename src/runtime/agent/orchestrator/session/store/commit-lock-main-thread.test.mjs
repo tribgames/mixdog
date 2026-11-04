@@ -13,7 +13,9 @@ const root = mkdtempSync(join(tmpdir(), 'mixdog-commit-lock-'));
 process.env.MIXDOG_DATA_DIR = root;
 mkdirSync(join(root, 'sessions'));
 
-const { saveSession, saveSessionDurably, markSessionClosed, bumpSessionGeneration, deleteSession } = await import('../store.mjs');
+const { saveSession, saveSessionDurably, markSessionClosed, bumpSessionGeneration, deleteSession } = await import(
+  '../store.mjs'
+);
 const { underHeldCommit } = await import('./commit-lock-holder.fixture.mjs');
 const { subscribeSessionPersistence } = await import('./session-persistence-events.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');

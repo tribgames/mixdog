@@ -164,7 +164,8 @@ test('a save recording a new epoch whose header write is still queued publishes 
     startedAt: 1000,
     base: baseOf(outgoing),
   });
-  const flush = () => recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
+  const flush = () =>
+    recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
   flush();
   assert.equal(await recorder.landed(), true);
   const hold = holdJournalWrites();
@@ -202,7 +203,8 @@ test('an older header write still renaming never lands over a newer header a sav
     startedAt: 1000,
     base: baseOf(outgoing),
   });
-  const flush = () => recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
+  const flush = () =>
+    recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
   flush();
   assert.equal(await recorder.landed(), true);
   // The first rename onto the header is held: that write is genuinely in flight.
