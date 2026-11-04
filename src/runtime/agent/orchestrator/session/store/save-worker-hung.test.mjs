@@ -65,6 +65,10 @@ test('a durable save on a worker that never answers rejects as hung, and the nex
   assert.match(getSessionSaveError(id)?.message ?? '', /made no progress/, 'the session stays unsaved, not silently lost');
   assert.notEqual(_saveWorkerForTest(), silent, 'the hung worker was retired');
 
+  // The short bound only makes the silent worker expire quickly. A healthy
+  // save (a fresh worker's spawn included) must run under the real bound, or
+  // a loaded machine reads its slow-but-live worker as hung.
+  _setSaveWorkerHungMsForTest(null);
   // The next save goes to a fresh worker and writes the current state.
   session.messages.push({ role: 'user', content: 'h3' });
   assert.equal(await within(saveSessionDurably(session), 5_000, 'the next save never landed'), SAVE_OUTCOME_SAVED);
@@ -96,6 +100,9 @@ for (const stall of ['before-rename', 'after-rename']) {
       'the durable save on a stalled worker is still pending'
     );
     setSessionSaveFault(null);
+    // Only the stalled worker needed the short bound; the healthy saves below
+    // run under the real one (see the first test).
+    _setSaveWorkerHungMsForTest(null);
 
     session.messages.push({ role: 'user', content: 's3' });
     assert.equal(await within(saveSessionDurably(session), 5_000, 'the session never saved again'), SAVE_OUTCOME_SAVED);
@@ -153,7 +160,9 @@ test('a save queued behind a stalled worker that never exits is answered within 
     ['x1']
   );
 
-  // Once it really exits, the next save writes the current state.
+  // Once it really exits, the next save writes the current state. That save
+  // is healthy work, so it runs under the real hung bound (see the first test).
+  _setSaveWorkerHungMsForTest(null);
   const exited = once(stalled, 'exit');
   await Worker.prototype.terminate.call(stalled);
   await exited;
@@ -212,7 +221,9 @@ test('close, detach, delete and a writer release behind a stalled worker that ne
     ['y1']
   );
 
-  // Once it really exits, the same operations land.
+  // Once it really exits, the same operations land: healthy work, so under the
+  // real hung bound (see the first test).
+  _setSaveWorkerHungMsForTest(null);
   const exited = once(stalled, 'exit');
   await Worker.prototype.terminate.call(stalled);
   await exited;
