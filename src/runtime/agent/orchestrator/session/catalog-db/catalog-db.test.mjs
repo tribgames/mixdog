@@ -29,7 +29,7 @@ import { _cacheSessionSummary } from '../store/summary-cache.mjs';
 import { _hasUnsettledSummaryOps, settleSummaryIndexWrites } from '../store-summary-index.mjs';
 import { settleSessionSummaryIndex } from '../store/listing.mjs';
 import { deleteSession } from '../store/session-delete.mjs';
-import { saveSession, saveSessionAsyncDeferred } from '../store.mjs';
+import { saveSessionDurably, saveSessionAsyncDeferred } from '../store.mjs';
 import {
   closeSessionCatalogDb,
   configureSessionCatalogDbForTest,
@@ -116,7 +116,7 @@ const session = (id, text, at, extra = {}) => ({
 
 const rowOf = (rows, id) => rows.find((row) => row.id === id);
 
-test('version gate and defaults', () => {
+test('version gate and defaults', async () => {
   for (const version of ['3.51.3', '3.52.0', '3.53.1', '4.0.0', '3.50.7', '3.50.12']) {
     assert.equal(sqliteVersionSupported(version), true, version);
   }
@@ -226,7 +226,7 @@ test('storage hints from the store: a landed save and a completed delete show on
   seed();
   await ready();
   const record = session('own_n', 'saved by the daemon', 950, { title: 'mine' });
-  saveSession(record, { sync: true });
+  await saveSessionDurably(record);
   assert.ok(_hasUnsettledSummaryOps(), 'its index row is still queued');
   assert.equal((await dbList())[0].title, 'mine');
   await settleSummaryIndexWrites();
@@ -235,10 +235,10 @@ test('storage hints from the store: a landed save and a completed delete show on
   // name diff alone keeps the old entry).
   record.title = 'mine two';
   record.updatedAt = 960;
-  saveSession(record, { sync: true });
+  await saveSessionDurably(record);
   assert.ok(_hasUnsettledSummaryOps());
   assert.equal(rowOf(await dbList(), 'own_n').title, 'mine two');
-  assert.equal(deleteSession('own_n'), true);
+  assert.equal(await deleteSession('own_n'), true);
   assert.equal(ids(await dbList()).includes('own_n'), false);
   await settleSummaryIndexWrites();
   assert.deepEqual(await dbList(), json());

@@ -156,13 +156,13 @@ async function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } 
  * latter's inline 30-min idle cleanup would race-unlink tombstones before we
  * get to log them — we want to own the unlink decision and stderr line here.
  */
-export function sweepTombstones() {
+export async function sweepTombstones() {
   try {
     const {
       tombstonesCleaned = 0,
       tombstoneDetails = [],
       tombstoneErrors = [],
-    } = sweepStaleSessions({
+    } = await sweepStaleSessions({
       sweepIdle: false,
       tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS,
       isSessionLive: _isSessionLive,

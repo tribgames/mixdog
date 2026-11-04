@@ -2,14 +2,14 @@
 // driven by one JSON command per stdin line and answering one JSON line each.
 import { createInterface } from 'node:readline';
 
-const { deleteSession, getSessionLifecycleCommitError, loadSession, saveSession } = await import('../store.mjs');
+const { deleteSession, getSessionLifecycleCommitError, loadSession, saveSessionDurably } = await import('../store.mjs');
 
 const held = new Map();
 const reply = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
-function save(session) {
+async function save(session) {
   try {
-    saveSession(session, { sync: true });
+    await saveSessionDurably(session);
     return { saved: true };
   } catch (error) {
     return { saved: false, code: error?.code ?? null, message: String(error?.message ?? error) };
@@ -26,12 +26,12 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (op === 'append') {
     const session = held.get(id);
     session.messages.push({ role: 'user', content: text });
-    reply(save(session));
+    reply(await save(session));
   } else if (op === 'delete') {
-    const deleted = deleteSession(id);
+    const deleted = await deleteSession(id);
     reply({ deleted, code: getSessionLifecycleCommitError(id)?.code ?? null });
   } else if (op === 'create') {
-    reply(save({ id, generation: 0, closed: false, messages: [{ role: 'user', content: text }] }));
+    reply(await save({ id, generation: 0, closed: false, messages: [{ role: 'user', content: text }] }));
   }
 }
 process.exit(0);

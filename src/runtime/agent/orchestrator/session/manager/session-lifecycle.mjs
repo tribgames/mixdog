@@ -624,7 +624,7 @@ export async function resumeSession(sessionId, preset, options = {}) {
   const claim = claimSessionWriterOrThrow(sessionId);
   let resumed = null;
   try {
-    resumed = _resumeClaimedSession(sessionId, preset, options);
+    resumed = await _resumeClaimedSession(sessionId, preset, options);
     if (resumed) sessionWriterReopened(sessionId);
     return resumed;
   } finally {
@@ -633,7 +633,7 @@ export async function resumeSession(sessionId, preset, options = {}) {
   }
 }
 
-function _resumeClaimedSession(sessionId, preset, options) {
+async function _resumeClaimedSession(sessionId, preset, options) {
   const session = loadSession(sessionId);
   if (!session) return null;
   // Resuming a closed session is a resurrection attempt — refuse. The guarded
@@ -648,7 +648,7 @@ function _resumeClaimedSession(sessionId, preset, options) {
   if (Object.hasOwn(options, 'mcpScopeId')) {
     session.mcpScopeId = String(options.mcpScopeId || '').trim() || null;
   }
-  _recoverTurnCheckpointDurably(session, sessionId);
+  await _recoverTurnCheckpointDurably(session, sessionId);
   _refreshResumedTools(session, sessionId, preset);
   refreshSessionProviderCacheOpts(session);
   // An archive saved before clear learned to rename it still names the

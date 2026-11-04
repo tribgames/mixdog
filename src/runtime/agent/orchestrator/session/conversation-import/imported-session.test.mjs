@@ -187,8 +187,8 @@ test('an imported session is a normal Lead session with its system layer followe
         [created.id]
       );
     } finally {
-      deleteSession(created.id);
-      deleteSession(reference.id);
+      await deleteSession(created.id);
+      await deleteSession(reference.id);
     }
   });
 });
@@ -233,7 +233,7 @@ test('imported prose that looks like runtime control text survives save → rest
       assert.notDeepEqual(restoredUsers(anonymous), userTexts);
       assert.ok(projectSyntheticUserEnvelopes(anonymous).stats.wrapped > 0);
     } finally {
-      deleteSession(created.id);
+      await deleteSession(created.id);
     }
   });
 });

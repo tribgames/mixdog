@@ -44,7 +44,7 @@ export async function settleTurnBase(sessionId, { recoverCheckpoint }) {
     // claimTurnRuntime reports a missing or closed session.
     if (!session || session.closed === true) return;
     adoptDiskGeneration(session, sessionId);
-    if (recoverCheckpoint) _recoverTurnCheckpointDurably(session, sessionId);
+    if (recoverCheckpoint) await _recoverTurnCheckpointDurably(session, sessionId);
     await ensureDurableTranscript(session);
     // This turn's checkpoint replaces the session's checkpoint file. Whatever
     // is still there (a conflict, an unreadable header, a crashed turn this
@@ -158,7 +158,7 @@ export function armTurnDurability({
     base: durableTranscriptBase(preSession),
   });
   const prepareCloseSnapshot = createCloseSnapshot({ turn, interruption, checkpoint, runtime });
-  // closeSession is synchronous and generation-first by design. Expose a
+  // Each closeSession attempt is synchronous and generation-first by design. Expose a
   // turn-local hook so it can canonicalize the in-flight transcript
   // before bumpSessionGeneration()/markSessionClosed() writes the disk
   // snapshot and invalidates the ordinary cancellation cleanup save.

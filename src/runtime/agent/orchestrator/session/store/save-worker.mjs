@@ -292,7 +292,7 @@ function _settleLandedWrite(
     // ONLY a landed write proves durability, so this is the only
     // place the save-failure flag may be cleared — and only when
     // THIS payload is at least as new as the newest failed/dropped
-    // one. An older worker write finishing after a newer sync/async
+    // one. An older worker write finishing after a newer
     // failure carries stale content and must leave the markers (and
     // therefore the live pin) exactly where they are.
     _clearSaveStateIfCurrent(id, epoch);

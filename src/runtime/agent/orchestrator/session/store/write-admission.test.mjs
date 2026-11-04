@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { drainSessionStore, loadSession, readSessionLifecycleStateFromDisk, saveSession } from '../store.mjs';
+import { drainSessionStore, loadSession, readSessionLifecycleStateFromDisk, saveSessionDurably } from '../store.mjs';
 import { currentPendingLifecycleToken, pendingLifecycleInvalidated } from '../manager/pending-lifecycle-epoch.mjs';
 import { _sessionWriteAuthorityRefusal, _shouldDrop } from './write-admission.mjs';
 import { _clearSessionSaveState, _liveSessions } from './live-state.mjs';
@@ -62,9 +62,9 @@ function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-test('checks after own writes reuse the commit stamp and never read the session file', (t) => {
+test('checks after own writes reuse the commit stamp and never read the session file', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const reads = countReads(t, f.path);
   for (let round = 0; round < 3; round++) {
     assert.equal(_shouldDrop(f.id, {}), false);
@@ -80,7 +80,7 @@ test('checks after own writes reuse the commit stamp and never read the session 
   // A further own save: its pre-admission and all three drop checks are
   // stamp-served, and the new commit is stamped in turn.
   f.session.messages.push({ role: 'assistant', content: 'own reply' });
-  saveSession(f.session, { sync: true, expectedGeneration: 1 });
+  await saveSessionDurably(f.session, { expectedGeneration: 1 });
   assert.equal(_shouldDrop(f.id, { expectedGeneration: 1 }), false);
   assert.equal(loadSession(f.id), f.session);
   assert.equal(reads.count, 0);
@@ -88,9 +88,9 @@ test('checks after own writes reuse the commit stamp and never read the session 
   assert.equal(JSON.parse(readFileSync(f.path, 'utf8')).messages.length, 2);
 });
 
-test('a same-size foreign replacement misses the stamp and keeps the strict verdicts', (t) => {
+test('a same-size foreign replacement misses the stamp and keeps the strict verdicts', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const own = readFileSync(f.path, 'utf8');
   const reads = countReads(t, f.path);
 
@@ -116,7 +116,7 @@ test('a same-size foreign replacement misses the stamp and keeps the strict verd
   assert.equal(loadSession(f.id), null);
   assert.ok(reads.count > before);
   // The save is dropped: the foreign bytes stay.
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   reads.restore();
   assert.equal(readFileSync(f.path, 'utf8'), foreign);
 });
@@ -143,9 +143,9 @@ test('a settled record strictly parsed by a load answers the authority check; a 
   assert.equal(_shouldDrop(f.id, {}), true);
 });
 
-test('an in-place same-size rewrite of our own inode misses the stamp', (t) => {
+test('an in-place same-size rewrite of our own inode misses the stamp', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const own = readFileSync(f.path, 'utf8');
   assert.equal(_shouldDrop(f.id, { expectedGeneration: 1 }), false);
   // Past one filesystem timestamp tick, rewrite the SAME inode in place.

@@ -87,6 +87,26 @@ test('a sealed turn whose terminal save never landed comes back once, as finishe
   assert.deepEqual(again.messages, session.messages);
 });
 
+test('a recovery save waits for another thread holding the commit lock without blocking the event loop', async () => {
+  const { underHeldCommit } = await import('../store/commit-lock-holder.fixture.mjs');
+  const id = 'durable_recover_under_lock';
+  const history = [{ role: 'system', content: 'sys' }];
+  const turn = openTurn(id, history, 'do it');
+  turn.outgoing.push(assistant('done'));
+  turn.flush({ sealed: true });
+  turn.recorder.stop({ keepQueued: true });
+  await settleTurnCheckpointWrites(id);
+  // Crash before the terminal save: disk still holds the base.
+  writeFileSync(sessionFile(id), JSON.stringify(record(id, history, { transcriptEpoch: 'e0' })));
+  const session = record(id, history, { transcriptEpoch: 'e0' });
+  const recovery = await underHeldCommit(id, () => _recoverTurnCheckpointDurably(session, id));
+  assert.equal(recovery.recovered, true);
+  // Durable when it resolved, and only then is the checkpoint gone.
+  assert.deepEqual(texts(readDurableSessionRecord(id).messages), ['system:sys', 'user:do it', 'assistant:done']);
+  assert.equal(readDurableSessionRecord(id).turnCoverage, turn.token);
+  assert.equal(readTurnCheckpoint(id), null);
+});
+
 test('a durable record that covers the turn deletes the checkpoint without a duplicate', async () => {
   const id = 'durable_covered';
   const history = [{ role: 'system', content: 'sys' }];
@@ -98,7 +118,7 @@ test('a durable record that covers the turn deletes the checkpoint without a dup
   const landed = record(id, turn.outgoing, { transcriptEpoch: 'e0', turnCoverage: turn.token });
   writeFileSync(sessionFile(id), JSON.stringify(landed));
   const session = structuredClone(landed);
-  const recovery = _recoverTurnCheckpointDurably(session, id);
+  const recovery = await _recoverTurnCheckpointDurably(session, id);
   assert.equal(recovery.covered, true);
   assert.equal(readTurnCheckpoint(id), null);
   assert.deepEqual(texts(session.messages), ['system:sys', 'user:do it', 'assistant:done']);
@@ -216,13 +236,13 @@ function writeLegacyCheckpoint(id, prefix, turnMessages, { token = `legacy-${id}
   return token;
 }
 
-test('a legacy checkpoint on exactly the prefix it recorded replays once on upgrade', () => {
+test('a legacy checkpoint on exactly the prefix it recorded replays once on upgrade', async () => {
   const id = 'durable_legacy_replay';
   const prefix = [{ role: 'system', content: 'sys' }, user('earlier'), assistant('earlier answer')];
   const token = writeLegacyCheckpoint(id, prefix, [user('legacy prompt')]);
   writeFileSync(sessionFile(id), JSON.stringify(record(id, prefix)));
   const session = record(id, prefix);
-  const recovery = _recoverTurnCheckpointDurably(session, id);
+  const recovery = await _recoverTurnCheckpointDurably(session, id);
   assert.equal(recovery.recovered, true);
   assert.deepEqual(texts(session.messages).slice(0, 4), [
     'system:sys',
@@ -265,7 +285,7 @@ test('a legacy checkpoint that cannot prove its base is set aside, and the next 
     // Another turn, and a restart's recovery, still keep it.
     await askSession(id, 'another task', null, null, null, null, {});
     await awaitPreviousTurnDurable(id);
-    _recoverTurnCheckpointDurably(structuredClone(readDurableSessionRecord(id)), id);
+    await _recoverTurnCheckpointDurably(structuredClone(readDurableSessionRecord(id)), id);
     assert.equal(listUnrecoveredTurnCheckpoints(id).length, 1);
   });
 });
@@ -280,8 +300,8 @@ test('a new-format conflict is set aside before the next turn, and deleted only 
       workflow: { id: 'headless', delegatesAgents: false },
     });
     const id = session.id;
-    const { saveSession } = await import('../store.mjs');
-    saveSession(session, { sync: true });
+    const { saveSessionDurably } = await import('../store.mjs');
+    await saveSessionDurably(session);
     // A crashed turn taken against a base the record is not of.
     const turn = openTurn(id, [{ role: 'system', content: 'other base' }], 'lost turn', {
       epoch: 'not-on-disk',
@@ -299,7 +319,7 @@ test('a new-format conflict is set aside before the next turn, and deleted only 
     const disk = readDurableSessionRecord(id);
     writeFileSync(sessionFile(id), JSON.stringify({ ...disk, turnCoverage: turn.token }));
     const restarted = readDurableSessionRecord(id);
-    _recoverTurnCheckpointDurably(restarted, id);
+    await _recoverTurnCheckpointDurably(restarted, id);
     assert.equal(listUnrecoveredTurnCheckpoints(id).length, 0);
     assert.equal(restarted.unrecoveredTurns, undefined);
   });
@@ -341,7 +361,7 @@ test('a set-aside interrupted at any step is finished, never replayed, orphaned 
         failing = outcome === 'refused-again';
         // Restart: recovery, the next turn's guard and a new turn's header.
         const session = record(id, prefix);
-        const recovery = _recoverTurnCheckpointDurably(session, id);
+        const recovery = await _recoverTurnCheckpointDurably(session, id);
         assert.equal(recovery.recovered, false, `${step}/${outcome}: never replayed`);
         assert.deepEqual(texts(session.messages), texts(prefix));
         assert.deepEqual(texts(readDurableSessionRecord(id).messages), texts(prefix));
@@ -520,12 +540,16 @@ test('a turn whose save was refused because ownership moved is saved by the next
     const id = session.id;
     // Another surface resumes and detaches the session while the turn runs:
     // the disk generation moves past the one this turn saves under.
-    onSend = () => assert.equal(bumpSessionGeneration(id, 'detach'), 1);
+    let bumped = null;
+    onSend = () => {
+      bumped = bumpSessionGeneration(id, 'detach');
+    };
     try {
       await askSession(id, 'first task', null, null, null, null, {});
     } finally {
       onSend = null;
     }
+    assert.equal(await bumped, 1);
     await settleTurnCheckpointWrites(id);
     const handedOff = readDurableSessionRecord(id);
     assert.equal(handedOff.generation, 1, 'the other surface owns the newer generation');

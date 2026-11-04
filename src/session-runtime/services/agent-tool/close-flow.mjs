@@ -8,7 +8,6 @@ import {
 import { agentScope, clean, clearAgentStatuslineRoute, sessionMatchesContext } from './helpers.mjs';
 import { isLeadPoolAgent } from './worker-rows.mjs';
 import { createCloseAll } from './close-flow/close-all.mjs';
-import { closeManagedSession } from '../../lifecycle/shared.mjs';
 
 const CLOSE_REASON = 'cancelled by agent close';
 
@@ -85,7 +84,7 @@ export function createCloseFlow({ mgr, registry, views }) {
     // may tombstone the conversation.
     // An owner's close (not a process exit's) is recorded on the session itself,
     // so a later reuse of its reaped tag never continues it.
-    const ok = await closeManagedSession(mgr, sessionId, 'cli-agent-close', {
+    const ok = await mgr.closeSession(sessionId, 'cli-agent-close', {
       tombstone: false,
       ...(keepRow ? {} : { ownerClose: true }),
     });

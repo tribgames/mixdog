@@ -30,12 +30,13 @@ export function createAskTurnState(session) {
   };
 }
 
-/** The recorder writes this turn's header synchronously on its first flush
- *  (the crash-durability anchor for the prompt, landing before the provider
- *  runs) and appends bounded deltas afterwards. `base` is the durable
- *  transcript the turn opens on (store/transcript-durability.mjs). Every
- *  save of the session flushes first, so a history rewrite is in the
- *  checkpoint before any record carries its new epoch. */
+/** The recorder queues this turn's header on its first flush (the
+ *  crash-durability anchor for the prompt; the turn awaits `landed()` before
+ *  the provider runs) and appends bounded deltas afterwards, all off the
+ *  event loop. `base` is the durable transcript the turn opens on
+ *  (store/transcript-durability.mjs). Every save of the session flushes
+ *  first, so a history rewrite is in the checkpoint before any record carries
+ *  its new epoch. */
 export function createTurnCheckpointScheduler({
   sessionId,
   generation,
@@ -113,7 +114,13 @@ export function createTurnCheckpointScheduler({
     ingestSessionTurn(turn.session);
   });
   const unhookSaves = setTranscriptSnapshotHook(turn.session, () => {
-    if (!stopped && turn.outgoing) flushNow();
+    if (stopped || !turn.outgoing) return;
+    flushNow();
+    try {
+      recorder.publishPendingHeader();
+    } catch (error) {
+      warn(error);
+    }
   });
   const halt = (options) => {
     stopped = true;
@@ -126,6 +133,10 @@ export function createTurnCheckpointScheduler({
   return {
     refreshContextState() {
       contextDirty = true;
+    },
+    /** Resolves once the newest header write settled (true when it landed). */
+    landed() {
+      return recorder.landed();
     },
     schedule(immediate = false) {
       if (stopped || !turn.outgoing) return;
@@ -177,7 +188,7 @@ const CLOSE_SNAPSHOT_SESSION_FIELDS = [
   'lastUsedAt',
 ];
 
-/** closeSession is synchronous and generation-first by design. This turn-local
+/** Each closeSession attempt is synchronous and generation-first by design. This turn-local
  *  hook lets it canonicalize the in-flight transcript before
  *  bumpSessionGeneration()/markSessionClosed() writes the disk snapshot and
  *  invalidates the ordinary cancellation cleanup save. Finalizes at most once;

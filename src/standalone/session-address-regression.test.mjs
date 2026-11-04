@@ -211,7 +211,7 @@ test('a cancelled canonical worker never gets a new conversation from its own sh
 
   // 4. cancel: fence → durable close → shell cancellation → completion delivered.
   const filesBefore = sessionFiles();
-  assert.equal(api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await api.closeCanonicalSession('agent cancel'), true);
   const closed = loadSession(A);
   assert.equal(closed.closed, false, 'runtime close preserves the stored conversation');
   const closedGeneration = closed.generation;

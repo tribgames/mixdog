@@ -61,7 +61,11 @@ import { createSessionTurnApi } from '../session-turn-api.mjs';
 import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
 import { createWorkspaceTransitions, refreshWorkspacePrompt } from '../workspace/transitions.mjs';
-import { saveSession, saveSessionAsync } from '../../runtime/agent/orchestrator/session/store.mjs';
+import {
+  saveSession,
+  saveSessionAsync,
+  saveSessionDurably,
+} from '../../runtime/agent/orchestrator/session/store.mjs';
 import { modelToolSchemaAllowlist } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { sessionOptions } from '../session-create/session-options.mjs';
 import { createConversationImportApi } from '../conversation-import/service.mjs';
@@ -669,6 +673,14 @@ function workflowAgentsApiFor(boot) {
   });
 }
 
+/** A workspace transition's durable save: on disk when it resolves, rejects
+ *  when the write fails (immediate mode only queues it). Written in this
+ *  realm, so a transition never waits on the save worker, which may never
+ *  come up; the commit lock is awaited, never waited for on the thread. */
+export function persistWorkspaceSession(session) {
+  return saveSessionDurably(session);
+}
+
 // The Lead workspace transition authority (worktree / project branch / remove)
 // and the turn-start workspace gate. Facade-facing methods are spread by
 // buildFacade; prepareTurnWorkspace feeds the turn runner.
@@ -685,10 +697,7 @@ function workspaceApiFor(boot) {
     getConfig: () => rt.config,
     createCurrentSession: (reason) => boot.createCurrentSession(reason),
     applyResolvedCwd: (cwd, options) => boot.applyResolvedCwd(cwd, options),
-    // Durable save: on disk when it returns, throws when the write fails
-    // (immediate mode only queues it). Synchronous, so a transition never
-    // waits on the save worker, which may never come up.
-    persistSession: (session) => saveSession(session, { sync: true }),
+    persistSession: persistWorkspaceSession,
     refreshWorkspaceContext: (session, cwd, move) =>
       refreshWorkspacePrompt(session, cwd, {
         loadCoreMemoryContext: boot.loadCoreMemoryContext,

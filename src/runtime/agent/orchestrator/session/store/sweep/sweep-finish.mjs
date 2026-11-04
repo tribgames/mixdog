@@ -13,7 +13,7 @@ import { LEGACY_MARKER_SUFFIXES, readLegacyMarker } from '../liveness-veto.mjs';
  *  — keep the most recent openMaxCount, prune anything older than openMaxAgeMs
  *  OR beyond the count. Live/current sessions (isSessionLive) are never pruned
  *  but still occupy a kept slot. */
-export function pruneOpenCandidates({ plan, now, tally }) {
+export async function pruneOpenCandidates({ plan, now, tally }) {
   if (!plan.retainOpen || tally.openCandidates.length === 0) return;
   tally.openCandidates.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
   let kept = 0;
@@ -30,10 +30,12 @@ export function pruneOpenCandidates({ plan, now, tally }) {
     }
     try {
       if (
-        deleteSession(c.id, {
+        await deleteSession(c.id, {
           deferSummaryUpdate: true,
           isSessionLive: plan.isSessionLive,
           legacyOwnerVeto: true,
+          // A commit still landing makes the candidate's age stale: kept.
+          singleAttempt: true,
         })
       ) {
         tally.openPruned++;

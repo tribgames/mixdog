@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 import { ensureProcessListenerHeadroom } from '../../runtime/shared/process-listener-headroom.mjs';
 import { AGENT_TOOL } from './agent-tool/tool-def.mjs';
 import { cancelBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
-import { closeManagedSession } from '../lifecycle/shared.mjs';
 import {
   agentScope,
   clean,
@@ -178,7 +177,7 @@ export function createStandaloneAgent({
     const sessionId = clean(job.meta?.sessionId) || clean(value?.sessionId);
     if (sessionId) {
       try {
-        await closeManagedSession(mgr, sessionId, 'routine-executor-finished');
+        await mgr.closeSession(sessionId, 'routine-executor-finished');
       } catch {
         /* the run's result stands; a close that fails is swept with idle agents */
       }

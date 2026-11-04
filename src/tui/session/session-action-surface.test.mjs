@@ -86,7 +86,7 @@ test('submitAndWait resolves with the main turn settlement', async () => {
   assert.equal(settled.session.id, 'sess_agent');
 });
 
-test('canonical child close is exposed on the session surface', () => {
+test('canonical child close is exposed on the session surface', async () => {
   const calls = [];
   const api = createSessionApi(
     stubBag({
@@ -100,7 +100,7 @@ test('canonical child close is exposed on the session surface', () => {
   );
 
   assert.equal(typeof api.closeCanonicalSession, 'function');
-  assert.equal(api.closeCanonicalSession('cli-agent-close', { tombstone: false }), true);
+  assert.equal(await api.closeCanonicalSession('cli-agent-close', { tombstone: false }), true);
   assert.deepEqual(calls, [['cli-agent-close', { tombstone: false }]]);
 });
 

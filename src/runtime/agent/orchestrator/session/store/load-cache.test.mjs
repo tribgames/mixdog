@@ -152,24 +152,24 @@ for (const kind of ['malformed', 'foreign', 'duplicate-id']) {
   });
 }
 
-test('a NUL-filled session file is absent, can be saved over, and a delete sets it aside', (t) => {
+test('a NUL-filled session file is absent, can be saved over, and a delete sets it aside', async (t) => {
   const f = fixture(t);
   f.write('\0'.repeat(64));
   assert.equal(loadSession(f.id), null);
   saveSession({ ...f.saved, messages: [{ role: 'user', content: 'recreated' }] });
   assert.equal(loadSession(f.id).messages[0].content, 'recreated');
   f.write('\0'.repeat(64));
-  assert.equal(deleteSession(f.id), true);
+  assert.equal(await deleteSession(f.id), true);
   assert.equal(existsSync(f.path), false);
   const aside = readdirSync(dirname(f.path)).filter((name) => name.startsWith(`${f.id}.json.corrupt-`));
   assert.equal(aside.length, 1);
 });
 
-test('a session file that is not JSON can still be deleted, its bytes kept aside', (t) => {
+test('a session file that is not JSON can still be deleted, its bytes kept aside', async (t) => {
   const f = fixture(t);
   f.write('{"broken":');
   assert.equal(loadSession(f.id), null);
-  assert.equal(deleteSession(f.id), true);
+  assert.equal(await deleteSession(f.id), true);
   assert.equal(existsSync(f.path), false);
   const [aside] = readdirSync(dirname(f.path)).filter((name) => name.startsWith(`${f.id}.json.corrupt-`));
   assert.equal(readFileSync(join(dirname(f.path), aside), 'utf8'), '{"broken":');

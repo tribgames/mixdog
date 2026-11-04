@@ -20,9 +20,8 @@ export { resolveResumeCwd } from './lifecycle/session-switch.mjs';
 export function createLifecycleApi(deps) {
   const shared = {
     cancelBackgroundTasks: deps.cancelBackgroundTasks || cancelBackgroundTasks,
-    // Teardown and the switch paths await their close: a barrier rename the OS
-    // refuses is retried on timers instead of sleeping the daemon loop.
-    closeSurfaceSession: createSurfaceSessionCloser(deps.mgr, true),
+    // Teardown and the switch paths await their close.
+    closeSurfaceSession: createSurfaceSessionCloser(deps.mgr),
     ingestSessionIntoMemory: createMemoryIngest(deps),
   };
   const teardown = createTeardown(deps, shared);

@@ -11,6 +11,7 @@ import {
   guardedSaveOptions as _guardedSaveOptions,
   cancelSessionWrites as _cancelSessionWrites,
   acquireWriteCommit as _acquireWriteCommit,
+  acquireWriteCommitAsync as _acquireWriteCommitAsync,
   releaseWriteCommit as _releaseWriteCommit,
   waitForWriteCommit as _waitForWriteCommit,
   publishLandedWriteEpoch as _publishLandedWriteEpoch,
@@ -174,6 +175,43 @@ export function releaseIdleSessionWriter(id) {
  * directly, under their own authority read, so no save path needs one.
  */
 export function saveSession(session, opts) {
+  const payload = _issueSave(session, opts, null, false);
+  if (!payload) return;
+  // Immediate-flush override: tombstone plants and explicit flushes skip the
+  // debounce so close-session writes are always durable.
+  if (opts?.immediate) _saveImmediate(session.id, payload);
+  else _saveDebounced(session.id, payload);
+}
+
+/**
+ * A durable save in this realm: resolves the SAVE_OUTCOME_* once the write
+ * settled — SAVED only after the record was renamed into place — and rejects
+ * when the write failed or the writer claim refused it. The commit lock is
+ * awaited, so another thread's rename of the same session never stalls the
+ * event loop. Bypasses the debounce/queue and the save worker.
+ */
+export async function saveSessionDurably(session, opts) {
+  // ONE operation from admission to the rename: its pre-admission and its
+  // three write-authority checks share one scratch.
+  const attempt = {};
+  const payload = _issueSave(session, opts, attempt, true);
+  if (!payload) return SAVE_OUTCOME_DROPPED;
+  try {
+    const outcome = await _doSave({ ...payload, attempt });
+    if (outcome !== SAVE_OUTCOME_SAVED) _rollbackCachedSessionSummary(session.id, payload.summaryVersion);
+    return outcome;
+  } catch (err) {
+    _rollbackCachedSessionSummary(session.id, payload.summaryVersion);
+    throw err;
+  }
+}
+
+/**
+ * Admission shared by every save entry: the writer claim, pre-admission, the
+ * live/summary publication and the payload's identity. Null when the writer
+ * claim refused the copy (`throwRefusal` rethrows a reported refusal).
+ */
+function _issueSave(session, opts, attempt, throwRefusal) {
   _ensureLifecycleFields(session);
   const id = session.id;
   // Another process writes this session (or wrote it after this copy was
@@ -182,17 +220,14 @@ export function saveSession(session, opts) {
   const writerRefusal = sessionWriterRefusal(session);
   if (writerRefusal) {
     const err = refuseSessionWrite(writerRefusal);
-    if (err && opts?.sync) throw err;
-    return;
+    if (err && throwRefusal) throw err;
+    return null;
   }
-  // PRE-ADMISSION for EVERY entry mode (sync, immediate, debounced): a
+  // PRE-ADMISSION for EVERY entry mode (durable, immediate, debounced): a
   // foreign/ambiguous/unreadable canonical record is never cached as locally
   // owned, not even transiently, so this runs BEFORE setLiveSession and the
   // optimistic summary row. True absence stays creatable.
-  // A synchronous save is ONE operation from here to the rename: its
-  // pre-admission and its three write-authority checks share one scratch.
-  const syncAttempt = opts?.sync ? {} : null;
-  const refusal = _sessionWriteAuthorityRefusal(id, syncAttempt);
+  const refusal = _sessionWriteAuthorityRefusal(id, attempt);
   // A refused record publishes NOTHING: no live snapshot, no optimistic
   // summary row. The write itself still travels the normal path, where the
   // strict under-lock admission refuses it and produces the established
@@ -220,24 +255,7 @@ export function saveSession(session, opts) {
     incarnation,
     settlement: incarnation,
   };
-  // Synchronous durability path — explicit flush (tombstones, drain hooks).
-  // createSession uses async debounced save + _liveSessions for same-process
-  // read-your-writes; sync remains for callers that require immediate disk.
-  if (opts?.sync) {
-    try {
-      if (_doSaveSync({ ...payload, attempt: syncAttempt }) !== SAVE_OUTCOME_SAVED) {
-        _rollbackCachedSessionSummary(id, summaryVersion);
-      }
-    } catch (err) {
-      _rollbackCachedSessionSummary(id, summaryVersion);
-      throw err;
-    }
-    return;
-  }
-  // Immediate-flush override: tombstone plants and explicit flushes skip the
-  // debounce so close-session writes are always durable.
-  if (opts?.immediate) _saveImmediate(id, payload);
-  else _saveDebounced(id, payload);
+  return payload;
 }
 
 function _saveImmediate(id, payload) {
@@ -302,7 +320,8 @@ function _flushScheduled(id) {
 
 /**
  * Exported for save-session-worker — not part of the public API.
- * External callers should use saveSession / saveSessionAsync.
+ * External callers should use saveSession / saveSessionAsync /
+ * saveSessionDurably.
  * Returns a SAVE_OUTCOME_* reason, never a bare boolean: the worker relays it
  * so the parent can tell an ownership drop from a stale-epoch refusal.
  */
@@ -347,24 +366,16 @@ function _commitScratchAnnounced(tmp, target, id, scratch, lifecycle) {
 }
 
 function _doSaveSync(payload) {
-  const {
-    session,
-    opts,
-    summaryVersion = null,
-    epoch = null,
-    commitTimeoutMs = null,
-    incarnation = null,
-    publishSummary = true,
-  } = payload;
+  const { session, opts, epoch = null, commitTimeoutMs = null, publishSummary = true } = payload;
   const id = session.id;
   // Settlement identity is IMMUTABLE and separate from the (releasable)
   // ownership reference: purging may null the ref, but a late settlement
   // must still be able to prove which incarnation it belonged to.
-  const settlement = payload.settlement ?? incarnation;
+  const settlement = payload.incarnation ?? null;
   const mayMutate = () => _isCurrentSessionIncarnation(id, settlement);
   // Write-authority scratch of THIS save only (see _shouldDrop): a later
   // check reuses an earlier strict verdict only for a stamp-identical file.
-  const attempt = payload.attempt ?? {};
+  const attempt = {};
   // EVERY exit — stale, drop, refusal, success, throw — releases the
   // ownership reference exactly once through this finally.
   try {
@@ -430,7 +441,7 @@ function _doSaveSync(payload) {
         _untrackSaveTmp(tmp);
         recordLandedTranscript(session, transcript, epoch);
         if (mayMutate()) {
-          if (publishSummary) _queueSessionSummaryUpsert(session, summaryVersion);
+          if (publishSummary) _queueSessionSummaryUpsert(session);
           _clearSaveStateIfCurrent(id, epoch);
         }
       } finally {
@@ -482,8 +493,8 @@ const DRAIN_BUDGET_MS = 400;
  *   1. collect the NEWEST payload per id across debounce/pending, the worker's
  *      in-flight + latest-wins queued slots and the deferred snapshots, ranked
  *      by the SAVE EPOCH each snapshot was issued with (never by which slot it
- *      happens to sit in: a deferred snapshot can be older than a later sync
- *      or async attempt);
+ *      happens to sit in: a deferred snapshot can be older than a later
+ *      attempt);
  *   2. CANCEL every one of those ids, invalidating the write guards those
  *      async payloads carry — a worker write still in the queue drops itself
  *      (_shouldDrop) and one already past that check is refused under the lock
@@ -670,7 +681,7 @@ async function _doSave(payload) {
   const settlement = payload.settlement ?? incarnation;
   const mayMutate = () => _isCurrentSessionIncarnation(id, settlement);
   // Write-authority scratch of THIS save only (see _doSaveSync).
-  const attempt = {};
+  const attempt = payload.attempt ?? {};
   // Same freshness fence as the sync path (see _doSaveSync).
   if (_isStaleWriteEpoch(opts)) {
     _releasePayloadIncarnation(payload);
@@ -715,7 +726,9 @@ async function _doSave(payload) {
       _drainQueue(id, payload);
       return SAVE_OUTCOME_DROPPED;
     }
-    const commitControl = _acquireWriteCommit(opts);
+    // Awaited, never waited for on the thread: the save worker may hold this
+    // id's lock across a whole multi-MB write.
+    const commitControl = await _acquireWriteCommitAsync(opts);
     if (commitControl === _WRITE_COMMIT_STALE) {
       _discardSaveTmp(tmp);
       _releasePayloadIncarnation(payload);
@@ -770,10 +783,10 @@ async function _doSave(payload) {
 export {
   markSessionClosed,
   bumpSessionGeneration,
-  markSessionClosedAsync,
   markSessionClosedAttempt,
   bumpSessionGenerationAttempt,
   isLifecycleRetry,
+  waitForLifecycleRetry,
 } from './store/lifecycle-barriers.mjs';
 // Session reads live in store/load-session.mjs, same facade contract.
 export { loadSession, loadSessionStatus } from './store/load-session.mjs';

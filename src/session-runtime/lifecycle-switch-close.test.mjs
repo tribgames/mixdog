@@ -1,5 +1,5 @@
 // The switch paths (new session, context switch, resume) close the outgoing
-// session through the manager's closeSessionAsync: a barrier rename the OS
+// session through the manager's closeSession: a barrier rename the OS
 // refuses is retried on timers, so the event loop keeps ticking, and a close
 // whose barrier never lands keeps the current session in place.
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ const root = mkdtempSync(join(tmpdir(), 'mixdog-switch-close-'));
 process.env.MIXDOG_DATA_DIR = root;
 
 const { createLifecycleApi } = await import('./lifecycle-api.mjs');
-const { closeSession, closeSessionAsync } = await import(
+const { closeSession } = await import(
   '../runtime/agent/orchestrator/session/manager/session-close.mjs'
 );
 const { saveSessionAsync } = await import('../runtime/agent/orchestrator/session/store.mjs');
@@ -111,8 +111,9 @@ function lifecycle(mgr, current) {
   return { api, state };
 }
 
-// Four refusals: 25 + 50 + 100 + 200 ms of backoff, a >= 375 ms freeze for the
-// synchronous barrier, against a ~30 ms worst tick gap measured for the retries.
+// Four refusals: 25 + 50 + 100 + 200 ms of backoff, a >= 375 ms freeze were
+// they slept on the thread, against a ~30 ms worst tick gap measured for the
+// retries.
 const SYNC_FREEZE_LIMIT_MS = 300;
 
 for (const [name, run] of [
@@ -124,7 +125,7 @@ for (const [name, run] of [
     await saveSessionAsync(session(id));
     const before = JSON.parse(readFileSync(sessionPath(id), 'utf8')).generation;
     const refused = refuseRenames(t, sessionPath(id), 4);
-    const { api, state } = lifecycle({ closeSession, closeSessionAsync }, session(id));
+    const { api, state } = lifecycle({ closeSession }, session(id));
     const max = await maxLoopGap(() => run(api));
     assert.equal(refused.refused, 4);
     assert.ok(max < SYNC_FREEZE_LIMIT_MS, `event loop gap ${Math.round(max)}ms during the retries`);
@@ -143,10 +144,7 @@ for (const [name, run] of [
     const closes = [];
     const resumed = { ...session('next'), cwd: 'C:\\one' };
     const mgr = {
-      closeSession() {
-        throw new Error('the synchronous closer must not be used');
-      },
-      async closeSessionAsync(id, reason, options) {
+      async closeSession(id, reason, options) {
         closes.push([id, reason, options]);
         return false;
       },

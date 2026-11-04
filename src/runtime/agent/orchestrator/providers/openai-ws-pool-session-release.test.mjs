@@ -136,7 +136,7 @@ test('closing a session closes its account-scoped sockets and drops its record; 
   const live = await send('sess_release_live');
   assert.equal(_wsPool.has(closing.poolKey), true);
 
-  assert.equal(closeSession('sess_release_closing', 'test-delete'), true);
+  assert.equal(await closeSession('sess_release_closing', 'test-delete'), true);
   assert.equal(closing.socket.readyState, 3, 'the closed session socket is closed');
   assert.equal(_wsPool.has(closing.poolKey), false, 'the pool keeps no entry for the closed session');
   assert.deepEqual(accountScopedSessionIdsOf('sess_release_closing'), []);
@@ -150,7 +150,7 @@ test('closing a session closes its account-scoped sockets and drops its record; 
 test('reaping a stored session closes its account-scoped sockets and drops its record', async (t) => {
   useFakeSockets(t);
   const reaped = await send('sess_release_reaped');
-  assert.equal(deleteSession('sess_release_reaped', { deferSummaryUpdate: true }), true);
+  assert.equal(await deleteSession('sess_release_reaped', { deferSummaryUpdate: true }), true);
   assert.equal(reaped.socket.readyState, 3);
   assert.equal(_wsPool.has(reaped.poolKey), false);
   assert.deepEqual(accountScopedSessionIdsOf('sess_release_reaped'), []);

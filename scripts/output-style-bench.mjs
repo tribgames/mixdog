@@ -345,7 +345,7 @@ function runLiveLeadTurn({ dataDir, prompt, provider, model, cwd, effort, fast }
     `const session = createSession(sessionOpts);`,
     `let result;`,
     `try { result = await askSession(session.id, ${JSON.stringify(prompt)}, null, null, ${JSON.stringify(cwd)}); }`,
-    `finally { try { closeSession(session.id, 'output-style-bench'); } catch {} }`,
+    `finally { try { await closeSession(session.id, 'output-style-bench'); } catch {} }`,
     // Pooled provider sockets (e.g. openai-oauth WS, 20-min idle TTL) keep the
     // child alive after the turn; flush JSON then force-exit so execFileSync
     // returns as soon as the turn completes.

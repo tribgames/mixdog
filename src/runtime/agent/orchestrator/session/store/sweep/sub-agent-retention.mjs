@@ -105,12 +105,21 @@ export async function applySubAgentRetention(
     const idle = now - Math.max(...tree.map((member) => member.lastActive));
     const expired = idle >= SUB_AGENT_DELETE_AFTER_MS;
     if (!expired && (idle < SUB_AGENT_ARCHIVE_AFTER_MS || !isArchived)) continue;
-    if (tree.some((member) => isSessionLive?.(member.id))) continue;
-    if (tree.some((member) => storedActivityAt(member.id) !== member.lastActive)) continue;
+    // Asked again right before each member's unlink (the delete's liveness
+    // probe, run in that unlink's stretch): an earlier member's delete may
+    // have waited on a commit, and a member gone since is no longer judged.
+    const treeChanged = () =>
+      tree.some(
+        (member) =>
+          !deleted.includes(member.id) &&
+          (isSessionLive?.(member.id) || storedActivityAt(member.id) !== member.lastActive)
+      );
+    if (treeChanged()) continue;
     if (expired) {
       for (const { id } of tree.toReversed()) {
         try {
-          if (deleteSession(id, { deferSummaryUpdate: true, isSessionLive, legacyOwnerVeto: true })) deleted.push(id);
+          const options = { deferSummaryUpdate: true, isSessionLive: treeChanged, legacyOwnerVeto: true };
+          if (await deleteSession(id, options)) deleted.push(id);
         } catch {
           /* kept; the next pass decides again */
         }

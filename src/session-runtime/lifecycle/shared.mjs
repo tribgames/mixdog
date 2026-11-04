@@ -29,12 +29,11 @@ export function isScratchSession(session) {
   return isScratchConversation(session?.messages, session?.liveTurnMessages);
 }
 
-/** `nonBlocking`: the closer returns the manager's closeSessionAsync promise
- *  (when it has one), whose barrier never sleeps the event loop. */
-export function createSurfaceSessionCloser(mgr, nonBlocking = false) {
+/** The closer resolves the manager's close of the session it is given. */
+export function createSurfaceSessionCloser(mgr) {
   return function closeSurfaceSession(session, reason, options) {
     if (!session?.id) return false;
-    return closeManagedSession(mgr, session.id, reason, options, nonBlocking);
+    return mgr.closeSession(session.id, reason, options);
   };
 }
 
@@ -44,11 +43,4 @@ export async function closeOutgoingSession(closeSurfaceSession, session, reason,
   if ((await closeSurfaceSession(session, reason, options)) === false) {
     throw new Error(`session close failed (reason=${reason}); the current session is kept`);
   }
-}
-
-/** The manager's close: closeSessionAsync when asked for and available,
- *  else its closeSession, unchanged. */
-export function closeManagedSession(mgr, id, reason, options, nonBlocking = true) {
-  if (nonBlocking && typeof mgr.closeSessionAsync === 'function') return mgr.closeSessionAsync(id, reason, options);
-  return mgr.closeSession(id, reason, options);
 }

@@ -21,12 +21,13 @@ import {
 import {
   guardedSaveOptions as _guardedSaveOptions,
   cancelSessionWrites as _cancelSessionWrites,
-  acquireWriteCommit as _acquireWriteCommit,
+  tryAcquireWriteCommit as _tryAcquireWriteCommit,
   releaseWriteCommit as _releaseWriteCommit,
+  writeCommitSettled as _writeCommitSettled,
+  WRITE_COMMIT_BUSY as _WRITE_COMMIT_BUSY,
 } from './write-guards.mjs';
 import { _sessionForDisk } from './serialize.mjs';
 import {
-  _commitSessionWrite,
   _commitSessionWriteAttempt,
   _discardSaveTmp,
   _trackSaveTmp,
@@ -114,10 +115,10 @@ function _readLifecycleAuthority(id, reason, action, lifecycleOnly = false) {
 }
 
 /** Commit a barrier record, bypassing the save queue + guard. False when it did not land.
- *  `attempt` (a number) commits with ONE rename of the retry schedule: a
- *  retryable refusal with attempts left discards the scratch file, records
- *  nothing and returns a retry ({ retryInMs }) instead of sleeping. */
-function _writeLifecycleRecord(id, record, existing, reason, attempt = null) {
+ *  `attempt` commits with ONE rename of the retry schedule: a retryable
+ *  refusal with attempts left discards the scratch file, records nothing and
+ *  returns a retry ({ retryInMs }) instead of sleeping. */
+function _writeLifecycleRecord(id, record, existing, reason, attempt) {
   const target = sessionPath(id);
   const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
   try {
@@ -132,13 +133,10 @@ function _writeLifecycleRecord(id, record, existing, reason, attempt = null) {
       closeSync(fd);
     }
     const scratch = _stampSessionScratch(tmp);
-    if (attempt === null) _commitSessionWrite(tmp, target, id);
-    else {
-      const retryInMs = _commitSessionWriteAttempt(tmp, target, id, attempt);
-      if (retryInMs !== null) {
-        _discardSaveTmp(tmp);
-        return { retryInMs };
-      }
+    const retryInMs = _commitSessionWriteAttempt(tmp, target, id, attempt);
+    if (retryInMs !== null) {
+      _discardSaveTmp(tmp);
+      return { retryInMs };
     }
     // Read-only lifecycle checks (pending-message gates right after a close/
     // detach) reuse what this barrier wrote; write authority still re-reads.
@@ -204,14 +202,18 @@ function _recordAbsent(options) {
 
 /**
  * Atomically mark a session closed on disk with a bumped generation.
- * Returns the new generation, or null if the session file doesn't exist.
+ * Resolves the new generation, or null if the session file doesn't exist.
  * `options.outcome` (an object) gets `absent: true` when no record existed.
  * Used by closeSession() to plant a tombstone that races against in-flight
- * saveSession() calls.
+ * saveSession() calls. Never blocks the event loop (see isLifecycleRetry).
  */
 export function markSessionClosed(id, reason = 'manual', options = {}) {
-  return _markSessionClosed(id, reason, options, null);
+  return _runBarrierAttempts(id, options, (attempt) => _markSessionClosed(id, reason, options, attempt));
 }
+
+// The attempt found another thread's commit of the id holding the lock: it
+// took nothing and recorded nothing, and runs again once that commit lands.
+const COMMIT_BUSY_RETRY = Object.freeze({ retryAfterCommit: true });
 
 /**
  * Run a barrier as the session's writer. Another live process holding the
@@ -252,7 +254,8 @@ function _markSessionClosed(id, reason, options, attempt) {
 
 function _plantTombstone(id, reason, options, attempt) {
   const closeGuard = _guardedSaveOptions(id);
-  const commitControl = _acquireWriteCommit(closeGuard);
+  const commitControl = _tryAcquireWriteCommit(closeGuard);
+  if (commitControl === _WRITE_COMMIT_BUSY) return COMMIT_BUSY_RETRY;
   if (commitControl === false) return null;
   try {
     const authority = _readLifecycleAuthority(id, reason, 'close');
@@ -327,10 +330,10 @@ function _plantTombstone(id, reason, options, attempt) {
  * of clobbering whatever the resumed session writes next.
  * `options.ownerClose` (the agent tool's owner close) also stamps
  * `ownerClosedAt` on the record.
- * Returns the new generation, or null if the session file doesn't exist.
+ * Resolves the new generation, or null if the session file doesn't exist.
  */
 export function bumpSessionGeneration(id, reason = 'detach', options = {}) {
-  return _bumpSessionGeneration(id, reason, options, null);
+  return _runBarrierAttempts(id, options, (attempt) => _bumpSessionGeneration(id, reason, options, attempt));
 }
 
 function _bumpSessionGeneration(id, reason, options, attempt) {
@@ -344,11 +347,12 @@ function _plantDetach(id, reason, options, attempt) {
   // that already passed its cancellation check can still be holding (or
   // about to take) the rename lock, and would then land AFTER the generation
   // bump — exactly the late-save clobber this function exists to prevent.
-  // Holding the lock serialises it before us; taking it after cancellation
-  // makes _acquireWriteCommit refuse it (it re-checks cancellation while
-  // holding the lock).
+  // Holding the lock serialises it before us (this attempt then runs again
+  // once it lands); taking it after cancellation makes the acquisition
+  // refuse it (it re-checks cancellation while holding the lock).
   const detachGuard = _guardedSaveOptions(id);
-  const commitControl = _acquireWriteCommit(detachGuard);
+  const commitControl = _tryAcquireWriteCommit(detachGuard);
+  if (commitControl === _WRITE_COMMIT_BUSY) return COMMIT_BUSY_RETRY;
   if (commitControl === false) return null;
   try {
     // Same durable authority as the tombstone barrier, but only its verdict
@@ -387,21 +391,37 @@ function _plantDetach(id, reason, options, attempt) {
   }
 }
 
-// ── Non-blocking barriers ────────────────────────────────────────────────────
-// The synchronous barriers above wait out a refused rename (Windows EPERM/
-// EBUSY while a scanner holds the file) with sleepSync INSIDE the commit lock,
-// freezing the whole daemon for up to the full backoff schedule (4.6 s seen).
-// An attempt instead runs the complete barrier — authority read, cancellation,
-// record built from the current copy, ONE rename — under the commit lock and,
-// when the rename is refused with attempts left, returns a retry
-// ({ retryInMs }) having recorded nothing. The lock is released between
+// ── Barrier attempts ─────────────────────────────────────────────────────────
+// No barrier ever waits on the thread. An attempt runs the complete barrier —
+// liveness veto, writer claim, authority read, cancellation, record built from
+// the current copy, ONE rename — synchronously under the commit lock, taken
+// with a single compare-exchange. It returns a retry having recorded nothing
+// when another thread's commit of the id holds that lock
+// ({ retryAfterCommit }: the same attempt runs again once that commit's
+// release notifies) or when the OS refuses the rename with attempts left
+// (Windows EPERM/EBUSY while a scanner holds the file; { retryInMs }: the next
+// attempt of the backoff schedule runs on a timer). The lock is free between
 // attempts; the next attempt re-reads everything, so a save that landed in
-// between is folded into the barrier instead of overwriting it. Same backoff
-// schedule and the same final error as the synchronous barrier.
+// between is folded into the barrier instead of overwriting it.
+// `options.singleAttempt`: the caller decided on what it read in the stretch
+// of the first attempt, which a wait would make stale — an attempt asking to
+// be retried resolves null (nothing landed) instead; its next pass decides
+// again.
 
-/** Whether a barrier attempt asked to be retried after `retryInMs`. */
+/** Whether a barrier attempt asked to be retried (see waitForLifecycleRetry). */
 export function isLifecycleRetry(result) {
-  return typeof result?.retryInMs === 'number';
+  return typeof result?.retryInMs === 'number' || result?.retryAfterCommit === true;
+}
+
+/** Wait out `retry` of attempt `attempt` of `id`'s barrier; resolves the
+ *  attempt number to run next. */
+export async function waitForLifecycleRetry(id, retry, attempt) {
+  if (retry.retryAfterCommit === true) {
+    await _writeCommitSettled(id);
+    return attempt;
+  }
+  await sleep(retry.retryInMs);
+  return attempt + 1;
 }
 
 /** Attempt `attempt` of markSessionClosed (see isLifecycleRetry). */
@@ -414,25 +434,20 @@ export function bumpSessionGenerationAttempt(id, reason = 'detach', options = {}
   return _bumpSessionGeneration(id, reason, options, attempt);
 }
 
-async function _runBarrierAttempts(run) {
-  for (let attempt = 0; ; attempt++) {
+async function _runBarrierAttempts(id, options, run) {
+  let attempt = 0;
+  for (;;) {
     const result = run(attempt);
     if (!isLifecycleRetry(result)) return result;
-    await sleep(result.retryInMs);
+    if (options.singleAttempt === true) return null;
+    attempt = await waitForLifecycleRetry(id, result, attempt);
   }
 }
 
 /** Stamp the agent owner's close (`ownerClosedAt`) on a session record that
- *  stays open: bumpSessionGeneration with `ownerClose`, never blocking the
- *  event loop on a rename retry. For a close whose runtime close wrote no such
- *  stamp (already terminal, or closed earlier for another reason). */
-export function markSessionOwnerClosedAsync(id, reason = 'cli-agent-close', options = {}) {
-  return _runBarrierAttempts((attempt) =>
-    _bumpSessionGeneration(id, reason, { ...options, ownerClose: true }, attempt)
-  );
-}
-
-/** markSessionClosed without ever blocking the event loop on a rename retry. */
-export function markSessionClosedAsync(id, reason = 'manual', options = {}) {
-  return _runBarrierAttempts((attempt) => _markSessionClosed(id, reason, options, attempt));
+ *  stays open: bumpSessionGeneration with `ownerClose`. For a close whose
+ *  runtime close wrote no such stamp (already terminal, or closed earlier for
+ *  another reason). */
+export function markSessionOwnerClosed(id, reason = 'cli-agent-close', options = {}) {
+  return bumpSessionGeneration(id, reason, { ...options, ownerClose: true });
 }

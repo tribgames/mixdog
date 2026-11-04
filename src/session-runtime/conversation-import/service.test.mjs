@@ -628,7 +628,7 @@ test('a deleted import is listed and importable again', async () => {
     const oldId = first.results[0].sessionId;
     assert.equal(first.results[0].status, 'imported');
     assert.deepEqual((await api.listImportableConversations({ source: 'codex' })).rows, []);
-    assert.equal(deleteSession(oldId), true);
+    assert.equal(await deleteSession(oldId), true);
     const listed = await api.listImportableConversations({ source: 'codex' });
     assert.deepEqual(
       listed.rows.map((row) => [row.id, row.importedSessionId]),

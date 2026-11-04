@@ -1,8 +1,7 @@
-// closeSessionAsync waits out a rename the OS refuses (Windows EPERM/EBUSY
-// while a scanner holds the file) on timers: the event loop keeps ticking
-// through the whole retry schedule, the barrier still lands, and a rename that
-// never succeeds ends with the rename's own error, exactly as the synchronous
-// barrier would.
+// closeSession waits out a rename the OS refuses (Windows EPERM/EBUSY while a
+// scanner holds the file) on timers: the event loop keeps ticking through the
+// whole retry schedule, the barrier still lands, and a rename that never
+// succeeds ends with the rename's own error.
 import assert from 'node:assert/strict';
 import fs, { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -13,7 +12,7 @@ import test from 'node:test';
 const root = mkdtempSync(join(tmpdir(), 'mixdog-close-async-'));
 process.env.MIXDOG_DATA_DIR = root;
 
-const { closeSessionAsync } = await import('./session-close.mjs');
+const { closeSession } = await import('./session-close.mjs');
 const { saveSessionAsync, getSessionLifecycleCommitError } = await import('../store.mjs');
 const { sessionPath } = await import('../store/session-paths.mjs');
 const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
@@ -58,9 +57,8 @@ function refuseRenames(t, target, code, times) {
   return state;
 }
 
-// The synchronous barrier would retry in one blocked turn; the async one waits
-// on timers, so the loop's own timer fires between any two refusals. Counted
-// ticks replace a wall-clock gap limit.
+// The retries wait on timers, so the loop's own timer fires between any two
+// refusals. Counted ticks replace a wall-clock gap limit.
 let loopTicks = 0;
 
 /** Runs `run` while counting 1 ms loop ticks; the value comes back with them. */
@@ -86,9 +84,9 @@ for (const [code, tombstone] of [
     await saveSessionAsync(session(id));
     const before = JSON.parse(readFileSync(sessionPath(id), 'utf8')).generation;
     // Four refusals: 25 + 50 + 100 + 200 ms of backoff (plus jitter) — a
-    // ~400 ms freeze for the synchronous barrier.
+    // ~400 ms freeze were they slept on the thread.
     const refused = refuseRenames(t, sessionPath(id), code, 4);
-    const value = await withLoopTicks(() => closeSessionAsync(id, 'cli-agent-close', { tombstone }));
+    const value = await withLoopTicks(() => closeSession(id, 'cli-agent-close', { tombstone }));
     assert.equal(value, true);
     assert.equal(refused.refused, 4);
     assert.ok(tickedBetween(refused.ticksAtRefusal), 'the loop ticked between retries');
@@ -104,7 +102,7 @@ test('a rename refused through the whole schedule fails the close with the renam
   await saveSessionAsync(session(id));
   const before = readFileSync(sessionPath(id), 'utf8');
   const refused = refuseRenames(t, sessionPath(id), 'EPERM', Infinity);
-  const value = await withLoopTicks(() => closeSessionAsync(id, 'cli-agent-close', { tombstone: false }));
+  const value = await withLoopTicks(() => closeSession(id, 'cli-agent-close', { tombstone: false }));
   assert.equal(value, false);
   // DEFAULT_BACKOFFS_MS has 23 delays: 24 attempts, as renameWithRetrySync makes.
   assert.equal(refused.refused, 24);

@@ -130,7 +130,7 @@ test('completion DURING shell cancellation (inside the manager close) starts no 
     h.deliver(completion('exec-shell', { owner_closed: undefined }));
     return true;
   });
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), true);
   await tick();
   assert.deepEqual(h.turns, []);
   assert.deepEqual(h.pending, []);
@@ -140,7 +140,7 @@ test('completion DURING shell cancellation (inside the manager close) starts no 
 
 test('completion AFTER close and AFTER the old turn settles starts no model work', async () => {
   const h = harness({ busy: true });
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), true);
   h.deliver(completion('exec-after-close'));
   h.deliver(completion('exec-flagged', { owner_closed: true }));
   // The old turn settles: the busy-release hook kicks the queue.
@@ -157,7 +157,7 @@ test('a notification already queued when the close begins is settled, never run'
   const h = harness({ busy: true });
   h.deliver(completion('exec-queued'));
   assert.equal(h.pending.length, 1, 'queued behind the active turn');
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), true);
   assert.deepEqual(h.pending, []);
   assert.deepEqual(h.state.queued, []);
   h.state.busy = false;
@@ -171,7 +171,7 @@ test('queued submissions are settled explicitly and later submissions are reject
   const settled = [];
   assert.equal(h.api.submit('first', { id: 's1', onSettled: (d) => settled.push(['s1', d.status]) }), true);
   assert.equal(h.api.submit('second', { id: 's2', onSettled: (d) => settled.push(['s2', d.status]) }), true);
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), true);
   assert.deepEqual(settled, [
     ['s1', 'rejected'],
     ['s2', 'rejected'],
@@ -192,7 +192,7 @@ test('a throwing settle callback on close leaves the next queued submission stil
   };
   assert.equal(h.api.submit('first', { id: 's1', onSettled: throwing }), true);
   assert.equal(h.api.submit('second', { id: 's2', onSettled: (d) => settled.push(`s2:${d.reason}`) }), true);
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), true);
   assert.deepEqual(settled, ['s1', 's2:session-closed']);
   assert.deepEqual(h.pending, []);
 });
@@ -205,7 +205,7 @@ test('durable close failure: admission restored, accepted input retained and del
     h.deliver(completion('exec-mid-close'));
     return false;
   });
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), false);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), false);
   assert.equal(h.flags.admission, 'open');
   await tick();
   assert.equal(h.turns.length, 1, 'the retained prompt runs exactly once');
@@ -222,7 +222,7 @@ test('a throwing close restores admission and rethrows', async () => {
   h.setClose(() => {
     throw new Error('disk full');
   });
-  assert.throws(() => h.api.closeCanonicalSession('agent cancel'), /disk full/);
+  await assert.rejects(h.api.closeCanonicalSession('agent cancel'), /disk full/);
   assert.equal(h.flags.admission, 'open');
   assert.equal(h.api.submit('still works'), true);
   await tick();
@@ -231,7 +231,7 @@ test('a throwing close restores admission and rethrows', async () => {
 
 test('every admission route is closed after the canonical close', async () => {
   const h = harness();
-  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.equal(await h.api.closeCanonicalSession('agent cancel'), true);
   // pending-resume kick (completion wake) and its deferred flush
   h.feed.kickExecutionPendingResume('late body', 'exec-late');
   h.feed.flushDeferredExecutionPendingResumeKick();
@@ -253,7 +253,7 @@ test('every admission route is closed after the canonical close', async () => {
   assert.deepEqual(h.pending, []);
   assert.deepEqual(h.turns, []);
   // idempotent
-  assert.equal(h.api.closeCanonicalSession('again'), true);
+  assert.equal(await h.api.closeCanonicalSession('again'), true);
 });
 
 test('a result flagged owner_closed by the bus keeps its card but never enqueues even while the fence is open', async () => {

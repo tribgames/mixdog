@@ -30,8 +30,8 @@ const WARMUP_TIMER_KEYS = [
 ];
 const PREWARM_TIMER_KEYS = ['channelStartTimer', 'codeGraphPrewarmTimer', 'searchRuntimeWarmupTimer'];
 
-// The synchronous close block (runtime stops + the canonical lifecycle
-// barrier, a full rewrite of the session file) runs in its OWN event-loop
+// The close block (runtime stops + the canonical lifecycle barrier's first
+// attempt, a full rewrite of the session file) runs in its OWN event-loop
 // turn, one teardown at a time, process-wide. Concurrent teardowns (an idle
 // sweep evicting many sessions) otherwise reach it in the same microtask batch
 // and block the loop for the sum of every barrier. Each turn is a fresh
@@ -246,7 +246,7 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     });
     if (scope.detach) await settleDetached(withTeardownDeadline, stops);
     else await settleAll(withTeardownDeadline, stops);
-    // Reported closed only once the barrier is on disk (closeSessionAsync),
+    // Reported closed only once the barrier is on disk (closeSession),
     // and its write control is released only after that.
     let ok = false;
     try {
