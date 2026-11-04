@@ -4,7 +4,7 @@
  * Busy is what makes a runtime unreclaimable, so it is deliberately
  * conservative: detached background tasks count, and a runtime whose state
  * cannot be read is treated as busy rather than risking the loss of a live
- * turn. The eviction sweep that consumes this lives in ../retention.mjs.
+ * turn. The idle eviction that consumes this lives in ../retention.mjs.
  */
 import { activeBackgroundTaskSessionIds, hasActiveBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
 import { emitSessionApprovalCardChange } from '../../../runtime/shared/session-activity-signal.mjs';
@@ -19,7 +19,7 @@ function roomHandoffQuestionsOf(sessionId, state) {
   return Array.isArray(state?.handoffQuestions) ? state.handoffQuestions : [];
 }
 
-export function createBusyTracker({ sessions, currentSessionId }) {
+export function createBusyTracker({ sessions, currentSessionId, onBusyChange = () => {} }) {
   function stateBusy(state) {
     return (
       state?.busy === true || state?.commandBusy === true || (Array.isArray(state?.queued) && state.queued.length > 0)
@@ -28,7 +28,9 @@ export function createBusyTracker({ sessions, currentSessionId }) {
 
   function updateEntryBusy(entry, state) {
     const next = stateBusy(state);
+    const changed = entry.busy !== next;
     entry.busy = next;
+    if (changed) onBusyChange(entry);
     // Every runtime state change passes here, watched or headless: a session
     // that starts or stops showing an approval card (any kind, a sub-agent's
     // delegated copy included) announces it, so the session catalog — the one

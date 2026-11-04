@@ -20,6 +20,8 @@ import { createSessionProjection } from './session-service/projection.mjs';
 import { createStoredSessionReader } from './session-service/stored-reader.mjs';
 import { createSessionRetention } from './session-service/retention.mjs';
 import { createViewerRegistry } from './session-service/viewers.mjs';
+import { createSessionIdleClock } from './session-service/idle-clock.mjs';
+import { createWriterIdleRelease } from './session-service/writer-idle-release.mjs';
 import { createSessionEntries } from './session-service/entries.mjs';
 import { createSessionCalls } from './session-service/session-calls.mjs';
 import { createQuotaResumeScheduler } from './session-service/quota-resume.mjs';
@@ -58,7 +60,6 @@ export function createSessionService({
   onExternalClientsChanged = () => {},
   onDesktopReady = () => {},
   idleEvictMs = null,
-  evictSweepMs = null,
   // Quota auto-resume: the durable queue module and the fresh usage reading
   // (provider, model) => Promise<boolean>. Without a store nothing is scheduled.
   quotaResumeStore = null,
@@ -97,18 +98,27 @@ export function createSessionService({
     Number(idleEvictMs) > 0
       ? Number(idleEvictMs)
       : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 5 * 60_000);
-  const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
   const PROJECTION_IDLE_MS = Math.max(15_000, Number(process.env.MIXDOG_SESSION_PROJECTION_IDLE_MS) || 90_000);
 
   // Retention and viewers need `currentSessionId` (projection) and `destroy`
   // (entries), which are built after them; both are only called at runtime,
   // so the late thunks resolve once construction has finished.
+  // When a session has been quiet (see session-service/idle-clock.mjs): its
+  // runtime's idle eviction and its writer lock's idle release run on it.
+  const idleClock = createSessionIdleClock({
+    // Its owner, or a runtime that stopped reporting the address it published.
+    sessionOwner: (sessionId) => retention.entryFor(sessionId),
+    externalViewEntries,
+    pendingViewers,
+    sessionBusy: (entry) => retention.sessionBusy(entry),
+  });
   const retention = createSessionRetention({
     sessions,
     isClosed,
+    idleClock,
     idleEvictMs: IDLE_EVICT_MS,
-    evictSweepMs: EVICT_SWEEP_MS,
     projectionIdleMs: PROJECTION_IDLE_MS,
+    sessionOwner: (sessionId) => projection.sessionOwner(sessionId),
     currentSessionId: (entry) => projection.currentSessionId(entry),
     destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
   });
@@ -118,12 +128,13 @@ export function createSessionService({
     externalViewEntries,
     desktopServices,
     log,
-    startEvictionSweep: retention.startEvictionSweep,
+    armProjectionRelease: retention.armProjectionRelease,
     sessionBusy: retention.sessionBusy,
     releaseProjection: retention.releaseProjection,
     currentSessionId: (entry) => projection.currentSessionId(entry),
     destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
     releaseStoredSession: (sessionId) => storedReader.releaseStoredSession(sessionId),
+    onViewersChange: idleClock.refresh,
   });
   // Wire projection + frame publication (see session-service/projection.mjs).
   const projection = createSessionProjection({
@@ -141,8 +152,13 @@ export function createSessionService({
     adoptPendingViewers: viewers.adoptPendingViewers,
     updateEntryBusy: retention.updateEntryBusy,
     releaseProjection: retention.releaseProjection,
-    startEvictionSweep: retention.startEvictionSweep,
-    onSessionLive: (sessionId) => storedReader.forgetStoredSession(sessionId),
+    armProjectionRelease: retention.armProjectionRelease,
+    onSessionLive: (sessionId) => {
+      storedReader.forgetStoredSession(sessionId);
+      // An entry that took this address (a new session on its runtime) is on
+      // that session's idle clock from now.
+      idleClock.refresh(sessionId);
+    },
     prependViewer: viewers.prependViewer,
   });
   const unsubscribeExternalSessionStates =
@@ -229,9 +245,17 @@ export function createSessionService({
       })
     : null;
 
+  // Idle unload of the writer locks this process holds (see
+  // session-service/writer-idle-release.mjs); built last, as the claims taken
+  // before the service existed go straight on the clock, which reads the
+  // projection.
+  const writerIdleRelease = createWriterIdleRelease({ idleClock, log });
+
   function stop(reason = 'service stop') {
     if (stopPromise) return stopPromise;
     closed = true;
+    writerIdleRelease.stop();
+    idleClock.stop();
     unregisterApprovalOpener();
     agentRouteFollow.unsubscribe();
     quotaResume?.stop();
@@ -242,7 +266,7 @@ export function createSessionService({
       externalViewEntries.clear();
       pendingViewers.clear();
       agentTree.clear();
-      retention.stopSweep();
+      retention.stop();
       await desktopServices.dispose(reason);
       for (const entry of [...sessions]) await entries.destroy(entry, reason);
       // Retired entries have already left the address map, but their resource
@@ -303,7 +327,6 @@ export function createSessionService({
       retained,
       projected,
       pendingViewerSessions: pendingViewers.size,
-      evictionSweepActive: retention.sweepActive(),
     };
   }
 

@@ -20,7 +20,7 @@ function fixture(overrides = {}) {
     adoptPendingViewers() {},
     updateEntryBusy() {},
     releaseProjection() {},
-    startEvictionSweep() {},
+    armProjectionRelease() {},
     onSessionLive() {},
     ...overrides,
   });

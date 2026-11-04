@@ -20,7 +20,7 @@ export function createEntryLifecycle({
   addSubscriber,
   updateEntryBusy,
   releaseProjection,
-  stopEvictionSweepIfIdle,
+  idleStateChanged,
 }) {
   const { destroy } = createEntryDisposal({
     sessions,
@@ -30,7 +30,7 @@ export function createEntryLifecycle({
     onFrame,
     log,
     releaseProjection,
-    stopEvictionSweepIfIdle,
+    idleStateChanged,
   });
 
   function assertAvailable(entry) {

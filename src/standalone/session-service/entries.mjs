@@ -41,7 +41,7 @@ export function createSessionEntries({
     publishExternalSessionState,
   },
   viewers: { subscriberToken, addSubscriber, adoptPendingViewers },
-  retention: { updateEntryBusy, retainUnwatched, releaseProjection, stopEvictionSweepIfIdle },
+  retention: { updateEntryBusy, retainUnwatched, releaseProjection, idleStateChanged },
 }) {
   const lifecycle = createEntryLifecycle({
     createRuntime,
@@ -59,7 +59,7 @@ export function createSessionEntries({
     addSubscriber,
     updateEntryBusy,
     releaseProjection,
-    stopEvictionSweepIfIdle,
+    idleStateChanged,
   });
   const { bindExternalSessionView } = createExternalViewBinding({
     readExternalSessionState,

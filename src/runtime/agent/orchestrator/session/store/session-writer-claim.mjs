@@ -22,7 +22,7 @@
  * progress has landed — awaited, never waited for on the thread.
  */
 import { unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import { getPluginData } from '../../config.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
@@ -50,6 +50,25 @@ const _baseStamps = new WeakMap(); // session document → stamp of the record i
 // an old copy as current. It goes on delete, or once a resume or turn reads
 // the session again (that read is the new base).
 const _endedTenures = new Map();
+const _heldListeners = new Set();
+
+/** `listener(id, held)` whenever this process takes (true) or lets go (false)
+ *  of a session's writer lock — the daemon's idle unload clock. */
+export function onSessionWriterHeldChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  _heldListeners.add(listener);
+  return () => _heldListeners.delete(listener);
+}
+
+function _emitHeld(id, held) {
+  for (const listener of [..._heldListeners]) {
+    try {
+      listener(id, held);
+    } catch {
+      /* observers never affect the claim */
+    }
+  }
+}
 
 // `<dataDir>/session-writer-locks/<id>.lock`: the data dir is the namespace,
 // whoever's home or profile the process runs under.
@@ -93,6 +112,7 @@ export function claimSessionWriter(id) {
   if (mine && _releasing.delete(path) && mine.intact()) {
     // Taken up again while its release waits for a rename: still held, and
     // the copy this claim admits is judged as at a fresh claim.
+    _emitHeld(id, true);
     return { held: true, fresh: true };
   }
   if (mine?.intact()) return { held: true, fresh: false };
@@ -106,6 +126,7 @@ export function claimSessionWriter(id) {
   const lock = _acquire(path);
   if (!lock.held) return { held: false, path };
   _held.set(path, lock);
+  _emitHeld(id, true);
   return { held: true, fresh: true };
 }
 
@@ -113,6 +134,11 @@ export function claimSessionWriter(id) {
 export function sessionWriterHeldHere(id) {
   const path = _claimPath(id);
   return _held.get(path)?.intact() === true && !_releasing.has(path);
+}
+
+/** Ids of the sessions whose claim this process holds now (none on its way out). */
+export function heldSessionWriterIds() {
+  return [..._held.keys()].filter((path) => !_releasing.has(path)).map((path) => basename(path, '.lock'));
 }
 
 // Let the lock on `path` go once no rename holds `id`'s commit lock: at once
@@ -127,6 +153,7 @@ function _letGo(id, path, { cancel, after = null }) {
     _held.delete(path);
     _dropLock(path, lock);
     after?.();
+    _emitHeld(id, false);
     return true;
   };
   const settled = writeCommitSettled(id);
@@ -166,7 +193,8 @@ function _giveBackFreshClaim(id) {
 function _rememberTenureEnd(id, barrier) {
   try {
     const target = sessionPath(id);
-    _endedTenures.set(target, { stamp: statSessionStamp(target), barrier });  } catch {
+    _endedTenures.set(target, { stamp: statSessionStamp(target), barrier });
+  } catch {
     /* no record to remember: a later save of an old copy is judged strictly */
   }
 }
@@ -212,9 +240,11 @@ export function forgetSessionWriter(id) {
 
 /** Process exit: every claim this process holds (the kernel would anyway). */
 export function releaseHeldSessionWriters() {
+  const paths = [..._held.keys()];
   for (const [path, lock] of _held) _dropLock(path, lock);
   _held.clear();
   _releasing.clear();
+  for (const path of paths) _emitHeld(basename(path, '.lock'), false);
 }
 
 /**

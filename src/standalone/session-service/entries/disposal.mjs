@@ -10,7 +10,7 @@ export function createEntryDisposal({
   onFrame,
   log,
   releaseProjection,
-  stopEvictionSweepIfIdle,
+  idleStateChanged = () => {},
 }) {
   // Detach the entry from every live structure synchronously, before the
   // asynchronous runtime disposal starts.
@@ -25,11 +25,12 @@ export function createEntryDisposal({
       entry.unsubscribe?.();
     } catch {}
     sessions.delete(entry);
-    stopEvictionSweepIfIdle();
     if (entry.indexedSessionId && sessionsById.get(entry.indexedSessionId) === entry) {
       sessionsById.delete(entry.indexedSessionId);
     }
     entry.busy = false;
+    // Its session's eviction deadline goes with it.
+    idleStateChanged(entry);
   }
 
   async function destroy(entry, reason, { keepBackgroundWork = false, announce = true } = {}) {

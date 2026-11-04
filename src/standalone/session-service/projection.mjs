@@ -24,7 +24,7 @@ export function createSessionProjection({
   adoptPendingViewers,
   updateEntryBusy,
   releaseProjection,
-  startEvictionSweep,
+  armProjectionRelease,
   onSessionLive,
   prependViewer,
 }) {
@@ -44,7 +44,7 @@ export function createSessionProjection({
     publishIntervalMs,
     updateEntryBusy,
     releaseProjection,
-    startEvictionSweep,
+    armProjectionRelease,
     prependViewer,
   });
   const externalViews = createExternalViews({

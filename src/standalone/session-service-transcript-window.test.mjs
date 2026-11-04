@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
+import {
+  cleanupBackgroundTasks,
+  completeBackgroundTask,
+  registerBackgroundTask,
+} from '../runtime/shared/background-tasks.mjs';
 import { waitUntil } from '../runtime/shared/wait-until.test-support.mjs';
 import { createSessionService } from './session-service.mjs';
 import { applySessionStatePatch, transcriptItemsDigest } from './session-state-patch.mjs';
@@ -809,28 +814,61 @@ test('cold projections turn idle when their last view leaves and are dropped whe
   }
 });
 
-test('a watched session that publishes after the sweep stopped is released after the retention delay', async (t) => {
+test('a watched session that publishes after its projection was released is released again after the retention delay', async (t) => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000 });
   const id = 'sess_sweep_restart';
   const live = liveRuntime([item('a')], id);
-  const { service } = liveService(live, { evictSweepMs: 1_000 });
+  const { service } = liveService(live);
   try {
     await service.createSession({ sessionId: id }, { clientToken: 'viewer' });
     assert.equal(service.status.projected, 1);
-    // Idle past the projection budget: released, then the sweep stops.
-    t.mock.timers.tick(92_000);
+    t.mock.timers.tick(89_000);
+    assert.equal(service.status.projected, 1, 'released before the projection budget');
+    // Idle past the projection budget: released.
+    t.mock.timers.tick(3_000);
     assert.equal(service.status.projected, 0);
-    t.mock.timers.tick(1_000);
-    assert.equal(service.status.evictionSweepActive, false);
 
     live.append(item('b'));
     t.mock.timers.tick(1);
     assert.equal(service.status.projected, 1, 'the publish rebuilt the projection');
-    assert.equal(service.status.evictionSweepActive, true, 'and restarted the sweep');
     t.mock.timers.tick(92_000);
     assert.equal(service.status.projected, 0, 'the rebuilt projection is reclaimed');
   } finally {
     t.mock.timers.reset();
+    await service.stop('test complete');
+  }
+});
+
+test('a watched projection published while a background task ran is released once the task ends', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000 });
+  const id = 'sess_projection_after_task';
+  const taskId = `projection-after-task-${process.pid}`;
+  const live = liveRuntime([item('a')], id);
+  const { service } = liveService(live);
+  try {
+    await service.createSession({ sessionId: id }, { clientToken: 'viewer' });
+    registerBackgroundTask({
+      taskId,
+      surface: 'shell',
+      operation: 'shell',
+      label: 'projection held by background work',
+      context: { callerSessionId: id },
+    });
+    // A publish while the task runs: work holds the projection back.
+    live.append(item('b'));
+    t.mock.timers.tick(1);
+    assert.equal(service.status.projected, 1);
+    t.mock.timers.tick(200_000);
+    assert.equal(service.status.projected, 1, 'released while background work ran');
+
+    completeBackgroundTask(taskId, { status: 'completed', resultText: 'done', notify: false });
+    t.mock.timers.tick(89_000);
+    assert.equal(service.status.projected, 1, 'released before the projection budget after the task');
+    t.mock.timers.tick(3_000);
+    assert.equal(service.status.projected, 0, 'the projection outlived the work that held it back');
+  } finally {
+    t.mock.timers.reset();
+    cleanupBackgroundTasks({ force: true, callerSessionId: id, surface: 'shell' });
     await service.stop('test complete');
   }
 });

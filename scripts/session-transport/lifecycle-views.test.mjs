@@ -137,7 +137,6 @@ test('an unwatched runtime retains its CC-style background task until completion
       },
       {
         idleEvictMs: 15,
-        evictSweepMs: 5,
       }
     );
   } finally {
@@ -169,12 +168,20 @@ test('auto-background task elapsed time includes its foreground phase', () => {
   cleanupBackgroundTasks({ force: true, surface: 'shell' });
 });
 
-test('repeated idle session churn releases runtimes, projections, and its sweep timer', async () => {
+test('repeated idle session churn releases runtimes and projections at their own deadlines, with no sweep', async (t) => {
   const rounds = 6;
   const sessionsPerRound = 24;
   const payloadChars = 256 * 1024;
   let disposed = 0;
   const heapSamples = [];
+  // Every interval the session service starts (an eviction sweep would be one).
+  const startInterval = globalThis.setInterval;
+  const serviceIntervals = [];
+  t.mock.method(globalThis, 'setInterval', function (...args) {
+    const stack = new Error().stack;
+    if (/session-service(\.mjs|[\\/])/.test(stack)) serviceIntervals.push(stack);
+    return startInterval.apply(this, args);
+  });
 
   await withDaemon(
     async ({ discovery, service }) => {
@@ -203,7 +210,6 @@ test('repeated idle session churn releases runtimes, projections, and its sweep 
             retained: 0,
             projected: 0,
             pendingViewerSessions: 0,
-            evictionSweepActive: false,
           });
           if (global.gc) {
             global.gc();
@@ -218,7 +224,6 @@ test('repeated idle session churn releases runtimes, projections, and its sweep 
     },
     {
       idleEvictMs: 15,
-      evictSweepMs: 5,
       sessionFactory: async () => {
         const runtime = createStubSessionRuntime('');
         const dispose = runtime.dispose.bind(runtime);
@@ -231,6 +236,7 @@ test('repeated idle session churn releases runtimes, projections, and its sweep 
     }
   );
 
+  assert.deepEqual(serviceIntervals, [], 'the session service started a periodic timer');
   if (heapSamples.length > 1) {
     const growth = heapSamples.at(-1) - heapSamples[0];
     assert.ok(growth < 24 * 1024 * 1024, `heap grew ${(growth / 1024 / 1024).toFixed(1)}MB across reclaimed churn`);

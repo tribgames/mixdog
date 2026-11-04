@@ -31,12 +31,14 @@ export function createViewerRegistry({
   externalViewEntries,
   desktopServices,
   log,
-  startEvictionSweep,
+  armProjectionRelease = () => {},
   sessionBusy,
   currentSessionId,
   destroy,
   releaseStoredSession,
   releaseProjection = () => {},
+  // (sessionId) — a view of it came or went
+  onViewersChange = () => {},
 }) {
   // Client tokens whose reads/subscriptions announced `transcriptPrepend`:
   // their frames may carry an older-history page as `patch.itemsPrepend`.
@@ -65,9 +67,9 @@ export function createViewerRegistry({
     entry.subscribers.add(token);
     entry.retainedAt = null;
     entry.headless = false;
-    // A watched session carries a reclaimable projection, so the sweep has to
-    // run even when nothing is retained/unwatched.
-    startEvictionSweep();
+    // A watched session carries a reclaimable projection.
+    armProjectionRelease(entry);
+    onViewersChange(currentSessionId(entry));
     return entry;
   }
 
@@ -95,6 +97,7 @@ export function createViewerRegistry({
       pendingWindows.set(sessionId, windows);
     }
     windows.set(token, window);
+    onViewersChange(sessionId);
   }
 
   /** Returns whether any cold viewer of this session remains. */
@@ -105,6 +108,7 @@ export function createViewerRegistry({
     tokens.delete(token);
     forgetPendingWindow(sessionId, token);
     if (tokens.size === 0) pendingViewers.delete(sessionId);
+    onViewersChange(sessionId);
     return tokens.size > 0;
   }
 
@@ -136,6 +140,7 @@ export function createViewerRegistry({
         pendingViewers.delete(pendingId);
         // The last cold view left: its disk projection turns idle.
         releaseStoredSession(pendingId);
+        onViewersChange(pendingId);
       }
     }
     for (const entry of sessions) {
@@ -153,12 +158,13 @@ export function createViewerRegistry({
       // unwatched session, and a client that vanished never sends one. It
       // stayed pinned (~1 MB per open session) until the runtime's eviction.
       releaseProjection(entry);
-      startEvictionSweep();
+      onViewersChange(currentSessionId(entry));
       log(`session ${currentSessionId(entry) || '(creating)'} unwatched (client ${token} gone) — retained`);
     }
     for (const [sessionId, entry] of [...externalViewEntries]) {
-      entry.subscribers?.delete(token);
+      const left = entry.subscribers?.delete(token) === true;
       if ((entry.subscribers?.size || 0) === 0) externalViewEntries.delete(sessionId);
+      if (left) onViewersChange(sessionId);
     }
     desktopServices.releaseClient(token);
     return { ok: true };
@@ -171,6 +177,7 @@ export function createViewerRegistry({
     dropPendingViewer,
     adoptPendingViewers,
     releaseClient,
+    viewersChanged: onViewersChange,
     notePrependViewer,
     prependViewer,
   };

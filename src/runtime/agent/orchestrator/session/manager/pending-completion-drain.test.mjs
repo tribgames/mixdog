@@ -24,9 +24,12 @@ const {
   _dropPendingMessageState,
   drainPendingMessages,
   enqueuePendingMessage,
+  _getPendingMessagesForSession,
   finalizePendingMessageDelivery,
+  hasPendingMessages,
   hydratePendingMessages,
   markCompletionEntry,
+  onPendingMessagesChange,
   settlePendingMessageWrites,
 } = await import('./pending-messages.mjs');
 const { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } = await import(
@@ -69,6 +72,32 @@ test('queued canonical agent and shell completion envelopes drain exactly once',
     await finalizePendingMessageDelivery({ id: sessionId }, drained, Promise.resolve(), () => {});
     assert.deepEqual(drainPendingMessages(sessionId), [], 'an acked completion never returns');
   } finally {
+    await cleanup(sessionId);
+  }
+});
+
+test('acknowledging a message still in the queue announces that the queue changed', async () => {
+  const sessionId = `sess_completion_ack_signal_${process.pid}`;
+  const agent = renderAgentCompletionEnvelope({
+    id: 'task_agent_ack_signal',
+    tag: 'review',
+    status: 'completed',
+    result: 'ok',
+  });
+  const changes = [];
+  const stop = onPendingMessagesChange((id) => {
+    if (id === sessionId) changes.push(hasPendingMessages(id));
+  });
+  try {
+    assert.ok(enqueuePendingMessage(sessionId, markCompletionEntry(agent)) > 0);
+    assert.deepEqual(changes, [true]);
+    // Delivered by another route (a task read) while its copy is still queued.
+    const queued = _getPendingMessagesForSession(sessionId).slice(0, 1);
+    await finalizePendingMessageDelivery({ id: sessionId }, queued, Promise.resolve(), () => {});
+    assert.equal(hasPendingMessages(sessionId), false);
+    assert.deepEqual(changes, [true, false], 'the ack emptied the queue without saying so');
+  } finally {
+    stop();
     await cleanup(sessionId);
   }
 });
