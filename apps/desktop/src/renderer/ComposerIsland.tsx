@@ -1102,7 +1102,10 @@ function useAutoDismissShells(sessionId: string, rows: JobRow[]): void {
 
 /** The session's agent rows, finished ones included; polls the shared pool
  *  only while any of them is active. */
-function useIslandAgentRows(sessionId: string): { agentRows: IslandAgentRow[]; poolRows: DesktopAgentPoolRow[] | null } {
+function useIslandAgentRows(sessionId: string): {
+  agentRows: IslandAgentRow[];
+  poolRows: DesktopAgentPoolRow[] | null;
+} {
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
   const poolRows = useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot);
   // Rows the user cleared ("Clear finished") are not listed.
