@@ -579,6 +579,8 @@ async function outputMatchesInstalled(installDir) {
   const unpacked = `${archive}.unpacked`;
   const outputFiles = [];
   await walkFiles(join(desktopDir, 'out'), outputFiles);
+  // A fresh checkout has no build output: nothing local proves the install current.
+  if (outputFiles.length === 0) return false;
   for (const file of outputFiles) {
     const archivePath = asarPath(relative(desktopDir, file));
     if (archivePath.endsWith(`${sep}capture-window.js`) || archivePath.endsWith('.map')) continue;
