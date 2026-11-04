@@ -791,7 +791,7 @@ export class GeminiProvider {
 
   // First byte bounded by GEMINI_FIRST_BYTE_TIMEOUT_MS; a non-OK status
   // becomes a typed REST error for withRetry's rules.
-  async _openRestStream(url, apiKey, body, attemptSignal) {
+  async _openRestStream(url, apiKey, body, attemptSignal, onStreamDelta) {
     const openFirstByte = createTimeoutSignal(attemptSignal, GEMINI_FIRST_BYTE_TIMEOUT_MS, 'Gemini REST first byte');
     let res;
     try {
@@ -804,6 +804,13 @@ export class GeminiProvider {
       });
     } finally {
       openFirstByte.cleanup();
+    }
+    // Headers arrived (a refusal's too): the server is answering, so the agent
+    // watchdog must not read a ladder of retried 429s as a hung connection.
+    try {
+      onStreamDelta?.('transport');
+    } catch {
+      // the stream-delta observer is advisory
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -865,7 +872,7 @@ export class GeminiProvider {
         run: async ({ signal: attemptSignal, connected }) => {
           callbacks.retractReasoning();
           signalRequesting(opts);
-          const res = await this._openRestStream(genUrl, apiKey, body, attemptSignal);
+          const res = await this._openRestStream(genUrl, apiKey, body, attemptSignal, callbacks.onStreamDelta);
           connected();
           const textLeakGuard = geminiTextLeakGuardFor(stream);
           const response = await consumeGeminiRestStreamResponse(res, {
