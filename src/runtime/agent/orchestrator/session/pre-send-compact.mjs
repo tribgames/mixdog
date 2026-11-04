@@ -409,7 +409,7 @@ function throwCompactFailure(ctx, run, compactErr) {
 
 // Replaces the live transcript with the compacted one and resets everything
 // keyed to the old transcript shape.
-function adoptCompactedTranscript(ctx, run) {
+async function adoptCompactedTranscript(ctx, run) {
   const { state } = ctx;
   const { messages, sessionRef, sessionId, opts } = state;
   const replaced = messages.slice();
@@ -417,11 +417,12 @@ function adoptCompactedTranscript(ctx, run) {
   // Display-only archive of the dropped conversation, made durable (pending
   // sidecar) BEFORE the shortened transcript is adopted and can be saved; a
   // sidecar that cannot be written keeps the old transcript and fails this
-  // compaction. The publication runs off this synchronous adoption.
+  // compaction. The publication runs off this adoption.
   let prepared = null;
   if (sessionRef) {
     try {
       prepared = prepareCompactionArchive({ session: sessionRef, sessionId, before: replaced, after: run.compacted });
+      if (prepared) await prepared.durable;
     } catch (archiveError) {
       throwCompactFailure(ctx, run, archiveError);
     }
@@ -575,7 +576,7 @@ async function compactBeforeSend(ctx) {
   }
   ctx.compactChanged = messagesArrayChanged(messages, run.compacted);
   if (ctx.compactChanged) {
-    adoptCompactedTranscript(ctx, run);
+    await adoptCompactedTranscript(ctx, run);
     // The adopted compaction strips late MCP tool announcements from older turns.
     try {
       rearmLateDeferredTools(sessionRef);

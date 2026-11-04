@@ -36,7 +36,7 @@ export function createAskTurnState(session) {
  *  event loop. `base` is the durable transcript the turn opens on
  *  (store/transcript-durability.mjs). Every save of the session flushes
  *  first, so a history rewrite is in the checkpoint before any record carries
- *  its new epoch. */
+ *  its new epoch, and a save whose epoch has no header on disk fails. */
 export function createTurnCheckpointScheduler({
   sessionId,
   generation,
@@ -113,14 +113,43 @@ export function createTurnCheckpointScheduler({
     });
     ingestSessionTurn(turn.session);
   });
+  // A save must never record a transcript epoch whose header is not on disk:
+  // after a crash, recovery would replay this turn's older header over that
+  // newer record. Such a save fails (the store records the failure, at either
+  // capture site) and is made again once the header lands.
+  let resaveQueued = false;
+  const resaveWhenHeaderLands = () => {
+    if (resaveQueued) return;
+    resaveQueued = true;
+    recorder.landed().then(() => {
+      resaveQueued = false;
+      if (stopped || !recorder.epochDurable) return;
+      saveSessionAsync(turn.session, { expectedGeneration: generation }).catch((err) => {
+        try {
+          process.stderr.write(`[session] save after the checkpoint header failed session=${sessionId}: ${err?.message || err}\n`);
+        } catch {
+          // stderr may be closed; the save failure is only reported
+        }
+      });
+    });
+  };
   const unhookSaves = setTranscriptSnapshotHook(turn.session, () => {
     if (stopped || !turn.outgoing) return;
     flushNow();
+    let durable = false;
     try {
-      recorder.publishPendingHeader();
+      durable = recorder.publishPendingHeader();
     } catch (error) {
       warn(error);
     }
+    if (durable) return;
+    resaveWhenHeaderLands();
+    throw Object.assign(
+      new Error(
+        `[turn-checkpoint] session=${sessionId}: the checkpoint header naming this transcript is not on disk yet; saved again once it lands`
+      ),
+      { code: 'ECHECKPOINTHEADERPENDING' }
+    );
   });
   const halt = (options) => {
     stopped = true;

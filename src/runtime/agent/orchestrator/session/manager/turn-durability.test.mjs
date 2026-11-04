@@ -2,7 +2,8 @@
 // turn comes back exactly once, and a checkpoint is never spliced onto a
 // record it was not taken against.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -571,3 +572,123 @@ test('a turn whose save was refused because ownership moved is saved by the next
     assert.equal(readTurnCheckpoint(id), null);
   });
 });
+
+// A save while a re-anchored header cannot be published on the calling
+// thread: it is refused, then made again once the newest header lands —
+// `supersede` re-anchors once more after the refusal, so the header the
+// retry first waited on is dropped unwritten.
+async function saveWhileHeaderHeld(t, { supersede = false } = {}) {
+  const { createTurnCheckpointScheduler } = await import('./ask-turn-state.mjs');
+  const { checkpointDisposition } = await import('./turn-checkpoint.mjs');
+  const { durableTranscriptBase } = await import('../store/transcript-durability.mjs');
+  const { saveSessionDurably } = await import('../store.mjs');
+  {
+    // A bare record: no creation save or warm-up is still pending to save it
+    // during the probe and publish the held header on its own.
+    const id = `durable_header_held_${supersede ? 'superseded' : 'refused'}`;
+    const session = record(id, [{ role: 'system', content: 'sys' }, user('earlier'), assistant('earlier answer')], {
+      transcriptEpoch: 'e-base',
+    });
+    await saveSessionDurably(session);
+    const base = durableTranscriptBase(session);
+    assert.ok(base, 'the turn opens on a durable base');
+    const prompt = 'do it';
+    const turn = {
+      session,
+      outgoing: [...session.messages, user(prompt)],
+      userTurnContent: prompt,
+      boundary: session.messages.length,
+    };
+    session.messages = turn.outgoing.slice();
+    session.activeTurnCheckpoint = { version: 1, turnToken: `tok-${id}`, startedAt: 1 };
+    const checkpoint = createTurnCheckpointScheduler({
+      sessionId: id,
+      generation: session.generation ?? 0,
+      turnToken: `tok-${id}`,
+      startedAt: 1,
+      turn,
+      interruption: createTurnInterruptionTracker(),
+      base,
+    });
+    const rewrite = (content) => {
+      turn.outgoing.splice(0, 1, { role: 'system', content });
+      checkpoint.schedule(true);
+    };
+    try {
+      checkpoint.schedule(true);
+      assert.equal(await checkpoint.landed(), true);
+      // A history rewrite: its self-contained header lands.
+      rewrite('[summary one]');
+      assert.equal(await checkpoint.landed(), true);
+      const trusted = readTurnCheckpoint(id);
+      assert.equal(trusted.fullTranscript, true);
+      // The next rewrite's header is held mid-rename; a third one queues.
+      const headerPath = turnCheckpointPath(id);
+      const realRename = fs.promises.rename;
+      let renameReached;
+      const reached = new Promise((resolve) => {
+        renameReached = resolve;
+      });
+      let releaseRename;
+      const renameHeld = new Promise((resolve) => {
+        releaseRename = resolve;
+      });
+      let held = false;
+      t.mock.method(fs.promises, 'rename', async (from, to) => {
+        if (!held && to === headerPath) {
+          held = true;
+          renameReached();
+          await renameHeld;
+        }
+        return realRename(from, to);
+      });
+      // Claiming the held write's staged file fails: the newer header cannot
+      // be published on the calling thread.
+      const realUnlink = fs.unlinkSync;
+      t.mock.method(fs, 'unlinkSync', (path) => {
+        if (path === `${headerPath}.staged`) throw Object.assign(new Error('busy'), { code: 'EPERM' });
+        return realUnlink(path);
+      });
+      syncBuiltinESMExports();
+      let outcome;
+      try {
+        rewrite('[summary two]');
+        await reached;
+        rewrite('[summary three]');
+        session.messages = turn.outgoing.slice();
+        outcome = await saveSessionDurably(session).then(
+          () => 'saved',
+          (error) => error
+        );
+      } finally {
+        t.mock.restoreAll();
+        syncBuiltinESMExports();
+        if (supersede) rewrite('[summary four]');
+        releaseRename();
+      }
+      const newest = session.transcriptEpoch;
+      assert.equal(readTurnCheckpoint(id).transcriptEpoch, trusted.transcriptEpoch, 'the older header is unchanged');
+      // A crash now replays the older header: the record must not be newer.
+      const disk = readDurableSessionRecord(id);
+      assert.notEqual(disk.transcriptEpoch, newest, 'no record carries an epoch whose header is not on disk');
+      assert.equal(checkpointDisposition(disk, readTurnCheckpoint(id)).action, 'replay');
+      assert.equal(outcome?.code, 'ECHECKPOINTHEADERPENDING');
+      // Once the newer header lands, the save is made again.
+      await settleTurnCheckpointWrites(id);
+      assert.equal(readTurnCheckpoint(id).transcriptEpoch, newest);
+      const deadline = Date.now() + 5_000;
+      while (readDurableSessionRecord(id).transcriptEpoch !== newest && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(readDurableSessionRecord(id).transcriptEpoch, newest, 'the refused save is made again');
+    } finally {
+      checkpoint.stop();
+    }
+  }
+}
+
+test('a save never records a transcript epoch whose checkpoint header could not be made durable', (t) =>
+  saveWhileHeaderHeld(t));
+
+test('the refused save is made again once the newest header lands, even after a later re-anchor', (t) =>
+  saveWhileHeaderHeld(t, { supersede: true }));

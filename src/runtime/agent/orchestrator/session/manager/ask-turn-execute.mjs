@@ -133,16 +133,18 @@ function precommitUserTurn(session, outgoing, historyMessages, input) {
 
 // Mark the turn active and persist the pre-committed session before the
 // provider runs.
-function persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration }) {
+async function persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration }) {
   session.activeTurnCheckpoint = {
     version: 1,
     turnToken,
     startedAt,
   };
-  // The sidecar lands synchronously before provider execution. Even
-  // if the async canonical-session preflight save has not reached its
-  // worker when the process is killed, recovery still has the prompt.
+  // The checkpoint header lands, off the event loop, before provider
+  // execution and before the preflight save that records its epoch. Even if
+  // that save has not reached its worker when the process is killed,
+  // recovery still has the prompt.
   checkpoint.schedule(true);
+  await checkpoint.landed();
   saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
     try {
       process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`);
@@ -229,7 +231,7 @@ export async function prepareAskTurn({
   turn.boundary = historyMessages.length;
   turn.outgoing = outgoing;
   precommitUserTurn(session, outgoing, historyMessages, input);
-  persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration });
+  await persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration });
   traceTurnContext({
     sessionId,
     session,

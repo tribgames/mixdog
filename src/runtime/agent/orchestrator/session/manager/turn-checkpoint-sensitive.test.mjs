@@ -102,7 +102,7 @@ test('a checkpoint that cannot be redacted is removed, or stops recording when i
     const realUnlink = fs.unlinkSync;
     const realJournalUnlink = fs.promises.unlink;
     const faults = [
-      t.mock.method(fs, 'renameSync', () => {
+      t.mock.method(fs.promises, 'rename', async () => {
         throw Object.assign(new Error('storage fault'), { code: 'EIO' });
       }),
     ];
@@ -151,7 +151,8 @@ test('a checkpoint that cannot be redacted is removed, or stops recording when i
   markFill(removedId);
   const endFault = failing(removedId, { unlink: true });
   try {
-    assert.equal(first.flush(), false);
+    first.flush();
+    await settleTurnCheckpointWrites(removedId);
   } finally {
     endFault();
   }
@@ -173,7 +174,8 @@ test('a checkpoint that cannot be redacted is removed, or stops recording when i
   markFill(keptId, '771199');
   const endUnlinkFault = failing(keptId, { unlink: false });
   try {
-    assert.equal(second.flush(), false);
+    second.flush();
+    await settleTurnCheckpointWrites(keptId);
   } finally {
     endUnlinkFault();
   }
@@ -198,7 +200,7 @@ test('a checkpoint that cannot be redacted is removed, or stops recording when i
   const endJournalFault = failing(journalId, { unlink: true, journal: false });
   const lines = () => logged.filter((line) => line.includes(journalId));
   try {
-    assert.equal(third.flush(), false);
+    third.flush();
     await settleTurnCheckpointWrites(journalId);
     assert.equal(existsSync(turnCheckpointPath(journalId)), false, 'the header is gone');
     assert.match(filesOf(journalId), new RegExp(CODE), 'the journal removal failed');

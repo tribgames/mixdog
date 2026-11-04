@@ -22,7 +22,8 @@ export const COMPACTION_ARCHIVE_SUFFIX = '.compaction-archive.jsonl';
 /** The one label every compaction boundary row carries (persisted and live),
  *  translated by the desktop as the app's compaction wording. */
 export const COMPACTION_DIVIDER_LABEL = 'Conversation compacted';
-/** Per-session cap; the oldest segments are dropped past it. */
+/** Per-session cap; the oldest segments are dropped past it. The writer
+ *  enforces it lazily: an archive is at most one segment over it. */
 export const COMPACTION_ARCHIVE_MAX_BYTES = 32 * 1024 * 1024;
 
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
@@ -64,8 +65,17 @@ export function compactionSegmentHead(line) {
 
 /** One segment as its JSONL line (no trailing newline). */
 export function compactionSegmentLine({ seq, prev, at, items }) {
-  const body = JSON.stringify(items);
-  return `{"v":1,"seq":${seq},"id":"seg${seq}","prev":${prev == null ? 'null' : JSON.stringify(`seg${prev}`)},"at":${Math.max(0, Math.floor(Number(at) || 0))},"count":${items.length},"bytes":${Buffer.byteLength(body)},"items":${body}}`;
+  return segmentLine({ seq, prev, at, count: items.length, body: JSON.stringify(items) });
+}
+
+/** compactionSegmentLine over items already serialized one by one
+ *  (`JSON.stringify(item)` each): the same bytes, without serializing again. */
+export function compactionSegmentLineOfJson({ seq, prev, at, itemsJson }) {
+  return segmentLine({ seq, prev, at, count: itemsJson.length, body: `[${itemsJson.join(',')}]` });
+}
+
+function segmentLine({ seq, prev, at, count, body }) {
+  return `{"v":1,"seq":${seq},"id":"seg${seq}","prev":${prev == null ? 'null' : JSON.stringify(`seg${prev}`)},"at":${Math.max(0, Math.floor(Number(at) || 0))},"count":${count},"bytes":${Buffer.byteLength(body)},"items":${body}}`;
 }
 
 function segmentItems(text) {
@@ -179,19 +189,22 @@ async function indexArchive(handle, size) {
   return entries;
 }
 
-async function archiveIndexFor(path, handle) {
+/** `{ entries, size }` of the archive sidecar `path` open as `handle`: its
+ *  segment index (`{ head, start, length }` per segment line, `length`
+ *  without the newline) and its byte length. The writer reads it too. */
+export async function compactionArchiveIndex(path, handle) {
   const info = await handle.stat();
   const stamp = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
   const cached = archiveIndexes.get(path);
   if (cached?.stamp === stamp) {
     archiveIndexes.delete(path);
     archiveIndexes.set(path, cached);
-    return cached.entries;
+    return { entries: cached.entries, size: info.size };
   }
   const entries = await indexArchive(handle, info.size);
   archiveIndexes.set(path, { stamp, entries });
   while (archiveIndexes.size > INDEX_CACHE_LIMIT) archiveIndexes.delete(archiveIndexes.keys().next().value);
-  return entries;
+  return { entries, size: info.size };
 }
 
 /** Runs `use(entries, load)` over a session's archive sidecar: its segment
@@ -210,7 +223,7 @@ async function withArchive(storeDir, sessionId, fallback, use) {
     return fallback;
   }
   try {
-    const entries = await archiveIndexFor(path, handle);
+    const { entries } = await compactionArchiveIndex(path, handle);
     return await use(entries, async (entry) => {
       const buffer = Buffer.alloc(entry.length);
       await handle.read(buffer, 0, entry.length, entry.start);
@@ -252,9 +265,9 @@ export function visitCompactionArchive(
 }
 
 // Delete fence: every deletion bumps the session's epoch. A writer captures
-// the epoch before it starts and publishes only if it is unchanged at the
-// (synchronous) rename, so a delete that lands while a segment is being
-// written is never undone by that write.
+// the epoch before it starts, publishes only if it is unchanged right before
+// its rename or append, and removes what a rename published when a delete
+// landed while it ran, so a delete is never undone by a write.
 const deleteEpochs = new Map();
 
 export function compactionArchiveDeleteEpoch(sessionId) {

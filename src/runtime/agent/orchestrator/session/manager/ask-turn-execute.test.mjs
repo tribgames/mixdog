@@ -75,7 +75,7 @@ function turnFor(session) {
     runtime: {},
     turnSignal: new AbortController().signal,
     askGeneration: 1,
-    checkpoint: { schedule() {} },
+    checkpoint: { schedule() {}, landed: async () => true },
     turnToken: 't',
     startedAt: Date.now(),
     codexTurnId: null,
@@ -159,7 +159,7 @@ test('turn start overlaps the judgment with buildUserTurn and still stamps the f
     runtime: {},
     turnSignal: new AbortController().signal,
     askGeneration: 1,
-    checkpoint: { schedule() {} },
+    checkpoint: { schedule() {}, landed: async () => true },
     turnToken: 't1',
     startedAt: Date.now(),
     codexTurnId: null,
@@ -202,7 +202,7 @@ test('the built turn carries its prompt origin and retry provenance; the pre-com
     sessionStartMetaInjected: true,
   };
   const scheduled = [];
-  const opened = { ...turnFor(session), checkpoint: { schedule: (flag) => scheduled.push(flag) }, turnToken: 'tk' };
+  const opened = { ...turnFor(session), checkpoint: { schedule: (flag) => scheduled.push(flag), landed: async () => true }, turnToken: 'tk' };
   buildCalls.length = 0;
   const prepared = await prepareAskTurn({
     sessionId: 's8',

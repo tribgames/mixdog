@@ -615,31 +615,39 @@ test('a sidecar page jumps over the segments it skips by their header offsets', 
 
 test('the archive is capped by dropping its oldest segments, and links each to the one before', async () => {
   const session = storedSession('cap');
-  for (const seq of [1, 2, 3]) {
+  // Each segment is ~8.5 KB: the third is appended to an archive within the
+  // cap, the fourth finds it over and rewrites it to its newest segments.
+  for (const seq of [1, 2, 3, 4]) {
     scheduleCompactionArchive({ session, before: itemsOf(seq, 4, 2_000), after: [], maxBytes: 20_000 });
   }
   await flushCompactionArchiveWrites();
   const heads = archiveLines(session.id).map(compactionSegmentHead);
   assert.deepEqual(
     heads.map(({ seq, prev }) => ({ seq, prev })),
-    [
-      { seq: 2, prev: 'seg1' },
-      { seq: 3, prev: 'seg2' },
-    ]
+    [{ seq: 4, prev: 'seg3' }]
   );
   assert.deepEqual(
     session.compaction.archive.segments.map((entry) => entry.seq),
-    [2, 3]
+    [4]
+  );
+  scheduleCompactionArchive({ session, before: itemsOf(5, 4, 2_000), after: [], maxBytes: 20_000 });
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => ({ seq: compactionSegmentHead(line).seq, prev: compactionSegmentHead(line).prev })),
+    [
+      { seq: 4, prev: 'seg3' },
+      { seq: 5, prev: 'seg4' },
+    ]
   );
   // A segment larger than the cap alone keeps its newest rows and divider.
-  scheduleCompactionArchive({ session, before: itemsOf(4, 40, 2_000), after: [], maxBytes: 20_000 });
+  scheduleCompactionArchive({ session, before: itemsOf(6, 40, 2_000), after: [], maxBytes: 20_000 });
   await flushCompactionArchiveWrites();
-  const lines = archiveLines(session.id);
-  assert.equal(lines.length, 1);
-  assert.ok(Buffer.byteLength(lines[0]) <= 20_000);
-  const items = JSON.parse(lines[0]).items;
-  assert.equal(items.at(-1).id, 'arch4_divider');
-  assert.match(items.at(-2).text, /^s4 m39 /);
+  const newest = archiveLines(session.id).at(-1);
+  assert.equal(compactionSegmentHead(newest).seq, 6);
+  assert.ok(Buffer.byteLength(newest) + 1 <= 20_000);
+  const items = JSON.parse(newest).items;
+  assert.equal(items.at(-1).id, 'arch6_divider');
+  assert.match(items.at(-2).text, /^s6 m39 /);
 });
 
 test('a clear hides earlier archive segments and the next write drops them', async () => {
@@ -766,6 +774,68 @@ test('the fence also holds when the record survives but a delete bumped the epoc
     ),
     []
   );
+});
+
+test('the cap holds: at most one segment over it, back within it at each occasional rewrite', async (t) => {
+  const session = storedSession('cap-holds');
+  const maxBytes = 30_000;
+  const rewrites = [];
+  _setCompactionArchivePublishHook(async ({ tmp }) => {
+    if (tmp) rewrites.push(tmp);
+  });
+  t.after(() => _setCompactionArchivePublishHook(null));
+  const path = compactionArchivePath(sessionsDir, session.id);
+  let previous = [];
+  for (let seq = 1; seq <= 24; seq += 1) {
+    const before = rewrites.length;
+    scheduleCompactionArchive({ session, before: itemsOf(seq, 3, 1_000 + (seq % 5) * 400), after: [], maxBytes });
+    await flushCompactionArchiveWrites();
+    const lines = archiveLines(session.id);
+    const newest = Buffer.byteLength(lines.at(-1)) + 1;
+    const size = readFileSync(path).length;
+    assert.equal(compactionSegmentHead(lines.at(-1)).seq, seq);
+    if (rewrites.length > before) {
+      assert.ok(size <= maxBytes, `segment ${seq}: a rewrite leaves ${size} > ${maxBytes} bytes`);
+    } else {
+      assert.ok(size - newest <= maxBytes, `segment ${seq}: appended to an archive over the cap`);
+      assert.deepEqual(lines.slice(0, -1), previous, `segment ${seq}: an append keeps every earlier line`);
+    }
+    previous = lines;
+  }
+  assert.ok(rewrites.length > 1 && rewrites.length <= 8, `${rewrites.length} rewrites for 24 segments`);
+});
+
+test('a compaction capture writes nothing on the event loop: no sync fs write, lock or Atomics.wait', async (t) => {
+  const { syncFsCalls } = await import('../../../shared/sync-fs-calls.fixture.mjs');
+  const session = storedSession('off-main');
+  scheduleCompactionArchive({ session, before: itemsOf(1, 3, 1_500), after: [], maxBytes: 12_000 });
+  await flushCompactionArchiveWrites();
+  const waits = [];
+  const wait = Atomics.wait;
+  t.mock.method(Atomics, 'wait', (...args) => {
+    waits.push(args[3]);
+    return wait(...args);
+  });
+  const publications = [];
+  _setCompactionArchivePublishHook(async ({ tmp }) => publications.push(tmp ? 'rewrite' : 'append'));
+  t.after(() => _setCompactionArchivePublishHook(null));
+  const calls = await syncFsCalls(async () => {
+    // Appends, then one over the cap (a rewrite).
+    for (const seq of [2, 3, 4]) {
+      const scheduled = scheduleCompactionArchive({ session, before: itemsOf(seq, 3, 1_500), after: [], maxBytes: 12_000 });
+      assert.ok(await scheduled.written);
+    }
+    await flushCompactionArchiveWrites();
+  });
+  const reads = /^(readFileSync|existsSync|statSync|lstatSync|fstatSync|readdirSync|accessSync|realpathSync) /;
+  assert.deepEqual(
+    calls.filter((call) => !reads.test(call)),
+    []
+  );
+  assert.deepEqual(waits, []);
+  assert.ok(publications.includes('append') && publications.includes('rewrite'), publications.join(','));
+  assert.equal(compactionSegmentHead(archiveLines(session.id).at(-1)).seq, 4);
+  assert.equal(existsSync(join(sessionsDir, `${session.id}.compaction-archive.pending`)), false);
 });
 
 test('the cap counts each line with its newline', async () => {

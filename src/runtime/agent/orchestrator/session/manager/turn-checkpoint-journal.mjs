@@ -10,9 +10,9 @@
 //
 // DESIGN. Split the checkpoint into a write-once header plus an append-only
 // delta journal:
-//   <session>.json    header — written ONCE per turn, synchronously, atomically.
-//                     It carries the prompt, so prompt durability is anchored
-//                     before the provider ever runs, and store-summary-reader
+//   <session>.json    header — written ONCE per turn, atomically, off the event
+//                     loop; the turn awaits it before the provider ever runs,
+//                     so it anchors prompt durability. store-summary-reader
 //                     keeps probing this exact path to detect a live turn.
 //   <session>.jsonl   append-only JSONL deltas — NEW/CHANGED turn messages (by
 //                     index relative to the header's message list), APPENDED
@@ -21,9 +21,10 @@
 //                     never a delta: the recorder rewrites the header with
 //                     the whole resulting context (turn-checkpoint.mjs).
 //                     A normal flush costs O(new bytes), never O(turn).
-// Appends ride a bounded coalescing lane (one in-flight write, one pending
-// buffer, synchronous drain above the byte ceiling) so the engine thread never
-// blocks on disk and the queue can never grow without limit.
+// Header, journal open and appends ride one bounded coalescing lane (one
+// in-flight write, one pending buffer, a header re-anchor above the byte
+// ceiling) so the engine thread never blocks on disk and the queue can never
+// grow without limit.
 //
 // Change detection is reference identity on message objects — the same contract
 // the session store's delta saves already rely on ("Replace, never mutate":
@@ -45,11 +46,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { appendFile, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
-import { writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
-import { withFileLockSync } from '../../../../shared/file-lock.mjs';
+import { writeFileAtomicAsync, writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
+import { withFileLock, withFileLockSync } from '../../../../shared/file-lock.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { redactSettledText, sensitiveValuesVersion } from '../sensitive-values.mjs';
 import { redactSensitiveContent, redactSensitiveMessage, redactSensitiveToolCall } from '../sensitive-projection.mjs';
@@ -57,38 +58,24 @@ import { redactSensitiveContent, redactSensitiveMessage, redactSensitiveToolCall
 const TURN_CHECKPOINT_VERSION = 1;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 // Ceiling for records queued but not yet handed to the OS. Reaching it means
-// the append lane cannot keep up; the writer then drains synchronously rather
-// than dropping records — recovery correctness outranks a rare, bounded stall.
+// the append lane cannot keep up; the queued records are then retired and the
+// recorder re-anchors the turn with a new header (the whole turn, written once)
+// instead of buffering without limit or draining on the engine thread.
 const MAX_PENDING_JOURNAL_BYTES = 4 * 1024 * 1024;
 
 function checkpointDirPath() {
   return join(getPluginData(), 'turn-checkpoints');
 }
 
-// Ensured once per process (per data dir); a write that then fails with
-// ENOENT (the directory was removed under us) re-ensures it and retries once.
-let ensuredDir = '';
-function checkpointDir() {
-  const dir = checkpointDirPath();
-  if (ensuredDir !== dir) {
-    mkdirSync(dir, { recursive: true });
-    ensuredDir = dir;
-  }
-  return dir;
-}
-
-function reensureOnMissingDir(error) {
-  if (error?.code !== 'ENOENT') return false;
-  ensuredDir = '';
-  checkpointDir();
-  return true;
-}
-
+// A write that fails with ENOENT (the directory is not there yet, or was
+// removed under us) creates it and retries once. Header publication creates
+// the directory itself.
 function withCheckpointDirSync(write) {
   try {
     return write();
   } catch (error) {
-    if (!reensureOnMissingDir(error)) throw error;
+    if (error?.code !== 'ENOENT') throw error;
+    mkdirSync(checkpointDirPath(), { recursive: true });
     return write();
   }
 }
@@ -97,7 +84,8 @@ async function withCheckpointDir(write) {
   try {
     return await write();
   } catch (error) {
-    if (!reensureOnMissingDir(error)) throw error;
+    if (error?.code !== 'ENOENT') throw error;
+    await mkdir(checkpointDirPath(), { recursive: true });
     return write();
   }
 }
@@ -109,29 +97,26 @@ function assertSessionId(sessionId) {
   return sessionId;
 }
 
-// Writers resolve paths through checkpointDir(), which creates the directory.
-// Readers and removers only need the name: a missing directory reads exactly
-// like a missing file, so they skip the synchronous directory probe.
-function checkpointFilePath(sessionId, extension, { ensureDir }) {
+// A missing directory reads exactly like a missing file; writers create it
+// when they first need it (withCheckpointDir).
+function checkpointFilePath(sessionId, extension) {
   assertSessionId(sessionId);
-  return join(ensureDir ? checkpointDir() : checkpointDirPath(), `${sessionId}${extension}`);
+  return join(checkpointDirPath(), `${sessionId}${extension}`);
 }
 
 export function turnCheckpointPath(sessionId) {
-  return checkpointFilePath(sessionId, '.json', { ensureDir: true });
+  return checkpointFilePath(sessionId, '.json');
 }
 
 export function turnJournalPath(sessionId) {
-  return checkpointFilePath(sessionId, '.jsonl', { ensureDir: true });
+  return checkpointFilePath(sessionId, '.jsonl');
 }
 
-/** Header path without creating the checkpoint directory (read/remove only). */
-export function turnCheckpointReadPath(sessionId) {
-  return checkpointFilePath(sessionId, '.json', { ensureDir: false });
-}
-
-function turnJournalReadPath(sessionId) {
-  return checkpointFilePath(sessionId, '.jsonl', { ensureDir: false });
+// An async header write lands here durably first and is then renamed over the
+// header (publishStagedHeader); one per session, since the lane runs one open
+// at a time. A crash can leave it behind; the next open overwrites it.
+function stagedHeaderPath(sessionId) {
+  return checkpointFilePath(sessionId, '.json.staged');
 }
 
 export function checkpointMessage(message) {
@@ -184,13 +169,14 @@ function redactInterruptionSnapshot(sessionId, snapshot) {
 
 // ── Header (written once per turn, again when a sensitive value is marked) ──
 
-export function writeCheckpointHeader(checkpoint) {
+/** The header file text of `checkpoint`. Throws while an unrecovered
+ *  checkpoint of the session is still being set aside. */
+function checkpointHeaderText(checkpoint) {
   const { sessionId } = checkpoint;
   // A half-moved checkpoint is finished before anything replaces its files.
   if (finishPendingSetAside(sessionId).pending) {
     throw new Error(`[turn-checkpoint] session ${sessionId}: an unrecovered checkpoint is still being set aside`);
   }
-  const target = turnCheckpointPath(sessionId);
   const payload = {
     ...checkpoint,
     version: TURN_CHECKPOINT_VERSION,
@@ -206,11 +192,82 @@ export function writeCheckpointHeader(checkpoint) {
     contextState: checkpoint.contextState ?? null,
     updatedAt: Date.now(),
   };
-  // Durable (fsynced through its handle, then renamed): a crash must not
-  // publish a header whose bytes never landed. A damaged header already reads
-  // as "no checkpoint" (parseTurnCheckpointHeader) and the next turn rewrites it.
-  withCheckpointDirSync(() => writeFileAtomicSync(target, JSON.stringify(payload)));
-  return true;
+  return JSON.stringify(payload);
+}
+
+/**
+ * Publish a turn's header and open its journal: ONE operation of the
+ * session's write lane, run off the event loop under the checkpoint lock
+ * (withCheckpointOpenLock). The header is published first — durable: fsynced
+ * through its handle, then renamed, so a crash never publishes a header whose
+ * bytes never landed (a damaged one reads as "no checkpoint") — and only then
+ * is the journal truncated to its new head. The operation queues behind every
+ * older one, so an old turn's records can never land under the new header;
+ * appends queued before it are retired. Until it lands the disk holds the
+ * previous header and journal, whose head token and journal epoch keep replay
+ * from mixing the two.
+ *
+ * Returns its handle: `landed` resolves true once header and journal head are
+ * on disk, false when the write failed (`error`) or was retired by a clear
+ * (`cancelled`); it never rejects. `publishNow()` writes the header on the
+ * calling thread when it has not landed yet — for a save about to record the
+ * epoch it carries — and is true when the header is then on disk.
+ */
+export function openTurnCheckpoint(checkpoint, openLines) {
+  const { sessionId } = checkpoint;
+  const header = checkpointHeaderText(checkpoint);
+  cancelJournalWrites(sessionId);
+  // This open rewrites header and journal whole: a queued older open would
+  // only land an older header after it.
+  const queued = _journalWrites.get(sessionId);
+  if (queued) {
+    queued.ops = queued.ops.filter((older) => {
+      if (older.kind !== 'open') return true;
+      older.settle(false, 'superseded');
+      return false;
+    });
+  }
+  let resolve;
+  const landed = new Promise((settle) => {
+    resolve = settle;
+  });
+  const op = {
+    kind: 'open',
+    sessionId,
+    turnToken: checkpoint.turnToken,
+    headerPath: turnCheckpointPath(sessionId),
+    stagedPath: stagedHeaderPath(sessionId),
+    header,
+    superseded: false,
+    path: turnJournalPath(sessionId),
+    data: (Array.isArray(openLines) ? openLines : []).join(''),
+    state: 'pending',
+    error: null,
+    settle(ok, outcome = ok ? 'landed' : 'failed') {
+      if (op.state !== 'pending') return;
+      op.state = outcome;
+      resolve(ok);
+    },
+  };
+  _enqueueJournalOp(sessionId, op);
+  return {
+    landed,
+    get error() {
+      return op.error;
+    },
+    get cancelled() {
+      return op.state === 'cancelled';
+    },
+    publishNow() {
+      if (op.state === 'landed') return true;
+      if (op.state !== 'pending') return false;
+      // An older header write still in flight must not land over this one.
+      const inFlight = _journalWrites.get(sessionId)?.inFlight;
+      if (inFlight?.kind === 'open' && inFlight !== op) claimStagedHeader(inFlight);
+      writeFileAtomicSync(op.headerPath, op.header);
+      return true;
+    },
+  };
 }
 
 export function readTurnCheckpointHeader(sessionId) {
@@ -225,7 +282,7 @@ export function readTurnCheckpointHeaderState(sessionId) {
   if (finishPendingSetAside(sessionId).pending) return { present: true, header: null, settingAside: true };
   let text;
   try {
-    text = readFileSync(turnCheckpointReadPath(sessionId), 'utf8');
+    text = readFileSync(turnCheckpointPath(sessionId), 'utf8');
   } catch (error) {
     return { present: error?.code !== 'ENOENT', header: null };
   }
@@ -244,7 +301,7 @@ export function readTurnCheckpointHeaderState(sessionId) {
 //   1. intent   2. journal → <stem>.jsonl   3. header → <stem>.json   4. drop intent
 // While the intent exists the primary files are never read as a checkpoint,
 // cleared, or written over (readTurnCheckpointHeaderState, clearTurnCheckpoint
-// in turn-checkpoint.mjs, writeCheckpointHeader): every access first finishes
+// in turn-checkpoint.mjs, openTurnCheckpoint): every access first finishes
 // the move, and when that is still refused it reports the set-aside as
 // pending instead. A crash or a refused rename after any step therefore
 // resolves only to finishing it. A moved journal is never overwritten: a
@@ -260,7 +317,7 @@ export function _setSetAsideFaultForTest(fault) {
 }
 
 function setAsideIntentPath(sessionId) {
-  return checkpointFilePath(sessionId, '.setaside', { ensureDir: false });
+  return checkpointFilePath(sessionId, '.setaside');
 }
 
 function unrecoveredStem(sessionId, key) {
@@ -288,7 +345,7 @@ function pendingSetAsideKey(sessionId) {
   } catch {
     /* an intent is written atomically; fall back to the header's own key */
   }
-  const header = readFileOrNull(turnCheckpointReadPath(sessionId));
+  const header = readFileOrNull(turnCheckpointPath(sessionId));
   return header === null ? '' : headerKey(header);
 }
 
@@ -305,9 +362,9 @@ function completeSetAside(sessionId, key) {
   if (key) {
     const stem = unrecoveredStem(sessionId, key);
     _setAsideFault?.('journal');
-    if (!existsSync(`${stem}.jsonl`)) renameIfPresent(turnJournalReadPath(sessionId), `${stem}.jsonl`);
+    if (!existsSync(`${stem}.jsonl`)) renameIfPresent(turnJournalPath(sessionId), `${stem}.jsonl`);
     _setAsideFault?.('header');
-    renameIfPresent(turnCheckpointReadPath(sessionId), `${stem}.json`);
+    renameIfPresent(turnCheckpointPath(sessionId), `${stem}.json`);
   }
   _setAsideFault?.('done');
   try {
@@ -339,7 +396,7 @@ export function finishPendingSetAside(sessionId) {
 export function setAsideTurnCheckpoint(sessionId) {
   const pending = pendingSetAsideKey(sessionId);
   if (pending !== null) completeSetAside(sessionId, pending);
-  const text = readFileOrNull(turnCheckpointReadPath(sessionId));
+  const text = readFileOrNull(turnCheckpointPath(sessionId));
   if (text === null) return pending || null;
   const key = headerKey(text);
   _setAsideFault?.('intent');
@@ -407,16 +464,18 @@ function parseTurnCheckpointHeader(text, sessionId) {
 }
 
 // ── Write lane: ONE total per-session order ─────────────────────────────────
-// Every journal mutation — delta append, turn open (truncate+head), and
-// removal — goes through a single ordered per-session queue with at most one
-// operation in flight. Nothing may ever jump ahead of an accepted older write:
+// Every checkpoint mutation — delta append, turn open (header publish, then
+// journal truncate+head), and removal — goes through a single ordered
+// per-session queue with at most one operation in flight, off the event loop.
+// Nothing may ever jump ahead of an accepted older write:
 //   * consecutive appends coalesce into one chunk (the bounded-cost lane),
 //   * a new turn's open FENCES older in-flight appends by queueing behind them,
 //     so an old turn's records can never land beneath a new turn token,
-//   * the overflow drain runs synchronously ONLY when nothing is in flight,
+//   * appends queued behind an open that failed are dropped with it: they
+//     were encoded against a header that never landed,
 //   * process exit re-writes the in-flight operation and then the queue, in
 //     order — record sequence numbers make that re-write idempotent.
-// sessionId → { path, ops: [], bytes, writing, inFlight }
+// sessionId → { ops: [], bytes, writing, inFlight }
 const _journalWrites = new Map();
 const _journalWarned = new Set();
 
@@ -437,12 +496,15 @@ function _warnJournalOnce(sessionId, error) {
   }
 }
 
+// Process exit only (see the exit handler below).
 function _runJournalOpSync(op) {
   if (op.kind === 'append') {
     withCheckpointDirSync(() => appendFileSync(op.path, op.data, 'utf8'));
     return;
   }
-  if (op.kind === 'reset') {
+  if (op.kind === 'open') {
+    if (op.superseded) return;
+    writeFileAtomicSync(op.headerPath, op.header);
     withCheckpointDirSync(() => writeFileSync(op.path, op.data, 'utf8'));
     return;
   }
@@ -453,10 +515,61 @@ function _runJournalOpSync(op) {
   }
 }
 
+// ── Header publication fence ────────────────────────────────────────────────
+// A save may publish a newer header on the calling thread (publishNow) while
+// an older open's header write is in flight. A started rename cannot be
+// cancelled, so the older write is staged first and only renamed over the
+// header from the staged file. The newer publish claims that file before
+// writing: when the claim (an unlink) finds it, the older rename can no longer
+// land; when it does not, the older rename already landed and the newer write
+// follows it. Either way the header never regresses.
+const STAGED_RENAME_RETRY = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const STAGED_RENAME_BACKOFFS_MS = [10, 25, 50, 100, 200, 400, 800];
+
+function claimStagedHeader(op) {
+  op.superseded = true;
+  try {
+    unlinkSync(op.stagedPath);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+// False when a newer header was published meanwhile and this one was dropped.
+async function publishStagedHeader(op) {
+  for (let attempt = 0; ; attempt++) {
+    if (op.superseded) return false;
+    try {
+      await rename(op.stagedPath, op.headerPath);
+      return true;
+    } catch (error) {
+      if (op.superseded) return false;
+      if (!STAGED_RENAME_RETRY.has(error?.code) || attempt >= STAGED_RENAME_BACKOFFS_MS.length) throw error;
+      await new Promise((resolve) => {
+        setTimeout(resolve, STAGED_RENAME_BACKOFFS_MS[attempt]);
+      });
+    }
+  }
+}
+
+const SUPERSEDED = Symbol('superseded');
+
 async function _runJournalOpAsync(op) {
   if (_journalOpGate) await _journalOpGate(op);
   if (op.kind === 'append') return withCheckpointDir(() => appendFile(op.path, op.data, 'utf8'));
-  if (op.kind === 'reset') return withCheckpointDir(() => writeFile(op.path, op.data, 'utf8'));
+  if (op.kind === 'open') {
+    return withCheckpointOpenLock(op.sessionId, async () => {
+      // Header first: a crash between the two leaves the previous journal,
+      // which replay rejects under the new header.
+      await writeFileAtomicAsync(op.stagedPath, op.header);
+      if (!(await publishStagedHeader(op))) {
+        await unlink(op.stagedPath).catch(() => {});
+        return SUPERSEDED;
+      }
+      await withCheckpointDir(() => writeFile(op.path, op.data, 'utf8'));
+      return undefined;
+    });
+  }
   try {
     await unlink(op.path);
   } catch (error) {
@@ -469,38 +582,11 @@ function _releaseIdleEntry(sessionId, entry) {
   if (!entry.writing && entry.ops.length === 0) _journalWrites.delete(sessionId);
 }
 
-/** Drain the queue in order on the calling thread. Only ever called when no
- * operation is in flight, so a synchronous write cannot overtake an older one. */
-function _drainJournalOpsSync(sessionId, entry) {
-  const ops = entry.ops;
-  entry.ops = [];
-  entry.bytes = 0;
-  for (const [index, op] of ops.entries()) {
-    try {
-      _runJournalOpSync(op);
-      op.settle?.(true);
-    } catch (error) {
-      _warnJournalOnce(sessionId, error);
-      // The rest of the queue is dropped: a removal among it did not happen.
-      for (const dropped of ops.slice(index)) dropped.settle?.(false);
-      break;
-    }
-  }
-  _releaseIdleEntry(sessionId, entry);
-}
-
 function _pumpJournal(sessionId) {
   const entry = _journalWrites.get(sessionId);
   if (!entry || entry.writing) return;
   if (entry.ops.length === 0) {
     _journalWrites.delete(sessionId);
-    return;
-  }
-  if (entry.bytes >= MAX_PENDING_JOURNAL_BYTES) {
-    // Back-pressure: the producer outran the lane. Draining synchronously is
-    // safe here and ONLY here — the queue is the oldest accepted work, so
-    // nothing older can land after it.
-    _drainJournalOpsSync(sessionId, entry);
     return;
   }
   const op = entry.ops.shift();
@@ -509,21 +595,27 @@ function _pumpJournal(sessionId) {
   entry.inFlight = op;
   _runJournalOpAsync(op)
     .then(
-      () => op.settle?.(true),
+      (result) => (result === SUPERSEDED ? 'superseded' : 'landed'),
       (error) => {
         _warnJournalOnce(sessionId, error);
-        op.settle?.(false);
+        if (op.kind === 'open') {
+          op.error = error;
+          while (entry.ops[0]?.kind === 'append') entry.bytes -= entry.ops.shift().data.length;
+          entry.bytes = Math.max(0, entry.bytes);
+        }
+        return 'failed';
       }
     )
-    .finally(() => {
+    .then((outcome) => {
       entry.writing = false;
       entry.inFlight = null;
+      op.settle?.(outcome === 'landed', outcome);
       _pumpJournal(sessionId);
     });
 }
 
 function _enqueueJournalOp(sessionId, op) {
-  const entry = _journalWrites.get(sessionId) ?? { path: op.path, ops: [], bytes: 0, writing: false, inFlight: null };
+  const entry = _journalWrites.get(sessionId) ?? { ops: [], bytes: 0, writing: false, inFlight: null };
   _journalWrites.set(sessionId, entry);
   const last = entry.ops[entry.ops.length - 1];
   if (op.kind === 'append' && last?.kind === 'append' && last.path === op.path) {
@@ -550,43 +642,45 @@ export function cancelJournalWrites(sessionId) {
   _releaseIdleEntry(sessionId, entry);
 }
 
-/** `immediate`: written on the calling thread when nothing is queued or in
- *  flight (the terminal seal), otherwise queued in order like any append. */
-export function appendJournalLines(sessionId, lines, { immediate = false } = {}) {
-  if (!Array.isArray(lines) || lines.length === 0) return false;
-  const op = { kind: 'append', path: turnJournalPath(sessionId), data: lines.join('') };
-  if (immediate && !_journalWrites.has(sessionId)) {
-    try {
-      _runJournalOpSync(op);
-      return true;
-    } catch (error) {
-      _warnJournalOnce(sessionId, error);
-      return false;
-    }
-  }
-  _enqueueJournalOp(sessionId, op);
-  return true;
+/** The turn token of the newest header open still queued or in flight for
+ *  `sessionId`, or null. Until it lands the disk holds an older header. */
+export function pendingCheckpointToken(sessionId) {
+  const entry = _journalWrites.get(sessionId);
+  if (!entry) return null;
+  const open = entry.ops.findLast((op) => op.kind === 'open') ?? (entry.inFlight?.kind === 'open' && entry.inFlight);
+  return open ? open.turnToken : null;
 }
 
-/**
- * Truncate + head-write the journal for a NEW turn. Returns true when it landed
- * synchronously (the common case: the previous turn's lane is idle). When an
- * older write is still in flight the open is QUEUED behind it instead: the
- * durability anchor is the atomically written `.json` header, and until the
- * queued open runs the on-disk journal still carries the OLD head token, which
- * replay rejects. Truncating under an in-flight append would instead let that
- * append land beneath the new turn's head and resurrect an old turn.
- */
-export function openJournalForTurn(sessionId, openLines) {
-  const path = turnJournalPath(sessionId);
-  const data = (Array.isArray(openLines) ? openLines : []).join('');
-  cancelJournalWrites(sessionId);
-  if (!_journalWrites.has(sessionId)) {
-    withCheckpointDirSync(() => writeFileSync(path, data, 'utf8'));
-    return true;
+/** A clear: retire every queued append and header open of `sessionId`. A
+ *  header open already in flight is followed by the header's removal, so the
+ *  header it publishes cannot outlive the clear. */
+export function retireTurnCheckpointWrites(sessionId) {
+  const entry = _journalWrites.get(sessionId);
+  if (!entry) return;
+  const kept = [];
+  for (const op of entry.ops) {
+    if (op.kind === 'open') op.settle(false, 'cancelled');
+    else if (op.kind !== 'append') kept.push(op);
   }
-  _enqueueJournalOp(sessionId, { kind: 'reset', path, data });
-  return false;
+  entry.ops = kept;
+  entry.bytes = 0;
+  if (entry.inFlight?.kind === 'open') entry.ops.push({ kind: 'remove', path: entry.inFlight.headerPath });
+  _releaseIdleEntry(sessionId, entry);
+}
+
+/** Queue `lines` behind every older write of the session. False when the
+ *  lane is MAX_PENDING_JOURNAL_BYTES behind: the queued appends are retired
+ *  and the caller re-anchors the turn with a new header instead. */
+export function appendJournalLines(sessionId, lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return false;
+  const data = lines.join('');
+  const entry = _journalWrites.get(sessionId);
+  if (entry && entry.bytes + data.length > MAX_PENDING_JOURNAL_BYTES) {
+    cancelJournalWrites(sessionId);
+    return false;
+  }
+  _enqueueJournalOp(sessionId, { kind: 'append', path: turnJournalPath(sessionId), data });
+  return true;
 }
 
 /**
@@ -601,7 +695,7 @@ export function openJournalForTurn(sessionId, openLines) {
 export function removeTurnJournal(sessionId) {
   cancelJournalWrites(sessionId);
   return new Promise((settle) => {
-    _enqueueJournalOp(sessionId, { kind: 'remove', path: turnJournalReadPath(sessionId), settle });
+    _enqueueJournalOp(sessionId, { kind: 'remove', path: turnJournalPath(sessionId), settle });
   });
 }
 
@@ -614,18 +708,18 @@ export function removeTurnJournal(sessionId) {
 const CHECKPOINT_LOCK_WAIT_MS = 200;
 
 export function checkpointLockPath(sessionId) {
-  return join(checkpointDir(), `${assertSessionId(sessionId)}.lock`);
+  return join(checkpointDirPath(), `${assertSessionId(sessionId)}.lock`);
 }
 
 /** Run `fn` (a header publish plus journal open) under the session's
- *  checkpoint lock. A turn never fails or stalls on the lock: it waits at most
- *  CHECKPOINT_LOCK_WAIT_MS (holders keep it for one existence check and one
- *  unlink), and when the lock cannot be taken at all `fn` runs without it —
- *  its own errors still propagate. */
-export function withCheckpointOpenLock(sessionId, fn) {
+ *  checkpoint lock, waiting off the event loop. A turn never fails or stalls
+ *  on the lock: it waits at most CHECKPOINT_LOCK_WAIT_MS (holders keep it for
+ *  one existence check and one unlink), and when the lock cannot be taken at
+ *  all `fn` runs without it — its own errors still propagate. */
+async function withCheckpointOpenLock(sessionId, fn) {
   let ran = false;
   try {
-    return withFileLockSync(
+    return await withFileLock(
       checkpointLockPath(sessionId),
       () => {
         ran = true;
@@ -651,7 +745,7 @@ export function withCheckpointOpenLock(sessionId, fn) {
  * counts as present (readTurnCheckpointHeaderState). True when it removed one.
  */
 export function removeOrphanTurnJournal(sessionId) {
-  const journalPath = turnJournalReadPath(sessionId);
+  const journalPath = turnJournalPath(sessionId);
   if (!existsSync(journalPath)) return false;
   try {
     return withFileLockSync(
@@ -781,7 +875,7 @@ function applyInterruptionDelta(state, delta) {
 /** Merge the append-only journal onto its header. Returns the header unchanged
  * when no journal exists, when the journal belongs to another turn, or when it
  * has no usable head record. */
-export function replayTurnJournal(header, journalPath = header ? turnJournalReadPath(header.sessionId) : null) {
+export function replayTurnJournal(header, journalPath = header ? turnJournalPath(header.sessionId) : null) {
   if (!header) return null;
   let raw;
   try {

@@ -6,17 +6,16 @@ import {
   createTurnJournalEncoder,
   emptyInterruptionSnapshot,
   finishPendingSetAside,
-  openJournalForTurn,
+  openTurnCheckpoint,
+  pendingCheckpointToken,
   readTurnCheckpointHeader,
   readTurnCheckpointHeaderState,
   removeOrphanTurnJournal,
   removeTurnJournal,
   replayTurnJournal,
+  retireTurnCheckpointWrites,
   settleTurnJournalWrites,
   turnCheckpointPath,
-  turnCheckpointReadPath,
-  withCheckpointOpenLock,
-  writeCheckpointHeader,
 } from './turn-checkpoint-journal.mjs';
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
@@ -158,10 +157,11 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
 // ── Journal-backed checkpoint writes ─────────────────────────────────────────
 // A turn is checkpointed as a header plus an append-only delta journal
 // (turn-checkpoint-journal.mjs). The recorder owns exactly one turn: the FIRST
-// record() writes the header synchronously — it is the crash durability
-// anchor for the prompt and must land before the provider runs — and every
+// record() queues the header — it is the crash durability anchor for the
+// prompt, and the turn awaits `landed()` before the provider runs — and every
 // later record() appends ONLY what changed since the previous flush. Per-flush
-// cost is therefore O(new bytes), not O(whole growing turn).
+// cost is therefore O(new bytes), not O(whole growing turn). Every write runs
+// off the event loop, in the session's ordered write lane.
 //
 // The header names its base explicitly: the turn opens at `boundary` (the
 // index of its user message) on the durable landed transcript `base`
@@ -170,7 +170,11 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
 // of them replaced (compaction, a prefix rewrite), the header is rewritten as
 // ONE self-contained replacement of the whole context under a new transcript
 // epoch — atomically, before any session record can carry that epoch — and
-// the journal restarts under it. A bare index move is never journaled.
+// the journal restarts under it. A bare index move is never journaled. A save
+// that is about to record that epoch while its header is still queued writes
+// the header first (publishPendingHeader); when it cannot, the save fails and
+// is made again once the header lands (ask-turn-state.mjs), so no record
+// carries an epoch no header on disk names.
 export function createTurnCheckpointRecorder({
   session = null,
   sessionId,
@@ -199,9 +203,16 @@ export function createTurnCheckpointRecorder({
   let openingRef = null;
   let transcriptEpoch = null;
   let contextState = null;
+  // The newest header write (openTurnCheckpoint handle), and whether a header
+  // naming `transcriptEpoch` is on disk yet. The base epoch needs none: the
+  // record already carries it.
+  let latestHeader = null;
+  let latestHeaderEpoch = null;
+  let epochLanded = true;
 
   const adoptEpoch = (epoch) => {
     transcriptEpoch = epoch;
+    epochLanded = false;
     if (session) session.transcriptEpoch = epoch;
   };
   const opensOnBase = (source, boundary) => {
@@ -225,11 +236,15 @@ export function createTurnCheckpointRecorder({
     if (typeof captureContext === 'function') contextState = captureContext(offset);
     headerWrites += 1;
     const seed = encoder.seed(source, interruption, contextState, { offset, snapshot, epoch: headerWrites });
-    // Header publish and journal open are one step under the session's
-    // checkpoint lock, so the orphan-journal sweep of another process never
-    // deletes the journal between them (turn-checkpoint-journal.mjs).
-    withCheckpointOpenLock(sessionId, () => {
-      writeCheckpointHeader({
+    // Header publish and journal open are one operation of the session's
+    // write lane, under its checkpoint lock, so the orphan-journal sweep of
+    // another process never deletes the journal between them. Opening the
+    // journal is part of the anchor: a leftover journal (an earlier turn's,
+    // or this turn's under its previous header) must never replay onto the
+    // new header; the head record's token and journal epoch guard the window
+    // until it lands (turn-checkpoint-journal.mjs).
+    const pending = openTurnCheckpoint(
+      {
         sessionId,
         generation,
         turnToken,
@@ -244,16 +259,11 @@ export function createTurnCheckpointRecorder({
         turnMessages: seed.turnMessages,
         interruption: snapshot,
         contextState: seed.contextState,
-      });
-      // Opening the journal is part of the anchor: a leftover journal (an
-      // earlier turn's, or this turn's under its previous header) must never
-      // replay onto the new header. It lands synchronously when the lane is
-      // idle and is otherwise FENCED behind the older in-flight write; the
-      // head record's token and journal epoch guard the interim window.
-      openJournalForTurn(sessionId, seed.openLines);
-    });
+      },
+      seed.openLines
+    );
     trackOpening(source);
-    return true;
+    return pending;
   };
   const report = (text) => {
     try {
@@ -287,6 +297,7 @@ export function createTurnCheckpointRecorder({
   // so nothing more is appended to the files.
   const failClosed = (cause) => {
     redactionFailure = cause?.message || String(cause);
+    latestHeader = null;
     let removed = false;
     try {
       removed = clearTurnCheckpoint(sessionId, turnToken);
@@ -307,25 +318,40 @@ export function createTurnCheckpointRecorder({
     }
     return false;
   };
-  // Persistence state advances only once the header is written: a write that
-  // fails (a transient EPERM) leaves the header pending, so the next flush
-  // writes it again instead of appending journal deltas under a header that
-  // never landed (recovery reads no journal without one).
+  // Persistence state advances once the header is queued; a write that then
+  // fails (a transient EPERM) puts the header back to pending, so the next
+  // flush writes it again instead of appending journal deltas under a header
+  // that never landed (recovery reads no journal without one, and the lane
+  // drops the deltas queued behind it).
   const commitHeader = (header, version) => {
+    // The files on disk hold the turn from before a value was marked
+    // sensitive: when they cannot be replaced they must not outlive the turn.
+    const redacting = opened && version !== openedVersion;
     headerPending = true;
-    let written;
+    let pending;
     try {
-      written = writeHeader(header);
+      pending = writeHeader(header);
     } catch (error) {
-      // The files on disk hold the turn from before a value was marked
-      // sensitive and could not be replaced: they must not outlive this call.
-      if (opened && version !== openedVersion) return failClosed(error);
+      if (redacting) return failClosed(error);
       throw error;
     }
+    const epoch = transcriptEpoch;
+    latestHeader = pending;
+    latestHeaderEpoch = epoch;
     headerPending = false;
     openedVersion = version;
     opened = true;
-    return written;
+    pending.landed.then((landed) => {
+      if (latestHeader !== pending) return;
+      if (landed) {
+        if (epoch === transcriptEpoch) epochLanded = true;
+        return;
+      }
+      if (pending.cancelled) return;
+      headerPending = true;
+      if (redacting) failClosed(pending.error);
+    });
+    return true;
   };
   return {
     get opened() {
@@ -385,8 +411,36 @@ export function createTurnCheckpointRecorder({
       const lines = encoder.encode({ turnOutgoing: source, interruption, contextState, sealed });
       trackOpening(source);
       if (lines.length === 0) return false;
-      appendJournalLines(sessionId, lines, { immediate: sealed });
-      return true;
+      if (appendJournalLines(sessionId, lines)) return true;
+      // The lane is too far behind: its queued deltas were retired, so the
+      // next flush re-anchors the turn with a header holding all of it.
+      headerPending = true;
+      return false;
+    },
+    /** Resolves once the newest header write settled: true when it landed. */
+    async landed() {
+      // A newer header may supersede the awaited one (any number of times):
+      // the wait is over only once the newest has settled.
+      let landed = true;
+      for (let newest = latestHeader; newest; newest = latestHeader === newest ? null : latestHeader) {
+        landed = await newest.landed;
+      }
+      return landed;
+    },
+    /** A save is about to serialize the session: a header naming the epoch
+     *  it will record must be on disk first. When that header's write has
+     *  not landed yet it is written now, on the calling thread. True when
+     *  the header is on disk; false (or a throw) means the save must not
+     *  record that epoch. */
+    publishPendingHeader() {
+      if (epochLanded) return true;
+      if (!latestHeader || latestHeaderEpoch !== transcriptEpoch) return false;
+      if (latestHeader.publishNow()) epochLanded = true;
+      return epochLanded;
+    },
+    /** Whether a header naming the current transcript epoch is on disk. */
+    get epochDurable() {
+      return epochLanded;
     },
     /** `keepQueued`: the turn was sealed, so its queued appends still land. */
     stop({ keepQueued = false } = {}) {
@@ -407,42 +461,38 @@ export function readTurnCheckpoint(sessionId) {
   return replayTurnJournal(header);
 }
 
-// The header stays a synchronous read + unlink: header writes are synchronous
-// too, so the token check and the removal cannot interleave with a follow-up
-// turn's new header. Only the journal removal (ordered by its write lane) and
-// the directory probes left the event loop.
+// The header removal stays a synchronous unlink so recovery reads nothing of
+// the cleared turn once this returns. Header writes run in the session's write
+// lane, so the token guard reads the newest header still queued there before
+// the one on disk, and the clear retires the queued ones and fences one in
+// flight with an ordered removal (turn-checkpoint-journal.mjs): a follow-up
+// turn's new header can never be cleared, nor a cleared one resurrected.
 export function clearTurnCheckpoint(sessionId, turnToken = null) {
-  const target = turnCheckpointReadPath(sessionId);
+  const target = turnCheckpointPath(sessionId);
   // The files of a set-aside still being moved are not this checkpoint's to
   // clear (turn-checkpoint-journal.mjs): it is finished first, or kept.
   if (finishPendingSetAside(sessionId).pending) return false;
-  // Queued appends are stale the moment the caller decides to clear this
-  // turn's checkpoint; retire them BEFORE the token guard reads disk so a
-  // lagging write can never resurrect state after the unlink.
-  if (!turnToken) {
-    cancelJournalWrites(sessionId);
-    let removed = true;
-    try {
-      unlinkSync(target);
-    } catch (error) {
-      // A missing header is already cleared; still drop any orphan journal
-      // (a late in-flight append can recreate it after a previous clear).
-      if (error?.code !== 'ENOENT') removed = false;
-    }
-    removeTurnJournal(sessionId);
-    return removed;
+  if (turnToken) {
+    // A token guard prevents an older turn's late terminal save from
+    // deleting the checkpoint already created by its queued follow-up.
+    const queued = pendingCheckpointToken(sessionId);
+    if (queued === null) {
+      const current = readTurnCheckpointHeaderState(sessionId);
+      if (!current.present) return true;
+      if (current.header?.turnToken && current.header.turnToken !== turnToken) return false;
+    } else if (queued !== turnToken) return false;
   }
-  const current = readTurnCheckpointHeaderState(sessionId);
-  if (!current.present) return true;
-  // A token guard prevents an older turn's late terminal save from
-  // deleting the checkpoint already created by its queued follow-up.
-  if (current.header?.turnToken && current.header.turnToken !== turnToken) return false;
-  cancelJournalWrites(sessionId);
+  // Queued writes are stale the moment the caller decides to clear this
+  // turn's checkpoint; retire them before the unlink so a lagging write can
+  // never resurrect state after it.
+  retireTurnCheckpointWrites(sessionId);
   let removed = true;
   try {
     unlinkSync(target);
-  } catch {
-    removed = false;
+  } catch (error) {
+    // A missing header is already cleared; still drop any orphan journal
+    // (a late in-flight append can recreate it after a previous clear).
+    if (error?.code !== 'ENOENT') removed = false;
   }
   removeTurnJournal(sessionId);
   return removed;
