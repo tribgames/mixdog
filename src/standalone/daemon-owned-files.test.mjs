@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs, { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -31,6 +32,29 @@ test('a deletion right after our own publish still reaches the handler', async (
   await owned.published(discovery);
   rmSync(discovery);
   assert.ok(await eventually(() => changes > 0), 'the deletion was judged');
+});
+
+// A stat that fails for a reason other than absence used to be dropped, leaving
+// no baseline and no judgement.
+test('a publish whose stat fails is logged with the error and judged by the handler at once', async (t) => {
+  const dir = scratch(t);
+  const discovery = join(dir, 'daemon.json');
+  const lines = [];
+  let changes = 0;
+  const owned = followOwnedFiles({
+    handlers: new Map([[discovery, () => (changes += 1)]]),
+    log: (line) => lines.push(line),
+  });
+  t.after(() => owned.close());
+  writeFileSync(discovery, '{"pid":1}');
+  const stat = fsp.stat;
+  t.mock.method(fsp, 'stat', async (path, ...rest) => {
+    if (path === discovery) throw Object.assign(new Error('EACCES: permission denied, stat'), { code: 'EACCES' });
+    return stat(path, ...rest);
+  });
+  await owned.published(discovery);
+  assert.equal(changes, 1);
+  assert.ok(lines.some((line) => line.includes(discovery) && line.includes('EACCES')), lines.join('\n'));
 });
 
 // Fails without the cache's watch notification: a lost watch was logged to
