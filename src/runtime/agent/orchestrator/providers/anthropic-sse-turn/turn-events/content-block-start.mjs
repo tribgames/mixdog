@@ -43,6 +43,9 @@ export function createContentBlockStart({ turn, blocks, state, progress, seedTex
       thinking: typeof block.thinking === 'string' ? block.thinking : '',
       signature: typeof block.signature === 'string' ? block.signature : '',
     });
+    // Omitted / "updates" display streams no thinking_delta until the
+    // signature, so the block opening is the only sign the model is reasoning.
+    progress('reasoning');
   };
 
   return (index, block) => {
