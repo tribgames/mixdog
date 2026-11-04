@@ -20,8 +20,8 @@ async function bootedRuntime(dataDir, initialConfig = { providers: {}, modelSett
     cwd: dataDir,
     ...(initialConfig ? { initialConfig } : {}),
   });
-  boot.cfgMod = { loadConfig: () => ({}) };
-  boot.sharedCfgMod = { pendingConfigWrites: async () => {}, invalidateConfigReadCache() {} };
+  boot.cfgMod = { getConfigSnapshot: () => ({}) };
+  boot.sharedCfgMod = { pendingConfigWrites: async () => {} };
   await resolveConfig(boot);
   boot.bindRuntimeNotificationSession = () => {};
   boot.workspaceApi = {};

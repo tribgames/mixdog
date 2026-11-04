@@ -6,8 +6,30 @@
  * is dropped.
  */
 import { AGENT_PROVIDER_ENV, getAgentApiKey } from '../../shared/config.mjs';
+import { customProviderKeyAccount } from '../../shared/custom-provider-keys.mjs';
+import { customProviderKeyIds, isCustomKeyProvider } from '../../shared/provider-accounts.mjs';
 import { hasAgentApiKey } from '../../shared/provider-api-key.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
+
+// First-class key providers plus the compat presets whose key also lives in
+// the keychain.
+const builtinProviderNames = () => new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)]);
+
+/** The keychain accounts of the built-in providers' API keys: what a config
+ *  load with secrets asks for, so a boot warm reads these and no other. */
+export function builtinProviderKeyAccounts() {
+  return [...builtinProviderNames()].map((name) => `agent.${name}.apiKey`);
+}
+
+/** The keychain accounts of the configured custom providers' API keys: the
+ *  primary key and each additional key of its roster. Env-keyed and keyless
+ *  providers hold none. */
+export function customProviderKeyAccounts(providers = {}) {
+  return Object.entries(providers).flatMap(([name, val]) => {
+    if (val?.type !== 'custom' || !isCustomKeyProvider(name) || val.auth === 'none' || val.apiKeyEnv) return [];
+    return [`agent.${name}.apiKey`, ...customProviderKeyIds(name).map((id) => customProviderKeyAccount(name, id))];
+  });
+}
 
 /** `presenceOnly`: a stored key only marks its provider enabled; its value is
  *  neither read nor attached. */
@@ -50,7 +72,7 @@ export function mergeStoredProviders({ raw, defaults, includeSecrets, presenceOn
   // the keychain. Without the union, a compat provider with a valid
   // stored key still ships 'no-key' → 401.
   if (includeSecrets) {
-    for (const name of new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)])) {
+    for (const name of builtinProviderNames()) {
       const kc = storedKey(name);
       if (kc) mergedProviders[name] = withKey(mergedProviders[name], name, kc);
     }

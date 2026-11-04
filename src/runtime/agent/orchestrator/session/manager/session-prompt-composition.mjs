@@ -76,7 +76,8 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting, sessi
     // Same startup-observation contract: the cwd's immediate entries are a
     // property of the directory, readable without spawning, and replace
     // the orientation `list`/`glob` that otherwise opens most sessions.
-    sessionCwdLine ? describeCwdStartupEntries({ cwd: sessionCwdLine }) : '',
+    // A create path that already listed the directory off-thread passes it in.
+    sessionCwdLine ? (opts.cwdStartupEntries ?? describeCwdStartupEntries({ cwd: sessionCwdLine })) : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -216,10 +217,11 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   const instructionFilesContext =
     toolFreeRole || profile?.skip?.claudemd || agentMode
       ? ''
-      : loadInstructionFilesContext({
+      : (opts.instructionFilesContext ??
+        loadInstructionFilesContext({
           mode: config ? normalizeInstructionFilesMode(config.instructionFiles) : configuredInstructionFilesMode(),
           cwd: opts.cwd,
-        });
+        }));
   const composed = composeSystemPrompt({
     ...roleFields,
     agentRules: injectedRules || undefined,

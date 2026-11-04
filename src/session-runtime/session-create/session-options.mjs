@@ -42,7 +42,9 @@ function agentOwnedSessionFields(sessionProfile) {
   };
 }
 
-export function sessionOptions(deps, coreMemoryContext) {
+/** `startupFiles`: the instruction files block and cwd listing a create path
+ *  read off-thread (readStartupFiles); without it composition reads them. */
+export function sessionOptions(deps, coreMemoryContext, startupFiles = null) {
   const { rt, cfgMod, activeWorkflowContext, schemaAllowedTools = null, featureDisallowedTools } = deps;
   const dataDir = pluginDataDir(cfgMod);
   // Load the active WORKFLOW.md pack once for both summary + context block.
@@ -111,6 +113,7 @@ export function sessionOptions(deps, coreMemoryContext) {
     cwd: rt.currentCwd,
     ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
     coreMemoryContext,
+    ...(startupFiles ?? {}),
     // Prompt settings from the in-memory config (its disk copy trails it).
     promptConfig: rt.config,
     workflow,

@@ -19,14 +19,15 @@ export async function resolveConfig(boot) {
   const configStartedAt = performance.now();
   await flushPendingSessionConfigWrites();
   await sharedCfgMod.pendingConfigWrites();
-  sharedCfgMod.invalidateConfigReadCache();
   ({
     config: rt.config,
     route: rt.route,
     webSearchRoute: rt.webSearchRoute,
   } = resolveInitialConfigState({
     initialConfig: params.initialConfig,
-    loadConfig: () => cfgMod.loadConfig({ secrets: false }),
+    // The event-driven snapshot: this process's writes (drained above) move
+    // its epoch, another process's arrive through the config watch.
+    loadConfig: () => cfgMod.getConfigSnapshot({ secrets: false }),
     readStoredOutputStyle: () => sharedCfgMod.readConfig?.()?.outputStyle,
     resolveRoute,
     provider: params.provider,

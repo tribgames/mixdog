@@ -76,7 +76,7 @@ export function createRowLiveness({ cfgMod, isSessionRunning = () => false }) {
   function terminalReapAt(row, now) {
     let reapMs = null;
     try {
-      reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider);
+      reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig({ secrets: false }), row?.provider);
     } catch {
       reapMs = null;
     }
