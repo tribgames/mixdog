@@ -4,28 +4,30 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-Esta versão adiciona aprovações de ações por sessão e entre conversas, permissões de sites no navegador integrado e importação automática de cookies do Chrome, além de melhorias no Computer Use e no acesso remoto pelo celular.
+Esta versão adiciona aprovações de ações, permissões de sites do navegador e configurações de proxy de rede, e corrige lentidões quando muitas sessões estão abertas.
 
 ### Novos recursos
 
-- **Aprovações de ações** — Os cartões de aprovação oferecem Permitir nesta sessão, conversas de código suportam Permitir sempre e as permissões podem ser revogadas com "Perguntar novamente"; pagamentos e exclusões permanentes sempre pedem confirmação.
-- **Permissões de sites do navegador** — Gerencie permissões padrão e exceções por site em Configurações › Autenticação, com avisos que lembram escolhas para este site, para todos os sites ou até o app ser fechado.
-- **Importação automática de cookies do Chrome** — Ative "Importar cookies automaticamente" em Configurações › Autenticação para reimportar cookies após o fechamento do Chrome, mantendo os sites conectados no navegador integrado.
-- **Códigos de verificação automáticos** — Lê e preenche automaticamente códigos únicos de login da sua caixa de entrada conectada e permite responder a solicitações de senha e código pelo celular.
+- **Aprovações de ações** — Adicionado Permitir nesta sessão e, em conversas de código, Permitir sempre aos cartões de aprovação, revogáveis com "Perguntar novamente"; pagamentos e exclusões permanentes sempre pedem confirmação.
+- **Permissões de sites do navegador** — Adicionadas permissões padrão e exceções por site em Configurações › Autenticação, com avisos que lembram escolhas para um site, para todos os sites ou até o app ser fechado.
+- **Importação automática de cookies do Chrome** — Adicionado "Importar cookies automaticamente" em Configurações › Autenticação para reimportar cookies quando o Chrome é fechado e manter os sites conectados.
+- **Códigos de verificação automáticos** — Adicionado o preenchimento automático de códigos únicos de login da sua caixa de entrada conectada, além de avisos no celular para senhas e códigos.
+- **Proxy de rede** — Adicionados os modos de proxy do sistema, `http`/`https`/`socks5` personalizado e desativado com regras de exceção e teste de conexão em Configurações › Sistema › Proxy de rede e nas configurações pelo celular (#317).
 
 ### Alterações
 
-- Alteradas as ações do navegador para clicar diretamente nas etapas e tentar primeiro sessões existentes ou logins salvos, repassando apenas senhas, números de cartão, códigos ou verificações de identidade.
-- Alterado o app Android para exibir sua própria tela de reconexão, reconectar automaticamente quando a rede voltar ou o app for reaberto e oferecer "Escolher outro PC".
-- Ajustado o chat remoto no celular para manter o teclado aberto após o envio, evitar que mensagens enviadas saltem para cima e preservar os arquivos originais dos anexos.
-- Ajustados os ícones de sessão na barra lateral para 20px para melhor visibilidade.
+- Alteradas as ações do navegador para clicar diretamente nas etapas e tentar primeiro sessões existentes ou logins salvos, repassando apenas senhas, cartões, códigos ou verificações de identidade.
+- Alterado o app Android para exibir uma tela de reconexão, reconectar automaticamente quando a rede voltar ou o app for reaberto e oferecer "Escolher outro PC".
+- Alterada a remoção de worktree para excluir uma branch apenas quando o Mixdog a tiver criado e o git a considerar mesclada, mantendo seus commits recuperáveis.
 
 ### Correções de bugs
 
+- Corrigido o problema em que o app ficava lento ou travava com muitas sessões abertas e acelerada a abertura de sessões após iniciar o app (#316).
 - Corrigido o problema em que cliques do Computer Use erravam o alvo em telas HiDPI com escala e ações em segundo plano roubavam o foco fazendo a janela ativa piscar.
 - Corrigido o problema em que dispositivos HID escolhidos no navegador integrado não se conectavam ao site (#313).
 - Corrigido o problema em que o seletor de dispositivos HID exibia ovais achatados esticados pela linha em vez dos nomes dos dispositivos (#314).
 - Corrigido o problema em que a lista Sessões exibia linhas em branco ao retornar de outro menu ou saltava para o topo ao passar de 40 linhas (#315).
+- Corrigido o problema em que a busca de código no Linux exibia resultados desatualizados para arquivos acessados por links simbólicos.
 - Corrigido o problema em que o seletor de modelo no editor de agentes se esticava por toda a janela de diálogo.
 
 ## v1.4.5 - 2026-11-03

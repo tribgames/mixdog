@@ -4,28 +4,30 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-Diese Version führt Aktionsfreigaben für Sitzungen und alle Unterhaltungen, Website-Berechtigungen im integrierten Browser und den automatischen Import von Chrome-Cookies ein sowie Verbesserungen für Computer Use und die mobile Fernsteuerung.
+Diese Version fügt Aktionsfreigaben, Website-Berechtigungen im Browser und Netzwerk-Proxy-Einstellungen hinzu und behebt Verlangsamungen bei vielen geöffneten Sitzungen.
 
 ### Neue Funktionen
 
-- **Aktionsfreigaben** — Freigabekarten bieten „Für diese Sitzung erlauben“, Coding-Chats unterstützen „Immer erlauben“, Freigaben lassen sich über „Nochmals fragen“ widerrufen; Zahlungen und dauerhafte Löschungen fragen immer nach.
-- **Website-Berechtigungen im Browser** — Standardberechtigungen und Ausnahmen pro Website unter Einstellungen › Authentifizierung verwalten, mit Abfragen, die Entscheidungen für diese Website, alle Websites oder bis zum Beenden der App speichern.
-- **Automatischer Import von Chrome-Cookies** — „Cookies automatisch importieren“ unter Einstellungen › Authentifizierung aktivieren, um Cookies nach dem Schließen von Chrome erneut zu importieren und im integrierten Browser angemeldet zu bleiben.
-- **Automatische Bestätigungscodes** — Liest einmalige Anmeldecodes aus dem verbundenen Postfach automatisch aus und trägt sie ein, und ermöglicht das Beantworten von Passwort- und Code-Abfragen vom Smartphone aus.
+- **Aktionsfreigaben** — Freigabekarten um „Für diese Sitzung erlauben“ und in Coding-Chats um „Immer erlauben“ erweitert, widerrufbar über „Nochmals fragen“; Zahlungen und dauerhafte Löschungen fragen immer nach.
+- **Website-Berechtigungen im Browser** — Standardberechtigungen und Ausnahmen pro Website unter Einstellungen › Authentifizierung hinzugefügt, mit Abfragen, die Entscheidungen für eine Website, alle Websites oder bis zum Beenden der App speichern.
+- **Automatischer Import von Chrome-Cookies** — „Cookies automatisch importieren“ unter Einstellungen › Authentifizierung hinzugefügt, um Cookies nach dem Schließen von Chrome erneut zu importieren und Websites angemeldet zu halten.
+- **Automatische Bestätigungscodes** — Automatisches Ausfüllen einmaliger Anmeldecodes aus dem verbundenen Postfach sowie Smartphone-Abfragen für Passwörter und Codes hinzugefügt.
+- **Netzwerk-Proxy** — Proxy-Modi „System“, benutzerdefiniertes `http`/`https`/`socks5` und „Aus“ mit Ausnahmeregeln und Verbindungstest unter Einstellungen › System › Netzwerk-Proxy sowie in den Smartphone-Einstellungen hinzugefügt (#317).
 
 ### Änderungen
 
-- Browser-Aktionen so geändert, dass Schritte direkt angeklickt und zuerst bestehende Sitzungen oder gespeicherte Logins genutzt werden; nur Passwörter, Kartennummern, Codes oder Identitätsprüfungen werden übergeben.
-- Android-App so geändert, dass sie einen eigenen Wiederverbindungsbildschirm zeigt, sich bei Rückkehr des Netzwerks oder beim erneuten Öffnen automatisch verbindet und „Anderen PC wählen“ anbietet.
-- Mobilen Fern-Chat angepasst, sodass die Tastatur nach dem Senden geöffnet bleibt, gesendete Nachrichten nicht mehr nach oben springen und Anhänge ihre Originaldateien behalten.
-- Sitzungssymbole in der Seitenleiste für bessere Sichtbarkeit auf 20px angepasst.
+- Browser-Aktionen so geändert, dass Schritte direkt angeklickt und zuerst bestehende Sitzungen oder gespeicherte Logins genutzt werden; nur Passwörter, Karten, Codes oder Identitätsprüfungen werden übergeben.
+- Android-App so geändert, dass sie einen Wiederverbindungsbildschirm zeigt, sich bei Rückkehr des Netzwerks oder beim erneuten Öffnen der App automatisch wieder verbindet und „Anderen PC wählen“ anbietet.
+- Entfernen von Worktrees so geändert, dass ein Branch nur gelöscht wird, wenn Mixdog ihn erstellt hat und Git ihn als zusammengeführt betrachtet, wobei seine Commits wiederherstellbar bleiben.
 
 ### Fehlerbehebungen
 
+- Behoben, dass die App bei vielen geöffneten Sitzungen langsamer wurde oder stockte, und das Öffnen von Sitzungen nach dem Start beschleunigt (#316).
 - Behoben, dass Klicks von Computer Use auf skalierten HiDPI-Displays Ziele verfehlten und Hintergrundaktionen den Fokus entzogen sowie das aktive Fenster flackern ließen.
 - Behoben, dass im integrierten Browser ausgewählte HID-Geräte sich nicht mit der Website verbanden (#313).
 - Behoben, dass die HID-Geräteauswahl statt der Gerätenamen quer über die Zeile gestreckte flache Ovale anzeigte (#314).
 - Behoben, dass die Liste „Sitzungen“ beim Zurückkehren aus einem anderen Menü leere Zeilen zeigte oder beim Überschreiten von 40 Zeilen nach oben sprang (#315).
+- Behoben, dass die Codesuche unter Linux für über symbolische Links erreichte Dateien veraltete Ergebnisse anzeigte.
 - Behoben, dass sich die Modellauswahl im Agenten-Editor über den gesamten Dialog streckte.
 
 ## v1.4.5 - 2026-11-03
