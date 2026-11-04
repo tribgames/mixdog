@@ -74,6 +74,11 @@ export function createTurnRunner(deps) {
         releaseWebSearchUsage ??= registerNativeWebSearchUsageSink(session0.id, options.onNativeWebSearchUsage);
         return providerSendStarted(...args);
       };
+      const turnId = options.transcriptMeta?.attemptId;
+      // askSession reports its start once it has claimed the session's
+      // runtime (the progress snapshot exists from here): this turn's ask
+      // started, after whatever it waited on before.
+      if (turnId) callbacks.onSessionStart = () => sessionTurns.askStarted(session0.id, { turnId });
       let result;
       try {
         result = await mgr.askSession(
@@ -92,7 +97,6 @@ export function createTurnRunner(deps) {
         releaseWebSearchUsage?.();
         // The ask is over (its runtime entry is gone); only this turn's
         // cleanup below remains before the settlement is reported.
-        const turnId = options.transcriptMeta?.attemptId;
         if (turnId) sessionTurns.askEnded(session0.id, { turnId });
       }
       return await completeTurn(turn, session0, result);

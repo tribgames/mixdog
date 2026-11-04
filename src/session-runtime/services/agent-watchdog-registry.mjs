@@ -54,7 +54,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
       return false;
     }
     state.linked = true;
-    // Progress baselines count from when the watchdog can actually stop the turn.
+    // Failed sweeps count from when the watchdog can actually stop the turn.
     state.anchorTs = Date.now();
     return true;
   }
@@ -92,61 +92,29 @@ export function createProgressWatchdogRegistry({ mgr }) {
         }
       }
     }
-    const abortErr = snapshot ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy) : null;
-    // No progress snapshot: fall back to the coarse last-progress timestamp so a
-    // session that never reports structured progress can still stall out.
-    const observe = () => {
-      try {
-        return typeof mgr.getSessionProgressObservation === 'function'
-          ? mgr.getSessionProgressObservation(sessionId)
-          : null;
-      } catch {
-        return null;
-      }
-    };
-    if (!abortErr && !snapshot) {
-      // start() admits a manager that provides EITHER progress source, so this
-      // fallback must not assume the coarse one exists: throwing here escaped
-      // the shared interval and disabled watchdog coverage for every session.
-      let reported = 0;
-      if (typeof mgr.getSessionLastProgressAt === 'function') {
-        try {
-          reported = Number(mgr.getSessionLastProgressAt(sessionId)) || 0;
-        } catch {
-          reported = 0;
-        }
-      }
-      const last = reported || anchorTs;
-      if (watchdogPolicy.idleStaleMs > 0 && now - last > watchdogPolicy.idleStaleMs) {
-        abortOnTimeout(controller, {
-          sessionId,
-          agent,
-          error: new AgentStallAbortError(`agent task stale (${watchdogPolicy.idleStaleMs}ms without progress)`),
-          policy: watchdogPolicy,
-          now,
-          anchorTs,
-          lastProgressAt: reported,
-          iteration,
-          observation: observe(),
-          registrationId: state.registrationId,
-        });
-      }
-      return;
+    // Progress is judged from the runtime's own snapshot only: a turn with
+    // none in view gets no verdict (evaluateAgentWatchdogAbort returns null).
+    const abortErr = evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy);
+    if (!abortErr) return;
+    let observation = null;
+    try {
+      observation =
+        typeof mgr.getSessionProgressObservation === 'function' ? mgr.getSessionProgressObservation(sessionId) : null;
+    } catch {
+      observation = null;
     }
-    if (abortErr) {
-      abortOnTimeout(controller, {
-        sessionId,
-        agent,
-        error: abortErr,
-        snapshot,
-        policy: watchdogPolicy,
-        now,
-        anchorTs,
-        iteration,
-        observation: observe(),
-        registrationId: state.registrationId,
-      });
-    }
+    abortOnTimeout(controller, {
+      sessionId,
+      agent,
+      error: abortErr,
+      snapshot,
+      policy: watchdogPolicy,
+      now,
+      anchorTs,
+      iteration,
+      observation,
+      registrationId: state.registrationId,
+    });
   }
 
   function ensureTimer() {
@@ -181,13 +149,13 @@ export function createProgressWatchdogRegistry({ mgr }) {
   }
 
   return {
-    /** Watch a session until the returned handle is stopped; null when the
-     *  policy is off or the manager has no progress or abort hooks. A session
-     *  whose runtime is not loaded yet is linked on a later sweep. */
+    /** Watch a session's ask until the returned handle is stopped; null when
+     *  the policy is off or the manager has no progress snapshot or abort
+     *  hook. A session whose runtime is not loaded yet is linked on a later
+     *  sweep. */
     start(sessionId, watchdogPolicy, agent = null, { onProgress = null } = {}) {
       if (!sessionId || !agentWatchdogPolicyActive(watchdogPolicy)) return null;
-      if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function')
-        return null;
+      if (typeof mgr.getSessionProgressSnapshot !== 'function') return null;
       if (typeof mgr.linkParentSignalToSession !== 'function') return null;
       const state = {
         registrationId: randomUUID().slice(0, 8),

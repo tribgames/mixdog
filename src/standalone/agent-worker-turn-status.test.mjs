@@ -197,6 +197,7 @@ const { cleanupBackgroundTasks } = await import('../runtime/shared/background-ta
 const { createTagRegistry } = await import('../session-runtime/services/agent-tool/tag-registry.mjs');
 const manager = await import('../runtime/agent/orchestrator/session/manager.mjs');
 const { drainSessionStore } = await import('../runtime/agent/orchestrator/session/store.mjs');
+const { acquireSessionLock } = await import('../runtime/agent/orchestrator/session/manager/session-lock.mjs');
 
 const config = {
   default: 'main',
@@ -410,6 +411,74 @@ test('a turn whose model work never ends is still stopped by the watchdog and re
   await model.started;
   const stalled = await until(() => {
     const worker = row(canonical, 'w-endless');
+    return worker?.status === 'failed' ? worker : null;
+  }, 'the watchdog stops the turn');
+  assert.equal(stalled.failureReason, 'stalled');
+});
+
+test('a turn waiting before its ask, past the idle budget, is never stopped and runs to its own outcome', async () => {
+  const spawned = await canonical.execute(
+    { type: 'spawn', tag: 'w-prewait', agent: 'worker', prompt: 'do PREWAIT-FIRST-8' },
+    context
+  );
+  await untilTask(canonical, taskIdOf(spawned), /completed/);
+  const { sessionId } = await until(() => {
+    const worker = row(canonical, 'w-prewait');
+    return worker?.status === 'idle' ? worker : null;
+  }, 'the first turn settles idle');
+  // Another ask holds the session: the next turn starts and waits before its own ask.
+  const unlock = await acquireSessionLock(sessionId);
+  const model = hold('PREWAIT-8');
+  let modelStarted = false;
+  model.started.then(() => {
+    modelStarted = true;
+  });
+  const sentAt = Date.now();
+  const sent = await canonical.execute({ type: 'send', tag: 'w-prewait', message: 'then PREWAIT-8' }, context);
+  const taskId = taskIdOf(sent);
+  assert.ok(taskId, sent);
+  await until(() => startedAtOf(row(canonical, 'w-prewait')) >= sentAt, 'the waiting turn reads running');
+  await tick(50);
+  assert.equal(manager.getSessionProgressSnapshot(sessionId), null, 'the ask has not started');
+  assert.equal(modelStarted, false);
+  // Sweeps during the wait see a clock an hour past the turn's start.
+  const realNow = Date.now.bind(Date);
+  const shifted = mock.method(Date, 'now', () => realNow() + 60 * 60_000);
+  try {
+    await tick(3_500);
+  } finally {
+    shifted.mock.restore();
+  }
+  assert.deepEqual(
+    watchdogStops.filter((id) => id === sessionId),
+    [],
+    'no watchdog stop reached the waiting turn'
+  );
+  assert.equal(row(canonical, 'w-prewait').status, 'running');
+  unlock();
+  await model.started;
+  model.release();
+  await untilTask(canonical, taskId, /completed|failed|cancelled/);
+  assert.equal(await taskStatus(canonical, taskId), 'completed');
+  const settled = await until(() => {
+    const worker = row(canonical, 'w-prewait');
+    return worker?.status !== 'running' ? worker : null;
+  }, 'the turn settles');
+  assert.deepEqual(
+    { status: settled.status, failureReason: settled.failureReason ?? null },
+    { status: 'idle', failureReason: null }
+  );
+});
+
+test('in-process route: a turn whose model never answers is stopped by the watchdog and reads failed/stalled', async () => {
+  const model = hold('LOCAL-ENDLESS-9');
+  await inProcess.execute(
+    { type: 'spawn', tag: 'w-local-endless', agent: 'worker', prompt: 'do LOCAL-ENDLESS-9' },
+    context
+  );
+  await model.started;
+  const stalled = await until(() => {
+    const worker = row(inProcess, 'w-local-endless');
     return worker?.status === 'failed' ? worker : null;
   }, 'the watchdog stops the turn');
   assert.equal(stalled.failureReason, 'stalled');

@@ -29,7 +29,7 @@ import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { emitSessionApprovalWaitChange } from '../../../../shared/session-approval-wait.mjs';
 import { emitSessionActivityChange, emitSessionTurnStart } from '../../../../shared/session-activity-signal.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
-import { MODEL_THINKING_STAGE, awaitingModelResponse, lastProgressAt } from '../../../../shared/quiet-progress.mjs';
+import { MODEL_THINKING_STAGE, awaitingModelResponse } from '../../../../shared/quiet-progress.mjs';
 import { beginBrowserTurn, finishBrowserTurn, forgetBrowserSession } from '../../../../browser-bridge/client.mjs';
 import { registerSessionPurgeHook } from '../store.mjs';
 import { finishComputerTurn } from '../../../../computer-bridge/client.mjs';
@@ -586,24 +586,6 @@ export function hideSessionFromList(sessionId) {
 
 export function getSessionAbortSignal(sessionId) {
   return _runtimeState.get(sessionId)?.controller?.signal ?? null;
-}
-
-/**
- * Return the most recent "session is making progress" timestamp.
- *
- * Combines three independent progress signals so an idle watchdog can stay
- * alive across both streaming and long tool calls:
- *   - lastStreamDeltaAt: provider stream chunk landed
- *   - toolStartedAt: a tool call just kicked off (nested tool work may
- *     stall the outer stream for a while; this keeps the watchdog from
- *     killing legitimate sub-agent runs)
- *   - askStartedAt: ask just started; covers the pre-stream connect window
- *
- * Returns 0 when the runtime entry is unknown so callers can decide to
- * either skip the watchdog or treat 0 as "no progress yet".
- */
-export function getSessionLastProgressAt(sessionId) {
-  return lastProgressAt(_runtimeState.get(sessionId));
 }
 
 /**

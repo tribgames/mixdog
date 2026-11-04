@@ -45,6 +45,8 @@ test("a send's own turn carries its task id and arms the watchdog the agent and 
     task_id: 'task_agent_send_1p',
     turnStartedAt: new Date(1_000).toISOString(),
   });
+  assert.equal(getProgressWatchdogState(mgr, 'child').policy, null, 'nothing is judged before the ask starts');
+  turns.askStarted('child', { turnId: 't1' });
   assert.deepEqual(requested, [{ agent: 'art-director', provider: 'antigravity-oauth', model: 'gemini-4-argon' }]);
   assert.equal(getProgressWatchdogState(mgr, 'child').policy.firstTransportMs, 900_000);
   turns.settled('child', { turnId: 't1', status: 'done', result: { content: 'done' } });
@@ -62,7 +64,8 @@ test('a running turn keeps a working stage beside status running, whatever phase
   mgr.getSessionProgressSnapshot = () => ({ stage: stages[0], lastProgressAt: Date.now() });
   workerTurns.observe(session);
   turns.started('child', { turnId: 't1', startedAt: Date.now(), submissionIds: [] });
-  const seen = () => upserts.slice(1).map((patch) => [patch.status, patch.stage]);
+  turns.askStarted('child', { turnId: 't1' });
+  const seen =() => upserts.slice(1).map((patch) => [patch.status, patch.stage]);
   while (seen().length < 1) await new Promise((resolve) => setTimeout(resolve, 20));
   stages.shift();
   while (seen().length < 2) await new Promise((resolve) => setTimeout(resolve, 20));
@@ -111,6 +114,8 @@ test('dispose stops every armed watchdog, unsubscribes every session and its pur
   for (const session of Object.values(sessions)) workerTurns.observe(session);
   turns.started('a', { turnId: 'ta', startedAt: 1_000, submissionIds: [] });
   turns.started('b', { turnId: 'tb', startedAt: 1_000, submissionIds: [] });
+  turns.askStarted('a', { turnId: 'ta' });
+  turns.askStarted('b', { turnId: 'tb' });
   assert.ok(getProgressWatchdogState(mgr, 'a').policy && getProgressWatchdogState(mgr, 'b').policy);
 
   workerTurns.dispose();
