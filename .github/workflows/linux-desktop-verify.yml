@@ -176,6 +176,10 @@ jobs:
         if: matrix.suite == 'root'
       - name: Build native spawn test binary
         run: npm run build:spawn:test
+      # Daemon suites start the daemon under the supervisor built from this
+      # source (a checkout's release build is preferred over the pinned download).
+      - name: Build the native supervisor
+        run: npm run build:supervisor:test
       - name: Root tests
         if: matrix.suite == 'root'
         run: npm test 2>&1 | tee root-tests.log

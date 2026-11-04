@@ -142,6 +142,7 @@ native/mixdog-graph/target/
 native/mixdog-graph/target-verify/
 native/mixdog-graph-addon/target/
 native/mixdog-spawn/target/
+native/mixdog-supervisor/target/
 native/mixdog-computer/target/
 native/mixdog-secure-desktop/target/
 /.mixdog-probe/

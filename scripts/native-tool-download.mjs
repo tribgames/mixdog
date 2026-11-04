@@ -3,7 +3,7 @@
 /**
  * Target-aware download of the product-native tools for a desktop build.
  *
- * The runtime fetchers (graph/patch/spawn) resolve the HOST's asset.
+ * The runtime fetchers (graph/patch/spawn/supervisor) resolve the HOST's asset.
  * That is exactly right for an installed app fetching its own binary, and
  * exactly wrong for preparing a runtime for another platform — so rather than
  * teach three production code paths a build-only concern, this reads the same
@@ -23,7 +23,7 @@ import { MAX_NATIVE_BINARY_DOWNLOAD_BYTES, streamResponseToFile } from '../src/r
 const RELEASE_ROOT = 'https://github.com/tribgames/mixdog/releases/download';
 const TOOLS_DIR = new URL('../src/runtime/agent/orchestrator/tools/', import.meta.url);
 
-export const NATIVE_TOOL_KINDS = Object.freeze(['graph', 'patch', 'spawn']);
+export const NATIVE_TOOL_KINDS = Object.freeze(['graph', 'patch', 'spawn', 'supervisor']);
 export const NATIVE_TOOL_PLATFORM_KEYS = Object.freeze([
   'darwin-arm64',
   'darwin-x64',

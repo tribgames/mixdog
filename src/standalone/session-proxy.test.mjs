@@ -12,6 +12,8 @@ function fakeDaemon() {
   const attachments = [];
   let nextId = 1;
   let failNext = null;
+  // Every call of one route refused before dispatch, as a fenced daemon answers.
+  let refuseAll = null;
   const snapshot = (id) => ({ sessionId: id, revision: sessions.get(id).revision, full: sessions.get(id).full });
   const service = {
     'session.create': (params) => {
@@ -47,6 +49,7 @@ function fakeDaemon() {
       closed: null,
       async call(name, params, options) {
         calls.push({ name, params, callId: options?.callId, transport });
+        if (refuseAll?.name === name) throw refuseAll.makeError();
         if (failNext) {
           const error = failNext;
           failNext = null;
@@ -71,6 +74,9 @@ function fakeDaemon() {
     attachSession,
     failNextCall: (error) => {
       failNext = error;
+    },
+    refuseEveryCall: (name, makeError) => {
+      refuseAll = { name, makeError };
     },
   };
 }
@@ -173,20 +179,36 @@ test('a lost transport re-attaches, recovers the projection and retries the call
   await view.dispose();
 });
 
-test('a retry-later refusal asks again on the same transport under the same call id', async () => {
+// The one refusal left is a fenced daemon's (daemon-refusal.mjs): answered
+// before dispatch, so the call runs exactly once, on the next daemon.
+const fenced = () =>
+  Object.assign(new Error('daemon is shutting down'), { code: 'EDAEMON_FENCED', daemonTransportError: true });
+
+test('a fenced refusal re-attaches silently and the refused call runs once, on the next daemon', async () => {
   const daemon = fakeDaemon();
   const view = await openView(daemon);
-  daemon.failNextCall(
-    Object.assign(new Error('not ready'), { code: 'EDAEMON_RETRY_LATER', retryable: true, retryAfterMs: 20 })
-  );
-  const accepted = await view.submitAsync('while busy', { id: 'sub-3' });
-  assert.equal(accepted, true);
-  assert.equal(daemon.attachments.length, 1, 'no re-attach');
+  daemon.failNextCall(fenced());
+  assert.equal(await view.submitAsync('once', { id: 'sub-3' }), true);
+  assert.deepEqual(view.getState().items, ['once']);
+  assert.equal(daemon.sessions.get('s1').revision, 2, 'dispatched once');
   const submits = daemon.calls.filter((c) => c.name === 'session.submit');
-  assert.equal(submits.length, 2);
-  assert.equal(submits[0].callId, submits[1].callId);
-  assert.deepEqual(view.getState().items, ['while busy']);
+  assert.deepEqual(
+    submits.map((c) => [c.transport === daemon.attachments[1], c.callId]),
+    [
+      [false, 'session-submit:s1:sub-3'],
+      [true, 'session-submit:s1:sub-3'],
+    ]
+  );
   await view.dispose();
+});
+
+test('a daemon that keeps refusing is asked a bounded number of times, then the refusal is returned', async () => {
+  const daemon = fakeDaemon();
+  const view = await openView(daemon);
+  daemon.refuseEveryCall('session.submit', fenced);
+  await assert.rejects(view.submitAsync('never', { id: 'sub-4' }), { code: 'EDAEMON_FENCED' });
+  assert.equal(daemon.calls.filter((c) => c.name === 'session.submit').length, 4);
+  assert.equal(daemon.sessions.get('s1').revision, 1, 'never dispatched');
 });
 
 test('dispose unsubscribes the last local view, closes the idle transport and rejects later calls', async () => {

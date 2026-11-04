@@ -328,6 +328,11 @@ if (app.isPackaged) {
       names: ['MIXDOG_SPAWN_SERVER_BIN'],
       path: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
     },
+    {
+      kind: 'supervisor',
+      names: ['MIXDOG_SUPERVISOR_BIN'],
+      path: join(nativeToolsDir, `mixdog-supervisor${executableSuffix}`),
+    },
   ];
   const bundledKinds = [];
   for (const { kind, names, path } of nativeOverrides) {

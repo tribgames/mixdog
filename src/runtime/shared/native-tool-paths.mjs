@@ -7,6 +7,7 @@ export const NATIVE_TOOL_FILENAMES = Object.freeze({
   graph: process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph',
   patch: process.platform === 'win32' ? 'mixdog-patch.exe' : 'mixdog-patch',
   spawn: process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn',
+  supervisor: process.platform === 'win32' ? 'mixdog-supervisor.exe' : 'mixdog-supervisor',
 });
 
 export function packageNativeToolsDir(packageRoot = DEFAULT_PACKAGE_ROOT) {

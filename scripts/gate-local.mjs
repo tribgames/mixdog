@@ -58,10 +58,12 @@ if (
   console.warn('[gate:local] warning: model recommendations stale or invalid (not blocking)');
 }
 
-const build = spawnSync('npm run build:spawn:test', { cwd: root, stdio: 'inherit', shell: true });
-if (build.status !== 0) {
-  console.error('[gate:local] build:spawn:test failed');
-  process.exit(1);
+for (const script of ['build:spawn:test', 'build:supervisor:test']) {
+  const build = spawnSync(`npm run ${script}`, { cwd: root, stdio: 'inherit', shell: true });
+  if (build.status !== 0) {
+    console.error(`[gate:local] ${script} failed`);
+    process.exit(1);
+  }
 }
 
 // Each run owns its log directory, so concurrent runs never touch each other's

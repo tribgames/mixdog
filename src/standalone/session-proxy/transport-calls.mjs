@@ -8,7 +8,6 @@
 import { sleep as delay } from '../../runtime/shared/sleep.mjs';
 
 const CALL_RECOVERY_BACKOFF_MS = Object.freeze([0, 150, 600]);
-const RETRY_LATER_BUDGET_MS = 60_000;
 
 const ROUTE_METHODS = Object.freeze({
   'session.create': 'create',
@@ -97,24 +96,10 @@ export function createTransportCalls({ binding, projection, pool, openParams, cw
   }
 
   async function sendCall(route, payload, callId) {
-    const verifyDeadline = Date.now() + RETRY_LATER_BUDGET_MS;
-    for (let attempt = 0; ; ) {
+    for (let attempt = 0; ; attempt += 1) {
       try {
         return await sendOnce(route, payload, callId);
       } catch (error) {
-        // The daemon answered retry-later: the same call on the same
-        // attachment, once it says to, not a re-attach. Past the budget it is
-        // recovered like any other refusal.
-        const retryAfterMs = error?.retryAfterMs || 250;
-        if (error?.retryable === true && !binding.disposed && Date.now() + retryAfterMs < verifyDeadline) {
-          await delay(retryAfterMs);
-          // Checked again after the wait: a disposed view never asks again,
-          // and a timer that fired late (the loop stalled) past the budget
-          // falls through to recovery instead of dispatching.
-          if (binding.disposed) throw error;
-          if (Date.now() < verifyDeadline) continue;
-        }
-        if (error?.retryable === true) error.daemonTransportError = true;
         if (!isRecoverable(error) || binding.disposed || attempt >= CALL_RECOVERY_BACKOFF_MS.length) throw error;
         const waitMs = CALL_RECOVERY_BACKOFF_MS[attempt];
         if (waitMs > 0) await delay(waitMs);
@@ -125,7 +110,6 @@ export function createTransportCalls({ binding, projection, pool, openParams, cw
         if (attempt > 0) {
           log(`session ${binding.sessionId} call ${route} re-attached (attempt ${attempt + 1})`);
         }
-        attempt += 1;
       }
     }
   }

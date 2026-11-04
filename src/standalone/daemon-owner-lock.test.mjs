@@ -108,8 +108,8 @@ test('simultaneous acquisitions leave exactly one holder', async (t) => {
 });
 
 // On Linux the lock was a name derived from the lock file's bytes alone: two
-// data dirs with equal files (empty ones earlier builds left, a copy) shared
-// one machine-wide name, and the second install could never own its own.
+// data dirs with equal files (empty ones, a copy) shared one machine-wide
+// name, and the second install could never own its own.
 test('data dirs whose lock files hold equal bytes (empty, or copied) are locked independently', async (t) => {
   for (const seed of ['empty', 'copied']) {
     const first = lockFixture(t);
@@ -132,15 +132,13 @@ test('data dirs whose lock files hold equal bytes (empty, or copied) are locked 
   }
 });
 
-test('racing daemons on an empty legacy lock file replace it once and leave exactly one holder', async (t) => {
+test('racing daemons on an existing lock file leave exactly one holder', async (t) => {
   const fx = lockFixture(t);
   mkdirSync(dirname(fx.lockPath), { recursive: true });
   writeFileSync(fx.lockPath, '');
   const racers = Array.from({ length: 4 }, () => contender(fx));
   const verdicts = await Promise.all(racers.map((racer) => racer.verdict));
   assert.equal(verdicts.filter((verdict) => verdict.held).length, 1, JSON.stringify(verdicts));
-  // Linux keeps its secret there; elsewhere the file is the lock itself.
-  if (process.platform === 'linux') assert.match(readFileSync(fx.lockPath, 'utf8'), /^[0-9a-f]{64}$/);
 });
 
 test('one process holds it once; release frees it; intact() follows the locked file at its path', async (t) => {

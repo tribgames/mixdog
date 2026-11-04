@@ -57,13 +57,21 @@ const liveCaches = new Set();
  *  without notifying. A warm read never touches the disk synchronously.
  *  `onChange(path)` hears every change of a cached value: a re-read that
  *  differs, an entry this process forgot (`delete`) — whoever wrote the
- *  file. */
-export function createWatchedFileCache({ load, loadAsync }, { onChange = null } = {}) {
+ *  file. `onWatch(path, watched)` hears an entry go blind (`false`: its
+ *  directory's watch failed, so changes go unseen until an ancestor's event
+ *  names it) and see again (`true`), for an owner that must say so. */
+export function createWatchedFileCache({ load, loadAsync }, { onChange = null, onWatch = null } = {}) {
   const entries = new Map();
   const notify = (path) => {
     if (typeof onChange !== 'function') return;
     try {
       onChange(path);
+    } catch {}
+  };
+  const notifyWatch = (path, watched) => {
+    if (typeof onWatch !== 'function') return;
+    try {
+      onWatch(path, watched);
     } catch {}
   };
   // dir -> { watcher, refs }: one `fs.watch` per directory, held by every
@@ -153,6 +161,7 @@ export function createWatchedFileCache({ load, loadAsync }, { onChange = null } 
       }
       dir = parent;
     }
+    if (blind !== (holder.blind === true)) notifyWatch(path, !blind);
     holder.blind = blind;
     if (dir === holder.watchDir) return false;
     if (dir !== null) watchers.get(dir).refs += 1;

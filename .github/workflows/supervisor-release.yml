@@ -1,0 +1,264 @@
+name: supervisor-release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  MANIFEST: src/runtime/agent/orchestrator/tools/supervisor-manifest.json
+  RUST_VERSION: "1.85.1"
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.verify.outputs.tag }}
+      version: ${{ steps.verify.outputs.version }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: verify
+        env:
+          SUPERVISOR_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SUPERVISOR_TAG" =~ ^supervisor-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          VERSION=${SUPERVISOR_TAG#supervisor-v}
+          test "$VERSION" = "$(grep -m1 -E '^version = "[^"]+"' native/mixdog-supervisor/Cargo.toml | cut -d '"' -f2)"
+          echo "tag=$SUPERVISOR_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: gate
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - run: cargo test --locked --manifest-path native/mixdog-supervisor/Cargo.toml
+
+  build:
+    needs: gate
+    name: build-${{ matrix.pkey }}-primary
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc, pkey: win32-x64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
+          # win32-arm64 cross-targets MSVC ARM64 from the x64 Windows runner.
+          - { runner: windows-2022, target: aarch64-pc-windows-msvc, pkey: win32-arm64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-musl, pkey: linux-x64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-musl, pkey: linux-arm64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          # darwin-x64 cross-targets from the Apple-silicon runner (parity with
+          # patch-release): the Intel image queues longer than it builds.
+          - { runner: macos-15, target: x86_64-apple-darwin, pkey: darwin-x64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-15, target: aarch64-apple-darwin, pkey: darwin-arm64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-supervisor/Cargo.toml
+          mkdir _asset
+          cp "native/mixdog-supervisor/target/${{ matrix.target }}/release/mixdog-supervisor${{ matrix.ext }}" \
+            "_asset/mixdog-supervisor-${{ matrix.pkey }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: supervisor-${{ matrix.pkey }}-${{ github.run_attempt }}
+          path: _asset/*
+          if-no-files-found: error
+          retention-days: 1
+
+  rebuild:
+    needs: gate
+    name: build-${{ matrix.pkey }}-comparison
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-musl, pkey: linux-x64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-supervisor/Cargo.toml
+          mkdir _repro
+          cp "native/mixdog-supervisor/target/${{ matrix.target }}/release/mixdog-supervisor${{ matrix.ext }}" \
+            "_repro/mixdog-supervisor-${{ matrix.pkey }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rebuild-supervisor-${{ matrix.pkey }}-${{ github.run_attempt }}
+          path: _repro/*
+          if-no-files-found: error
+          retention-days: 1
+
+  prepare:
+    needs: [gate, test, build, rebuild]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # create draft release and upload assets
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: supervisor-*-${{ github.run_attempt }}
+          path: _release
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rebuild-supervisor-*-${{ github.run_attempt }}
+          path: _repro
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SUPERVISOR_TAG: ${{ needs.gate.outputs.tag }}
+          SUPERVISOR_VERSION: ${{ needs.gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(mixdog-supervisor-darwin-arm64 mixdog-supervisor-darwin-x64 mixdog-supervisor-linux-arm64 mixdog-supervisor-linux-x64 mixdog-supervisor-win32-arm64.exe mixdog-supervisor-win32-x64.exe)
+          reproducible=(mixdog-supervisor-linux-x64)
+          for asset in "${reproducible[@]}"; do cmp "_release/$asset" "_repro/$asset"; done
+          for asset in mixdog-supervisor-linux-arm64 mixdog-supervisor-linux-x64; do
+            if readelf -d "_release/$asset" | grep -q '(NEEDED)'; then
+              echo "$asset must be statically linked" >&2
+              exit 1
+            fi
+            if grep -aq 'GLIBC_' "_release/$asset"; then
+              echo "$asset must not require glibc" >&2
+              exit 1
+            fi
+          done
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { readFileSync, writeFileSync } = require('node:fs');
+          const files = {
+            'darwin-arm64': 'mixdog-supervisor-darwin-arm64',
+            'darwin-x64': 'mixdog-supervisor-darwin-x64',
+            'linux-arm64': 'mixdog-supervisor-linux-arm64',
+            'linux-x64': 'mixdog-supervisor-linux-x64',
+            'win32-arm64': 'mixdog-supervisor-win32-arm64.exe',
+            'win32-x64': 'mixdog-supervisor-win32-x64.exe',
+          };
+          const assets = Object.fromEntries(Object.entries(files).map(([platform, file]) => [platform, {
+            url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.SUPERVISOR_TAG}/${file}`,
+            sha256: createHash('sha256').update(readFileSync(`_release/${file}`)).digest('hex'),
+          }]));
+          writeFileSync('_release/supervisor-manifest.json', JSON.stringify({
+            version: process.env.SUPERVISOR_VERSION,
+            _comment: 'Synced from immutable supervisor-v release assets.',
+            assets,
+          }, null, 2) + '\n');
+          NODE
+          (cd _release && sha256sum "${expected[@]}" > SHA256SUMS)
+          if gh release view "$SUPERVISOR_TAG" --json isDraft --jq .isDraft >/tmp/draft 2>/dev/null; then
+            test "$(cat /tmp/draft)" = true
+          else
+            gh release create "$SUPERVISOR_TAG" --draft --verify-tag \
+              --title "mixdog-supervisor ${SUPERVISOR_VERSION}" \
+              --notes "Immutable mixdog-supervisor ${SUPERVISOR_VERSION} assets."
+          fi
+          gh release upload "$SUPERVISOR_TAG" "${expected[@]/#/_release/}" _release/SHA256SUMS --clobber
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: supervisor-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _release/supervisor-manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+  sync:
+    needs: [gate, prepare]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # push manifest and publish the release
+    concurrency:
+      group: supervisor-release-finalize
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: supervisor-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _generated
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SUPERVISOR_TAG: ${{ needs.gate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp _generated/supervisor-manifest.json "$MANIFEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(supervisor): sync manifest for ${SUPERVISOR_TAG}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+          node scripts/publish-asset-release.mjs publish "$SUPERVISOR_TAG"

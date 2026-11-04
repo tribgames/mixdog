@@ -11,8 +11,11 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { writeJsonAtomicSync } from '../src/runtime/shared/atomic-file.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../src/runtime/shared/runtime-root.mjs';
 import { claimSingletonOwner, releaseSingletonOwner } from '../src/runtime/shared/singleton-owner.mjs';
-import { safeIpcSend } from '../src/runtime/shared/safe-ipc-send.mjs';
 import { createChannelTransport } from '../src/standalone/channel-transport.mjs';
+import { startSupervisorLink } from '../src/standalone/daemon-supervisor-link.mjs';
+
+// Launched under the daemon supervisor like the real daemon.
+const supervisorLink = startSupervisorLink();
 
 const RUNTIME_ROOT = resolveRuntimeRoot();
 const DATA_DIR = process.env.MIXDOG_DATA_DIR ? path.resolve(process.env.MIXDOG_DATA_DIR) : RUNTIME_ROOT;
@@ -105,7 +108,7 @@ async function main() {
     },
     { compact: true, secret: true }
   );
-  safeIpcSend(process, { type: 'ready', port, token });
+  supervisorLink.ready();
   log(`ready port=${port} pid=${process.pid}`);
 }
 

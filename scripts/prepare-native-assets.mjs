@@ -9,6 +9,7 @@ import { NATIVE_TOOL_FILENAMES, packageNativeToolsDir } from '../src/runtime/sha
 import { ensureGraphBinary } from '../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
 import { ensurePatchBinary } from '../src/runtime/agent/orchestrator/tools/patch-binary-fetcher.mjs';
 import { ensureSpawnBinary } from '../src/runtime/agent/orchestrator/tools/spawn-binary-fetcher.mjs';
+import { ensureSupervisorBinary } from '../src/runtime/agent/orchestrator/tools/supervisor-binary-fetcher.mjs';
 import { NATIVE_TOOL_PLATFORM_KEYS } from './native-tool-download.mjs';
 
 const DEFAULT_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,6 +20,7 @@ export const REQUIRED_NATIVE_INSTALLERS = Object.freeze({
   graph: ensureGraphBinary,
   patch: ensurePatchBinary,
   spawn: ensureSpawnBinary,
+  supervisor: ensureSupervisorBinary,
 });
 
 export function nativeAssetPlatformKey(platform = process.platform, arch = process.arch) {

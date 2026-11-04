@@ -5,6 +5,7 @@ const CACHE_DIRECTORIES = Object.freeze({
   graph: 'graph-bin',
   patch: 'patch-bin',
   spawn: 'spawn-bin',
+  supervisor: 'supervisor-bin',
 });
 
 export async function gcSupersededNativeToolCaches(dataDir, bundledKinds) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Native tools (patch, graph, spawn) ship as their own immutable GitHub
+// Native tools (patch, graph, spawn, supervisor) ship as their own immutable GitHub
 // releases (`<kind>-v<version>`); the app pins one through
 // src/runtime/agent/orchestrator/tools/<kind>-manifest.json and downloads that
 // release's assets. A fix committed under native/<tool>/ therefore reaches
@@ -26,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const TOOLS_DIR = 'src/runtime/agent/orchestrator/tools';
 
 export const NATIVE_RELEASE_TOOLS = Object.freeze(
-  ['patch', 'graph', 'spawn'].map((kind) =>
+  ['patch', 'graph', 'spawn', 'supervisor'].map((kind) =>
     Object.freeze({
       kind,
       dir: `native/mixdog-${kind}`,

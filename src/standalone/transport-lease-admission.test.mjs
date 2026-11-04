@@ -101,9 +101,9 @@ test('session transport: a lease fenced while the /call body arrives is not disp
   assert.equal(late.status, 503);
 });
 
-test('both front doors tell a retry-later refusal from a fenced one', async (t) => {
+test('both front doors answer a refused register as fenced', async (t) => {
   for (const create of [createSessionTransport, createChannelTransport]) {
-    let refusal = null;
+    const refusal = { code: 'EDAEMON_FENCED', message: 'daemon owner lease is not held' };
     const transport = create({
       handleCall: async () => ({ ok: true }),
       serverToken: TOKEN,
@@ -114,13 +114,6 @@ test('both front doors tell a retry-later refusal from a fenced one', async (t) 
     t.after(() => transport.stop());
     const body = { protocol: SESSION_PROTOCOL, leadPid: process.pid };
 
-    refusal = { code: 'EDAEMON_RETRY_LATER', message: 'not ready', retryAfterMs: 1500 };
-    const later = await post(port, '/client/register', body);
-    assert.equal(later.status, 503);
-    assert.deepEqual(JSON.parse(later.body), { error: 'not ready', code: 'EDAEMON_RETRY_LATER', retryAfterMs: 1500 });
-    assert.equal(later.headers['retry-after'], '2');
-
-    refusal = { code: 'EDAEMON_FENCED', message: 'daemon owner lease is not held' };
     const fenced = await post(port, '/client/register', body);
     assert.equal(fenced.status, 503);
     assert.deepEqual(JSON.parse(fenced.body), { error: 'daemon owner lease is not held', code: 'EDAEMON_FENCED' });

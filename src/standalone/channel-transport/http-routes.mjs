@@ -22,7 +22,7 @@ export function createChannelRoutes({
   registry,
   dispatch,
   admitWork = () => true,
-  // Why admitWork just refused ({ code, message, retryAfterMs? }, daemon-refusal.mjs).
+  // Why admitWork just refused ({ code, message }, daemon-refusal.mjs).
   workRefusal = () => ({ code: DAEMON_FENCED, message: 'daemon owner lease is not held' }),
 }) {
   const { clients } = state;
