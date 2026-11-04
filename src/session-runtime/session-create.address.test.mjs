@@ -54,6 +54,7 @@ async function harness(t, { prepare } = {}) {
         rt.reservedSessionId = null;
       },
       prewarmWsTransport() {},
+      readStartupFiles: async () => null,
     },
   });
   t.mock.module('./session-create/session-start-hook.mjs', {
