@@ -485,9 +485,29 @@ mod platform {
         now.tv_sec as u64 * 1_000 + now.tv_nsec as u64 / 1_000_000
     }
 
+    #[cfg(not(target_os = "linux"))]
     pub fn fill_random(bytes: &mut [u8]) -> std::io::Result<()> {
         if unsafe { libc::getentropy(bytes.as_mut_ptr().cast(), bytes.len()) } != 0 {
             return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    // The libc crate binds no getentropy for musl, the Linux release target.
+    #[cfg(target_os = "linux")]
+    pub fn fill_random(bytes: &mut [u8]) -> std::io::Result<()> {
+        let mut filled = 0;
+        while filled < bytes.len() {
+            let rest = &mut bytes[filled..];
+            let read = unsafe { libc::getrandom(rest.as_mut_ptr().cast(), rest.len(), 0) };
+            if read < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            filled += read as usize;
         }
         Ok(())
     }
