@@ -4,6 +4,7 @@
 // `reg` and `warmProviderModelCache` are late-bound getters because the
 // registry import and the provider-models factory resolve after this gate is
 // created, while ensureProvidersReady only reaches them on demand.
+import { builtinProviderKeyAccounts, customProviderKeyAccounts } from '../runtime/agent/orchestrator/config-providers-merge.mjs';
 import { bootProfile } from './boot-profile.mjs';
 import { invalidateSharedProviderCatalog } from './provider-catalog-cache.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';
@@ -26,24 +27,26 @@ const emptyUsageCaches = () => ({
 });
 
 export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderModelCache }) {
-  const keychainPrewarmPromise = keychain.prewarmSecrets();
+  const keychainPrewarmPromise = keychain.prewarmSecrets(builtinProviderKeyAccounts());
   rt.keychainPrewarmWaitDone = false;
   rt.keychainPrewarmWaitPromise = null;
+  async function untilDeadline(promise) {
+    let timeoutId;
+    const deadline = new Promise((resolveDeadline) => {
+      timeoutId = setTimeout(resolveDeadline, KEYCHAIN_PREWARM_WAIT_MS);
+      timeoutId.unref?.();
+    });
+    try {
+      await Promise.race([promise, deadline]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
   function awaitKeychainPrewarm() {
     if (rt.keychainPrewarmWaitDone) return Promise.resolve();
-    rt.keychainPrewarmWaitPromise ??= (async () => {
-      let timeoutId;
-      const deadline = new Promise((resolveDeadline) => {
-        timeoutId = setTimeout(resolveDeadline, KEYCHAIN_PREWARM_WAIT_MS);
-        timeoutId.unref?.();
-      });
-      try {
-        await Promise.race([keychainPrewarmPromise, deadline]);
-      } finally {
-        clearTimeout(timeoutId);
-        rt.keychainPrewarmWaitDone = true;
-      }
-    })();
+    rt.keychainPrewarmWaitPromise ??= untilDeadline(keychainPrewarmPromise).finally(() => {
+      rt.keychainPrewarmWaitDone = true;
+    });
     return rt.keychainPrewarmWaitPromise;
   }
 
@@ -100,7 +103,12 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   async function initializeProviders(providerConfig) {
     const generation = providerInitGeneration;
     const forced = forcedProviders(providerConfig, rt.config.providers);
-    await awaitKeychainPrewarm();
+    // The built-in warm plus the configured custom providers' keys, warmed per
+    // account the same way so the first send reads them from the cache: one
+    // wait under one deadline (the account reads themselves run one at a time).
+    await untilDeadline(
+      Promise.all([keychainPrewarmPromise, keychain.prewarmSecrets(customProviderKeyAccounts(providerConfig))])
+    );
     if (rt.closeRequested) throw new Error('runtime is closing');
     if (generation === providerInitGeneration) return getReg().initProviders(providerConfig);
     const latest = { ...(rt.config.providers || {}) };

@@ -3,7 +3,7 @@ import { providerErrorKind } from '../../providers/provider-error-kind.mjs';
 import { displayModelName } from '../../../../shared/model-display.mjs';
 import { presentErrorText } from '../../../../shared/err-text.mjs';
 import { getProvider, initProviders } from '../../providers/registry.mjs';
-import { loadConfig } from '../../config.mjs';
+import { getConfigSnapshot } from '../../config.mjs';
 import { ensureProviderEnabled } from '../../runtime-core/config-helpers.mjs';
 import { updateSessionRoute } from '../manager/session-lifecycle.mjs';
 import {
@@ -75,7 +75,7 @@ function annotateEndedChain(session, error, skipped = null) {
 
 // A context overflow moves only to a model whose window is larger.
 async function nextContextGrows(state, next) {
-  await initProviders(ensureProviderEnabled(loadConfig(), next.provider), { signal: state.signal });
+  await initProviders(ensureProviderEnabled(getConfigSnapshot(), next.provider), { signal: state.signal });
   state.throwIfAborted();
   const provider = getProvider(next.provider);
   if (!provider) return false;
@@ -89,7 +89,7 @@ export async function advanceAgentRoute(state, error) {
   if (!session?.agent) return false;
   // Read from the session's settings at this hop: a chain edited while it runs
   // applies now, and one cleared to [] leaves the provider's own error.
-  const { chain } = liveRouteFallbacks(session, loadConfig({ secrets: false }));
+  const { chain } = liveRouteFallbacks(session, getConfigSnapshot({ secrets: false }));
   if (!chain.length) return false;
   const index = nextRouteFallbackIndex(session, chain);
   const next = chain[index];
@@ -104,7 +104,7 @@ export async function advanceAgentRoute(state, error) {
     return false;
   }
   state.throwIfAborted();
-  await initProviders(ensureProviderEnabled(loadConfig(), next.provider), { signal: state.signal });
+  await initProviders(ensureProviderEnabled(getConfigSnapshot(), next.provider), { signal: state.signal });
   state.throwIfAborted();
   const provider = getProvider(next.provider);
   if (!provider) throw new Error(`Provider "${next.provider}" not available`);

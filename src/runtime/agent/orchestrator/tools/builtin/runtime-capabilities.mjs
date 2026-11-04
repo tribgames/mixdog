@@ -513,6 +513,23 @@ export function describeCwdStartupEntries({ cwd = process.cwd(), limit = CWD_STA
   } catch {
     return '';
   }
+  return formatCwdStartupEntries(directory, entries, limit);
+}
+
+/** describeCwdStartupEntries for a path that must not block the event loop. */
+export async function describeCwdStartupEntriesAsync({ cwd = process.cwd(), limit = CWD_STARTUP_ENTRY_LIMIT } = {}) {
+  let directory;
+  let entries;
+  try {
+    directory = pathResolveAbsolute(String(cwd || '.'));
+    entries = await readdirAsync(directory, { withFileTypes: true });
+  } catch {
+    return '';
+  }
+  return formatCwdStartupEntries(directory, entries, limit);
+}
+
+function formatCwdStartupEntries(directory, entries, limit) {
   if (!entries.length) return '- Cwd entries at startup: none (empty directory).';
   const candidates = entries.filter((entry) => entry.name !== '.git');
   const ignored = _gitIgnoredEntries(

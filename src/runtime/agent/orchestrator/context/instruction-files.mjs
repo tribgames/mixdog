@@ -1,6 +1,7 @@
 // The user's instruction files (AGENTS.md / CLAUDE.md), global then project,
 // rendered as one `# Instruction Files` block for a new session's BP3 core.
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
+import { open, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { readSection } from '../../../shared/config.mjs';
@@ -110,16 +111,45 @@ function readInstructionFile({ path, root }) {
   }
 }
 
-/** The `# Instruction Files` block, or '' when no file has content. Files
- *  whose bounded content repeats an included one (symlinks, copies) are dropped. */
-export function loadInstructionFilesContext({ mode, cwd, homeDir = homedir() } = {}) {
+/** Same contract as readInstructionFile, without blocking the event loop. */
+async function readInstructionFileAsync({ path, root }) {
+  let handle;
+  try {
+    const realPath = await realpath(path);
+    if (root && !isInside(await realpath(root), realPath)) {
+      skipNote(path, 'resolves outside its root');
+      return '';
+    }
+    handle = await open(realPath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    if (!(await handle.stat()).isFile()) return '';
+    const buffer = Buffer.allocUnsafe(INSTRUCTION_FILE_MAX_BYTES + UTF8_BOM.length + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    return boundedText(buffer.subarray(0, length));
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR' && error?.code !== 'EISDIR') {
+      skipNote(path, error?.code || error?.message || 'unreadable');
+    }
+    return '';
+  } finally {
+    await handle?.close();
+  }
+}
+
+/** The `# Instruction Files` block of the candidates' contents, or '' when no
+ *  file has content. Files whose bounded content repeats an included one
+ *  (symlinks, copies) are dropped. */
+function renderInstructionFiles(loaded) {
   const seen = new Set();
   const sections = [];
-  for (const candidate of instructionFileCandidates({ mode, cwd, homeDir })) {
-    const content = readInstructionFile(candidate);
+  for (const { path, content } of loaded) {
     if (!content || seen.has(content)) continue;
     seen.add(content);
-    sections.push(`## ${candidate.path}\n\n${content}`);
+    sections.push(`## ${path}\n\n${content}`);
   }
   if (!sections.length) return '';
   return [
@@ -127,4 +157,21 @@ export function loadInstructionFilesContext({ mode, cwd, homeDir = homedir() } =
     "The user's instruction files. Project files take precedence over global ones when they conflict.",
     ...sections,
   ].join('\n\n');
+}
+
+/** The `# Instruction Files` block, or '' when no file has content. */
+export function loadInstructionFilesContext({ mode, cwd, homeDir = homedir() } = {}) {
+  return renderInstructionFiles(
+    instructionFileCandidates({ mode, cwd, homeDir }).map((candidate) => ({
+      path: candidate.path,
+      content: readInstructionFile(candidate),
+    }))
+  );
+}
+
+/** loadInstructionFilesContext for a path that must not block the event loop. */
+export async function loadInstructionFilesContextAsync({ mode, cwd, homeDir = homedir() } = {}) {
+  const candidates = instructionFileCandidates({ mode, cwd, homeDir });
+  const contents = await Promise.all(candidates.map(readInstructionFileAsync));
+  return renderInstructionFiles(candidates.map((candidate, index) => ({ path: candidate.path, content: contents[index] })));
 }

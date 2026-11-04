@@ -6,7 +6,7 @@
 import { bootProfile } from './boot-profile.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 import { elapsedMs, prepareRoute } from './session-create/route-prep.mjs';
-import { materializeSession, prewarmWsTransport } from './session-create/materialize.mjs';
+import { materializeSession, prewarmWsTransport, readStartupFiles } from './session-create/materialize.mjs';
 import { dispatchSessionStart } from './session-create/session-start-hook.mjs';
 import { prewarmGitStartupProbes } from '../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
@@ -73,11 +73,13 @@ export function createSessionCreator(deps, routes) {
     const gitProbes = prewarmGitStartupProbes([rt.currentCwd]);
     const { coreMemoryContext, providerImpl } = await prepareRoute(deps, routes, signal, startedAt);
     await gitProbes;
+    // After the git probes: the cwd listing consults their gitignore answers.
+    const startupFiles = await readStartupFiles(rt);
     // The fence/record may have changed during the awaits above (close during
     // reservation prewarm): re-validate synchronously right before adoption.
     assertAdmissionOpen(rt);
     if (addressDecision() === 'resume') return await resumeAddressed(signal);
-    materializeSession(deps, reason, coreMemoryContext);
+    materializeSession(deps, reason, coreMemoryContext, startupFiles);
     await dispatchSessionStart(deps, reason, signal);
     assertAdmissionOpen(rt);
     if (!rt.session)

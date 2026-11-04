@@ -23,8 +23,11 @@ export function createInlineSessionRuntimeHost({
       import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
     ]).then(([config, registry, dispatch]) => ({ config, registry, dispatch })),
   warmKeychain = async () => {
-    const { default: keychain } = await import('../lib/keychain-cjs.cjs');
-    await keychain.prewarmSecrets();
+    const [{ default: keychain }, { builtinProviderKeyAccounts }] = await Promise.all([
+      import('../lib/keychain-cjs.cjs'),
+      import('../runtime/agent/orchestrator/config-providers-merge.mjs'),
+    ]);
+    await keychain.prewarmSecrets(builtinProviderKeyAccounts());
   },
   executeAgentControl = null,
   executeSessionControl = null,

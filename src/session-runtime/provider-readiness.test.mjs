@@ -3,7 +3,7 @@ import test from 'node:test';
 import { setImmediate as flush } from 'node:timers/promises';
 import { createProviderReadiness } from './provider-readiness.mjs';
 
-function harness({ prewarm = Promise.resolve() } = {}) {
+function harness({ prewarm = Promise.resolve(), prewarmSecrets = () => prewarm } = {}) {
   const inits = [];
   const registryWrites = [];
   const rt = {
@@ -21,7 +21,7 @@ function harness({ prewarm = Promise.resolve() } = {}) {
   };
   const readiness = createProviderReadiness({
     rt,
-    keychain: { prewarmSecrets: () => prewarm, onKeychainRecovered: () => {} },
+    keychain: { prewarmSecrets, onKeychainRecovered: () => {} },
     getReg: () => reg,
     getWarmProviderModelCache: () => () => {},
   });
@@ -47,6 +47,33 @@ test('an initialization waiting on the keychain when the provider config changes
   assert.equal(inits.at(-1), 'new-key');
   // The routed request was replayed on the new config, its provider still on.
   assert.ok(registryWrites.some((providers) => providers.demo.apiKey === 'new-key' && providers.extra.enabled));
+});
+
+test('provider initialization warms the keys of the configured custom providers that hold one', async () => {
+  const warmed = [];
+  const { readiness } = harness({ prewarmSecrets: (accounts) => (warmed.push(accounts), Promise.resolve()) });
+  await readiness.ensureProvidersReady({
+    demo: { enabled: true, apiKey: 'k' },
+    'custom-keyed': { type: 'custom', enabled: true },
+    'custom-env': { type: 'custom', enabled: true, apiKeyEnv: 'SOME_KEY_VAR' },
+    'custom-open': { type: 'custom', enabled: true, auth: 'none' },
+  });
+  assert.ok(warmed.some((accounts) => accounts.includes('agent.openai.apiKey')), 'the built-in keys are warmed');
+  assert.deepEqual(warmed.at(-1), ['agent.custom-keyed.apiKey']);
+});
+
+test('initialization waits at most one 5 s deadline for the built-in and custom key warms together', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const never = new Promise(() => {});
+  const { readiness, inits } = harness({ prewarmSecrets: () => never });
+  const ready = readiness.ensureProvidersReady({
+    demo: { enabled: true, apiKey: 'k' },
+    'custom-keyed': { type: 'custom', enabled: true },
+  });
+  await flush();
+  t.mock.timers.tick(5000);
+  await ready;
+  assert.deepEqual(inits, ['k'], 'initialized after the single deadline');
 });
 
 test('a provider change re-initializes the shared registry from the reloaded config of a runtime that used it', async () => {

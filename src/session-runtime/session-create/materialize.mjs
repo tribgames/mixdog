@@ -4,6 +4,9 @@
 import { deferredSurfaceModeForLead } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { filterMcpToolsForSession } from '../../runtime/agent/orchestrator/runtime-core/extension-scopes.mjs';
 import { applyDeferredToolSurface } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { loadInstructionFilesContextAsync } from '../../runtime/agent/orchestrator/context/instruction-files.mjs';
+import { describeCwdStartupEntriesAsync } from '../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
+import { promptConfigSlice } from '../../runtime/agent/orchestrator/session/manager/prompt-settings.mjs';
 import { writeStatuslineRoute } from '../statusline-route.mjs';
 import { sessionOptions } from './session-options.mjs';
 
@@ -41,11 +44,21 @@ function seedToolSurface(deps, reason, coreMemoryContext) {
   deps.noteToolAvailability?.(rt.session, coreMemoryContext);
 }
 
+/** The files session composition reads from the cwd, read without blocking the
+ *  event loop: the instruction files block and the cwd entry listing. */
+export async function readStartupFiles(rt) {
+  const [instructionFilesContext, cwdStartupEntries] = await Promise.all([
+    loadInstructionFilesContextAsync({ mode: promptConfigSlice(rt.config)?.instructionFiles, cwd: rt.currentCwd }),
+    rt.currentCwd ? describeCwdStartupEntriesAsync({ cwd: rt.currentCwd }) : '',
+  ]);
+  return { instructionFilesContext, cwdStartupEntries };
+}
+
 /** Adopt the provider session and publish it to hooks and statusline. */
-export function materializeSession(deps, reason, coreMemoryContext) {
+export function materializeSession(deps, reason, coreMemoryContext, startupFiles = null) {
   const { rt, adoptSession, mgr, hooks, statusRoutes } = deps;
   // adoptSession attaches the hook bridge (boot/infrastructure.mjs sessionAdopter).
-  adoptSession(mgr.createSession(sessionOptions(deps, coreMemoryContext)));
+  adoptSession(mgr.createSession(sessionOptions(deps, coreMemoryContext, startupFiles)));
   rt.reservedSessionId = null;
   seedToolSurface(deps, reason, coreMemoryContext);
   writeStatuslineRoute(statusRoutes, rt.session, rt.route);
