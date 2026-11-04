@@ -39,6 +39,123 @@ test('a directory watch is shared by its entries and closes with the last of the
   assert.deepEqual(watching(), [], 'released with its last entry');
 });
 
+const textCache = (t) => {
+  const cache = createWatchedFileCache({
+    load: (path) => ({ value: readFileSync(path, 'utf8') }),
+    loadAsync: async (path) => ({ value: await fsp.readFile(path, 'utf8') }),
+  });
+  t.after(() => cache.close());
+  return cache;
+};
+
+test('every cache with files in one directory shares the one watch of it and of its parent', (t) => {
+  const watching = trackWatchers(t);
+  const { dir, cache, file } = fixture(t);
+  const second = textCache(t);
+  const third = textCache(t);
+  const a = file('a.json', 'A');
+  const b = file('b.json', 'B');
+  cache.get(a);
+  second.get(b);
+  third.get(a);
+  third.set(b, 'B');
+  const both = [dir, dirname(dir)].sort();
+  assert.deepEqual(watching(), both, 'three caches, four entries: one watch per directory');
+  cache.close();
+  second.close();
+  assert.deepEqual(watching(), both, 'still held by the third cache');
+  third.close();
+  assert.deepEqual(watching(), [], 'released with the last holder');
+});
+
+// A cache whose missing file reads as null.
+const nullableCache = (t) => {
+  const cache = createWatchedFileCache({
+    load: (path) => {
+      try {
+        return { value: readFileSync(path, 'utf8') };
+      } catch (error) {
+        if (error?.code === 'ENOENT') return { value: null };
+        throw error;
+      }
+    },
+  });
+  t.after(() => cache.close());
+  return cache;
+};
+
+test('a file under a missing directory is followed through its nearest existing ancestor and that one’s parent', async (t) => {
+  const watching = trackWatchers(t);
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-watched-cache-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cache = nullableCache(t);
+  const own = join(dir, 'a', 'b');
+  const path = join(own, 'record.json');
+  assert.equal(cache.get(path), null);
+  assert.deepEqual(watching(), [dirname(dir), dir].sort(), 'the nearest existing ancestor and its parent, nothing above');
+  mkdirSync(own, { recursive: true });
+  writeFileSync(path, 'there');
+  await eventually(() => cache.peek(path) === 'there', { timeoutMs: 3_000 });
+  assert.deepEqual(watching(), [join(dir, 'a'), own].sort(), 'its own directory and its parent; the wait released');
+});
+
+test('the ancestor a missing file waits on, renamed away and recreated with that file, is read afresh', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-watched-cache-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cache = nullableCache(t);
+  const ancestor = join(root, 'anc');
+  mkdirSync(ancestor);
+  const path = join(ancestor, 'missing', 'record.json');
+  assert.equal(cache.get(path), null);
+  // The waiting watch follows the moved folder; only its parent sees the swap.
+  renameSync(ancestor, join(root, 'moved'));
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, 'new');
+  await eventually(() => cache.get(path) === 'new', { timeoutMs: 3_000 });
+});
+
+test('changes reach every cache sharing a watch: in-place writes, atomic replaces and a replaced directory', async (t) => {
+  const opened = recordWatches(t);
+  const one = noticing(t);
+  const two = noticing(t);
+  const sub = join(one.dir, 'sub');
+  mkdirSync(sub);
+  const a = join(sub, 'a.json');
+  const b = join(sub, 'b.json');
+  writeFileSync(a, 'a1');
+  writeFileSync(b, 'b1');
+  one.cache.get(a);
+  two.cache.get(a);
+  two.cache.get(b);
+  const live = () =>
+    opened
+      .filter((entry) => !entry.closed)
+      .map((entry) => entry.dir)
+      .sort();
+  const single = [one.dir, sub].sort();
+  assert.deepEqual(live(), single, 'one watch of the folder and one of its parent for both caches');
+  const seen = (path, value) => [one, two].every(({ cache }) => cache.peek(path) === undefined || cache.peek(path) === value);
+
+  writeFileSync(a, 'a2');
+  await eventually(() => seen(a, 'a2'));
+
+  writeFileSync(`${b}.tmp`, 'b2');
+  renameSync(`${b}.tmp`, b);
+  await eventually(() => two.cache.peek(b) === 'b2');
+
+  renameSync(sub, join(one.dir, 'moved'));
+  mkdirSync(sub);
+  writeFileSync(a, 'a3');
+  writeFileSync(b, 'b3');
+  await eventually(() => seen(a, 'a3') && two.cache.peek(b) === 'b3');
+  await eventually(() => live().join() === single.join());
+
+  // Watched again, on the live folder, by both.
+  writeFileSync(a, 'a4');
+  await eventually(() => seen(a, 'a4'));
+  assert.deepEqual(live(), single);
+});
+
 // `reads.sync`/`reads.async` count loads; `reads.beforeSync(path)` may fail a
 // synchronous one, `reads.before(path)` hold or fail an async one.
 function noticing(t) {
@@ -272,8 +389,8 @@ test('a watcher that errors is closed; its entries wait on the parent and re-rea
   opened[0].watcher.emit('error', new Error('watch lost'));
   assert.deepEqual(
     opened.map((entry) => entry.dir),
-    [sub, dir, dir, dirname(dir)],
-    'the parent is watched as the fallback (with its own parent); the failed directory is not reopened'
+    [sub, dir, dirname(dir)],
+    "the parent's watch, already open, is the fallback and now follows its own parent; the failed directory is not reopened"
   );
   writeFileSync(path, 'during');
   // Unseen by any watch: the read is what asks for it.
@@ -285,7 +402,7 @@ test('a watcher that errors is closed; its entries wait on the parent and re-rea
   writeFileSync(path, 'after');
   await eventually(() => cache.peek(path) === 'after');
   assert.ok(
-    opened.slice(4).some((entry) => entry.dir === sub),
+    opened.slice(3).some((entry) => entry.dir === sub),
     'watched again once its parent named it'
   );
 });

@@ -288,6 +288,61 @@ test('a non-repository folder that becomes one is attached on the `.git` event',
   );
 });
 
+const ancestry = (dir) => (dirname(dir) === dir ? [dir] : [dir, ...ancestry(dirname(dir))]);
+
+test('sessions in a folder outside any repository watch it and each ancestor once, for all of them', (t) => {
+  const cwd = join(sandbox(t), 'a', 'b', 'plain');
+  mkdirSync(cwd, { recursive: true });
+  const opened = fakeWatch(t);
+  const sessions = Array.from({ length: 3 }, () => createGitHeadWatcher({ getCwd: () => cwd, onChange: () => {} }));
+  t.after(() => sessions.forEach((s) => s.dispose()));
+  sessions.forEach((s) => s.retarget());
+  assert.equal(readGitHead(cwd), null);
+  assert.deepEqual(opened.map((handle) => handle.dir).sort(), ancestry(cwd).sort(), 'one watch per directory, none twice');
+});
+
+test('a repository created in an ancestor of a non-repository folder is attached on that ancestor’s `.git` event', async (t) => {
+  const outer = join(sandbox(t), 'outer');
+  const cwd = join(outer, 'inner', 'plain');
+  mkdirSync(cwd, { recursive: true });
+  const opened = fakeWatch(t);
+  let changes = 0;
+  const watcher = createGitHeadWatcher({ getCwd: () => cwd, onChange: () => changes++, debounceMs: 10 });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  assert.equal(readGitHead(cwd), null);
+  repo(dirname(outer), 'outer', 'ref: refs/heads/main\n');
+  // Events naming anything else in that ancestor are not looked at.
+  const ancestor = opened.find((handle) => handle.dir === outer && !handle.closed);
+  ancestor.fire('unrelated.txt');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(changes, 0);
+  ancestor.fire('.git');
+  await settle(() => changes > 0);
+  assert.equal(readGitHead(cwd).branch, 'main');
+});
+
+test('an ancestor watch that is lost follows `.git` again once its parent names it, then hears a `git init` there', async (t) => {
+  const outer = join(sandbox(t), 'outer');
+  const cwd = join(outer, 'inner', 'plain');
+  mkdirSync(cwd, { recursive: true });
+  const opened = fakeWatch(t);
+  t.mock.method(process.stderr, 'write', () => true);
+  let changes = 0;
+  const watcher = createGitHeadWatcher({ getCwd: () => cwd, onChange: () => changes++, debounceMs: 10 });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  const liveOn = (dir) => opened.find((handle) => handle.dir === dir && !handle.closed);
+  liveOn(outer).emit('error', new Error('watch lost'));
+  assert.equal(liveOn(outer), undefined, 'the lost watch is closed and not reopened on its own');
+  liveOn(dirname(outer)).fire('outer');
+  const again = liveOn(outer);
+  assert.ok(again, 'watched again on its parent’s event');
+  repo(dirname(outer), 'outer', 'ref: refs/heads/main\n');
+  again.fire('.git');
+  await settle(() => changes > 0 && readGitHead(cwd)?.branch === 'main');
+});
+
 test('a session moving to another repository releases its reference', (t) => {
   const root = sandbox(t);
   const one = repo(root, 'one', 'ref: refs/heads/main\n');

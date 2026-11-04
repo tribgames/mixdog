@@ -357,6 +357,9 @@ test('creating the flag on disk is reported by the directory watch and enables t
       ),
   });
   t.after(() => profiler.close());
+  // The watch is unref'd: this deadline keeps the process alive for its event.
+  const hold = setTimeout(() => assert.fail('the flag change was never reported'), 5_000);
+  t.after(() => clearTimeout(hold));
   assert.equal(await profiler.tick(), 'disabled');
   flagOn(dataDir);
   await change;

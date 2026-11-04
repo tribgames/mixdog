@@ -12,10 +12,10 @@
 // to be running before the stall it captures, so it cannot wait for one. Every
 // failure is caught and logged once; nothing here may break the telemetry loop.
 
-import { watch } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { watchDirectory } from '../runtime/shared/directory-watch.mjs';
 
 export const LAG_PROFILE_FLAG_FILE = 'lag-profile.on';
 const LAG_PROFILE_DIR_NAME = 'profiles';
@@ -112,14 +112,11 @@ async function createInspectorSession() {
   return session;
 }
 
-/** Calls `onChange` whenever `name` in `dir` is created, changed or removed. */
+/** Calls `onChange` whenever `name` in `dir` is created, changed or removed
+ *  (or an event names nothing: it may be that one), through the process's
+ *  shared watch of `dir`. */
 export function watchDirEntry(dir, name, onChange, onError) {
-  const watcher = watch(dir, { persistent: false }, (_event, changed) => {
-    // Some platforms omit the name; that event may be the flag.
-    if (!changed || String(changed) === name) onChange();
-  });
-  watcher.on('error', onError);
-  return watcher;
+  return watchDirectory(dir, [name], { onEvent: () => onChange(), onLost: onError });
 }
 
 function post(session, method, params = {}) {
