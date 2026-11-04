@@ -115,6 +115,7 @@ export {
 export {
   getSession,
   listSessions,
+  listSessionsAsync,
   findSessionByScopeKey,
   clearSessionMessages,
   rewindSessionMessagesTo,

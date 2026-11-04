@@ -117,7 +117,7 @@ test("a transcript this process never wrote is found through the session's recor
     writeFileSync(siblingPath, '{"type":"user"}\n');
     const records = [record('sess_old', cwd), record('sess_old_sibling', cwd)];
     for (const item of records) writeFileSync(join(home, 'data', 'sessions', `${item.id}.json`), JSON.stringify(item));
-    _writeSummaryIndex(records.map(_sessionSummary).filter(Boolean));
+    await _writeSummaryIndex(records.map(_sessionSummary).filter(Boolean));
     mgr.listSessions();
 
     assert.equal(deleteSession('sess_old'), true);

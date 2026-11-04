@@ -11,9 +11,8 @@ process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
 const { createSession } = await import('../../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
-const { deleteSession, loadSession, listStoredSessionSummaries } = await import(
-  '../../runtime/agent/orchestrator/session/store.mjs'
-);
+const { deleteSession, loadSession } = await import('../../runtime/agent/orchestrator/session/store.mjs');
+const { listStoredSessionSummariesAsync } = await import('../../runtime/agent/orchestrator/session/store/listing.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../runtime/agent/orchestrator/providers/registry.mjs');
 const { createLifecycleApi } = await import('../lifecycle-api.mjs');
 const { listLeadSessions } = await import('./session-catalog.mjs');
@@ -122,7 +121,7 @@ test('inheritToNewSession persists a cold resumable heir and leaves the live ses
       );
 
       // Listed like any other saved Lead session.
-      const summaries = listStoredSessionSummaries({ refreshFromStorage: true });
+      const summaries = await listStoredSessionSummariesAsync({ refreshFromStorage: true });
       const row = listLeadSessions({ listSessions: () => summaries }).find((entry) => entry.id === heirId);
       assert.ok(row);
       assert.equal(row.inheritedFromSessionId, live.id);
@@ -400,7 +399,9 @@ test('a recovered root Lead (agent owner, self-links, agent-only marker) yields 
       assert.equal(stored.inheritedFromSessionId, live.id);
 
       // Listed as an ordinary, user-visible Lead session.
-      const summary = listStoredSessionSummaries({ refreshFromStorage: true }).find((row) => row.id === heirId);
+      const summary = (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).find(
+        (row) => row.id === heirId
+      );
       assert.equal(summary.visibility, 'ordinary');
       const row = listLeadSessions({ listSessions: () => [summary] }).find((entry) => entry.id === heirId);
       assert.ok(row);
@@ -415,7 +416,7 @@ test('a recovered root Lead (agent owner, self-links, agent-only marker) yields 
 test('inheritToNewSession honors compact:true and refuses with the preflight sentence when nothing fits', async () => {
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const created = [];
-    const summaryCount = () => listStoredSessionSummaries({ refreshFromStorage: true }).length;
+    const summaryCount = async () => (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).length;
     const live = openLive(CONVERSATION);
     try {
       // A chosen compaction summarizes even a conversation that fits.
@@ -438,13 +439,13 @@ test('inheritToNewSession honors compact:true and refuses with the preflight sen
       const failing = lifecycleFor(live, async () => {
         throw fault;
       });
-      const beforeRefusal = summaryCount();
+      const beforeRefusal = await summaryCount();
       await assert.rejects(failing.inheritToNewSession(live.id, { compact: true }), (error) => {
         assert.match(error.message, /could not be compacted/);
         assert.equal(error.cause, fault);
         return true;
       });
-      assert.equal(summaryCount(), beforeRefusal);
+      assert.equal(await summaryCount(), beforeRefusal);
     } finally {
       for (const id of created) deleteSession(id);
       deleteSession(live.id);
@@ -469,9 +470,9 @@ test('inheritToNewSession honors compact:true and refuses with the preflight sen
       assert.deepEqual(conversationOf(loadSession(result.sessionId)), [['user', 'Short now.']]);
 
       const refusing = lifecycleFor(huge, async () => ({ messages: [] }));
-      const beforeRefusal = summaryCount();
+      const beforeRefusal = await summaryCount();
       await assert.rejects(refusing.inheritToNewSession(huge.id), { message: inheritanceFitMessage(fit) });
-      assert.equal(summaryCount(), beforeRefusal);
+      assert.equal(await summaryCount(), beforeRefusal);
     } finally {
       for (const id of created) deleteSession(id);
       deleteSession(huge.id);

@@ -5,16 +5,11 @@
  * file. store.mjs re-exports these so
  * importers stay unchanged.
  */
-import { appendFileSync, mkdirSync, truncateSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { appendFile, mkdir, readdir, readFile, stat, truncate, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import {
-  withFileLock,
-  withFileLockSync,
-  writeJsonAtomicAsync,
-  writeJsonAtomicSync,
-} from '../../../shared/atomic-file.mjs';
+import { withFileLock, withFileLockSync, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
 import { applySummaryLogText, encodeSummaryOps, summaryLogPath } from './store-summary-log.mjs';
 import { isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
@@ -373,31 +368,64 @@ export function _normalizeSummaryIndex(raw) {
   return { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: _positiveNumber(raw?.updatedAt, 0), rows };
 }
 
+// Full rewrites of this process run one at a time, in call order: each one
+// takes the index lock only once the previous one has settled.
+let _summaryRewriteChain = Promise.resolve();
+let _summaryRewritesInflight = 0;
+
+/** Rewrites the whole index from `rows`; resolves with the rows written. The
+ *  lock wait and every write are awaited (the base is published by temp file
+ *  and rename), so no part of it blocks the event loop. */
 export function _writeSummaryIndex(rows) {
   const cleanRows = (rows || [])
     .map(_normalizeSummaryRow)
     .filter(Boolean)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // Fixed at the call: a data-dir switch while it waits never redirects it.
+  const path = summaryIndexPath();
+  _summaryRewritesInflight++;
   // A full rewrite is authoritative: the delta log is emptied under the same
   // lock, or its older ops would replay over the fresh base.
-  const path = summaryIndexPath();
-  withFileLockSync(`${path}.lock`, () => {
-    writeJsonAtomicSync(
-      path,
-      {
-        version: SESSION_SUMMARY_INDEX_VERSION,
-        updatedAt: Date.now(),
-        rows: cleanRows,
-      },
-      { compact: true, lock: false }
-    );
-    try {
-      truncateSync(summaryLogPath(path), 0);
-    } catch {
-      /* no log yet */
-    }
-  });
-  return cleanRows;
+  const write = _summaryRewriteChain.then(() =>
+    withFileLock(`${path}.lock`, async () => {
+      await writeJsonAtomicAsync(
+        path,
+        { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: Date.now(), rows: cleanRows },
+        { compact: true, lock: false }
+      );
+      try {
+        await truncate(summaryLogPath(path), 0);
+      } catch {
+        /* no log yet */
+      }
+    })
+  );
+  _summaryRewriteChain = write.catch(() => {});
+  return write
+    .then(() => cleanRows)
+    .finally(() => {
+      _summaryRewritesInflight--;
+      _notifySummarySettled();
+    });
+}
+
+// A storage refresh holds this process's delta appends from before its scan
+// until its rewrite has landed: an op queued meanwhile describes a write the
+// scan may have missed, so it is appended over the new base, never truncated
+// away under it. Held ops stay queued; the flush runs when the last hold ends.
+let _summaryAppendHolds = 0;
+
+/** Holds the delta appends; returns the release (idempotent). */
+export function _holdSummaryAppends() {
+  _summaryAppendHolds++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _summaryAppendHolds--;
+    if (_summaryAppendHolds === 0) _scheduleSummaryFlush();
+    _notifySummarySettled();
+  };
 }
 
 // ── Non-blocking upsert/remove ──────────────────────────────────────────────
@@ -425,7 +453,13 @@ const _inflightSummaryIds = new Set();
 const _summarySettleWaiters = new Set(); // { ids: string[]|null, resolve }
 
 export function _hasUnsettledSummaryOps() {
-  return _pendingUpserts.size > 0 || _pendingRemovals.size > 0 || _summaryFlushScheduled || _summaryFlushInflight > 0;
+  return (
+    _pendingUpserts.size > 0 ||
+    _pendingRemovals.size > 0 ||
+    _summaryFlushScheduled ||
+    _summaryFlushInflight > 0 ||
+    _summaryRewritesInflight > 0
+  );
 }
 
 /** The ids among `ids` whose summary ops are queued or being written. */
@@ -490,7 +524,8 @@ function _scheduleSummaryRetry() {
 function _scheduleSummaryFlush() {
   // A scheduled retry will write whatever is pending; a flush in flight
   // schedules one follow-up when it settles. Either way, don't start another.
-  if (_summaryFlushScheduled || _summaryRetryTimer || _summaryFlushInflight > 0) return;
+  // Held appends: the release schedules the flush.
+  if (_summaryFlushScheduled || _summaryRetryTimer || _summaryFlushInflight > 0 || _summaryAppendHolds > 0) return;
   _summaryFlushScheduled = true;
   setImmediate(() => {
     _summaryFlushScheduled = false;
@@ -503,7 +538,7 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
   if (_pendingUpserts.size === 0 && _pendingRemovals.size === 0) return;
   // One async flush in flight per process; ops queued meanwhile stay pending
   // and are drained by the follow-up flush scheduled when it settles.
-  if (!sync && _summaryFlushInflight > 0) return;
+  if (!sync && (_summaryFlushInflight > 0 || _summaryAppendHolds > 0)) return;
   // Snapshot + clear first: ops queued by other callers DURING the flush
   // must not be lost, and a failed flush re-queues only what it took
   // (without clobbering anything newer queued meanwhile).

@@ -82,12 +82,13 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       if (options.includeAgentOnly === true) {
         // Agent discovery is metadata-only. Exact session reads/subscriptions
         // keep using the canonical session id after the user opens a worker.
-        const store = await import('../runtime/agent/orchestrator/session/store.mjs');
-        const summaries = store.listStoredSessionSummaries({
+        // The store's own rows (parent links included), every read awaited.
+        const listing = await import('../runtime/agent/orchestrator/session/store/listing.mjs');
+        const summaries = await listing.listStoredSessionSummariesAsync({
           refreshFromStorage: options.refreshFromStorage === true,
         });
         const viewStore = await desktopRuntime.loadSessionStore();
-        const links = viewStore.listStoredAgentWorkerLinks?.() || [];
+        const links = (await viewStore.listStoredAgentWorkerLinksAsync?.()) || [];
         if (!links.length) return summaries;
         const linksById = new Map(links.map((link) => [link.sessionId, link]));
         return summaries.map((row) => {
@@ -107,10 +108,8 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
         return { ...listed, sessions: await withRuntimeActivity(listed.sessions) };
       }
       // The async listing may answer from the session catalog DB.
-      const rows = store.listStoredSessionSummariesAsync
-        ? await store.listStoredSessionSummariesAsync({ refreshFromStorage })
-        : store.listStoredSessionSummaries({ refreshFromStorage });
-      return withRuntimeActivity(rows);
+      // The async listing may answer from the session catalog DB.
+      return withRuntimeActivity(await store.listStoredSessionSummariesAsync({ refreshFromStorage }));
     },
   };
 }

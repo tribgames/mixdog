@@ -11,7 +11,8 @@ process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
 const { createSession } = await import('../manager/session-lifecycle.mjs');
-const { deleteSession, loadSession, listStoredSessionSummaries, _normalizeSummaryIndex } = await import('../store.mjs');
+const { deleteSession, loadSession, _normalizeSummaryIndex } = await import('../store.mjs');
+const { listStoredSessionSummariesAsync } = await import('../store/listing.mjs');
 const { normalizedRow } = await import('../store-summary-catalog.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
 const { modelToolSchemaAllowlist } = await import('../../runtime-core/tool-profile.mjs');
@@ -171,7 +172,9 @@ test('an imported session is a normal Lead session with its system layer followe
       assert.ok(stored.bp3CoreContext !== undefined);
 
       // Every summary projection carries the import key.
-      const summary = listStoredSessionSummaries({ refreshFromStorage: true }).find((row) => row.id === created.id);
+      const summary = (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).find(
+        (row) => row.id === created.id
+      );
       assert.equal(summary.importKey, origin.key);
       assert.equal(_normalizeSummaryIndex({ rows: [summary] }).rows[0].importKey, origin.key);
       assert.equal(normalizedRow(stored).importKey, origin.key);

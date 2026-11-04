@@ -63,7 +63,7 @@ test('an index-updating writer: create, rewrite and delete show on the next call
   unlinkSync(fileOf('indexed_c'));
   appendLog([], ['indexed_c']);
   assert.equal(view().indexed_c, undefined);
-  assertMatchesStorage();
+  await assertMatchesStorage();
 
   // The store flushes the index row after the rename: until it lands, the
   // name is unchanged and the previous row stands; the row then refreshes it
@@ -89,7 +89,7 @@ test('a namespace change re-stats only the names that appeared', async (t) => {
   unlinkSync(fileOf('plain_g'));
   assert.equal(view().plain_g, undefined);
   assert.equal(counts.sessionFileStats.size, 0, 'a vanished name is dropped without a stat');
-  assertMatchesStorage();
+  await assertMatchesStorage();
 });
 
 test('a writer that never updates the index: create and delete at once, replacements by the background pass', async (t) => {
@@ -116,7 +116,7 @@ test('a writer that never updates the index: create and delete at once, replacem
   counts.sessionFileStats.clear();
   assert.deepEqual(view(), { indexed_a: '|alpha three', plain_b: '|bravo two' });
   assert.deepEqual([...counts.sessionFileStats].sort(), [fileOf('indexed_a'), fileOf('plain_b')]);
-  assertMatchesStorage();
+  await assertMatchesStorage();
 });
 
 test('the background pass sees a same-size replacement with a preserved mtime', async () => {
@@ -151,7 +151,7 @@ test('an indexed session replaced at equal length with a preserved mtime is re-r
     await verifyStoredSessionCatalog();
     assert.equal(notified, 1);
     assert.equal(view().indexed_i, '|bbbb', 'the index row still matches size + mtime, but the file wins');
-    assertMatchesStorage();
+    await assertMatchesStorage();
     await verifyStoredSessionCatalog();
     assert.equal(notified, 1, 'a later pass stays quiet');
     assert.equal(view().indexed_i, '|bbbb');

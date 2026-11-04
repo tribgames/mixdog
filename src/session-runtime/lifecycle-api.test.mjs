@@ -173,7 +173,7 @@ test('resume binds the session to the runtime MCP registry scope', async () => {
   assert.equal(receivedOptions?.mcpScopeId, 'runtime-scope-1234');
 });
 
-test('lifecycle listSessions preserves child classification without hiding their records', () => {
+test('lifecycle listSessions preserves child classification without hiding their records', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-lifecycle-visibility-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -228,14 +228,14 @@ test('lifecycle listSessions preserves child classification without hiding their
     ];
     const api = createLifecycleApi({
       mgr: {
-        listSessions(options) {
+        async listSessionsAsync(options) {
           calls.push(options);
           return rows;
         },
       },
     });
 
-    const listed = api.listSessions({ refreshFromStorage: true });
+    const listed = await api.listSessions({ refreshFromStorage: true });
     assert.deepEqual(
       listed.map((row) => row.id),
       ['ordinary-user', 'ordinary-schedule', 'explicit-child', 'legacy-child', 'root-lead', 'self-parent-lead']

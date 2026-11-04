@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { encodeSummaryOps } from './store-summary-log.mjs';
-import { listStoredSessionSummaries } from './store-summary-reader.mjs';
+import { listStoredSessionSummaries, listStoredSessionSummariesAsync } from './store-summary-reader.mjs';
 
 const roots = [];
 let root = '';
@@ -100,16 +100,17 @@ export const view = (rows = list()) => Object.fromEntries(rows.map((row) => [row
 /** The authoritative refresh parses every file, so it agrees with the
  *  ordinary catalog on which sessions exist and what they show, not on
  *  index-only titles. */
-export function assertMatchesStorage() {
+export async function assertMatchesStorage() {
   const previews = (rows) => Object.fromEntries(rows.map((row) => [row.id, row.preview]));
-  assert.deepEqual(previews(list()), previews(listStoredSessionSummaries({ refreshFromStorage: true })));
+  assert.deepEqual(previews(list()), previews(await listStoredSessionSummariesAsync({ refreshFromStorage: true })));
 }
 
 /** A directory stamp younger than the racy window is never trusted; wait it
  *  out so the following calls exercise the stamp-keyed path. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 2_100));
 
-/** Counts the filesystem work the reader does; `failing` paths throw EACCES
+/** Counts the filesystem work the reader does (blocking and awaited stats,
+ *  listings and reads); `failing` paths throw EACCES
  *  on every call, `failingReads` paths on reads only (a stat still works). */
 export function spyFs(t, failing = new Set(), failingReads = new Set()) {
   const counts = { stats: 0, sessionFileStats: new Set(), readdirs: 0, reads: 0, asyncStats: 0 };
@@ -118,6 +119,8 @@ export function spyFs(t, failing = new Set(), failingReads = new Set()) {
     readdirSync: fs.readdirSync,
     readFileSync: fs.readFileSync,
     stat: fsp.stat,
+    readdir: fsp.readdir,
+    readFile: fsp.readFile,
   };
   const denied = (path) => {
     if (!failing.has(String(path))) return;
@@ -146,12 +149,26 @@ export function spyFs(t, failing = new Set(), failingReads = new Set()) {
     denied(path);
     return original.stat.call(this, path, ...rest);
   };
+  // The storage refresh awaits its listings and reads: counted and failed
+  // like the blocking calls.
+  fsp.readdir = async function (...args) {
+    counts.readdirs++;
+    return original.readdir.apply(this, args);
+  };
+  fsp.readFile = async function (path, ...rest) {
+    counts.reads++;
+    denied(path);
+    if (failingReads.has(String(path))) throw Object.assign(new Error(`EIO: ${path}`), { code: 'EIO' });
+    return original.readFile.call(this, path, ...rest);
+  };
   syncBuiltinESMExports();
   t.after(() => {
     fs.statSync = original.statSync;
     fs.readdirSync = original.readdirSync;
     fs.readFileSync = original.readFileSync;
     fsp.stat = original.stat;
+    fsp.readdir = original.readdir;
+    fsp.readFile = original.readFile;
     syncBuiltinESMExports();
   });
   return counts;

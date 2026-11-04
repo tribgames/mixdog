@@ -70,12 +70,12 @@ const child = (id, ownerId) => ({
 
 /** Persist records and a summary index describing `indexed` (which may claim
  *  more than the files prove). Earlier tests leave deferred summary-index
- *  flushes running, and a synchronous index write collides with their lock, so
+ *  flushes running, and their appends would land over the reseeded base, so
  *  the writer is quiescent before reseeding. */
 async function seed(root, records, indexed = records) {
   await settleSummaryIndexWrites();
   for (const record of records) writeFileSync(fileOf(root, record.id), JSON.stringify(record));
-  _writeSummaryIndex(indexed.map(_sessionSummary).filter(Boolean));
+  await _writeSummaryIndex(indexed.map(_sessionSummary).filter(Boolean));
 }
 
 function makeApi({ currentId = 'someone_else', agentTool = {} } = {}) {
@@ -387,7 +387,7 @@ test('a deleted session whose turn is still running is not recreated when the tu
 
     assert.equal(existsSync(fileOf(root, live.id)), false, 'the settling turn must not rewrite the record');
     assert.equal(
-      mgr.listSessions({ refreshFromStorage: true }).some((row) => row.id === live.id),
+      (await mgr.listSessionsAsync({ refreshFromStorage: true })).some((row) => row.id === live.id),
       false
     );
     assert.equal(leadRows().length, 0, 'no lead-workers row is recreated');

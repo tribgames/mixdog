@@ -271,7 +271,16 @@ function workerRows(parsed) {
 /** Lightweight ancestry seam used to migrate pre-parentSessionId summary
  * rows. It reads only agent-workers.json and never opens session transcripts. */
 export function listStoredAgentWorkerLinks() {
-  return storedAgentWorkerIndexRows()
+  return workerLinks(storedAgentWorkerIndexRows());
+}
+
+/** listStoredAgentWorkerLinks with the index stat and read awaited. */
+export async function listStoredAgentWorkerLinksAsync() {
+  return workerLinks(workerRows(await readWorkerIndexFileAsync(storedAgentWorkerIndexPath())));
+}
+
+function workerLinks(rows) {
+  return rows
     .map((row) => {
       if (!row || typeof row !== 'object') return null;
       const sessionId = cleanValue(row.sessionId);

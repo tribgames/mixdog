@@ -9,7 +9,7 @@
  * Absence is a fact; a failed probe is an unknown, and an unknown may never
  * authorize a deletion or a fallback.
  */
-import { readFileSync, statSync } from 'node:fs';
+import { runFsStepsAsync, runFsStepsSync } from './fs-steps.mjs';
 
 export const PROBE_PRESENT = 'present';
 export const PROBE_ABSENT = 'absent';
@@ -31,21 +31,49 @@ function _failureVerdict(err) {
  * present / absent / unreadable.
  */
 export function probePath(path) {
+  return runFsStepsSync(probePathStep(path));
+}
+
+/** `probePath` with the stat awaited. */
+export function probePathAsync(path) {
+  return runFsStepsAsync(probePathStep(path));
+}
+
+/** `probePath` as a store-read step (store/fs-steps.mjs). */
+export function* probePathStep(path) {
   try {
-    const info = statSync(path);
-    return {
-      state: PROBE_PRESENT,
-      mtimeMs: info.mtimeMs || 0,
-      ctimeMs: info.ctimeMs,
-      size: info.size,
-      ino: info.ino,
-      dev: info.dev,
-      code: null,
-    };
+    return _presentProbe(yield ['stat', path]);
+  } catch (err) {
+    return _failedProbe(err);
+  }
+}
+
+/** `readTextFile` (or, with `bytes`, `readBytesFile`) as a store-read step. */
+export function* readFileStep(path, bytes = false) {
+  try {
+    const data = yield ['readFile', path, bytes ? undefined : 'utf8'];
+    return bytes ? { state: PROBE_PRESENT, bytes: data, code: null } : { state: PROBE_PRESENT, text: data, code: null };
   } catch (err) {
     const { state, code } = _failureVerdict(err);
-    return { state, mtimeMs: 0, size: 0, code };
+    return bytes ? { state, bytes: Buffer.alloc(0), code } : { state, text: '', code };
   }
+}
+
+function _presentProbe(info) {
+  return {
+    state: PROBE_PRESENT,
+    mtimeMs: info.mtimeMs || 0,
+    ctimeMs: info.ctimeMs,
+    size: info.size,
+    ino: info.ino,
+    dev: info.dev,
+    code: null,
+  };
+}
+
+function _failedProbe(err) {
+  const { state, code } = _failureVerdict(err);
+  return { state, mtimeMs: 0, size: 0, code };
 }
 
 /**
@@ -56,20 +84,10 @@ export function probePath(path) {
  * it already had instead of treating the content as missing.
  */
 export function readTextFile(path) {
-  try {
-    return { state: PROBE_PRESENT, text: readFileSync(path, 'utf8'), code: null };
-  } catch (err) {
-    const { state, code } = _failureVerdict(err);
-    return { state, text: '', code };
-  }
+  return runFsStepsSync(readFileStep(path));
 }
 
 /** `readTextFile` with the raw bytes (`bytes`, a Buffer) instead of text. */
 export function readBytesFile(path) {
-  try {
-    return { state: PROBE_PRESENT, bytes: readFileSync(path), code: null };
-  } catch (err) {
-    const { state, code } = _failureVerdict(err);
-    return { state, bytes: Buffer.alloc(0), code };
-  }
+  return runFsStepsSync(readFileStep(path, true));
 }

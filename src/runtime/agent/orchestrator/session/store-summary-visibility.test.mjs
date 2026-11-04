@@ -9,10 +9,11 @@ import {
   listStoredAgentWorkerLinks,
   listStoredAgentWorkers,
   listStoredSessionSummaries as listOrdinarySummaries,
+  listStoredSessionSummariesAsync as listOrdinarySummariesAsync,
   readStoredSessionTranscript,
   storedSessionExists,
 } from './store-summary-reader.mjs';
-import { listStoredSessions, listStoredSessionSummaries as listInternalSummaries } from './store/listing.mjs';
+import { listStoredSessions, listStoredSessionSummariesAsync as listInternalSummaries } from './store/listing.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { createTurnCheckpointRecorder, settleTurnCheckpointWrites } from './manager/turn-checkpoint.mjs';
 import { agentDescendantIds, agentParentIds } from './store-summary-visibility.mjs';
@@ -240,7 +241,7 @@ test('catalogs expose agent sessions while preserving their presentation classif
       expectedOrdinaryIds
     );
     assert.deepEqual(
-      listOrdinarySummaries({ refreshFromStorage: true })
+      (await listOrdinarySummariesAsync({ refreshFromStorage: true }))
         .map((row) => row.id)
         .sort(),
       expectedOrdinaryIds
@@ -258,7 +259,7 @@ test('catalogs expose agent sessions while preserving their presentation classif
       records.map((row) => row.id).sort()
     );
 
-    const internal = listInternalSummaries({ refreshFromStorage: true });
+    const internal = await listInternalSummaries({ refreshFromStorage: true });
     assert.deepEqual(internal.map((row) => row.id).sort(), records.map((row) => row.id).sort());
     assert.equal(internal.find((row) => row.id === 'declared-child')?.visibility, 'agent-only');
     assert.equal(internal.find((row) => row.id === 'legacy-child')?.visibility, 'agent-only');

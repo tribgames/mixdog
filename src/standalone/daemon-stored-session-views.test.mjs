@@ -15,10 +15,6 @@ import { endBotWork, noteBotWork } from '../runtime/shared/bot-owned-work.mjs';
 function views() {
   const calls = [];
   const store = {
-    listStoredSessionSummaries: (options) => {
-      calls.push(['sync', options]);
-      return [{ id: 'sync' }];
-    },
     listStoredSessionSummariesAsync: async (options) => {
       calls.push(['async', options]);
       return [{ id: 'async' }];
