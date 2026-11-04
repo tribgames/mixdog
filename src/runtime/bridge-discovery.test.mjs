@@ -12,6 +12,7 @@ import {
   readBridgeDiscovery,
   readBridgeDiscoveryFresh,
 } from './bridge-discovery.mjs';
+import { holdNextRead } from './bridge-discovery.test-support.mjs';
 import { _resetWatchedFileCachesForTest } from './shared/watched-file-cache.mjs';
 import { eventually, settle, spySyncFs } from './shared/watched-file-cache.test-helpers.mjs';
 
@@ -42,33 +43,6 @@ test('a fresh read that cannot parse the advertisement answers the last good one
   writeFileSync(path, '{"version":1,');
   assert.equal(await freshPort(), 4000, 'a half-written file is no missing advertisement');
 });
-
-// The next read of `path` sees its bytes at once and returns them only on
-// `release()`; `reached` resolves once it has read them.
-function holdNextRead(t, path) {
-  const readFile = fsp.readFile;
-  let holdNext = true;
-  let release;
-  const held = new Promise((resolve) => {
-    release = resolve;
-  });
-  let reachedRead;
-  const reached = new Promise((resolve) => {
-    reachedRead = resolve;
-  });
-  t.mock.method(fsp, 'readFile', async (target, ...rest) => {
-    const text = await readFile(target, ...rest);
-    if (holdNext && String(target) === path) {
-      holdNext = false;
-      reachedRead();
-      await held;
-    }
-    return text;
-  });
-  syncBuiltinESMExports();
-  t.after(() => syncBuiltinESMExports());
-  return { reached, release };
-}
 
 test('a fresh read overtaken by a newer one answers the newer endpoint and keeps it cached', async (t) => {
   const { publish, path } = discoveryFixture(t);

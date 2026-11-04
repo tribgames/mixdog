@@ -48,6 +48,9 @@ export function isReplaySafeComputerCommand(command) {
   return computerActionHas(String(command?.action || ''), 'replaySafe');
 }
 const activeComputerSessions = new Set();
+// sessionId -> { timer, dueAt, holders, dispatched }: the idle release. A
+// command holds it (its timer stopped) from its call until it dispatches or
+// ends without (holdDeferredComputerSessionRelease).
 const deferredComputerSessionReleases = new Map();
 const pendingComputerSessionReleases = new Map();
 // Every session that reached the host owns a worker there, including read-only
@@ -145,13 +148,14 @@ async function refusalWithRecapture(message, args, context) {
   };
 }
 
-// A previous session release must be confirmed before new input goes out.
+// A previous session release must be confirmed before new input goes out:
+// the one in flight now, else `releaseAtCall`, the one in flight when the
+// command was asked for (it may have settled and been forgotten since).
 // Returns the error result that ends the call, or null to proceed.
-async function awaitPendingSessionRelease(sessionId, args, context) {
-  cancelDeferredComputerSessionRelease(sessionId);
+async function awaitPendingSessionRelease(sessionId, releaseAtCall, args, context) {
   try {
     const released = await waitForComputerRelease(
-      pendingComputerSessionReleases.get(sessionId)?.promise,
+      pendingComputerSessionReleases.get(sessionId)?.promise ?? releaseAtCall,
       context.signal
     );
     if (!released) {
@@ -269,6 +273,22 @@ export async function executeComputerTool(rawArgs, context = {}) {
 }
 
 async function executeComputerToolInner(rawArgs, context, note) {
+  const sessionId = context?.sessionId ? String(context.sessionId) : '';
+  // Taken before the discovery read below, which lets timers and replies run:
+  // an idle release must not come due under this command, and a release in
+  // flight now must still gate it if it fails before the read answers. A
+  // command that ends without dispatching leaves the idle release as it was.
+  const idleRelease = holdDeferredComputerSessionRelease(sessionId);
+  const releaseAtCall = pendingComputerSessionReleases.get(sessionId)?.promise;
+  const dispatch = { sent: false };
+  try {
+    return await dispatchComputerCommand(rawArgs, context, note, sessionId, releaseAtCall, dispatch);
+  } finally {
+    settleDeferredComputerSessionReleaseHold(sessionId, idleRelease, dispatch.sent);
+  }
+}
+
+async function dispatchComputerCommand(rawArgs, context, note, sessionId, releaseAtCall, dispatch) {
   const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
   if (!discovery) return computerErrorResult(`Error: ${BRIDGE_UNAVAILABLE_MESSAGE}`);
   // Resolve the argument shape once so validation, host translation, and the
@@ -277,7 +297,6 @@ async function executeComputerToolInner(rawArgs, context, note) {
   const validationError = validateComputerToolArgs(args);
   if (validationError) return computerErrorResult(`Error: ${validationError}`);
   let command = toComputerHostCommand(args);
-  const sessionId = context?.sessionId ? String(context.sessionId) : '';
   const fallback = await linuxCaptureFallback({ command });
   if (fallback) {
     command = fallback.command;
@@ -306,7 +325,7 @@ async function executeComputerToolInner(rawArgs, context, note) {
       toolMeta: { code: notReady.code, missing: [...new Set(notReady.missing.map((item) => item.capability))] },
     };
   }
-  const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
+  const releaseError = await awaitPendingSessionRelease(sessionId, releaseAtCall, args, context);
   if (releaseError) return releaseError;
   if (savedLoginTurn) {
     const ownerError = await savedLoginOwnerError(discovery, sessionId, args, context);
@@ -316,6 +335,9 @@ async function executeComputerToolInner(rawArgs, context, note) {
   // Recorded before the request leaves: the fill may arm its protection even
   // when its reply is lost, so the turn's settlement is owed regardless.
   if (savedLoginTurn) savedLoginTurns.set(sessionId, Math.max(savedLoginTurns.get(sessionId) || 0, savedLoginTurn));
+  // From here the command owns the session: the turn's settlement arms its
+  // next idle release.
+  dispatch.sent = true;
   const posted = await postWithBridgeRecovery(discovery, command, encoded, sessionId, context);
   if (!posted.response) return posted;
   const { bridge, response } = posted;
@@ -604,11 +626,50 @@ function attachSavedLoginOwner(discovery, signal) {
 function cancelDeferredComputerSessionRelease(sessionId) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
-  const timer = deferredComputerSessionReleases.get(id);
-  if (!timer) return false;
-  clearTimeout(timer);
+  const entry = deferredComputerSessionReleases.get(id);
+  if (!entry) return false;
+  clearTimeout(entry.timer);
   deferredComputerSessionReleases.delete(id);
   return true;
+}
+
+/** A command's hold on the session's idle release: its timer stops until the
+ *  last holder settles it. null when none is armed. */
+function holdDeferredComputerSessionRelease(id) {
+  const entry = id ? deferredComputerSessionReleases.get(id) : undefined;
+  if (!entry) return null;
+  clearTimeout(entry.timer);
+  entry.timer = null;
+  entry.holders += 1;
+  return entry;
+}
+
+/** Ends a hold. Once no command holds it, a release some command dispatched
+ *  under is gone (as when the command cancelled it), else it is armed again
+ *  for the moment it was due. A release cancelled or re-armed meanwhile is
+ *  left to whoever did that. */
+function settleDeferredComputerSessionReleaseHold(id, entry, dispatched) {
+  if (!entry || deferredComputerSessionReleases.get(id) !== entry) return;
+  entry.dispatched ||= dispatched;
+  entry.holders -= 1;
+  if (entry.holders > 0) return;
+  if (entry.dispatched) deferredComputerSessionReleases.delete(id);
+  else armDeferredComputerSessionRelease(id, entry.dueAt);
+}
+
+function armDeferredComputerSessionRelease(id, dueAt) {
+  const entry = { timer: null, dueAt, holders: 0, dispatched: false };
+  entry.timer = setTimeout(
+    () => {
+      deferredComputerSessionReleases.delete(id);
+      // A release already in flight is this idle cleanup's outcome too.
+      if (pendingComputerSessionReleases.has(id)) return;
+      void startComputerSessionRelease(id, SESSION_RELEASE_TIMEOUT_MS, true).catch(() => false);
+    },
+    Math.max(1, dueAt - Date.now())
+  );
+  entry.timer.unref?.();
+  deferredComputerSessionReleases.set(id, entry);
 }
 
 /** A caller can stop waiting without cancelling or duplicating the old cleanup. */
@@ -640,14 +701,7 @@ export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSIO
   // anyway would only raise a no-op cleanup on the desktop every turn.
   if (!hostBoundComputerSessions.has(id) && !activeComputerSessions.has(id)) return false;
   const delay = Math.max(1, Number(delayMs) || DEFERRED_SESSION_RELEASE_MS);
-  const timer = setTimeout(() => {
-    deferredComputerSessionReleases.delete(id);
-    // A release already in flight is this idle cleanup's outcome too.
-    if (pendingComputerSessionReleases.has(id)) return;
-    void startComputerSessionRelease(id, SESSION_RELEASE_TIMEOUT_MS, true).catch(() => false);
-  }, delay);
-  timer.unref?.();
-  deferredComputerSessionReleases.set(id, timer);
+  armDeferredComputerSessionRelease(id, Date.now() + delay);
   return true;
 }
 

@@ -34,7 +34,14 @@ const MAX_TEXT_CHARS = 250_000;
 const MAX_IMAGE_BASE64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4;
 const MAX_FILE_BASE64_CHARS = Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4;
 const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
+/** sessionId -> Map(turnId -> turn). `bridge` is the bridge the turn's start
+ *  or a command of it last went to (null until one did), which its end goes
+ *  to; `reads` the fresh discovery reads of those still out; `finishing` is
+ *  set once its end began (nothing of the turn is asked for after that) and
+ *  `done` once that end settled. A done turn is dropped at the session's next
+ *  turn start. */
 const browserTurns = new Map();
+const BROWSER_TURN_FINISHED = 'browser turn already finished; the command was not sent';
 /** Sessions that have issued a browser command; only they have turn
  *  boundaries worth telling the desktop. */
 const browserSessions = new Set();
@@ -45,10 +52,12 @@ const browserSessions = new Set();
  *  A session that never used the browser has nothing to tell the desktop (its
  *  first command marks it live there). */
 export async function beginBrowserTurn(sessionId, turnId) {
-  if (!browserSessions.has(sessionId)) return;
-  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
-  if (!discovery || !(turnId > 0)) return;
-  rememberBrowserTurn(sessionId, turnId, discovery);
+  dropDoneBrowserTurns(sessionId);
+  if (!browserSessions.has(sessionId) || !(turnId > 0) || browserTurnFinishing(sessionId, turnId)) return;
+  const read = readBridgeDiscoveryFresh(DISCOVERY_FILE);
+  const turn = openBrowserTurnRead(sessionId, turnId, read);
+  const discovery = await read;
+  if (!settleBrowserTurnRead(sessionId, turnId, turn, read, discovery)) return;
   const result = await requestBridgeWithin(
     discovery,
     JSON.stringify({ action: 'begin_turn', session_id: sessionId, turn_id: turnId }),
@@ -72,24 +81,76 @@ export function forgetBrowserSession(sessionId) {
 /** Terminal lifecycle cleanup uses the exact bridge that owned this turn.
  * It is never retried after dispatch and never inherits the cancelled tool signal. */
 export async function finishBrowserTurn(sessionId, turnId, { aborted = false } = {}) {
-  const turns = browserTurns.get(sessionId);
-  const discovery = turns?.get(turnId);
-  if (!discovery) return;
-  turns.delete(turnId);
-  if (!turns.size) browserTurns.delete(sessionId);
-  const result = await requestBridgeWithin(
-    discovery,
-    JSON.stringify({
-      action: 'finish_turn',
-      session_id: sessionId,
-      turn_id: turnId,
-      // A turn that ended well may still be continued by the next message,
-      // so its pages stay; only an aborted run reclaims them.
-      aborted: aborted === true,
-    }),
-    undefined,
-    { sessionId, turnId, action: 'finish_turn' }
+  const turn = browserTurns.get(sessionId)?.get(turnId);
+  if (!turn || turn.finishing) return;
+  turn.finishing = true;
+  // Every read still out is a command (or the start) of this turn, asked for
+  // before its end: those go first, within one bounded wait.
+  const readWait = bridgeDeadline(undefined, REQUEST_TIMEOUT_MS);
+  let readsTimedOut = null;
+  try {
+    await settledWithin(Promise.allSettled([...turn.reads]), readWait.signal);
+  } catch (error) {
+    readsTimedOut = error;
+  } finally {
+    readWait.stop();
+  }
+  // From here no read of the turn that answers late sends anything.
+  turn.done = true;
+  if (!readsTimedOut) {
+    await sendFinishTurn(sessionId, turnId, turn.bridge, aborted);
+    return;
+  }
+  // A read that never answered does not cost the known bridge its cleanup;
+  // the caller still learns the wait timed out, and what became of the end.
+  let cleanup = 'none';
+  let cause = readsTimedOut;
+  if (turn.bridge) {
+    try {
+      await sendFinishTurn(sessionId, turnId, turn.bridge, aborted);
+      cleanup = 'sent';
+    } catch (error) {
+      cleanup = 'failed';
+      cause = error;
+    }
+  }
+  throw Object.assign(
+    new Error(
+      `Browser task cleanup: the turn's discovery reads did not answer within ${REQUEST_TIMEOUT_MS}ms; ` +
+        (cleanup === 'sent'
+          ? 'finish_turn was sent to the bridge the turn reached'
+          : cleanup === 'failed'
+            ? `finish_turn failed: ${cause?.message || cause}`
+            : 'no bridge was reached, nothing was sent'),
+      { cause }
+    ),
+    { name: 'TimeoutError', cleanup }
   );
+}
+
+/** `finish_turn` to `bridge` under its own deadline; none (null) sends nothing. */
+async function sendFinishTurn(sessionId, turnId, bridge, aborted) {
+  if (!bridge) return;
+  const deadline = bridgeDeadline(undefined, REQUEST_TIMEOUT_MS);
+  let result;
+  try {
+    result = await requestBridge(
+      bridge,
+      JSON.stringify({
+        action: 'finish_turn',
+        session_id: sessionId,
+        turn_id: turnId,
+        // A turn that ended well may still be continued by the next message,
+        // so its pages stay; only an aborted run reclaims them.
+        aborted: aborted === true,
+      }),
+      deadline.signal,
+      { sessionId, turnId, action: 'finish_turn' },
+      deadline.touch
+    );
+  } finally {
+    deadline.stop();
+  }
   if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
     throw new Error(
       `Browser task cleanup failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected cleanup'}`
@@ -151,11 +212,66 @@ export function browserBridgeAvailableSync() {
   return readBridgeDiscovery(DISCOVERY_FILE) !== null;
 }
 
-function rememberBrowserTurn(sessionId, turnId, discovery) {
-  if (!turnId) return;
+function browserTurnFinishing(sessionId, turnId) {
+  return browserTurns.get(sessionId)?.get(turnId)?.finishing === true;
+}
+
+/** Registers `read`, a fresh discovery read for the turn's start or a command
+ *  of it, when it is asked for: a turn ended or a session forgotten while it
+ *  is out still sees it. No turn (0): null. */
+function openBrowserTurnRead(sessionId, turnId, read) {
+  if (!turnId) return null;
   const turns = browserTurns.get(sessionId) ?? new Map();
-  turns.set(turnId, discovery);
+  let turn = turns.get(turnId);
+  if (!turn) {
+    turn = { bridge: null, reads: new Set(), finishing: false, done: false };
+    turns.set(turnId, turn);
+  }
+  turn.reads.add(read);
   browserTurns.set(sessionId, turns);
+  return turn;
+}
+
+/** `read` answered `discovery`. True when the request may go out: there is a
+ *  bridge and the turn's end has not settled meanwhile (an end still waiting
+ *  on this read lets it go first). The turn keeps the bridge it last went to;
+ *  one no request of it ever reached is not the desktop's to end. */
+function settleBrowserTurnRead(sessionId, turnId, turn, read, discovery) {
+  if (!turn) return Boolean(discovery);
+  turn.reads.delete(read);
+  if (turn.done) return false;
+  if (discovery) {
+    turn.bridge = discovery;
+    return true;
+  }
+  if (!turn.bridge && !turn.reads.size && !turn.finishing) {
+    const turns = browserTurns.get(sessionId);
+    if (turns?.get(turnId) === turn) {
+      turns.delete(turnId);
+      if (!turns.size) browserTurns.delete(sessionId);
+    }
+  }
+  return false;
+}
+
+function dropDoneBrowserTurns(sessionId) {
+  const turns = browserTurns.get(sessionId);
+  if (!turns) return;
+  for (const [turnId, turn] of turns) if (turn.done) turns.delete(turnId);
+  if (!turns.size) browserTurns.delete(sessionId);
+}
+
+/** `promise`, or `signal`'s reason once it aborts first. */
+function settledWithin(promise, signal) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then((value) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(value);
+    }, reject);
+  });
 }
 
 function browserToolError(message) {
@@ -362,10 +478,19 @@ export async function executeBrowserTool(args, options = {}) {
   if (Buffer.byteLength(encodedPayload) > MAX_REQUEST_BYTES) {
     return browserToolError(`browser command exceeds ${MAX_REQUEST_BYTES} bytes`);
   }
-  let discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
-  if (!discovery) return browserToolError(unavailableMessage());
+  if (browserTurnFinishing(sessionId, payload.turn_id)) return browserToolError(BROWSER_TURN_FINISHED);
+  // Registered before the read answers, as when it was synchronous: a turn
+  // finished or a session forgotten while it is out still sees this command.
+  const read = readBridgeDiscoveryFresh(DISCOVERY_FILE);
+  const knownSession = browserSessions.has(sessionId);
   browserSessions.add(sessionId);
-  rememberBrowserTurn(sessionId, payload.turn_id, discovery);
+  const turn = openBrowserTurnRead(sessionId, payload.turn_id, read);
+  let discovery = await read;
+  if (!settleBrowserTurnRead(sessionId, payload.turn_id, turn, read, discovery)) {
+    if (discovery) return browserToolError(BROWSER_TURN_FINISHED);
+    if (!knownSession) browserSessions.delete(sessionId);
+    return browserToolError(unavailableMessage());
+  }
   // An observation can be reported as a plain failure; a state-changing action
   // that may already have run must say so instead.
   const settleFailure = (message) =>
@@ -386,12 +511,14 @@ export async function executeBrowserTool(args, options = {}) {
       if (options.signal?.aborted) return settleFailure('browser command cancelled');
       const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
       if (attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
-        if (RETRYABLE_ACTIONS.has(validated.action)) {
-          discovery = replacement;
-          rememberBrowserTurn(sessionId, payload.turn_id, discovery);
-          continue;
+        if (!RETRYABLE_ACTIONS.has(validated.action)) {
+          return uncertainMutation('browser bridge was replaced after command dispatch');
         }
-        return uncertainMutation('browser bridge was replaced after command dispatch');
+        // The turn's end may already be on its way: nothing of it goes after.
+        if (turn?.finishing) return browserToolError(BROWSER_TURN_FINISHED);
+        discovery = replacement;
+        if (turn) turn.bridge = discovery;
+        continue;
       }
       if (!RETRYABLE_ACTIONS.has(validated.action)) {
         const message =
