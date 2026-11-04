@@ -12,6 +12,7 @@ import {
 } from '../../runtime/shared/heartbeat-interval.mjs';
 import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/auto-effort.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
+import { NETWORK_PROXY_MODES } from '../../runtime/shared/llm/proxy-policy.mjs';
 import { CONNECTOR_IDS } from '../../runtime/shared/connector-catalog.mjs';
 import { COMPACTION_SUMMARY_MODES } from '../../runtime/agent/orchestrator/session/compact/summary-mode.mjs';
 import { ACTION_KINDS } from '../../runtime/agent/orchestrator/session/human-gate/outbound-policy.mjs';
@@ -43,6 +44,7 @@ export const SETUP_STATUS_DOMAINS = Object.freeze([
   'update',
   'onboarding',
   'worktree',
+  'network-proxy',
   ...SETUP_EXTENDED_DOMAINS,
 ]);
 
@@ -129,6 +131,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   enable_plugin_mcp: 'name',
   connect_connector: 'connector',
   set_worktree_settings: 'worktree',
+  set_network_proxy: 'networkProxy',
   reset_route_fallback: 'sessionId? agent?',
   continue_in_model: 'sessionId route',
   schedule_quota_resume: 'sessionId',
@@ -481,6 +484,29 @@ export const SETUP_TOOL_DEFS = Object.freeze([
             },
           },
           description: 'set_worktree_settings: only the given fields change.',
+        },
+        networkProxy: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            mode: {
+              type: 'string',
+              enum: [...NETWORK_PROXY_MODES],
+              description:
+                'system = follow the proxy variables and the Windows/macOS proxy (default); manual = the url below for everything except the exceptions; off = always direct, ignoring both.',
+            },
+            url: {
+              type: 'string',
+              description: 'Proxy address with its scheme: http://, https:// or socks5://, e.g. http://proxy.company.com:8080. Required for manual; "" forgets it.',
+            },
+            exceptions: {
+              type: 'string',
+              description:
+                'Comma-separated hosts that connect without the proxy in manual mode: names (with subdomains), .domain / *.domain, IPs, CIDR ranges. Default "localhost, 127.0.0.1, ::1".',
+            },
+          },
+          description:
+            'set_network_proxy: only the given fields change; takes effect on the next connection. A manual proxy that fails fails the request; it never falls back to a direct connection.',
         },
         sessionId: {
           type: 'string',

@@ -340,6 +340,7 @@ function settingsApiFor(boot) {
     getSession: () => rt.session,
     adoptConfig: boot.adoptConfig,
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
+    flushConfigSaves: (...a) => boot.flushAllConfigSavesAsync(...a),
     scheduleSkillsSave: boot.scheduleSkillsSave,
     cfgMod,
     hasOwn,

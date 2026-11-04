@@ -57,6 +57,7 @@ change timing, or diagnosing MCP, plugin, or built-in failures.
 | How often the heartbeat checks: `minutes` 30, 60 (default), 120 or 240; applies from the next tick, counted from the last check | `set_heartbeat_interval` |
 | Bots' emoji reactions on the user's messages (on by default; `status features` reports `reactions.enabled`) | `set_reactions_enabled` |
 | Worktree defaults: new tasks on the current branch or a new worktree, branch prefix, large-repository warning size, automatic cleanup | `set_worktree_settings` |
+| Network proxy for AI services: follow the system / proxy variables, a manual proxy address with exceptions, or always direct (`status network-proxy` reports the mode and the route in effect) | `set_network_proxy` |
 | Remove stored provider authentication (one OAuth account at a time, or an API-key provider's key) | `forget_provider_auth` |
 | Select, rename, or reorder OAuth accounts, set automatic switching or the switching policy, or allow paid credits | `set_provider_account` |
 | Developer options (approvals, risk-gated providers); `allowAllActions` can only be turned off | `set_developer_option` |
@@ -439,6 +440,20 @@ markers are read with `status desktop`.
   prefer `sessionAutoArchiveDays` (restorable) when the user only wants a
   tidier list. Favorite and bot sessions, running or open sessions,
   scheduled-task targets and sessions with unread replies are never archived.
+- `set_network_proxy`: `networkProxy` takes any of `mode` (`system` default, `manual`,
+  `off`), `url` and `exceptions`; only the given fields change and nothing is stored
+  unless all of it is valid. `manual` needs a `url` with its scheme (`http://`,
+  `https://` or `socks5://`, e.g. `http://proxy.company.com:8080`) and sends every
+  host through it except the `exceptions` (comma-separated; default
+  `localhost, 127.0.0.1, ::1`; a name also covers its subdomains, `*.domain` only
+  the subdomains). A manual proxy that cannot be reached is an error: there is no
+  direct fallback. `off` ignores the Windows/macOS proxy and every proxy variable
+  (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`). In `system` mode `NO_PROXY=*` forces
+  direct and an `ALL_PROXY`-only environment is followed. It applies to the next
+  connection of provider registration and tests, sign-in, model lists, usage,
+  requests, the OpenAI WebSocket and Cursor. The `status network-proxy` route
+  names what is in effect. A manual `url` cannot carry a user name or password
+  (it is stored in plain text); a proxy that needs one goes in `HTTPS_PROXY`.
 - `set_worktree_settings`: `maxWorktrees` / `unusedDays` of `0` disable that
   cleanup criterion; setting a positive value where it was `0`, or lowering a
   positive one, makes cleanup remove more: confirm with the user first.

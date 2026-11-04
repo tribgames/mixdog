@@ -46,6 +46,9 @@ An attached Desktop or TUI may navigate and return `opened:true`.
   volume has a setup action.
 - Settings → Worktrees: worktree defaults, automatic cleanup and the managed
   worktree list (`set_worktree_settings` covers the defaults and cleanup).
+- Settings → System → Network proxy: how AI services are reached (system
+  settings, a manual address with exceptions, or direct) and a connection check
+  (`set_network_proxy`; the check itself is UI-only).
 - Settings → Delegation mode: the instruction text of each orchestration mode
   (UI-only free text; the mode itself is `set_orchestration_mode`).
 - Settings → Authentication (desktop only): every saved login Browser Use may

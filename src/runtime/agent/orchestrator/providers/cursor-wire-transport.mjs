@@ -6,6 +6,7 @@ import { MAX_CONNECT_FRAME_BYTES, createCursorByteQueue } from './cursor-wire-gu
 import { cursorClientVersion, warmCursorClientVersion } from './cursor-client-version.mjs';
 import { retryAfterMsFromError } from './retry-classifier.mjs';
 import { providerTimeoutError } from '../stall-policy.mjs';
+import { connectHttp2Session } from '../../../shared/llm/proxy-tunnel.mjs';
 
 export { warmCursorClientVersion };
 
@@ -136,8 +137,11 @@ function httpStatusError(status, headers) {
 }
 
 export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
-  const session = http2.connect(url);
-  const request = session.request(rpcHeaders(accessToken, path, false));
+  // The session opens asynchronously: the network proxy policy may need a
+  // CONNECT tunnel first. Writes made before it is up wait in `queued`.
+  let session = null;
+  let request = null;
+  const queued = [];
   let dataHandler = null;
   let closeHandler = null;
   let closed = false;
@@ -151,7 +155,7 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
   const configuredIdle = Number(process.env.MIXDOG_CURSOR_H2_IDLE_TIMEOUT_MS);
   const idleTimeoutMs = Number.isFinite(configuredIdle) && configuredIdle > 0 ? Math.floor(configuredIdle) : 0;
   const ping = setInterval(() => {
-    if (closed || session.closed || session.destroyed) return;
+    if (closed || !session || session.closed || session.destroyed) return;
     try {
       session.ping(() => {});
     } catch {
@@ -170,19 +174,22 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
           )
         : null;
   };
+  // Ends a proxy CONNECT still in flight when the stream is closed or fails first.
+  const connecting = new AbortController();
   const finish = (error = null) => {
     if (closed) return;
     closed = true;
+    connecting.abort();
     clearTimeout(timeout);
     clearInterval(ping);
     closeError = error || (status >= 400 ? httpStatusError(status, responseHeaders) : null);
     try {
-      request.close();
+      request?.close();
     } catch {
       // the request stream may already be closed
     }
     try {
-      session.close();
+      session?.close();
     } catch {
       // the session may already be closed
     }
@@ -191,34 +198,43 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
   const close = (error = null) => {
     if (closed) return;
     try {
-      request.close(http2.constants.NGHTTP2_CANCEL);
+      request?.close(http2.constants.NGHTTP2_CANCEL);
     } catch {
       // the request stream may already be closed
     }
     try {
-      session.destroy();
+      session?.destroy();
     } catch {
       // the session may already be destroyed
     }
     finish(error);
   };
 
-  request.on('response', (headers) => {
-    status = Number(headers[':status'] || 0);
-    responseHeaders = headers;
-    resetTimeout();
-  });
-  request.on('data', (chunk) => {
-    resetTimeout();
-    dataHandler?.(Buffer.from(chunk));
-  });
-  request.on('end', () => finish());
-  request.on('aborted', () => finish(cursorError('Cursor stream was aborted', { code: 'stream_aborted' })));
-  request.on('error', (error) => finish(error));
-  session.on('error', (error) => finish(error));
-  session.on('goaway', (errorCode) => {
-    finish(cursorError(`Cursor GOAWAY (${errorCode})`, { code: 'goaway' }));
-  });
+  connectHttp2Session(url, undefined, { signal: connecting.signal }).then((opened) => {
+    if (closed) {
+      opened.destroy();
+      return;
+    }
+    session = opened;
+    request = session.request(rpcHeaders(accessToken, path, false));
+    request.on('response', (headers) => {
+      status = Number(headers[':status'] || 0);
+      responseHeaders = headers;
+      resetTimeout();
+    });
+    request.on('data', (chunk) => {
+      resetTimeout();
+      dataHandler?.(Buffer.from(chunk));
+    });
+    request.on('end', () => finish());
+    request.on('aborted', () => finish(cursorError('Cursor stream was aborted', { code: 'stream_aborted' })));
+    request.on('error', (error) => finish(error));
+    session.on('error', (error) => finish(error));
+    session.on('goaway', (errorCode) => {
+      finish(cursorError(`Cursor GOAWAY (${errorCode})`, { code: 'goaway' }));
+    });
+    for (const bytes of queued.splice(0)) request.write(bytes);
+  }, (error) => finish(error));
 
   return {
     get alive() {
@@ -232,7 +248,8 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
       // every write let a silent server hold the connection open
       // indefinitely even when an idle timeout was configured.
       // Only 'response'/'data' from the server re-arm it.
-      request.write(bytes);
+      if (request) request.write(bytes);
+      else queued.push(bytes);
     },
     close,
     onData(handler) {
@@ -248,24 +265,26 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
 export async function callCursorUnary({ accessToken, path, body, url = API_URL, timeoutMs = 5_000 }) {
   await warmCursorClientVersion();
   return new Promise((resolve, reject) => {
-    const session = http2.connect(url);
-    const request = session.request(rpcHeaders(accessToken, path, true));
+    let session = null;
+    let request = null;
     const chunks = [];
     let status = 0;
     let responseHeaders = null;
     let settled = false;
     const timeout = setTimeout(() => finish(providerTimeoutError('Cursor request', timeoutMs)), timeoutMs);
+    const connecting = new AbortController();
     const finish = (error = null) => {
       if (settled) return;
       settled = true;
+      connecting.abort();
       clearTimeout(timeout);
       try {
-        request.close();
+        request?.close();
       } catch {
         // the request stream may already be closed
       }
       try {
-        session.close();
+        session?.close();
       } catch {
         // the session may already be closed
       }
@@ -273,15 +292,23 @@ export async function callCursorUnary({ accessToken, path, body, url = API_URL, 
       else if (status >= 400) reject(httpStatusError(status, responseHeaders));
       else resolve(Buffer.concat(chunks));
     };
-    request.on('response', (headers) => {
-      status = Number(headers[':status'] || 0);
-      responseHeaders = headers;
-    });
-    request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-    request.on('end', () => finish());
-    request.on('error', finish);
-    session.on('error', finish);
-    request.end(body);
+    connectHttp2Session(url, undefined, { signal: connecting.signal }).then((opened) => {
+      if (settled) {
+        opened.destroy();
+        return;
+      }
+      session = opened;
+      request = session.request(rpcHeaders(accessToken, path, true));
+      request.on('response', (headers) => {
+        status = Number(headers[':status'] || 0);
+        responseHeaders = headers;
+      });
+      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      request.on('end', () => finish());
+      request.on('error', finish);
+      session.on('error', finish);
+      request.end(body);
+    }, finish);
   });
 }
 

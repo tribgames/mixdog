@@ -187,6 +187,7 @@ export * from './contract-git';
 export * from './contract-computer';
 export * from './contract-workspace';
 export * from './contract-worktree';
+export * from './contract-network-proxy';
 export * from './contract-import';
 export * from './contract-ssh';
 export * from './contract-connection-link';

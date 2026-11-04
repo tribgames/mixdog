@@ -2,6 +2,7 @@
 import type { SessionSnapshot } from './contract-session';
 import { DESKTOP_IMPORT_CAPABILITIES, DESKTOP_IMPORT_READ_CAPABILITIES } from './contract-import';
 import { DESKTOP_WORKTREE_CAPABILITIES, DESKTOP_WORKTREE_READ_CAPABILITIES } from './contract-worktree';
+import { DESKTOP_NETWORK_PROXY_CAPABILITIES, DESKTOP_NETWORK_PROXY_READ_CAPABILITIES } from './contract-network-proxy';
 
 // Public session features that are safe to expose to the renderer. Keeping this
 // list explicit prevents the desktop bridge from becoming arbitrary method
@@ -276,6 +277,8 @@ export const DESKTOP_CAPABILITIES = [
   'setMediaAssetBoard',
   'openMediaAsset',
   'openMediaFolder',
+  // Network proxy (contract-network-proxy.ts).
+  ...DESKTOP_NETWORK_PROXY_CAPABILITIES,
   // Lead worktrees (contract-worktree.ts).
   ...DESKTOP_WORKTREE_CAPABILITIES,
   // Import conversations from other apps (contract-import.ts).
@@ -368,6 +371,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getMediaJob',
   'getMediaDefault',
   'getMediaPins',
+  ...DESKTOP_NETWORK_PROXY_READ_CAPABILITIES,
   ...DESKTOP_WORKTREE_READ_CAPABILITIES,
   ...DESKTOP_IMPORT_READ_CAPABILITIES,
 ] as const satisfies ReadonlyArray<DesktopCapability>;

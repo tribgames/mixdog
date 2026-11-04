@@ -1,0 +1,82 @@
+/* Settings → System → Network proxy (design/mockups/proxy-settings/clean.html). */
+.network-proxy-select {
+  appearance: none;
+  width: 132px;
+  height: 28px;
+  padding: 0 28px 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--mx-hover) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23a8a8a8' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 11px center;
+  color: var(--mx-text);
+  font: inherit;
+  cursor: pointer;
+}
+.network-proxy-select option {
+  background: var(--mx-bg-layer-2, var(--mx-bg-base));
+}
+.network-proxy-input {
+  width: 240px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1px solid transparent;
+  background: var(--mx-bg-base);
+  color: var(--mx-text);
+  font: 13px var(--mx-font-mono, Consolas, monospace);
+}
+.network-proxy-input::placeholder {
+  color: var(--mx-text-muted, var(--mx-text-faint));
+}
+.network-proxy-input[aria-invalid='true'] {
+  outline-color: var(--mx-danger);
+}
+.network-proxy-button {
+  height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--mx-bg-layer-2, var(--mx-hover));
+  color: var(--mx-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.network-proxy-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+:is(.network-proxy-select, .network-proxy-input, .network-proxy-button):focus-visible {
+  outline: 2px solid var(--mx-border-strong, var(--mx-focus));
+  outline-offset: 1px;
+}
+.network-proxy-row .mixdog-settings__row-desc code {
+  color: var(--mx-text);
+  font: 12.5px var(--mx-font-mono, Consolas, monospace);
+}
+.network-proxy-error {
+  color: var(--mx-danger);
+}
+.network-proxy-ok b {
+  color: var(--mx-success, #3ddc6e);
+  font-weight: 500;
+}
+.network-proxy-bad b {
+  color: var(--mx-danger);
+  font-weight: 500;
+}
+.network-proxy-row .settings-row-control {
+  display: flex;
+  justify-content: flex-end;
+}
+.network-proxy-link {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}

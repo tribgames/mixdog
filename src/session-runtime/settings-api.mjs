@@ -16,6 +16,7 @@ import { createBuiltinToolSettings } from './settings-builtin-tools-api.mjs';
 import { createSystemSettings } from './settings-system-api.mjs';
 import { createDeveloperSettings } from './settings-developer-api.mjs';
 import { createWorktreeSettings } from './settings-worktree-api.mjs';
+import { createNetworkProxySettings } from './settings-network-proxy-api.mjs';
 
 export function createSettingsApi(deps) {
   // Optional: callers without a live local provider / gate fall back to the
@@ -40,5 +41,6 @@ export function createSettingsApi(deps) {
     ...createSystemSettings(shared),
     ...createDeveloperSettings(shared),
     ...createWorktreeSettings(shared),
+    ...createNetworkProxySettings(shared),
   };
 }

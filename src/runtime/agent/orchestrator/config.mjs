@@ -47,6 +47,7 @@ import {
 } from '../../shared/heartbeat-interval.mjs';
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
 import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
+import { normalizeNetworkProxy } from '../../shared/llm/proxy-policy.mjs';
 import { normalizePluginMcpIntents } from './runtime-core/plugin-mcp.mjs';
 import { createConfigSnapshot } from './config-snapshot.mjs';
 
@@ -318,6 +319,8 @@ export function loadConfig(options = {}) {
         ...(Array.isArray(raw.botOrder) ? { botOrder: [...raw.botOrder] } : {}),
         ...(raw.leadAvatar && typeof raw.leadAvatar === 'object' ? { leadAvatar: { ...raw.leadAvatar } } : {}),
         worktree: normalizeWorktreeSettings(raw.worktree),
+        // Only a stored section is kept: a profile that never set it stays on the default.
+        ...(raw.networkProxy ? { networkProxy: normalizeNetworkProxy(raw.networkProxy) } : {}),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
         ...(raw.builtins && typeof raw.builtins === 'object'
@@ -478,6 +481,7 @@ function buildAgentSaveBuilder(config) {
       update: config.update || {},
       recap: config.recap || {},
       ...(config.worktree ? { worktree: config.worktree } : {}),
+      ...(config.networkProxy ? { networkProxy: normalizeNetworkProxy(config.networkProxy) } : {}),
       modules,
       builtins,
     };
