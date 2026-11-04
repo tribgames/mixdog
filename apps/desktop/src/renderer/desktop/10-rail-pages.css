@@ -1978,11 +1978,18 @@ html[data-mixdog-mobile-tabs]
   bottom: -4px;
 }
 /* A session dragged over a valid project folder (or Favorites) outlines the
-   whole group (header + its sessions); invalid targets get nothing. */
-.session-sidebar-sessions :is(.project-group, .sidebar-favorites)[data-session-drop="true"] {
-  outline: 1.5px solid var(--mx-accent);
-  outline-offset: -1.5px;
+   whole group (header + its sessions); invalid targets get nothing. The frame
+   reaches the row pills' leading edge (the list's -8px, which is also the
+   scroller's padding edge, so nothing wider survives its clip) and opens 4px
+   above the heading and below the last row. */
+.session-sidebar-sessions
+:is(.project-group, .sidebar-favorites)[data-session-drop="true"]:not([data-drop-position])::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0 -4px -8px;
+  border: 1.5px solid var(--mx-accent);
   border-radius: 8px;
+  pointer-events: none;
 }
 /* The floating chip that follows a dragged row. */
 .pane-native-drag-image.workspace-tab-ghost {
