@@ -136,6 +136,11 @@ const {
 } = await import('../src/runtime/agent/orchestrator/session/store/save-worker.mjs');
 const { guardedSaveOptions, acquireWriteCommit, releaseWriteCommit, publishLandedWriteEpoch, isStaleWriteEpoch } =
   await import('../src/runtime/agent/orchestrator/session/store/write-guards.mjs');
+// A landed detach/close barrier ends this process's writer tenure, and a save
+// of the copy let go is then a dropped no-op (session-writer-claim.mjs). The
+// subtests that save across a detach take the claim again, as a resume or turn
+// open does, so their saves reach the write path they are about.
+const { claimSessionWriter } = await import('../src/runtime/agent/orchestrator/session/store/session-writer-claim.mjs');
 const metrics = await import('../src/runtime/agent/orchestrator/session/manager/usage-metrics.mjs');
 const { closeSession } = await import('../src/runtime/agent/orchestrator/session/manager/session-close.mjs');
 const { _touchRuntime } = await import('../src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs');
@@ -469,6 +474,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     const dropSession = makeSession({ id: dropId, messages: [{ role: 'user', content: 'd1' }] });
     await saveSessionAsync(dropSession);
     assert.equal(bumpSessionGeneration(dropId, 'test-detach'), 1);
+    assert.equal(claimSessionWriter(dropId).held, true, 'opened here again as its writer');
     setLiveSession(dropSession);
     const afterBump = readFileSync(dropPath, 'utf8');
 
@@ -605,6 +611,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // reach a rename (the worker drops it): terminating the detached
     // instance afterwards can never strand a commit lock.
     assert.equal(bumpSessionGeneration(flightId, 'detach-test'), 1);
+    assert.equal(claimSessionWriter(flightId).held, true, 'opened here again: the old-generation save is posted');
     const inFlight = saveSessionAsync(flightSession, { expectedGeneration: 0 }); // inside the worker
     const dead = _detachSaveWorkerForTest();
     assert.ok(dead, 'the worker was detached with work in flight');
@@ -758,6 +765,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // worker BEFORE it can take the commit lock, so terminating the
     // detached instance later can never strand that lock.
     assert.equal(bumpSessionGeneration(queuedId, 'b1-detach'), 1);
+    assert.equal(claimSessionWriter(queuedId).held, true, 'opened here again: both saves reach the worker');
     const good = readFileSync(queuedPath, 'utf8');
     queuedSession.messages.push({ role: 'assistant', content: 'attempted' });
     const inFlight = saveSessionAsync(queuedSession, { expectedGeneration: 0 }); // posted (projected)
@@ -1797,6 +1805,8 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
       saveSession(branchSession, { sync: true });
       assert.equal(_sessionIncarnationRefs(branchId), 0, 'saved branch released');
       assert.equal(bumpSessionGeneration(branchId, 'ref-branch'), 1);
+      // Opened again, so the stale-generation save below is the ownership drop.
+      assert.equal(claimSessionWriter(branchId).held, true);
       saveSession(branchSession, { sync: true, expectedGeneration: 0 });
       assert.equal(_sessionIncarnationRefs(branchId), 0, 'ownership-drop branch released');
       setSessionSaveFault({ ids: branchId, count: 1 });
