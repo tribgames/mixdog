@@ -120,7 +120,8 @@ export function createSessionService({
     projectionIdleMs: PROJECTION_IDLE_MS,
     sessionOwner: (sessionId) => projection.sessionOwner(sessionId),
     currentSessionId: (entry) => projection.currentSessionId(entry),
-    destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
+    release: (entry, reason, options) => entries.release(entry, reason, options),
+    log,
   });
   const viewers = createViewerRegistry({
     sessions,
@@ -132,7 +133,7 @@ export function createSessionService({
     sessionBusy: retention.sessionBusy,
     releaseProjection: retention.releaseProjection,
     currentSessionId: (entry) => projection.currentSessionId(entry),
-    destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
+    release: (entry, reason, options) => entries.release(entry, reason, options),
     releaseStoredSession: (sessionId) => storedReader.releaseStoredSession(sessionId),
     onViewersChange: idleClock.refresh,
   });
@@ -359,6 +360,7 @@ export function createSessionService({
       pushLiveSessionNotice,
       setLiveMessageReactions,
       stop,
+      settleSessionTeardown: entries.settleTeardown,
       startQuotaResume: () => quotaResume?.start(),
       runDueQuotaResumes: () => quotaResume?.tick() ?? Promise.resolve(),
       releaseClient: viewers.releaseClient,

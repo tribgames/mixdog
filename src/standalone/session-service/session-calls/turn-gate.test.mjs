@@ -21,6 +21,7 @@ function actions(turnGate, runtime) {
       assertAvailable() {},
       hostedEntryForSession: async () => entry,
       entryForSession: async () => entry,
+      settleTeardown: async () => {},
     },
     advanceForCaller: () => ({}),
     responseSessionId: (_entry, id) => id,

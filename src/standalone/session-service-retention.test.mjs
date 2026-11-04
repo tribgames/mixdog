@@ -36,7 +36,7 @@ function retentionFixture(count, onDestroy = null) {
     projectionIdleMs: 60_000,
     sessionOwner,
     currentSessionId: (entry) => entry.id,
-    destroy: async (entry, reason, options) => {
+    release: (entry, reason, options) => {
       disposed.push({ id: entry.id, turn, reason, options });
       entry.disposed = true;
       sessions.delete(entry);

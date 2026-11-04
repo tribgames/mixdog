@@ -43,7 +43,7 @@ export function createSessionActionCalls(ctx) {
   } = ctx;
   const { bodyForClient } = ctx.projection;
   const { retainUnwatched, awaitingApprovalSessionKinds, roomHandoffQuestions } = ctx.retention;
-  const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;
+  const { assertAvailable, hostedEntryForSession, entryForSession, settleTeardown } = ctx.entries;
   const { stateBusy } = ctx.retention;
   const sessionOwner = ctx.projection?.sessionOwner;
   const turnGate = ctx.turnGate ?? createSessionTurnGate();
@@ -81,6 +81,10 @@ export function createSessionActionCalls(ctx) {
     // Opening an earlier session asks for its review right away; loading the
     // whole runtime for that held the review bar (and the pane's reveal) for
     // seconds.
+    // An inherit reads the source session's committed turns from the store: a
+    // runtime of that source still closing may not have landed its final
+    // writes yet, so the carry waits for it like a reopen does.
+    if (name === 'inheritFrom' && Array.isArray(args)) await settleTeardown(String(args[0] || ''));
     const storedReview = STORED_REVIEW_ACTIONS.has(name) && typeof readStoredReview === 'function';
     const hosted = storedReview ? await hostedEntryForSession(id) : null;
     if (storedReview && !hosted) return storedReviewResult(id, name, args, baseRevision);
@@ -187,6 +191,8 @@ export function createSessionActionCalls(ctx) {
       throw new TypeError('session action deleteSessionIfIdle is unavailable');
     }
     let value;
+    // A runtime of the target still closing may be writing its record.
+    await settleTeardown(id);
     const reopen = id ? turnGate.fence(id) : null;
     if (!reopen) value = { deleted: false, reason: id ? 'turn-starting' : 'invalid' };
     else {

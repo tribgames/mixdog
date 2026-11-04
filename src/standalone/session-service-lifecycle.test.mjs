@@ -136,11 +136,242 @@ test('an old asynchronous disposal cannot publish session-gone after a replaceme
   await service.createSession({ sessionId: id }, { clientToken: 'first' });
   const released = service.unsubscribeSession({ sessionId: id }, { clientToken: 'first' });
   await disposalEntered.promise;
-  await service.createSession({ sessionId: id }, { clientToken: 'second' });
+  const reopened = service.createSession({ sessionId: id }, { clientToken: 'second' });
   disposalFinished.resolve();
+  await reopened;
   await released;
   assert.equal(frames.at(-1).type, 'session-state');
   assert.equal(service.size, 1);
+});
+
+test('unsubscribing an unclaimed reservation resolves while its runtime is still closing', async (t) => {
+  const closeEntered = deferred();
+  const closeFinished = deferred();
+  const service = createSessionService({
+    createSessionRuntime: async () =>
+      runtime({
+        dispose: async () => {
+          closeEntered.resolve();
+          await closeFinished.promise;
+        },
+      }),
+    log: () => {},
+  });
+  t.after(async () => {
+    closeFinished.resolve();
+    await service.stop();
+  });
+  const id = 'sess_draft_release';
+  await service.createSession({ sessionId: id }, { clientToken: 'draft' });
+  const result = await service.unsubscribeSession({ sessionId: id }, { clientToken: 'draft' });
+  assert.deepEqual(result, { sessionId: id, unsubscribed: true });
+  await closeEntered.promise;
+  assert.equal(service.size, 0, 'the entry is detached');
+  let settled = false;
+  const teardown = service.settleSessionTeardown(id).then(() => {
+    settled = true;
+  });
+  await setImmediate();
+  assert.equal(settled, false, 'an explicit waiter still sees the teardown pending');
+  closeFinished.resolve();
+  await teardown;
+});
+
+test('a teardown failure after an unawaited unsubscribe is logged', async (t) => {
+  const logs = [];
+  const service = createSessionService({
+    createSessionRuntime: async () =>
+      runtime({
+        dispose: async () => {
+          throw new Error('close exploded');
+        },
+      }),
+    log: (line) => logs.push(line),
+  });
+  t.after(() => service.stop());
+  const id = 'sess_draft_fail';
+  await service.createSession({ sessionId: id }, { clientToken: 'draft' });
+  await service.unsubscribeSession({ sessionId: id }, { clientToken: 'draft' });
+  await service.settleSessionTeardown(id);
+  assert.ok(logs.some((line) => line.includes(`session dispose failed session=${id}: close exploded`)));
+});
+
+test('a throwing frame sink cannot skip or orphan the teardown of an unsubscribed reservation', async (t) => {
+  const logs = [];
+  const rejections = [];
+  const onRejection = (reason) => rejections.push(reason);
+  process.on('unhandledRejection', onRejection);
+  t.after(() => process.off('unhandledRejection', onRejection));
+  const closeFinished = deferred();
+  let closeCalls = 0;
+  const service = createSessionService({
+    createSessionRuntime: async () =>
+      runtime({
+        dispose: async () => {
+          closeCalls += 1;
+          await closeFinished.promise;
+        },
+      }),
+    onFrame: (frame) => {
+      if (frame.type === 'session-gone') throw new Error('sink exploded');
+    },
+    log: (line) => logs.push(line),
+  });
+  t.after(async () => {
+    closeFinished.resolve();
+    await service.stop();
+  });
+  const id = 'sess_draft_sink';
+  await service.createSession({ sessionId: id }, { clientToken: 'draft' });
+  const result = await service.unsubscribeSession({ sessionId: id }, { clientToken: 'draft' });
+  assert.deepEqual(result, { sessionId: id, unsubscribed: true });
+  await setImmediate();
+  assert.equal(closeCalls, 1, 'the runtime close still starts');
+  assert.deepEqual(rejections, [], 'nothing escapes as an unhandled rejection');
+  assert.ok(logs.some((line) => line.includes('sink exploded')), 'the sink failure is logged');
+  let settled = false;
+  const teardown = service.settleSessionTeardown(id).then(() => {
+    settled = true;
+  });
+  await setImmediate();
+  assert.equal(settled, false, 'the teardown is tracked and still pending');
+  closeFinished.resolve();
+  await teardown;
+});
+
+test('an inherit of a session whose runtime is still closing waits for that teardown', async (t) => {
+  const closeFinished = deferred();
+  const events = [];
+  const heir = runtime();
+  heir.inheritFrom = async (source) => {
+    events.push(`inherit:${source}`);
+    return { ok: true };
+  };
+  const service = createSessionService({
+    createSessionRuntime: async ({ sessionId }) =>
+      sessionId === 'sess_heir'
+        ? heir
+        : runtime({
+            dispose: async () => {
+              await closeFinished.promise;
+              events.push('closed');
+            },
+          }),
+    log: () => {},
+  });
+  t.after(async () => {
+    closeFinished.resolve();
+    await service.stop();
+  });
+  await service.createSession({ sessionId: 'sess_heir' }, { clientToken: 'h' });
+  await service.createSession({ sessionId: 'sess_source' }, { clientToken: 's' });
+  await service.unsubscribeSession({ sessionId: 'sess_source' }, { clientToken: 's' });
+  const inheriting = service.configureSession({
+    sessionId: 'sess_heir',
+    action: 'inheritFrom',
+    args: ['sess_source', {}],
+  });
+  await setImmediate();
+  assert.deepEqual(events, []);
+  closeFinished.resolve();
+  await inheriting;
+  assert.deepEqual(events, ['closed', 'inherit:sess_source']);
+});
+
+test('reopening a session id waits for its pending teardown before creating the runtime', async (t) => {
+  const closeFinished = deferred();
+  const order = [];
+  let created = 0;
+  const service = createSessionService({
+    createSessionRuntime: async () => {
+      const n = ++created;
+      order.push(`create${n}`);
+      return runtime({
+        dispose: async () => {
+          order.push('close-start');
+          await closeFinished.promise;
+          order.push('close-end');
+        },
+      });
+    },
+    log: () => {},
+  });
+  t.after(async () => {
+    closeFinished.resolve();
+    await service.stop();
+  });
+  const id = 'sess_draft_reopen';
+  await service.createSession({ sessionId: id }, { clientToken: 'a' });
+  await service.unsubscribeSession({ sessionId: id }, { clientToken: 'a' });
+  const reopened = service.createSession({ sessionId: id }, { clientToken: 'b' });
+  await setImmediate();
+  assert.deepEqual(order, ['create1', 'close-start']);
+  closeFinished.resolve();
+  await reopened;
+  assert.deepEqual(order, ['create1', 'close-start', 'close-end', 'create2']);
+});
+
+test('stop drains a teardown left running by an unawaited unsubscribe', async () => {
+  const closeFinished = deferred();
+  let closed = false;
+  const service = createSessionService({
+    createSessionRuntime: async () =>
+      runtime({
+        dispose: async () => {
+          await closeFinished.promise;
+          closed = true;
+        },
+      }),
+    log: () => {},
+  });
+  const id = 'sess_draft_stop';
+  await service.createSession({ sessionId: id }, { clientToken: 'a' });
+  await service.unsubscribeSession({ sessionId: id }, { clientToken: 'a' });
+  const stopped = service.stop();
+  await setImmediate();
+  assert.equal(closed, false);
+  closeFinished.resolve();
+  await stopped;
+  assert.equal(closed, true);
+});
+
+test('an idle-only delete of a session waits for that session\'s pending teardown', async (t) => {
+  const closeFinished = deferred();
+  const events = [];
+  const control = runtime();
+  control.deleteSessionIfIdle = async (target) => {
+    events.push(`delete:${target}`);
+    return { deleted: true };
+  };
+  const service = createSessionService({
+    createSessionRuntime: async ({ sessionId }) =>
+      sessionId === 'sess_control'
+        ? control
+        : runtime({
+            dispose: async () => {
+              await closeFinished.promise;
+              events.push('closed');
+            },
+          }),
+    log: () => {},
+  });
+  t.after(async () => {
+    closeFinished.resolve();
+    await service.stop();
+  });
+  await service.createSession({ sessionId: 'sess_control' }, { clientToken: 'c' });
+  await service.createSession({ sessionId: 'sess_draft_delete' }, { clientToken: 'a' });
+  await service.unsubscribeSession({ sessionId: 'sess_draft_delete' }, { clientToken: 'a' });
+  const deleting = service.configureSession({
+    sessionId: 'sess_control',
+    action: 'deleteSessionIfIdle',
+    args: ['sess_draft_delete', {}],
+  });
+  await setImmediate();
+  assert.deepEqual(events, []);
+  closeFinished.resolve();
+  await deleting;
+  assert.deepEqual(events, ['closed', 'delete:sess_draft_delete']);
 });
 
 test('concurrent explicit creation of one session address shares one runtime', async (t) => {

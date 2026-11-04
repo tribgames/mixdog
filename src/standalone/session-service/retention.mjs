@@ -33,7 +33,8 @@ export function createSessionRetention({
   projectionIdleMs,
   sessionOwner,
   currentSessionId,
-  destroy,
+  release,
+  log = () => {},
 }) {
   // Session id -> the entry whose idle deadline came, disposed one per
   // event-loop turn; a restart of that session's clock takes it back out.
@@ -107,7 +108,11 @@ export function createSessionRetention({
       // survive the owner's idle eviction (observed: switching desktop tabs
       // evicted the Lead after 2 minutes and its teardown closed every idle
       // worker with reap time left — and cancelled running ones).
-      void destroy(entry, 'idle and unwatched', { keepBackgroundWork: true });
+      try {
+        release(entry, 'idle and unwatched', { keepBackgroundWork: true });
+      } catch (err) {
+        log(`session eviction detach failed: ${err?.message || err}`);
+      }
     }
     if (evictQueue.size > 0 && !isClosed()) evictDrain = setImmediate(drainEvictions);
     else evictQueue.clear();

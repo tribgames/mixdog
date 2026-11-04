@@ -23,7 +23,7 @@ import { requestLiveTranscriptWindow } from './projection/transcript-window.mjs'
  * @param {Map<string, Set<string>>} deps.pendingViewers  sessionId -> client tokens
  * @param {Map<string, object>} deps.externalViewEntries  sessionId -> projected entry
  * @param {(entry: object) => string} deps.currentSessionId  late-bound (projection)
- * @param {(entry: object, reason: string, options?: object) => Promise<object>} deps.destroy  late-bound (entries)
+ * @param {(entry: object, reason: string, options?: object) => Promise<object>} deps.release  late-bound (entries); starts the teardown without waiting, throws if the detach failed
  */
 export function createViewerRegistry({
   sessions,
@@ -34,7 +34,7 @@ export function createViewerRegistry({
   armProjectionRelease = () => {},
   sessionBusy,
   currentSessionId,
-  destroy,
+  release,
   releaseStoredSession,
   releaseProjection = () => {},
   // (sessionId) — a view of it came or went
@@ -148,9 +148,11 @@ export function createViewerRegistry({
       if (entry.subscribers.size > 0) continue;
       entry.transcriptView = null;
       if (entry.reservedOnly && !sessionBusy(entry)) {
-        void destroy(entry, 'unclaimed session reservation', {
-          keepBackgroundWork: true,
-        });
+        try {
+          release(entry, 'unclaimed session reservation', { keepBackgroundWork: true });
+        } catch (err) {
+          log(`session release detach failed (client ${token} gone): ${err?.message || err}`);
+        }
         continue;
       }
       entry.retainedAt = Date.now();
