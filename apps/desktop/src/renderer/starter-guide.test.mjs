@@ -220,7 +220,7 @@ test('the step copy names the representative by its current name', async (t) => 
   await click(pill());
   const last = steps()[5];
   assert.equal(last.dataset.next, 'true');
-  assert.match(last.textContent, /The representative bot helps with anything/);
+  assert.match(last.textContent, /The default bot that runs automations/);
   assert.match(last.textContent, /Done when the representative bot is created\./);
 });
 
@@ -253,8 +253,10 @@ test('the welcome chain ends on the Agents page with the create button lit; only
   const create = mixyCreateButton(t);
   await click(button('Start the tour'));
   assert.deepEqual(opened.views, ['extensions']);
+  // Type tabs, then the built-in list: the panel's + is not a stop.
+  assert.equal(tourCount(), '1/2');
   await click(button('Next'));
-  await click(button('Next'));
+  assert.equal(tourCount(), '2/2');
   await click(button('Done'));
   assert.deepEqual(opened.views, ['extensions', 'agents']);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
