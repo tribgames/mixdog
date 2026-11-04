@@ -14,8 +14,9 @@ export function createChannelStart({
   envFlag,
   delays,
   state,
+  park,
 }) {
-  const { channelStartDelayMs, backgroundBusyRetryMs } = delays;
+  const { channelStartDelayMs } = delays;
 
   function invokeChannelStart() {
     if (state.channelStartPromise) return state.channelStartPromise;
@@ -50,7 +51,7 @@ export function createChannelStart({
       bootProfile('channels:start-deferred', {
         reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create',
       });
-      scheduleChannelStart(backgroundBusyRetryMs);
+      park('channelStartTimer', () => void onChannelStartTimer());
       return;
     }
     void invokeChannelStart();

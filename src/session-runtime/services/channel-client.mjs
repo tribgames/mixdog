@@ -8,7 +8,7 @@
 // ./channel-client/:
 //   daemon-request — one JSON request, the health probe, the /call wrapper
 //   registration   — pid verification, passive register/re-register, deregister
-//   notify-stream  — the SSE request plus its stable/liveness timers
+//   notify-stream  — the SSE request plus its stable timer
 //   reconnect      — bounded retry with a lifecycle generation
 import http from 'node:http';
 import { readFileSync } from 'node:fs';

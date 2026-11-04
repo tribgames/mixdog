@@ -23,15 +23,7 @@ export function readRuntimeTunables() {
     }),
     codeGraphPrewarmDelayMs: envDelayMs('MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS', 250, { min: 0, max: 60_000 }),
     statuslineUsageWarmupDelayMs: envDelayMs('MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS', 800, { min: 0, max: 60_000 }),
-    // Idle keep-alive: re-fetch usage before the statusline's 10-min staleness
-    // cut (LIVE_USAGE_SNAPSHOT_MAX_AGE_MS) so the usage segment does not
-    // disappear while the session sits idle with no turns to trigger a refresh.
-    statuslineUsageRefreshDelayMs: envDelayMs('MIXDOG_STATUSLINE_USAGE_REFRESH_MS', 240_000, {
-      min: 30_000,
-      max: 540_000,
-    }),
     channelStartDelayMs: envDelayMs('MIXDOG_CHANNEL_START_DELAY_MS', 10_000, { min: 0, max: 120_000 }),
-    backgroundBusyRetryMs: envDelayMs('MIXDOG_BACKGROUND_BUSY_RETRY_MS', 1_000, { min: 50, max: 10_000 }),
     // MCP startup never owns the first-token critical path by default. Already
     // connected tools fold synchronously; in-flight servers join through the
     // late-tool announcement path. Operators may opt back into a grace window.

@@ -1,6 +1,7 @@
 // prewarm/code-graph-prewarm.mjs — the code-graph prewarm timer: one pending
-// warm per cwd, upgraded by the first visible provider token, deferred while a
-// turn or session create is busy, and re-armed for a cwd queued mid-flight.
+// warm per cwd, upgraded by the first visible provider token, parked while a
+// turn or session create is busy, and started for a cwd queued mid-flight
+// when the running warm settles.
 import { performance } from 'node:perf_hooks';
 
 export function createCodeGraphPrewarm({
@@ -14,8 +15,9 @@ export function createCodeGraphPrewarm({
   delays,
   flags,
   state,
+  park,
 }) {
-  const { codeGraphPrewarmDelayMs, backgroundBusyRetryMs } = delays;
+  const { codeGraphPrewarmDelayMs } = delays;
   const { codeGraphPrewarmEnabled } = flags;
 
   function runPrewarm(reason) {
@@ -44,8 +46,9 @@ export function createCodeGraphPrewarm({
       )
       .finally(() => {
         state.codeGraphPrewarmInFlight = false;
+        // The cwd queued while this one ran: its warm starts now.
         if (state.codeGraphPrewarmQueuedCwd && !isCloseRequested()) {
-          scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'queued');
+          scheduleCodeGraphPrewarm(0, 'queued');
         }
       });
   }
@@ -60,12 +63,12 @@ export function createCodeGraphPrewarm({
     const canOverlapActiveTurn = reason === 'first-visible';
     if ((activeTurn && !canOverlapActiveTurn) || getSessionCreatePromise()) {
       bootProfile('code-graph:prewarm-deferred', { reason: activeTurn ? 'turn-active' : 'session-create' });
-      scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'busy');
+      park('codeGraphPrewarmTimer', () => onPrewarmTimer(reason));
       return;
     }
+    // The running warm's settle starts the cwd queued meanwhile (runPrewarm).
     if (state.codeGraphPrewarmInFlight) {
       bootProfile('code-graph:prewarm-deferred', { reason: 'in-flight' });
-      scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'in-flight');
       return;
     }
     runPrewarm(reason);

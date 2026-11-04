@@ -1,11 +1,13 @@
-// OAuth usage snapshot for the statusline: one warmup after boot, then an idle
-// keep-alive loop so the cachedAt stays "live-fresh" and the usage segment does
-// not vanish after LIVE_USAGE_SNAPSHOT_MAX_AGE_MS while the session is idle.
-// Turn-driven refreshes (recordStandaloneStatusTelemetry) cover active sessions.
+// OAuth usage snapshot for the statusline: one warmup after boot, then a
+// refresh after every settled turn (the turn is what spends the quota). An
+// opened usage panel reads it on demand (getUsageDashboard), which writes the
+// same snapshot cache. Nothing polls while the session is idle: the statusline
+// keeps the last snapshot of this process visible (allowStale reads).
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 
 export function createStatuslineUsageWarmup({
   arm,
+  park,
   busyReason,
   bootProfile,
   getRoute,
@@ -18,7 +20,7 @@ export function createStatuslineUsageWarmup({
   refreshStatuslineUsageSnapshot,
   delays,
 }) {
-  const { statuslineUsageWarmupDelayMs, statuslineUsageRefreshDelayMs, backgroundBusyRetryMs } = delays;
+  const { statuslineUsageWarmupDelayMs } = delays;
   const oauthProviderId = () => {
     const providerId = clean(getRoute()?.provider);
     return providerId.includes('oauth') ? providerId : null;
@@ -42,11 +44,13 @@ export function createStatuslineUsageWarmup({
       bootProfile('statusline-usage:warm-skipped', { provider: clean(getRoute()?.provider) || null });
       return;
     }
-    arm('statuslineUsageWarmupTimer', delayMs, async () => {
+    arm('statuslineUsageWarmupTimer', delayMs, async function warmStatuslineUsage() {
+      // A parked run may wake after the route left OAuth.
+      if (!oauthProviderId()) return;
       const busy = busyReason();
       if (busy) {
         bootProfile('statusline-usage:warm-deferred', { reason: busy });
-        scheduleStatuslineUsageWarmup(backgroundBusyRetryMs);
+        park('statuslineUsageWarmupTimer', warmStatuslineUsage);
         return;
       }
       try {
@@ -54,29 +58,18 @@ export function createStatuslineUsageWarmup({
         if (warmedRoute) bootProfile('statusline-usage:warm-ready', { provider: clean(warmedRoute.provider) });
       } catch (error) {
         bootProfile('statusline-usage:warm-failed', { error: error?.message || String(error) });
-      } finally {
-        scheduleStatuslineUsageRefresh();
       }
     });
   }
 
-  function scheduleStatuslineUsageRefresh(delayMs = statuslineUsageRefreshDelayMs) {
-    if (!oauthProviderId()) return;
-    arm('statuslineUsageRefreshTimer', delayMs, async () => {
-      if (busyReason()) {
-        // Active turns refresh usage on their own; just re-arm the idle loop.
-        scheduleStatuslineUsageRefresh();
-        return;
-      }
-      try {
-        await refreshIdleStatuslineUsage();
-      } catch {
-        // Usage display must never affect the session runtime.
-      } finally {
-        scheduleStatuslineUsageRefresh();
-      }
+  /** A turn settled: re-read the usage it spent. The snapshot fetch answers
+   *  from its own short live cache between back-to-back turns. */
+  function refreshStatuslineUsageAfterTurn() {
+    if (!oauthProviderId() || isCloseRequested()) return;
+    void refreshIdleStatuslineUsage().catch(() => {
+      // Usage display must never affect the session runtime.
     });
   }
 
-  return { scheduleStatuslineUsageWarmup, scheduleStatuslineUsageRefresh };
+  return { scheduleStatuslineUsageWarmup, refreshStatuslineUsageAfterTurn };
 }

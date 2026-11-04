@@ -173,7 +173,7 @@ test('an account change drops shared partial rows, so the healthy provider is as
   const f = catalogFixture();
   const healthy = withHealthyProvider(f);
   const readiness = createProviderReadiness({
-    rt: { config: { providers: {} }, closeRequested: false },
+    rt: { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} },
     keychain: { prewarmSecrets: async () => {} },
     getReg: () => f.registry,
     getWarmProviderModelCache: () => () => {},
@@ -197,7 +197,7 @@ test("a hung refresh from before an account change never blocks the new account'
   const f = catalogFixture();
   const provider = f.registry.getProvider();
   const readiness = createProviderReadiness({
-    rt: { config: { providers: {} }, closeRequested: false },
+    rt: { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} },
     keychain: { prewarmSecrets: async () => {} },
     getReg: () => f.registry,
     getWarmProviderModelCache: () => () => {},
@@ -321,7 +321,7 @@ for (const mode of ['foreground', 'forced', 'warmup']) {
 
 test('provider readiness cannot initialize providers after its runtime closes during keychain readiness', async () => {
   const keychain = deferred();
-  const rt = { config: { providers: {} }, closeRequested: false };
+  const rt = { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} };
   let initialized = 0;
   const readiness = createProviderReadiness({
     rt,
@@ -342,7 +342,7 @@ test('provider readiness cannot initialize providers after its runtime closes du
 
 test('startup catalog refresh cannot launch another warmup after runtime closure', async () => {
   const refresh = deferred();
-  const rt = { config: { providers: {} }, closeRequested: false };
+  const rt = { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} };
   let warmed = 0;
   const readiness = createProviderReadiness({
     rt,
@@ -366,7 +366,7 @@ test('startup catalog refresh cannot launch another warmup after runtime closure
 test('provider set change re-runs the catalog refresh completion once per new promise', async () => {
   const a = deferred();
   const b = deferred();
-  const rt = { config: { providers: {} }, closeRequested: false };
+  const rt = { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} };
   let current = a.promise;
   let warmed = 0;
   const warmArgs = [];
@@ -409,7 +409,7 @@ test('provider set change re-runs the catalog refresh completion once per new pr
 test('an already initialized config still attaches to a refresh another runtime started', async () => {
   const a = deferred();
   const b = deferred();
-  const rt = { config: { providers: {} }, closeRequested: false };
+  const rt = { config: { providers: {} }, closeRequested: false, wakeDeferredWarmups() {} };
   let current = a.promise;
   let inits = 0;
   let warmed = 0;

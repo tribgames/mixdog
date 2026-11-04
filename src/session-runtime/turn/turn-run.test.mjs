@@ -112,6 +112,7 @@ function makeHarness(overrides = {}) {
     notifyFnForSession: (id) => `notify:${id}`,
     scheduleProviderWarmup: () => record('warmup.provider'),
     scheduleProviderModelWarmup: () => record('warmup.providerModel'),
+    refreshStatuslineUsageAfterTurn() {},
     agentTool: { upsertLeadSession: (session, patch) => record('lead', session?.id, patch.status) },
     awaitInitialMcpConnect: async (grace) => record('mcpGrace', grace),
     mcpTurnGraceMs: 250,

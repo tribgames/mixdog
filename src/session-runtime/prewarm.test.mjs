@@ -30,7 +30,6 @@ test('first-visible code graph prewarm overlaps an active turn', async () => {
     delays: {
       codeGraphPrewarmDelayMs: 0,
       channelStartDelayMs: 0,
-      backgroundBusyRetryMs: 50,
     },
     flags: { codeGraphPrewarmEnabled: true },
     state: {

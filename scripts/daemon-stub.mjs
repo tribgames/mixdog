@@ -92,7 +92,6 @@ async function main() {
   transport = createChannelTransport({
     handleCall,
     clientGraceMs: 250,
-    sweepMs: 1000,
     log,
     onClientsEmpty: () => {
       void shutdown('no live clients');

@@ -161,7 +161,6 @@ function stubRouteApi({
     persistLeadRoute,
     refreshRouteEffort: async () => {},
     refreshStatuslineUsageSnapshot: () => {},
-    scheduleStatuslineUsageRefresh: () => {},
     invalidateContextStatusCache: () => {},
     invalidateProviderCaches: () => {},
     createCurrentSession: async () => {},

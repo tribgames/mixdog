@@ -21,9 +21,10 @@
  * `claimStagedOriginals`).
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { access, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { withFileLock, withFileLockSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs';
+import { withFileLock, withFileLockSync, writeJsonAtomicAsync, writeJsonAtomicSync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { attachmentFilePath, attachmentRefForBuffer, removeAttachmentBlob, storeAttachmentBuffer } from './store.mjs';
 
@@ -45,19 +46,46 @@ function indexPath() {
   return join(root(), 'staged-originals.json');
 }
 
-function readIndex() {
+function parseIndex(text) {
+  const parsed = JSON.parse(text);
+  return Array.isArray(parsed)
+    ? parsed.filter((entry) => REF_RE.test(String(entry?.ref)) && Number(entry.size) > 0)
+    : [];
+}
+
+// The send path's claim is synchronous by contract (claimStagedOriginals).
+function readIndexSync() {
   try {
-    const parsed = JSON.parse(readFileSync(indexPath(), 'utf8'));
-    return Array.isArray(parsed)
-      ? parsed.filter((entry) => REF_RE.test(String(entry?.ref)) && Number(entry.size) > 0)
-      : [];
+    return parseIndex(readFileSync(indexPath(), 'utf8'));
   } catch {
     return [];
   }
 }
 
+async function readIndex() {
+  try {
+    return parseIndex(await readFile(indexPath(), 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+async function blobExists(ref) {
+  try {
+    await access(attachmentFilePath(ref));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeIndex(entries) {
+  await writeJsonAtomicAsync(indexPath(), entries);
+  armPruneDeadline(entries);
+}
+
 async function transaction(fn, lockTimeoutMs) {
-  mkdirSync(root(), { recursive: true });
+  await mkdir(root(), { recursive: true });
   return withFileLock(stagedOriginalsLockPath(), fn, {
     timeoutMs: lockTimeoutMs ?? LOCK_TIMEOUT_MS,
     staleMs: LOCK_STALE_MS,
@@ -67,11 +95,11 @@ async function transaction(fn, lockTimeoutMs) {
 // The entries still worth keeping, oldest first: an entry whose blob is gone
 // (a crash between recording and publishing, or a sweep) is dropped, an
 // expired one is deleted with its blob. Runs inside a transaction.
-function pruned(entries, now, ttlMs, keepRef = '') {
+async function pruned(entries, now, ttlMs, keepRef = '') {
   const kept = [];
   for (const entry of entries) {
-    if (!existsSync(attachmentFilePath(entry.ref))) continue;
-    if (entry.ref !== keepRef && now - Number(entry.at) > ttlMs) removeAttachmentBlob(entry.ref);
+    if (!(await blobExists(entry.ref))) continue;
+    if (entry.ref !== keepRef && now - Number(entry.at) > ttlMs) await removeAttachmentBlob(entry.ref);
     else kept.push(entry);
   }
   return kept;
@@ -91,15 +119,16 @@ export async function stageOriginalAttachment(
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new TypeError('staged original is empty');
   if (buffer.length > maxBytes) throw new RangeError('staged original exceeds the staging quota');
   const ref = attachmentRefForBuffer(buffer);
-  return transaction(() => {
-    const tracked = readIndex().some((entry) => entry.ref === ref);
+  return transaction(async () => {
+    const index = await readIndex();
+    const tracked = index.some((entry) => entry.ref === ref);
     // An entry whose blob never got published is not "tracked" (see pruned).
-    let entries = pruned(readIndex(), now, ttlMs, ref);
+    let entries = await pruned(index, now, ttlMs, ref);
     const wasTracked = tracked && entries.some((entry) => entry.ref === ref);
     // Bytes already stored for a message (or an earlier attach) are theirs, not
     // staged by this call: never tracked here, so never evicted here.
-    if (existsSync(attachmentFilePath(ref)) && !wasTracked) {
-      writeJsonAtomicSync(indexPath(), entries);
+    if ((await blobExists(ref)) && !wasTracked) {
+      await writeIndex(entries);
       return { attachmentRef: ref };
     }
     entries = entries.filter((entry) => entry.ref !== ref);
@@ -107,18 +136,15 @@ export async function stageOriginalAttachment(
     while (total + buffer.length > maxBytes && entries.length > 0) {
       const [oldest] = entries.splice(0, 1);
       total -= Number(oldest.size);
-      removeAttachmentBlob(oldest.ref);
+      await removeAttachmentBlob(oldest.ref);
     }
     // Intent first: the entry is durable before the blob exists.
     entries.push({ ref, size: buffer.length, at: now });
-    writeJsonAtomicSync(indexPath(), entries);
+    await writeIndex(entries);
     try {
       storeAttachmentBuffer(buffer);
     } catch (error) {
-      writeJsonAtomicSync(
-        indexPath(),
-        entries.filter((entry) => entry.ref !== ref)
-      );
+      await writeIndex(entries.filter((entry) => entry.ref !== ref));
       throw error;
     }
     return { attachmentRef: ref };
@@ -144,10 +170,13 @@ export function claimStagedOriginals(refs) {
     return withFileLockSync(
       stagedOriginalsLockPath(),
       () => {
-        const entries = readIndex();
+        const entries = readIndexSync();
         const claimed = new Set(wanted.filter((ref) => existsSync(attachmentFilePath(ref))));
         const rest = entries.filter((entry) => !claimed.has(entry.ref));
-        if (rest.length !== entries.length) writeJsonAtomicSync(indexPath(), rest);
+        if (rest.length !== entries.length) {
+          writeJsonAtomicSync(indexPath(), rest);
+          armPruneDeadline(rest);
+        }
         return claimed;
       },
       { timeoutMs: 0, staleMs: LOCK_STALE_MS }
@@ -157,34 +186,58 @@ export function claimStagedOriginals(refs) {
   }
 }
 
-// A quarter of the retention, so an original is gone by 1.25 x the TTL at worst.
-const PRUNE_INTERVAL_MS = STAGED_ORIGINALS_TTL_MS / 4;
 let pruneStarted = false;
+let pruneTimer = null;
+let deadlinePrune = null;
+// Bumped by every arm. Arms from index writes run inside the lock, so they
+// come in write order; the startup read runs outside it and must not replace
+// an arm made from a newer index while it was reading.
+let armGeneration = 0;
 
-/** Expire staged originals on a timer, for the daemon (the sole writer):
- *  without it an abandoned original would wait for the next stage or the
- *  6-hourly census. Idempotent, also while a pass runs; the timer never keeps
- *  the process alive and a failed pass (lock contention, disk) is retried at
- *  the next tick. */
+/** Test seam: the prune the last deadline started (settled once it is done). */
+export function _deadlinePruneForTest() {
+  return deadlinePrune;
+}
+
+// One timer, at the earliest staged entry's expiry; none while nothing is
+// staged. Every transaction of this process that writes the index re-arms it
+// from the entries it wrote. Only the daemon (the sole writer) arms it.
+function armPruneDeadline(entries) {
+  if (!pruneStarted) return;
+  armGeneration += 1;
+  clearTimeout(pruneTimer);
+  pruneTimer = null;
+  if (entries.length === 0) return;
+  const earliest = Math.min(...entries.map((entry) => Number(entry.at)));
+  // An entry expires once strictly past the TTL (see pruned).
+  const delayMs = Math.max(0, earliest + STAGED_ORIGINALS_TTL_MS + 1 - Date.now());
+  pruneTimer = setTimeout(() => {
+    pruneTimer = null;
+    // A failed pass (lock contention, disk) leaves the entries for the next
+    // stage, claim or daemon start, each of which prunes and re-arms.
+    deadlinePrune = pruneStagedOriginals().catch(() => {});
+  }, delayMs);
+  pruneTimer.unref?.();
+}
+
+/** Expire staged originals on their own deadline, for the daemon (the sole
+ *  writer): without it an abandoned original would wait for the next stage.
+ *  Idempotent; reads the index once to arm the first deadline. */
 export function startStagedOriginalsPrune() {
   if (pruneStarted) return;
   pruneStarted = true;
-  const arm = () => {
-    setTimeout(() => {
-      void pruneStagedOriginals()
-        .catch(() => {})
-        .then(arm);
-    }, PRUNE_INTERVAL_MS).unref?.();
-  };
-  arm();
+  const generation = armGeneration;
+  void readIndex().then((entries) => {
+    if (armGeneration === generation) armPruneDeadline(entries);
+  });
 }
 
 /** Reconcile the staged set now (expiry, entries without a blob); every
  *  stage does the same. Returns the entries kept. */
 export async function pruneStagedOriginals({ now = Date.now(), ttlMs = STAGED_ORIGINALS_TTL_MS } = {}) {
-  return transaction(() => {
-    const entries = pruned(readIndex(), now, ttlMs);
-    writeJsonAtomicSync(indexPath(), entries);
+  return transaction(async () => {
+    const entries = await pruned(await readIndex(), now, ttlMs);
+    await writeIndex(entries);
     return entries;
   });
 }

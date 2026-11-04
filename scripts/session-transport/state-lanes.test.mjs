@@ -443,6 +443,53 @@ test('an in-daemon transport connection receives frames without owning daemon li
   });
 });
 
+test('a local attachment keeps a silent stream: only the socket closing ends it', async (t) => {
+  let eventRequests = 0;
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/events') {
+      eventRequests += 1;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
+      res.write(': attached\n\n');
+      return;
+    }
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(url.pathname === '/client/register' ? { token: 'client-token', pid: process.pid } : {}));
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const turns = async (count) => {
+    for (let i = 0; i < count; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // Only the global setTimeout is faked: sockets keep their own timers.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const disconnects = [];
+  let client = null;
+  try {
+    client = await attachSession({
+      discovery: { port: server.address().port, token: 'server-token', pid: process.pid },
+      onStreamDisconnect: (details) => disconnects.push(details),
+    });
+    const deadline = performance.now() + 2_000;
+    while (eventRequests === 0 && performance.now() < deadline) await turns(10);
+    await turns(50);
+    t.mock.timers.tick(10 * 60_000);
+    await turns(50);
+    assert.deepEqual(disconnects, [], 'an idle local stream is not a lost one');
+    assert.equal(eventRequests, 1);
+  } finally {
+    t.mock.timers.reset();
+    await client?.close('test end');
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('a silent SSE is reconnected and a continuous reconnect storm exhausts its budget', async (t) => {
   // Keep real sockets/timers, but advance the downtime clock only after the
   // server observes recovery. Runner scheduling must not spend the 60ms budget.

@@ -54,8 +54,6 @@ function fixture(t, overrides = {}) {
       providerModelWarmupDelayMs: 0,
       modelCatalogWarmupDelayMs: 0,
       statuslineUsageWarmupDelayMs: 0,
-      statuslineUsageRefreshDelayMs: 1000,
-      backgroundBusyRetryMs: 100,
     },
     flags: { providerWarmupEnabled: true, modelPrefetchEnabled: true, modelCatalogWarmupEnabled: true },
     ...overrides,
@@ -73,17 +71,26 @@ function fixture(t, overrides = {}) {
   };
 }
 
-for (const method of ['scheduleProviderWarmup', 'scheduleStatuslineUsageWarmup', 'scheduleStatuslineUsageRefresh']) {
+/** Start `method`: a scheduler arms its timer, the after-turn refresh runs at once. */
+function start(t, f, method) {
+  if (method === 'refreshStatuslineUsageAfterTurn') {
+    f.schedulers[method]();
+    return;
+  }
+  f.schedulers[method](0);
+  t.mock.timers.tick(0);
+}
+
+for (const method of ['scheduleProviderWarmup', 'scheduleStatuslineUsageWarmup', 'refreshStatuslineUsageAfterTurn']) {
   test(`${method} cannot start provider work after closing during keychain readiness`, async (t) => {
     const keychain = deferred();
     const f = fixture(t, { awaitKeychainPrewarm: () => keychain.promise });
-    f.schedulers[method](0);
-    t.mock.timers.tick(0);
+    start(t, f, method);
     f.close();
     keychain.resolve();
     await setImmediate();
     assert.deepEqual(f.calls, []);
-    assert.equal(f.timers.statuslineUsageRefreshTimer ?? null, null);
+    assert.deepEqual(Object.values(f.timers).filter(Boolean), []);
   });
 }
 
@@ -98,31 +105,29 @@ test('provider warmup does not continue after a keychain failure during close', 
   assert.deepEqual(f.calls, []);
 });
 
-for (const method of ['scheduleStatuslineUsageWarmup', 'scheduleStatuslineUsageRefresh']) {
+for (const method of ['scheduleStatuslineUsageWarmup', 'refreshStatuslineUsageAfterTurn']) {
   test(`${method} stops before usage refresh if provider readiness outlives the runtime`, async (t) => {
     const provider = deferred();
     const f = fixture(t, { ensureProvidersReady: () => provider.promise });
-    f.schedulers[method](0);
-    t.mock.timers.tick(0);
+    start(t, f, method);
     await setImmediate();
     f.close();
     provider.resolve();
     await setImmediate();
     assert.deepEqual(f.calls, ['config']);
-    assert.equal(f.timers.statuslineUsageRefreshTimer ?? null, null);
+    assert.deepEqual(Object.values(f.timers).filter(Boolean), []);
   });
 
-  test(`${method} refreshes the prepared route if selection changes while waiting`, async (t) => {
+  test(`${method} refreshes the prepared route if selection changes while waiting, and arms no idle loop`, async (t) => {
     const provider = deferred();
     const f = fixture(t, { ensureProvidersReady: () => provider.promise });
-    f.schedulers[method](0);
-    t.mock.timers.tick(0);
+    start(t, f, method);
     await setImmediate();
     f.setRoute({ provider: 'anthropic-oauth', model: 'replacement' });
     provider.resolve();
     await setImmediate();
     assert.deepEqual(f.calls, ['config', ['usage', { provider: 'openai-oauth', model: 'first' }]]);
-    assert.ok(f.timers.statuslineUsageRefreshTimer);
+    assert.deepEqual(Object.values(f.timers).filter(Boolean), [], 'usage is refreshed by turns and reads');
   });
 }
 
@@ -140,47 +145,60 @@ function profiled(t, overrides = {}) {
   return { ...f, events };
 }
 
-test('a busy runtime defers provider warmup and re-arms it on the busy retry delay', async (t) => {
+test('a busy runtime parks provider warmup with no timer until the runtime reports idle', async (t) => {
   let active = 1;
   const f = profiled(t, { getActiveTurnCount: () => active });
   f.schedulers.scheduleProviderWarmup(0);
   t.mock.timers.tick(0);
   await setImmediate();
   assert.deepEqual(f.events, [['providers:warm-deferred', { reason: 'turn-active' }]]);
-  assert.ok(f.timers.providerWarmupTimer);
+  assert.equal(f.timers.providerWarmupTimer, null, 'a busy runtime is not polled');
+  t.mock.timers.tick(60_000);
+  await setImmediate();
   assert.deepEqual(f.calls, []);
   active = 0;
-  t.mock.timers.tick(100);
+  f.schedulers.wakeDeferredWarmups();
+  t.mock.timers.tick(0);
   await setImmediate();
   assert.deepEqual(f.calls, ['reload', 'providers']);
 });
 
-test('provider model warmup waits for the catalog refresh and warms with secrets before the first turn', (t) => {
+test('provider model warmup parks behind the catalog refresh and runs when it settles', (t) => {
   let catalogPending = true;
-  let firstTurn = false;
   const warms = [];
   const f = profiled(t, {
     isCatalogRefreshPending: () => catalogPending,
-    isFirstTurnCompleted: () => firstTurn,
     warmProviderModelCache: (opts) => warms.push(opts),
   });
   f.schedulers.scheduleProviderModelWarmup(0);
   t.mock.timers.tick(0);
   assert.deepEqual(f.events, [['provider-models:warm-deferred', { reason: 'catalog-refresh-pending' }]]);
-  assert.deepEqual(warms, []);
+  assert.equal(f.timers.providerModelWarmupTimer, null);
   catalogPending = false;
-  t.mock.timers.tick(100);
-  assert.deepEqual(f.events.at(-1), ['provider-models:warm-deferred', { reason: 'first-turn-pending' }]);
+  f.schedulers.wakeDeferredWarmups();
+  t.mock.timers.tick(0);
   assert.deepEqual(warms, [{ loadSecrets: true }]);
-  assert.ok(f.timers.providerModelWarmupTimer);
-  firstTurn = true;
-  t.mock.timers.tick(100);
-  assert.deepEqual(warms, [{ loadSecrets: true }, { loadSecrets: true }]);
   assert.equal(f.timers.providerModelWarmupTimer, null);
 });
 
-test('model catalog warmup re-arms on the returned retry delay and backs off a minute after a failure', async (t) => {
-  let outcome = { retryAfterMs: 5000 };
+test('an idle session before its first turn warms the model cache once and arms nothing after', (t) => {
+  const warms = [];
+  const f = profiled(t, {
+    isFirstTurnCompleted: () => false,
+    warmProviderModelCache: (opts) => warms.push(opts),
+  });
+  f.schedulers.scheduleProviderModelWarmup(0);
+  t.mock.timers.tick(0);
+  assert.deepEqual(f.events, [['provider-models:warm-deferred', { reason: 'first-turn-pending' }]]);
+  assert.deepEqual(warms, [{ loadSecrets: true }]);
+  assert.equal(f.timers.providerModelWarmupTimer, null, 'the first turn re-schedules it, not a timer');
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(warms, [{ loadSecrets: true }]);
+});
+
+test('model catalog warmup runs every 6 h; a failure (hinted or thrown) waits for the next regular cycle', async (t) => {
+  // A failed overlay fetch comes back as a 60 s retry hint, not a throw.
+  let outcome = { retryAfterMs: 60_000 };
   let runs = 0;
   const f = profiled(t, {
     warmCatalogsInBackground: async () => {
@@ -195,14 +213,17 @@ test('model catalog warmup re-arms on the returned retry delay and backs off a m
   assert.equal(runs, 1);
   assert.deepEqual(f.events, ['model-catalog:warm-ready']);
   assert.ok(f.timers.modelCatalogWarmupTimer);
+  t.mock.timers.tick(60_000);
+  await setImmediate();
+  assert.equal(runs, 1, 'the retry hint does not re-arm the loop');
   outcome = new Error('offline');
-  t.mock.timers.tick(5000);
+  t.mock.timers.tick(6 * 60 * 60 * 1000 - 60_000);
   await setImmediate();
   assert.equal(runs, 2);
   assert.deepEqual(f.events.at(-1), ['model-catalog:warm-failed', { error: 'offline' }]);
-  t.mock.timers.tick(59_999);
+  t.mock.timers.tick(6 * 60 * 60 * 1000 - 1);
   await setImmediate();
-  assert.equal(runs, 2);
+  assert.equal(runs, 2, 'no short failure retry');
   t.mock.timers.tick(1);
   await setImmediate();
   assert.equal(runs, 3);
@@ -217,7 +238,7 @@ test('disabled or inapplicable warmups report the skip instead of arming a timer
   f.schedulers.scheduleProviderModelWarmup(0);
   f.schedulers.scheduleModelCatalogWarmup(0);
   f.schedulers.scheduleStatuslineUsageWarmup(0);
-  f.schedulers.scheduleStatuslineUsageRefresh(0);
+  f.schedulers.refreshStatuslineUsageAfterTurn();
   assert.deepEqual(f.events, [
     'providers:warm-skipped',
     ['model-catalog:warm-skipped', { reason: 'disabled' }],

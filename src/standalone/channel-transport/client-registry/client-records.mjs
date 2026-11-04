@@ -28,6 +28,7 @@ export function createClientRecords({ state, log, publishRemoteState, replays, g
   function removeClientRecord(token) {
     const c = clients.get(token);
     if (!c) return null;
+    grace.clearLease(c);
     clients.delete(token);
     replays.forgetFor(token);
     try {

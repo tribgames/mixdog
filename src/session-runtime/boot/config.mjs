@@ -53,7 +53,6 @@ export async function resolveConfig(boot) {
       providerModelWarmupTimer: null,
       modelCatalogWarmupTimer: null,
       statuslineUsageWarmupTimer: null,
-      statuslineUsageRefreshTimer: null,
     },
     // Prewarm/channel-start timer handles + async state, owned here so the
     // teardown clearTimeout sweep still sees them; the prewarm scheduler
@@ -97,10 +96,18 @@ function initRuntimeState(rt, params) {
   // True while the boot-time provider-catalog refresh is in flight: warming a
   // model cache it is about to invalidate only burns the load twice.
   rt.startupProviderCatalogRefreshPending = false;
+  // Re-checks the warmups parked on a busy runtime; the session lifecycle
+  // installs it, and every busy-state change calls it (setActiveTurnCount
+  // below, session create, the catalog refresh).
+  rt.wakeDeferredWarmups = () => {};
 }
 
 export function activeTurnControls(rt) {
   return {
+    setActiveTurnCount: (count) => {
+      rt.activeTurnCount = count;
+      if (count === 0) rt.wakeDeferredWarmups();
+    },
     registerActiveTurnController: (controller) => {
       // Close aborts the turns registered when it starts; a turn opened after
       // that (a caller already past its own checks) starts aborted, so a

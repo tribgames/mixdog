@@ -378,6 +378,7 @@ async function shutdown(reason, code = 0, error = null) {
   }
   idleGc?.disarm();
   daemonTelemetry?.stop();
+  lagProfiler.close();
   eventLoopDelay.disable();
   try {
     // Only our own: a successor that reclaimed a stale owner record may
@@ -397,6 +398,26 @@ daemonWorkGate.setBusySource(() => {
   const { busySessions, busyMemoryAgents } = inFlightWork();
   return busySessions + busyMemoryAgents;
 });
+
+/** The daemon did work: the idle GC deadline moves, and the telemetry window
+ *  writes its memory/work line. */
+function noteDaemonActivity() {
+  idleGc.noteActivity();
+  daemonTelemetry.noteActivity();
+}
+
+/** `handleCall` whose start and settle are daemon activity: a call ends an
+ *  idle stretch, and its settle may end a busy one. */
+function reportingIdleActivity(handleCall) {
+  return async (...args) => {
+    noteDaemonActivity();
+    try {
+      return await handleCall(...args);
+    } finally {
+      noteDaemonActivity();
+    }
+  };
+}
 
 /** Work actually running right now, across both front doors. Self-shutdown
  *  asks whether this process may exit; idle GC asks whether a pause is safe. */
@@ -852,7 +873,7 @@ function startPostgresInBackground() {
  *  clients); starting it yields this daemon's channel endpoint. */
 async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
   transport = createChannelTransport({
-    handleCall: channelsRuntime.handleCall,
+    handleCall: reportingIdleActivity(channelsRuntime.handleCall),
     agentBroker: agentDispatchBroker,
     admitWork: admitOwnerWork,
     workRefusal: ownerWorkRefusal,
@@ -975,8 +996,8 @@ async function main() {
   // cleanup's count/age limits and archive rules once the desktop (favorites)
   // is attached, then hourly while no session is mid-turn.
   void startDaemonMaintenance().catch((error) => log(`maintenance schedule failed: ${error?.message || error}`));
-  // The daemon owns prompt attachments; its census runs off the boot path
-  // (first attempt after the store's start delay, then per its interval).
+  // The daemon owns prompt attachments; its census runs once off the boot
+  // path (after the store's start delay) and again when an attachment is stored.
   void import('../runtime/attachments/store.mjs').then((store) => store.startAttachmentGc()).catch(() => {});
   // Session-search backfill: once per run, well after boot, low priority.
   const sessionSearchBackfillTimer = setTimeout(() => {
@@ -1024,7 +1045,8 @@ async function main() {
 
   // Reclaim deferred garbage while nothing is in flight. V8 keeps a long-lived
   // daemon's dead transcripts resident for as long as the heap limit stays out
-  // of sight; a measured sweep on this daemon returned 140MB in 98ms.
+  // of sight; a measured sweep on this daemon returned 140MB in 98ms. Calls
+  // and published frames are its activity (noteDaemonActivity).
   idleGc = createIdleGc({ isBusy: () => !idleGcEligible(inFlightWork()), log });
   if (idleGc.arm()) log('idle gc armed');
 
@@ -1102,6 +1124,9 @@ async function main() {
     getRemoteSessionState: () => remoteSessionState,
     desktopRuntime,
     onFrame: (frame, targetTokens) => {
+      // A turn's progress and its end publish frames: the activity that
+      // re-arms the idle GC deadline once a turn has settled.
+      noteDaemonActivity();
       localSessionBridge?.publish(frame, targetTokens);
       sessionTransport?.broadcast(frame, targetTokens);
     },
@@ -1185,7 +1210,7 @@ async function main() {
     // ctx carries the CLIENT token: the session service refcounts views across
     // processes with it, so a terminal exiting cannot destroy the session a
     // desktop window is still streaming.
-    handleCall: (name, args, ctx) => sessionService.handleCall(name, args, ctx),
+    handleCall: reportingIdleActivity((name, args, ctx) => sessionService.handleCall(name, args, ctx)),
     log,
     getStatus: daemonStatusSnapshot,
     onClientsEmpty: () => {

@@ -27,7 +27,6 @@ const WARMUP_TIMER_KEYS = [
   'providerModelWarmupTimer',
   'modelCatalogWarmupTimer',
   'statuslineUsageWarmupTimer',
-  'statuslineUsageRefreshTimer',
 ];
 const PREWARM_TIMER_KEYS = ['channelStartTimer', 'codeGraphPrewarmTimer', 'searchRuntimeWarmupTimer'];
 

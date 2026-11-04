@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 
 export function createProviderWarmups({
   arm,
+  park,
   busyReason,
   bootProfile,
   getConfig,
@@ -21,8 +22,7 @@ export function createProviderWarmups({
   delays,
   flags,
 }) {
-  const { providerWarmupDelayMs, providerSetupWarmupDelayMs, providerModelWarmupDelayMs, backgroundBusyRetryMs } =
-    delays;
+  const { providerWarmupDelayMs, providerSetupWarmupDelayMs, providerModelWarmupDelayMs } = delays;
   const { providerWarmupEnabled, modelPrefetchEnabled } = flags;
   const warmupBeforeFirstTurn = () => isFirstTurnCompleted() || envFlag('MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN');
 
@@ -31,7 +31,7 @@ export function createProviderWarmups({
       bootProfile('providers:warm-skipped');
       return;
     }
-    arm('providerWarmupTimer', delayMs, async () => {
+    arm('providerWarmupTimer', delayMs, async function warmProviders() {
       if (!warmupBeforeFirstTurn()) {
         bootProfile('providers:warm-deferred', { reason: 'first-turn-pending' });
         return;
@@ -39,7 +39,7 @@ export function createProviderWarmups({
       const busy = busyReason();
       if (busy) {
         bootProfile('providers:warm-deferred', { reason: busy });
-        scheduleProviderWarmup(backgroundBusyRetryMs);
+        park('providerWarmupTimer', warmProviders);
         return;
       }
       const providersStartedAt = performance.now();
@@ -71,31 +71,30 @@ export function createProviderWarmups({
 
   function scheduleProviderModelWarmup(delayMs = providerModelWarmupDelayMs) {
     if (!modelPrefetchEnabled) return;
-    arm('providerModelWarmupTimer', delayMs, () => {
+    arm('providerModelWarmupTimer', delayMs, function warmProviderModels() {
       if (Array.isArray(getProviderModelsCache().models) || getProviderModelsPromise()) return;
       const busy = busyReason();
       if (busy) {
         bootProfile('provider-models:warm-deferred', { reason: busy });
-        scheduleProviderModelWarmup(backgroundBusyRetryMs);
+        park('providerModelWarmupTimer', warmProviderModels);
         return;
       }
       // The startup catalog refresh invalidates every model-derived cache when
       // it lands, so warming before it finishes throws the whole load away.
       if (isCatalogRefreshPending()) {
         bootProfile('provider-models:warm-deferred', { reason: 'catalog-refresh-pending' });
-        scheduleProviderModelWarmup(backgroundBusyRetryMs);
+        park('providerModelWarmupTimer', warmProviderModels);
         return;
       }
       if (!warmupBeforeFirstTurn()) {
-        bootProfile('provider-models:warm-deferred', { reason: 'first-turn-pending' });
         // Secrets-aware even before the first turn: the no-secrets variant is
         // never adopted as the picker cache, so every consumer immediately
         // reloaded the whole catalog (measured ~900ms of duplicate provider
         // I/O on a desktop boot). This runs on a background timer and the
         // keychain prewarm is already in flight, so nothing user-facing waits.
-        warmProviderModelCache({ loadSecrets: true });
-        scheduleProviderModelWarmup(backgroundBusyRetryMs);
-        return;
+        // The first turn's settle schedules this warmup again; no timer waits
+        // for it.
+        bootProfile('provider-models:warm-deferred', { reason: 'first-turn-pending' });
       }
       warmProviderModelCache({ loadSecrets: true });
     });

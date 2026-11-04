@@ -8,8 +8,9 @@ import { createStreamReconnect } from './stream-reconnect.mjs';
 
 export const EVENT_STREAM_RECONNECT_BASE_MS = 1_000;
 export const EVENT_STREAM_RECONNECT_MAX_MS = 30_000;
-// Keepalive silence is detected independently
-// from TCP close, and a continuously failing reconnect storm is bounded.
+// A remote stream's keepalive silence is detected independently from TCP
+// close (0 leaves a stream to its socket: the loopback default), and a
+// continuously failing reconnect storm is bounded.
 export const EVENT_STREAM_LIVENESS_TIMEOUT_MS = 45_000;
 export const EVENT_STREAM_RECONNECT_BUDGET_MS = 10 * 60_000;
 
@@ -53,7 +54,7 @@ export function createStreamLink({
     port,
     serverToken,
     clientToken,
-    livenessMs: Math.max(1, Number(livenessTimeoutMs) || EVENT_STREAM_LIVENESS_TIMEOUT_MS),
+    livenessMs: Math.max(0, Number(livenessTimeoutMs) || 0),
     onFrame,
     log,
     onHealthy: () => reconnect.markHealthy(),

@@ -40,6 +40,8 @@ function daemonCall(failure) {
     lanes: { dispatch: (_owner, run) => run() },
     callCache: { get: () => null, track() {} },
     nowMs: () => 0,
+    onCallStarted() {},
+    onCallSettled() {},
   });
   const attachment = createAttachmentCalls({
     request: ({ body }) =>

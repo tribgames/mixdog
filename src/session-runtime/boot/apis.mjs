@@ -611,7 +611,6 @@ function modelRouteApiFor(boot) {
     persistLeadRoute: boot.persistLeadRoute,
     refreshRouteEffort: boot.refreshRouteEffort,
     refreshStatuslineUsageSnapshot: boot.refreshStatuslineUsageSnapshot,
-    scheduleStatuslineUsageRefresh: boot.scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache: boot.invalidateContextStatusCache,
     invalidateProviderCaches: boot.invalidateProviderCaches,
     createCurrentSession: boot.createCurrentSession,
@@ -729,9 +728,7 @@ function sessionTurnApiFor(boot) {
     },
     getActiveTurnCount: () => rt.activeTurnCount,
     takePendingCompact: (sessionId) => rt.pendingCompactSessionIds?.delete(sessionId) === true,
-    setActiveTurnCount: (v) => {
-      rt.activeTurnCount = v;
-    },
+    setActiveTurnCount: boot.setActiveTurnCount,
     isFirstTurnCompleted: () => rt.firstTurnCompleted,
     setFirstTurnCompleted: (v) => {
       rt.firstTurnCompleted = v;
@@ -761,6 +758,7 @@ function sessionTurnApiFor(boot) {
     bootProfile,
     scheduleProviderWarmup: boot.scheduleProviderWarmup,
     scheduleProviderModelWarmup: boot.scheduleProviderModelWarmup,
+    refreshStatuslineUsageAfterTurn: boot.refreshStatuslineUsageAfterTurn,
     invalidateContextStatusCache: boot.invalidateContextStatusCache,
     agentTool: boot.routedAgentTool,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,

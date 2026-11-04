@@ -50,7 +50,7 @@ export function splitModelProxySendOptions(opts: unknown): {
 export function stripModelProxySecrets<T>(value: T): T;
 
 export class ModelProxyChannel {
-  constructor(options?: { now?: () => number; claimTimeoutMs?: number; leaseMs?: number; sweepMs?: number });
+  constructor(options?: { claimTimeoutMs?: number; leaseMs?: number });
   readonly connected: boolean;
   readonly generation: number;
   whenConnected(timeoutMs: number): Promise<boolean>;
@@ -69,7 +69,6 @@ export class ModelProxyChannel {
   resolve(id: unknown, ok: boolean, valueText: unknown, errorText: unknown): boolean;
   heartbeat(ids: unknown): { cancelled: string[] };
   snapshot(): ModelProxySnapshot;
-  sweep(): void;
 }
 
 export function getModelProxyChannel(): ModelProxyChannel;

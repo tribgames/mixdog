@@ -147,6 +147,41 @@ test('a stream loss on a live daemon re-registers passively with replaceToken an
   }
 });
 
+test('a silent loopback notify stream stays attached: no silence timer drops it', async (t) => {
+  const daemon = await stubDaemon();
+  const logs = [];
+  const waiters = [];
+  const next = () => new Promise((resolve) => waiters.push(resolve));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const handle = await attachChannel({
+      discovery: discoveryFor(daemon),
+      onNotify: (msg) => waiters.shift()?.(msg),
+      log: (line) => logs.push(line),
+    });
+    const stream = await daemon.stream(0);
+    // A delivered frame proves the client is reading the response, so every
+    // timer it arms for this stream exists before the clock moves.
+    const first = next();
+    stream.send({ type: 'notify', method: 'channel.event', params: { first: true } });
+    await first;
+    t.mock.timers.tick(120_000);
+    assert.deepEqual(
+      logs.filter((line) => /liveness|reconnect/.test(line)),
+      [],
+      'two minutes of silence is not a stream loss'
+    );
+    const late = next();
+    stream.send({ type: 'notify', method: 'channel.event', params: { late: true } });
+    assert.deepEqual((await late).params, { late: true });
+    assert.equal(daemon.state.registers.length, 1);
+    await handle.close();
+  } finally {
+    t.mock.timers.reset();
+    await daemon.close();
+  }
+});
+
 test('a health pid mismatch is a stale discovery, and a rejected register is an auth rejection', async () => {
   const live = await stubDaemon();
   const rejecting = await stubDaemon({ registerStatus: 401 });

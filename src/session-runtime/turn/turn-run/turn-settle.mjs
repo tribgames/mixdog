@@ -28,6 +28,7 @@ export function createTurnSettlement({
   setFirstTurnCompleted,
   scheduleProviderWarmup,
   scheduleProviderModelWarmup,
+  refreshStatuslineUsageAfterTurn,
   takePendingCompact,
   runPendingCompact,
 }) {
@@ -106,6 +107,8 @@ export function createTurnSettlement({
       /* lead pool must never break turn teardown */
     }
     setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
+    // The turn spent quota: the statusline usage follows it, not a timer.
+    refreshStatuslineUsageAfterTurn();
     if (settleError) throw settleError;
     // A compaction the model scheduled (session tool) runs once the turn is over.
     // Only while the settled session is still the live one; otherwise it stays

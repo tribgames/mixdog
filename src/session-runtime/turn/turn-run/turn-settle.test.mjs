@@ -21,9 +21,10 @@ test('StopFailure error types match status codes only as whole tokens', () => {
   assert.equal(errorTypeFor('status 401'), 'authentication_failed');
 });
 
-function settlement({ current, pending, onRun }) {
+function settlement({ current, pending, onRun, onUsageRefresh = () => {} }) {
   let active = 1;
   const { settleTurn } = createTurnSettlement({
+    refreshStatuslineUsageAfterTurn: onUsageRefresh,
     getSession: () => ({ id: current() }),
     setSession() {},
     mgr: {},
@@ -49,6 +50,14 @@ function settlement({ current, pending, onRun }) {
   };
   return () => settleTurn(turn);
 }
+
+test('every settled turn refreshes the statusline usage once', async () => {
+  let refreshes = 0;
+  const settle = settlement({ current: () => 'A', pending: new Set(), onUsageRefresh: () => (refreshes += 1) });
+  await settle();
+  await settle();
+  assert.equal(refreshes, 2);
+});
 
 test('a scheduled compact runs for the settled session only while it is still current', async () => {
   const ran = [];

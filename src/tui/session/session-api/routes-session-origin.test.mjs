@@ -108,9 +108,8 @@ function build(origin) {
     saveConfigAndAdopt: (value) => {
       rt.config = value;
     },
-    refreshStatuslineUsageSnapshot() {},
     // The last step of adopting, right before the adopt call itself returns.
-    scheduleStatuslineUsageRefresh: () => atReturn('adopt-return'),
+    refreshStatuslineUsageSnapshot: () => atReturn('adopt-return'),
     invalidateContextStatusCache() {},
     statusRoutes: {},
     mgr: {

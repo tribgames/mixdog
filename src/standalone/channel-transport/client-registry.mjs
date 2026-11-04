@@ -6,7 +6,7 @@
  *   client-records       — live records, removal, pruning, pointer lookup
  *   client-registration  — registration, replay and reconnect replacement
  *   registration-replays — response-loss replay records and their TTL
- *   client-grace         — self-shutdown grace timer + dead-pid sweep
+ *   client-grace         — self-shutdown grace timer + per-client lease deadline
  *   sse-attach           — binding a client's notify stream
  *
  * Shared transport state read/written here: clients, registrationReplays,
@@ -23,7 +23,6 @@ export function createClientRegistry({
   state,
   log,
   clientGraceMs,
-  sweepMs,
   onClientsEmpty,
   onClientRegistered,
   registrationReplayTtlMs,
@@ -40,9 +39,9 @@ export function createClientRegistry({
     clients,
     log,
     clientGraceMs,
-    sweepMs,
     onClientsEmpty,
     pruneDeadClients: () => records.pruneDeadClients(),
+    dropClient: (token, reason) => records.dropClient(token, reason),
   });
   const records = createClientRecords({ state, log, publishRemoteState, replays, grace });
   const { liveClients, dropClient, resolveTarget } = records;
@@ -66,11 +65,23 @@ export function createClientRegistry({
       res,
       // Replay the sticky 'acquired' badge only to the current control client.
       stickyFrame: state.stickyRemoteFrame && token === state.pointerToken ? state.stickyRemoteFrame : null,
-      // Stream loss alone does not drop the client (a TUI may reconnect); the
-      // sweep + pid check reaps genuinely dead clients.
-      onClosed: () => grace.maybeArm('sse closed'),
+      // Stream loss alone does not drop a live client (a TUI may reconnect):
+      // only a dead lead pid or a lapsed lease does.
+      onClosed: () => grace.noteStreamClosed(c),
     });
+    grace.clearLease(c);
     return true;
+  }
+
+  /** A /call of `token` started or settled: a call in flight holds its lease. */
+  function noteCallStarted(token) {
+    const c = clients.get(token);
+    if (c) grace.noteCallStarted(c);
+  }
+
+  function noteCallSettled(token) {
+    const c = clients.get(token);
+    if (c) grace.noteCallSettled(c);
   }
 
   return {
@@ -85,5 +96,7 @@ export function createClientRegistry({
     resolveTarget,
     registerClient,
     attachSse,
+    noteCallStarted,
+    noteCallSettled,
   };
 }

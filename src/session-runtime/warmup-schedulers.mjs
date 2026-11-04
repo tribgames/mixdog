@@ -15,5 +15,6 @@ export function createWarmupSchedulers({ isCatalogRefreshPending = () => false, 
     ...createProviderWarmups(ctx),
     ...createCatalogWarmup(ctx),
     ...createStatuslineUsageWarmup(ctx),
+    wakeDeferredWarmups: ctx.wake,
   };
 }

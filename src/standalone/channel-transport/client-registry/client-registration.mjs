@@ -78,13 +78,16 @@ export function createClientRegistration({ state, log, onClientRegistered, repla
       lastSeen: Date.now(),
       registeredAt: Date.now(),
       restoreSessionId: restoreId,
+      callsInFlight: 0,
+      leaseTimer: null,
     };
     clients.set(token, fresh);
     if (state.remoteAcquired && restoreId && restoreId === state.pinnedSessionId) fresh.remoteSessionId = restoreId;
     state.everHadClient = true;
     grace.cancel();
     grace.resetBackoff();
-    grace.startSweep();
+    // Its first stream attach clears this deadline.
+    grace.armLease(fresh);
     log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
     // The unified daemon starts the channels runtime (automation, webhooks)
     // only once a CHANNELS client is actually present — a

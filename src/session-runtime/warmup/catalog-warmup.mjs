@@ -1,31 +1,34 @@
-// Model catalog refresh loop: re-armed on the catalog's own retry hint, with a
-// one-minute backoff after a failure.
+// Model catalog refresh loop: one refresh every 6 h. The periodic refresh
+// follows the reference coding-agent server's own model refresh worker; as
+// there, a failed refresh only waits for the next regular cycle, and an
+// on-demand catalog read in between fetches for itself. The catalog's short
+// retry hint (returned after a failed fetch) is for those on-demand reads, not
+// for this loop.
 const CATALOG_REFRESH_DEFAULT_MS = 6 * 60 * 60 * 1000;
-const CATALOG_REFRESH_FAILURE_MS = 60_000;
 
-export function createCatalogWarmup({ arm, busyReason, bootProfile, warmCatalogsInBackground, delays, flags }) {
-  const { modelCatalogWarmupDelayMs, backgroundBusyRetryMs } = delays;
+export function createCatalogWarmup({ arm, park, busyReason, bootProfile, warmCatalogsInBackground, delays, flags }) {
+  const { modelCatalogWarmupDelayMs } = delays;
 
   function scheduleModelCatalogWarmup(delayMs = modelCatalogWarmupDelayMs) {
     if (!flags.modelCatalogWarmupEnabled) {
       bootProfile('model-catalog:warm-skipped', { reason: 'disabled' });
       return;
     }
-    arm('modelCatalogWarmupTimer', delayMs, () => {
+    arm('modelCatalogWarmupTimer', delayMs, function warmCatalogs() {
       const busy = busyReason();
       if (busy) {
         bootProfile('model-catalog:warm-deferred', { reason: busy });
-        scheduleModelCatalogWarmup(backgroundBusyRetryMs);
+        park('modelCatalogWarmupTimer', warmCatalogs);
         return;
       }
       void warmCatalogsInBackground()
-        .then((result) => {
+        .then(() => {
           bootProfile('model-catalog:warm-ready');
-          scheduleModelCatalogWarmup(result?.retryAfterMs ?? CATALOG_REFRESH_DEFAULT_MS);
+          scheduleModelCatalogWarmup(CATALOG_REFRESH_DEFAULT_MS);
         })
         .catch((error) => {
           bootProfile('model-catalog:warm-failed', { error: error?.message || String(error) });
-          scheduleModelCatalogWarmup(CATALOG_REFRESH_FAILURE_MS);
+          scheduleModelCatalogWarmup(CATALOG_REFRESH_DEFAULT_MS);
         });
     });
   }

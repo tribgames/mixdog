@@ -1,15 +1,18 @@
 // Opt-in in-process CPU profiler for daemon event-loop stalls.
 //
-// Rides the 30s telemetry tick. While `<data dir>/lag-profile.on` exists, a
+// Rides the 30s telemetry tick. While `<data dir>/lag-profile.on` exists (a
+// file the user creates by hand to opt in; nothing in Mixdog writes it), a
 // node:inspector session profiles each telemetry window back to back (stop →
 // start on every tick). A window's profile is kept only when that same
 // window's event-loop lag was bad; kept windows land in `<data dir>/profiles`
 // as standard .cpuprofile JSON (Chrome DevTools) with a one-line self-time
 // summary in daemon.log. Removing the flag stops profiling and disconnects the
-// session. Every failure is caught and logged once; nothing here may break the
-// telemetry loop.
+// session. The flag is read once on the first tick and then again only after a
+// change to it in the data dir is reported by a directory watch: profiling has
+// to be running before the stall it captures, so it cannot wait for one. Every
+// failure is caught and logged once; nothing here may break the telemetry loop.
 
-import { existsSync } from 'node:fs';
+import { watch } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,6 +112,16 @@ async function createInspectorSession() {
   return session;
 }
 
+/** Calls `onChange` whenever `name` in `dir` is created, changed or removed. */
+export function watchDirEntry(dir, name, onChange, onError) {
+  const watcher = watch(dir, { persistent: false }, (_event, changed) => {
+    // Some platforms omit the name; that event may be the flag.
+    if (!changed || String(changed) === name) onChange();
+  });
+  watcher.on('error', onError);
+  return watcher;
+}
+
 function post(session, method, params = {}) {
   return new Promise((resolve, reject) => {
     session.post(method, params, (error, result) => (error ? reject(error) : resolve(result)));
@@ -121,12 +134,44 @@ export function createLagProfiler({
   now = () => new Date(),
   createSession = createInspectorSession,
   srcRoot = SRC_ROOT,
+  watchFlag = watchDirEntry,
 } = {}) {
   const flagPath = path.join(dataDir, LAG_PROFILE_FLAG_FILE);
   const profileDir = path.join(dataDir, LAG_PROFILE_DIR_NAME);
   let session = null;
   let pending = false;
   let lastFailure = '';
+  let watcher = null;
+  // Whether the flag must be read on the next tick: on the first one, then
+  // after each reported change.
+  let flagStale = true;
+  let enabled = false;
+
+  function startWatch() {
+    if (watcher) return;
+    try {
+      watcher = watchFlag(
+        dataDir,
+        LAG_PROFILE_FLAG_FILE,
+        () => {
+          flagStale = true;
+        },
+        (error) => fail('watch', error)
+      );
+    } catch (error) {
+      fail('watch', error);
+    }
+  }
+
+  async function flagEnabled() {
+    if (!flagStale) return enabled;
+    flagStale = false;
+    enabled = await fsp.access(flagPath).then(
+      () => true,
+      () => false
+    );
+    return enabled;
+  }
 
   function report(line) {
     try {
@@ -182,13 +227,8 @@ export function createLagProfiler({
     let kept = null;
     let at = null;
     try {
-      let enabled = false;
-      try {
-        enabled = existsSync(flagPath);
-      } catch {
-        enabled = false;
-      }
-      if (!enabled) {
+      startWatch();
+      if (!(await flagEnabled())) {
         lastFailure = '';
         if (session) {
           await end();
@@ -224,6 +264,10 @@ export function createLagProfiler({
 
   return {
     tick,
+    close() {
+      watcher?.close();
+      watcher = null;
+    },
     get active() {
       return session !== null;
     },

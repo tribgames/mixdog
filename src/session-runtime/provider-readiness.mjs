@@ -140,9 +140,14 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
         rt.startupProviderCatalogRefreshObserved = refresh;
         rt.startupProviderCatalogRefreshPending = true;
         const isLatest = () => rt.startupProviderCatalogRefreshObserved === refresh;
+        const settle = () => {
+          if (!isLatest()) return;
+          rt.startupProviderCatalogRefreshPending = false;
+          rt.wakeDeferredWarmups();
+        };
         void Promise.resolve(refresh)
           .then(() => {
-            if (isLatest()) rt.startupProviderCatalogRefreshPending = false;
+            settle();
             if (rt.closeRequested) return;
             // Fresh catalog rows invalidate model-derived caches, but the
             // already initialized provider registry remains valid.
@@ -155,7 +160,7 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
             bootProfile('provider-catalogs:refresh-ready');
           })
           .catch((error) => {
-            if (isLatest()) rt.startupProviderCatalogRefreshPending = false;
+            settle();
             bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
           });
         bootProfile('provider-catalogs:refresh-started');

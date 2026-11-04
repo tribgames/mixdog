@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fsp from 'node:fs/promises';
+import module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,6 +14,7 @@ import {
   profileFileName,
   shortenScriptUrl,
   summarizeCpuProfile,
+  watchDirEntry,
 } from './daemon-lag-profiler.mjs';
 import { createDaemonTelemetry } from './daemon-telemetry.mjs';
 
@@ -29,6 +32,23 @@ function flagOn(dataDir) {
 
 function flagOff(dataDir) {
   rmSync(path.join(dataDir, LAG_PROFILE_FLAG_FILE), { force: true });
+}
+
+/** A directory watch the test fires itself, in place of fs.watch. */
+function fakeFlagWatch() {
+  const listeners = [];
+  return {
+    watchFlag: (_dir, _name, onChange) => {
+      listeners.push(onChange);
+      return { close() {} };
+    },
+    changed: () => {
+      for (const listener of listeners) listener();
+    },
+    get watches() {
+      return listeners.length;
+    },
+  };
 }
 
 function tinyProfile() {
@@ -278,11 +298,13 @@ test('the flag file switches profiling on and off without a restart', async (t) 
   const dataDir = tempDataDir(t);
   const lines = [];
   const inspector = fakeInspector();
+  const flagWatch = fakeFlagWatch();
   const profiler = createLagProfiler({
     dataDir,
     log: (line) => lines.push(line),
     now: fakeClock(),
     createSession: inspector.createSession,
+    watchFlag: flagWatch.watchFlag,
   });
 
   assert.equal(await profiler.tick({ p99Ms: 5000 }), 'disabled');
@@ -290,10 +312,12 @@ test('the flag file switches profiling on and off without a restart', async (t) 
   assert.equal(profiler.active, false);
 
   flagOn(dataDir);
+  flagWatch.changed();
   assert.equal(await profiler.tick(), 'started');
   assert.equal(profiler.active, true);
 
   flagOff(dataDir);
+  flagWatch.changed();
   assert.equal(await profiler.tick({ p99Ms: 5000 }), 'disabled');
   assert.equal(profiler.active, false);
   const first = inspector.sessions[0];
@@ -306,8 +330,55 @@ test('the flag file switches profiling on and off without a restart', async (t) 
   assert.deepEqual(lines, [`lag-profile enabled dir=${path.join(dataDir, 'profiles')}`, 'lag-profile disabled']);
 
   flagOn(dataDir);
+  flagWatch.changed();
   assert.equal(await profiler.tick(), 'started');
   assert.equal(inspector.sessions.length, 2);
+  assert.equal(flagWatch.watches, 1, 'one directory watch for the profiler lifetime');
+});
+
+test('creating the flag on disk is reported by the directory watch and enables the next tick', async (t) => {
+  const dataDir = tempDataDir(t);
+  let reported;
+  const change = new Promise((resolve) => {
+    reported = resolve;
+  });
+  const profiler = createLagProfiler({
+    dataDir,
+    createSession: fakeInspector().createSession,
+    watchFlag: (dir, name, onChange, onError) =>
+      watchDirEntry(
+        dir,
+        name,
+        () => {
+          onChange();
+          reported();
+        },
+        onError
+      ),
+  });
+  t.after(() => profiler.close());
+  assert.equal(await profiler.tick(), 'disabled');
+  flagOn(dataDir);
+  await change;
+  assert.equal(await profiler.tick(), 'started');
+});
+
+test('between flag changes a tick reads no file: the flag is read once, then only after a reported change', async (t) => {
+  const dataDir = tempDataDir(t);
+  const flagWatch = fakeFlagWatch();
+  const access = t.mock.method(fsp, 'access');
+  module.syncBuiltinESMExports();
+  t.after(() => {
+    access.mock.restore();
+    module.syncBuiltinESMExports();
+  });
+  const profiler = createLagProfiler({ dataDir, createSession: fakeInspector().createSession, watchFlag: flagWatch.watchFlag });
+  for (let i = 0; i < 5; i += 1) assert.equal(await profiler.tick({ p99Ms: 5000 }), 'disabled');
+  assert.equal(access.mock.callCount(), 1, 'five windows, one flag read');
+  flagOn(dataDir);
+  flagWatch.changed();
+  assert.equal(await profiler.tick(), 'started');
+  assert.equal(access.mock.callCount(), 2);
 });
 
 test('profiler failures are caught, logged once, and never reject the tick', async (t) => {
@@ -333,7 +404,8 @@ test('profiler failures are caught, logged once, and never reject the tick', asy
 test('the real node:inspector session produces a DevTools .cpuprofile for a lag window', async (t) => {
   const dataDir = tempDataDir(t);
   const lines = [];
-  const profiler = createLagProfiler({ dataDir, log: (line) => lines.push(line) });
+  const flagWatch = fakeFlagWatch();
+  const profiler = createLagProfiler({ dataDir, log: (line) => lines.push(line), watchFlag: flagWatch.watchFlag });
   flagOn(dataDir);
   assert.equal(await profiler.tick(), 'started');
   const until = Date.now() + 100;
@@ -341,6 +413,7 @@ test('the real node:inspector session produces a DevTools .cpuprofile for a lag 
   while (Date.now() < until) spin += Math.sqrt(spin + 1);
   assert.equal(await profiler.tick({ p99Ms: 1200, maxMs: 2500, busySessions: 30 }), 'saved');
   flagOff(dataDir);
+  flagWatch.changed();
   assert.equal(await profiler.tick(), 'disabled');
 
   const [file] = profileFiles(dataDir);

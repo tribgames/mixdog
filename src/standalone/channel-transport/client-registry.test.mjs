@@ -12,7 +12,6 @@ const DEAD_PID = 2147483647;
 
 function registry({
   clientGraceMs = 0,
-  sweepMs = 1000,
   ttl = 60_000,
   onClientsEmpty = null,
   onClientRegistered = null,
@@ -33,7 +32,6 @@ function registry({
     state,
     log: (line) => logs.push(line),
     clientGraceMs,
-    sweepMs,
     onClientsEmpty,
     onClientRegistered,
     registrationReplayTtlMs: ttl,
@@ -230,6 +228,83 @@ test('attachSse flushes the pending frame, replays the sticky badge only to the 
   assert.deepEqual(fired, [1]);
   assert.ok(logs.some((line) => line.includes('client grace elapsed')));
   reg.stopTimers();
+});
+
+test('a registry with clients arms no repeating timer', (t) => {
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const { reg } = registry({ clientGraceMs: 20, onClientsEmpty: () => {} });
+  try {
+    reg.registerClient({ leadPid: process.pid, cwd: '/w' });
+    assert.equal(intervals.mock.callCount(), 0);
+  } finally {
+    reg.stopTimers();
+  }
+});
+
+test('a client whose stream closes after its lead pid died is dropped at once', () => {
+  const { reg, state, logs } = registry();
+  try {
+    const dead = reg.registerClient({ leadPid: DEAD_PID, cwd: '/w' });
+    const res = fakeRes();
+    reg.attachSse(dead, res);
+    res.emit('close');
+    assert.equal(state.clients.has(dead), false);
+    assert.ok(logs.some((line) => line.includes(`client ${dead} (lead=${DEAD_PID}) removed: lead pid gone`)));
+  } finally {
+    reg.stopTimers();
+  }
+});
+
+test('a client is dropped when it holds no stream for a whole lease, never while it holds one', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { reg, state } = registry();
+  const streams = [];
+  try {
+    const never = reg.registerClient({ leadPid: process.pid, cwd: '/a' });
+    const held = reg.registerClient({ leadPid: process.pid, cwd: '/b' });
+    const attach = () => {
+      const res = fakeRes();
+      streams.push(res);
+      reg.attachSse(held, res);
+      return res;
+    };
+    attach();
+    t.mock.timers.tick(29_999);
+    assert.equal(state.clients.has(never), true);
+    t.mock.timers.tick(1);
+    assert.equal(state.clients.has(never), false, 'no stream for a whole lease');
+    t.mock.timers.tick(300_000);
+    assert.equal(state.clients.has(held), true, 'an open stream is the lease');
+    streams.at(-1).emit('close');
+    t.mock.timers.tick(10_000);
+    attach();
+    t.mock.timers.tick(300_000);
+    assert.equal(state.clients.has(held), true, 'a reattach inside the lease keeps the client');
+    streams.at(-1).emit('close');
+    t.mock.timers.tick(30_000);
+    assert.equal(state.clients.has(held), false);
+  } finally {
+    for (const res of streams) res.emit('close');
+    reg.stopTimers();
+  }
+});
+
+test('a call in flight keeps a streamless client; its lease restarts when the last call settles', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { reg, state } = registry();
+  try {
+    const token = reg.registerClient({ leadPid: process.pid, cwd: '/w' });
+    reg.noteCallStarted(token);
+    t.mock.timers.tick(300_000);
+    assert.equal(state.clients.has(token), true);
+    reg.noteCallSettled(token);
+    t.mock.timers.tick(29_999);
+    assert.equal(state.clients.has(token), true);
+    t.mock.timers.tick(1);
+    assert.equal(state.clients.has(token), false);
+  } finally {
+    reg.stopTimers();
+  }
 });
 
 test('resolveTarget returns the live pointer client and clears a dead or unknown one', () => {

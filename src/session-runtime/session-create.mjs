@@ -123,7 +123,10 @@ export function createSessionCreator(deps, routes) {
     try {
       return await promise;
     } finally {
-      if (rt.sessionCreatePromise === promise) rt.sessionCreatePromise = null;
+      if (rt.sessionCreatePromise === promise) {
+        rt.sessionCreatePromise = null;
+        rt.wakeDeferredWarmups();
+      }
     }
   };
 }

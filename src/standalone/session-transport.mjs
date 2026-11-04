@@ -14,7 +14,7 @@
 // harness with a stub session runtime (no provider, no model download).
 // The pieces live under session-transport/: stack (the bounded body reader and
 // the assembly of everything below), client-registry (attach / drop / grace /
-// sweep), call-lanes (fair schedulers), call-route (idempotent /call) and
+// lease), call-lanes (fair schedulers), call-route (idempotent /call) and
 // routes (the HTTP front door).
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -27,7 +27,6 @@ export function createSessionTransport({
   serverToken = randomUUID(),
   log = () => {},
   clientGraceMs = 10_000,
-  sweepMs = 5_000,
   onClientsEmpty = null,
   onClientRegistered = null,
   onClientDropped = null,
@@ -55,7 +54,6 @@ export function createSessionTransport({
     drain,
     log,
     clientGraceMs,
-    sweepMs,
     onClientsEmpty,
     onClientRegistered,
     onClientDropped,

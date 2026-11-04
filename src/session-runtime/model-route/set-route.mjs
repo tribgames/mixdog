@@ -271,7 +271,6 @@ async function adoptRoute(deps, persist, next, options, lease) {
     resolveRoute,
     refreshRouteEffort,
     refreshStatuslineUsageSnapshot,
-    scheduleStatuslineUsageRefresh,
   } = deps;
   const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
   // The Lead's fallback chain travels with an explicit main-model choice only
@@ -329,7 +328,6 @@ async function adoptRoute(deps, persist, next, options, lease) {
   return lease.run(
     () => {
       refreshStatuslineUsageSnapshot(getRoute());
-      scheduleStatuslineUsageRefresh();
       return true;
     },
     () => false
