@@ -23,7 +23,7 @@ import { hintSessionCatalogStorage } from '../catalog-db/index.mjs';
 export let _summaryRowsCache = null;
 const _summaryCacheUpserts = new Map();
 const _summaryCacheLatestRows = new Map();
-export const _summaryCacheRemovals = new Set();
+const _summaryCacheRemovals = new Set();
 export const _summaryCacheVersions = new Map();
 let _summaryCacheDataDir = null;
 let _summaryRowsViewCache = null;

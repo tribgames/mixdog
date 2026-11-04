@@ -515,7 +515,7 @@ async function observeStampAsync(path) {
 // worker fails rejects the listing; the next request starts a fresh worker.
 // The worker retires after HEADER_WORKER_IDLE_EXIT_MS without a request
 // (worker-requests' own idleExitMs, not a timer of this module). The
-// synchronous listing (TUI/CLI) probes its headers in place, as before.
+// synchronous listing (TUI/CLI) probes its headers in place.
 const HEADER_WORKER_IDLE_EXIT_MS = 30_000;
 let requestHeaderProbes = null;
 
@@ -523,9 +523,12 @@ let requestHeaderProbes = null;
  *  policy of probeWorkerSessionHeader: absent → none, same stamp → the cached
  *  header, else the header read there (cached when its stamp is settled). */
 async function probeWorkerHeaders(paths) {
-  requestHeaderProbes ??= createWorkerRequestClient(new URL('./store-agent-worker-header-worker.mjs', import.meta.url), {
-    idleExitMs: HEADER_WORKER_IDLE_EXIT_MS,
-  });
+  requestHeaderProbes ??= createWorkerRequestClient(
+    new URL('./store-agent-worker-header-worker.mjs', import.meta.url),
+    {
+      idleExitMs: HEADER_WORKER_IDLE_EXIT_MS,
+    }
+  );
   const known = paths.map((path) => workerSessionHeaderCache.get(path) ?? null);
   const answers = await requestHeaderProbes({
     fields: WORKER_HEADER_FIELDS,
@@ -548,7 +551,7 @@ async function prefetchWorkerHeaders(sessionIds, headers) {
   );
   if (paths.length === 0) return;
   const found = await probeWorkerHeaders(paths);
-  paths.forEach((path, i) => headers.set(path, found[i]));
+  for (const [i, path] of paths.entries()) headers.set(path, found[i]);
 }
 /** Test/diagnostic seam: cached headers and the records this process read. */
 export function storedAgentWorkerHeaderStats() {

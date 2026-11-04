@@ -48,7 +48,7 @@ export function* probePathStep(path) {
   }
 }
 
-/** `readTextFile` (or, with `bytes`, `readBytesFile`) as a store-read step. */
+/** `readTextFile` (or, with `bytes`, the raw Buffer) as a store-read step. */
 export function* readFileStep(path, bytes = false) {
   try {
     const data = yield ['readFile', path, bytes ? undefined : 'utf8'];
@@ -85,9 +85,4 @@ function _failedProbe(err) {
  */
 export function readTextFile(path) {
   return runFsStepsSync(readFileStep(path));
-}
-
-/** `readTextFile` with the raw bytes (`bytes`, a Buffer) instead of text. */
-export function readBytesFile(path) {
-  return runFsStepsSync(readFileStep(path, true));
 }

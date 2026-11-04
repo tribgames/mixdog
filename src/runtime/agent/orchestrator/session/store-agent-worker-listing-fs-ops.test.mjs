@@ -40,7 +40,10 @@ async function countingFsCalls(run) {
 }
 
 let instance = 0;
-const coldPool = () => import(`./store-agent-worker-rows.mjs?ops=${(instance += 1)}`);
+const coldPool = () => {
+  instance += 1;
+  return import(`./store-agent-worker-rows.mjs?ops=${instance}`);
+};
 
 test('listing a large index costs a bounded number of fs calls, whatever its row count', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-ops-'));
@@ -66,11 +69,21 @@ test('listing a large index costs a bounded number of fs calls, whatever its row
         updatedAt: new Date(now - (live ? 5 : 20 * 24 * 60) * MINUTE).toISOString(),
       };
       if (live) {
-        const record = { id: sessionId, owner: 'agent', agent: 'worker', ownerSessionId: LEAD, title: `Agent ${i}`, messages: [] };
+        const record = {
+          id: sessionId,
+          owner: 'agent',
+          agent: 'worker',
+          ownerSessionId: LEAD,
+          title: `Agent ${i}`,
+          messages: [],
+        };
         writeFileSync(join(root, 'sessions', `${sessionId}.json`), JSON.stringify(record));
       }
     }
-    writeFileSync(join(root, 'sessions', `${LEAD}.json`), JSON.stringify({ id: LEAD, owner: 'user', agent: 'lead', messages: [] }));
+    writeFileSync(
+      join(root, 'sessions', `${LEAD}.json`),
+      JSON.stringify({ id: LEAD, owner: 'user', agent: 'lead', messages: [] })
+    );
     writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({ version: 2, workers, tombstones: {} }));
     writeFileSync(
       join(root, 'lead-workers.json'),

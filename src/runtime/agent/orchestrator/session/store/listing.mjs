@@ -388,8 +388,7 @@ function* _coldSummaryRowsInWindow(window, dataDir) {
     // Only listed, never created: an absent store simply has no files.
     const dir = storeRecordDir();
     const hasSessionFiles =
-      (yield* probePathStep(dir)).state === PROBE_PRESENT &&
-      (yield ['readdir', dir]).some((f) => f.endsWith('.json'));
+      (yield* probePathStep(dir)).state === PROBE_PRESENT && (yield ['readdir', dir]).some((f) => f.endsWith('.json'));
     // The rebuild targets the current dir: only on this dir's evidence.
     if (hasSessionFiles && getPluginData() === dataDir) scheduleSessionSummaryIndexRebuild();
     return _adoptIndexRows(window, dataDir, indexedRows);

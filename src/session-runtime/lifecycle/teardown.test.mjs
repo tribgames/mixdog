@@ -294,14 +294,22 @@ test("a session close never waits on another session's held index or config writ
     otherConfigWrite = sharedConfig.updateSectionAsync('channels', (current) => ({ ...current, held: true }));
     const closed = await Promise.race([f.teardown.close('idle-evict', { keepBackgroundWork: true }), sleep(1500)]);
     assert.equal(closed, true, 'the close resolved while the other writes were held');
-    assert.equal(existsSync(join(process.env.MIXDOG_DATA_DIR, 'agent-workers.json')), false, 'the held write is still queued');
+    assert.equal(
+      existsSync(join(process.env.MIXDOG_DATA_DIR, 'agent-workers.json')),
+      false,
+      'the held write is still queued'
+    );
   } finally {
     await unlockConfig();
     await unlockIndex();
     f.cleanup();
   }
   await otherConfigWrite;
-  assert.equal(sharedConfig.readSection('channels')?.held, true, "the other session's config write landed once released");
+  assert.equal(
+    sharedConfig.readSection('channels')?.held,
+    true,
+    "the other session's config write landed once released"
+  );
   await other.worker.flushWorkerIndexWrites();
   assert.equal(other.readRows().held?.sessionId, 'held', "the other session's write landed once released");
   config.restore();
@@ -320,7 +328,10 @@ test('a session close waits for the config writes its own work started directly'
     setupTool: {},
     workspaceApi: {},
     configWrites,
-    channelConfigApi: createChannelConfigApi({ channels: { status: () => ({ running: false }) }, reloadChannelsSoon() {} }),
+    channelConfigApi: createChannelConfigApi({
+      channels: { status: () => ({ running: false }) },
+      reloadChannelsSoon() {},
+    }),
   });
   const unlockConfig = await config.holdLock();
   const f = fixture({ settleOwnConfigWrites: configWrites.settled });

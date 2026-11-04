@@ -62,7 +62,11 @@ test('a durable save on a worker that never answers rejects as hung, and the nex
     5_000,
     'the durable save on a silent worker is still pending'
   );
-  assert.match(getSessionSaveError(id)?.message ?? '', /made no progress/, 'the session stays unsaved, not silently lost');
+  assert.match(
+    getSessionSaveError(id)?.message ?? '',
+    /made no progress/,
+    'the session stays unsaved, not silently lost'
+  );
   assert.notEqual(_saveWorkerForTest(), silent, 'the hung worker was retired');
 
   // The short bound only makes the silent worker expire quickly. A healthy

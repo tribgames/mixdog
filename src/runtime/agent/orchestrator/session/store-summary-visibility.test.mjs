@@ -241,9 +241,7 @@ test('catalogs expose agent sessions while preserving their presentation classif
       expectedOrdinaryIds
     );
     assert.deepEqual(
-      (await listOrdinarySummariesAsync({ refreshFromStorage: true }))
-        .map((row) => row.id)
-        .sort(),
+      (await listOrdinarySummariesAsync({ refreshFromStorage: true })).map((row) => row.id).sort(),
       expectedOrdinaryIds
     );
     assert.deepEqual(

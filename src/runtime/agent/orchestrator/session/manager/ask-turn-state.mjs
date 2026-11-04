@@ -126,7 +126,9 @@ export function createTurnCheckpointScheduler({
       if (stopped || !recorder.epochDurable) return;
       saveSessionAsync(turn.session, { expectedGeneration: generation }).catch((err) => {
         try {
-          process.stderr.write(`[session] save after the checkpoint header failed session=${sessionId}: ${err?.message || err}\n`);
+          process.stderr.write(
+            `[session] save after the checkpoint header failed session=${sessionId}: ${err?.message || err}\n`
+          );
         } catch {
           // stderr may be closed; the save failure is only reported
         }
