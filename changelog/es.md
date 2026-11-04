@@ -5,28 +5,30 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
-Esta versión incorpora aprobaciones de acciones por sesión y entre conversaciones, permisos de sitios en el navegador integrado e importación automática de cookies de Chrome, junto con mejoras en Computer Use y el control remoto móvil.
+Esta versión añade aprobaciones de acciones, permisos de sitios del navegador y ajustes de proxy de red, y corrige ralentizaciones cuando hay muchas sesiones abiertas.
 
 ### Nuevas funciones
 
-- **Aprobaciones de acciones** — Las tarjetas de aprobación ofrecen Permitir en esta sesión, los chats de código admiten Permitir siempre y los permisos se revocan con "Preguntar nuevamente"; pagos y eliminaciones permanentes siempre preguntan.
-- **Permisos de sitios del navegador** — Gestione permisos predeterminados y excepciones por sitio en Configuración › Autenticación, con avisos que recuerdan opciones para este sitio, todos los sitios o hasta que se cierre la app.
-- **Importación automática de cookies de Chrome** — Active "Importar cookies automáticamente" en Configuración › Autenticación para reimportar cookies al cerrar Chrome, manteniendo las sesiones iniciadas en el navegador integrado.
-- **Códigos de verificación automáticos** — Lee y completa automáticamente códigos únicos de inicio de sesión desde su buzón conectado, y permite responder solicitudes de contraseñas y códigos desde el teléfono.
+- **Aprobaciones de acciones** — Se añadieron Permitir en esta sesión y, en chats de código, Permitir siempre a las tarjetas de aprobación, revocables con "Preguntar nuevamente"; los pagos y las eliminaciones permanentes siempre preguntan.
+- **Permisos de sitios del navegador** — Se añadieron permisos predeterminados y excepciones por sitio en Configuración › Autenticación, con avisos que recuerdan la elección para un sitio, todos los sitios o hasta que se cierre la app.
+- **Importación automática de cookies de Chrome** — Se añadió "Importar cookies automáticamente" en Configuración › Autenticación para reimportar cookies al cerrar Chrome y mantener las sesiones iniciadas en los sitios.
+- **Códigos de verificación automáticos** — Se añadió el autocompletado de códigos únicos de inicio de sesión desde su buzón conectado, además de avisos en el teléfono para contraseñas y códigos.
+- **Proxy de red** — Se añadieron los modos de proxy del sistema, personalizado `http`/`https`/`socks5` y desactivado con reglas de omisión y prueba de conexión en Configuración › Sistema › Proxy de red y en los ajustes del teléfono (#317).
 
 ### Cambios
 
 - Se cambiaron las acciones del navegador para hacer clic directamente en los pasos y probar primero sesiones existentes o inicios guardados, delegando solo contraseñas, tarjetas, códigos o verificaciones de identidad.
-- Se cambió la app de Android para mostrar su propia pantalla de reconexión, reconectarse automáticamente al volver la red o reabrir la app y ofrecer "Elegir otro PC".
-- Se ajustó el chat remoto en el teléfono para mantener el teclado abierto tras enviar, evitar que los mensajes enviados salten hacia arriba y conservar los archivos originales adjuntos.
-- Se ajustaron los iconos de sesión en la barra lateral a 20px para una visibilidad más clara.
+- Se cambió la app de Android para mostrar una pantalla de reconexión, reconectarse automáticamente al volver la red o reabrir la app y ofrecer "Elegir otro PC".
+- Se cambió la eliminación de worktrees para borrar una rama solo cuando la creó Mixdog y git la considera fusionada, manteniendo sus commits recuperables.
 
 ### Correcciones de errores
 
+- Se corrigió que la app se ralentizara o bloqueara con muchas sesiones abiertas y se aceleró la apertura de sesiones tras iniciar la app (#316).
 - Se corrigió que los clics de Computer Use fallaran el objetivo en pantallas HiDPI escaladas y que las acciones en segundo plano quitaran el foco haciendo parpadear la ventana activa.
 - Se corrigió que los dispositivos HID elegidos en el navegador integrado no lograran conectarse al sitio (#313).
 - Se corrigió que el selector de dispositivos HID mostrara óvalos planos estirados a lo largo de la fila en lugar de los nombres de dispositivos (#314).
 - Se corrigió que la lista Sesiones mostrara filas en blanco al volver de otro menú o saltara al principio al superar las 40 filas (#315).
+- Se corrigió que la búsqueda de código en Linux mostrara resultados obsoletos para archivos accedidos mediante enlaces simbólicos.
 - Se corrigió que el selector de modelo en el editor de agentes se estirara a lo ancho de todo el cuadro de diálogo.
 
 ## v1.4.5 - 2026-11-03

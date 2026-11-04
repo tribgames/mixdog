@@ -4,28 +4,30 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-Questa versione aggiunge le approvazioni delle azioni per sessione e tra conversazioni, le autorizzazioni dei siti nel browser integrato e l'importazione automatica dei cookie di Chrome, insieme a miglioramenti per Computer Use e il controllo remoto da dispositivi mobili.
+Questa versione aggiunge le approvazioni delle azioni, le autorizzazioni dei siti del browser e le impostazioni del proxy di rete, e risolve i rallentamenti quando ci sono molte sessioni aperte.
 
 ### Nuove funzionalità
 
-- **Approvazioni delle azioni** — Le schede di approvazione offrono Consenti per questa sessione, le chat di codice supportano Consenti sempre e i permessi sono revocabili con "Chiedi di nuovo"; pagamenti ed eliminazioni definitive chiedono sempre conferma.
-- **Autorizzazioni dei siti del browser** — Gestisci le autorizzazioni predefinite e le eccezioni per sito in Impostazioni › Autenticazione, con avvisi che ricordano le scelte per questo sito, per tutti i siti o fino alla chiusura dell'app.
-- **Importazione automatica dei cookie di Chrome** — Attiva "Importa i cookie automaticamente" in Impostazioni › Autenticazione per reimportare i cookie alla chiusura di Chrome, mantenendo l'accesso ai siti nel browser integrato.
-- **Codici di verifica automatici** — Legge e compila automaticamente i codici di accesso monouso dalla casella di posta collegata e consente di rispondere alle richieste di password e codici dal telefono.
+- **Approvazioni delle azioni** — Aggiunti Consenti per questa sessione e, nelle chat di codice, Consenti sempre alle schede di approvazione, revocabili con "Chiedi di nuovo"; pagamenti ed eliminazioni definitive chiedono sempre conferma.
+- **Autorizzazioni dei siti del browser** — Aggiunte le autorizzazioni predefinite e le eccezioni per sito in Impostazioni › Autenticazione, con avvisi che ricordano le scelte per un sito, per tutti i siti o fino alla chiusura dell'app.
+- **Importazione automatica dei cookie di Chrome** — Aggiunto "Importa i cookie automaticamente" in Impostazioni › Autenticazione per reimportare i cookie alla chiusura di Chrome e mantenere l'accesso ai siti.
+- **Codici di verifica automatici** — Aggiunta la compilazione automatica dei codici di accesso monouso dalla casella di posta collegata, oltre agli avvisi sul telefono per password e codici.
+- **Proxy di rete** — Aggiunte le modalità proxy di sistema, `http`/`https`/`socks5` personalizzato e disattivato con regole di esclusione e test della connessione in Impostazioni › Sistema › Proxy di rete e nelle impostazioni sul telefono (#317).
 
 ### Modifiche
 
-- Modificate le azioni del browser per fare clic direttamente sui passaggi e provare prima le sessioni esistenti o gli accessi salvati, delegando solo password, numeri di carta, codici o verifiche d'identità.
-- Modificata l'app Android per mostrare una propria schermata di riconnessione, riconnettersi automaticamente al ritorno della rete o alla riapertura dell'app e offrire "Scegli un altro PC".
-- Ottimizzata la chat remota su telefono affinché la tastiera resti aperta dopo l'invio, i messaggi inviati non saltino verso l'alto e gli allegati mantengano i file originali.
-- Ottimizzate le icone delle sessioni nella barra laterale a 20px per una visibilità più nitida.
+- Modificate le azioni del browser per fare clic direttamente sui passaggi e provare prima le sessioni esistenti o gli accessi salvati, delegando solo password, carte, codici o verifiche d'identità.
+- Modificata l'app Android per mostrare una schermata di riconnessione, riconnettersi automaticamente al ritorno della rete o alla riapertura dell'app e offrire "Scegli un altro PC".
+- Modificata la rimozione dei worktree per eliminare un branch solo quando è stato creato da Mixdog e git lo considera unito, mantenendo i relativi commit recuperabili.
 
 ### Correzioni di bug
 
+- Risolto il rallentamento o il blocco dell'app con molte sessioni aperte e velocizzata l'apertura delle sessioni dopo l'avvio (#316).
 - Risolto il problema per cui i clic di Computer Use mancavano i bersagli su schermi HiDPI ridimensionati e le azioni in background sottraevano il focus facendo sfarfallare la finestra attiva.
 - Risolto il problema per cui i dispositivi HID scelti nel browser integrato non riuscivano a connettersi al sito (#313).
 - Risolto il problema per cui il selettore di dispositivi HID mostrava ovali piatti allungati lungo la riga invece dei nomi dei dispositivi (#314).
 - Risolto il problema per cui l'elenco Sessioni mostrava righe vuote tornando da un altro menu o saltava in cima superando le 40 righe (#315).
+- Risolto il problema per cui la ricerca del codice su Linux mostrava risultati obsoleti per i file raggiunti tramite link simbolici.
 - Risolto il problema per cui il selettore del modello nell'editor degli agenti si allungava per l'intera finestra di dialogo.
 
 ## v1.4.5 - 2026-11-03
