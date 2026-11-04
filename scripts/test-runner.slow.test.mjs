@@ -11,6 +11,7 @@ import { createFailureRecorder, failureRecord } from './lib/test-failure-records
 import { classifyRerunOutcomes, formatFailureSummary, policyLine, SUMMARY_TAG } from './lib/test-failure-summary.mjs';
 import { discoverTestFiles, laneOf, laneSelected, parseArgs, selectTestFiles, USAGE } from './test.mjs';
 import { changedFiles, selectChangedTests } from './lib/changed-tests.mjs';
+import { testIsolationEnv } from './lib/run-node-tests.mjs';
 
 const runnerUrl = new URL('./test.mjs', import.meta.url);
 const runnerPath = fileURLToPath(runnerUrl);
@@ -468,12 +469,12 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
                 args,
                 stdio: options.stdio,
                 // The whole parent environment is inherited; the runner only
-                // adds where this spawn records its failures and points the
-                // temp and data directories at a private root it removes
-                // after the run.
+                // adds where this spawn records its failures and its isolation
+                // variables (temp, data and backup roots it removes after the
+                // run), which a parent run already set and this one replaces.
                 inheritsEnvironment: Object.keys(process.env).every(
                   (key) =>
-                    ['MIXDOG_TEST_FAILURE_RECORDS', 'TEMP', 'TMP', 'TMPDIR', 'MIXDOG_DATA_DIR'].includes(key) ||
+                    ${JSON.stringify(['MIXDOG_TEST_FAILURE_RECORDS', ...Object.keys(testIsolationEnv('scratch'))])}.includes(key) ||
                     options.env[key] === process.env[key]
                 ),
                 dataDir: options.env.MIXDOG_DATA_DIR,

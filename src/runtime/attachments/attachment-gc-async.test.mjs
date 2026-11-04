@@ -37,16 +37,19 @@ test('the scheduled attachment census makes no synchronous fs call', async (t) =
     module.syncBuiltinESMExports();
   });
   const stamp = join(dataDir, 'prompt-attachments', 'gc-last-run');
+  const claim = join(dataDir, 'prompt-attachments', 'gc-running');
   watching = true;
   startAttachmentGc();
   await turns(50);
   t.mock.timers.tick(5_000);
+  // The run ends with the claim's release, an async unlink after the stamp:
+  // wait for that end, not a fixed number of turns past the stamp.
   const deadline = performance.now() + 5_000;
-  while (!realFs.existsSync(stamp) && performance.now() < deadline) await turns(20);
-  await turns(50);
+  const ended = () => realFs.existsSync(stamp) && !realFs.existsSync(claim);
+  while (!ended() && performance.now() < deadline) await turns(20);
   watching = false;
   assert.equal(realFs.existsSync(stamp), true, 'the census ran and stamped its run');
-  assert.equal(realFs.existsSync(join(dataDir, 'prompt-attachments', 'gc-running')), false, 'the claim is released');
+  assert.equal(realFs.existsSync(claim), false, 'the claim is released');
   assert.deepEqual(syncCalls, []);
 
   // Startup (and an attachment save) runs the census, not a cadence.
