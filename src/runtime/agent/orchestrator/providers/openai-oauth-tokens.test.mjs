@@ -98,7 +98,7 @@ function denyNetwork(t) {
   });
 }
 
-test('credential description reports store state without a refresh', (t) => {
+test('credential description reports store state without a refresh', async (t) => {
   denyNetwork(t);
   clearStoredTokens();
   assert.equal(hasOpenAIOAuthCredentials(), false);
@@ -132,9 +132,9 @@ test('credential description reports store state without a refresh', (t) => {
   assert.equal(expired.usable, false);
   assert.equal(expired.refreshable, true);
 
-  assert.deepEqual(forgetOpenAIOAuthCredentials(), { removed: true });
+  assert.deepEqual(await forgetOpenAIOAuthCredentials(), { removed: true });
   assert.equal(hasOpenAIOAuthCredentials(), false);
-  assert.deepEqual(forgetOpenAIOAuthCredentials(), { removed: false });
+  assert.deepEqual(await forgetOpenAIOAuthCredentials(), { removed: false });
 });
 
 test('a sign-in copied without a refresh token works until its access token expires, never reaching the network', async (t) => {

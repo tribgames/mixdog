@@ -237,8 +237,9 @@ export function describeAnthropicOAuthCredentials() {
 export async function forgetAnthropicOAuthCredentials() {
   let removed = false;
   for (const path of credentialCandidates()) {
-    if (!existsSync(path)) continue;
     try {
+      // No existence pre-check: a first sign-in still in flight would be missed.
+      // The mutator sees the file under the store's lock, queued behind it.
       let deleted = false;
       await _updateCredentialsFile(path, (raw) => {
         if (!raw?.claudeAiOauth) return undefined;
@@ -363,24 +364,40 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
     // later process can replay an old single-use refresh token and loop on
     // invalid_grant.
     if (creds.path && existsSync(creds.path)) {
+      let published = false;
       try {
-        await _updateCredentialsFile(creds.path, (raw) => ({
-          ...(raw && typeof raw === 'object' ? raw : {}),
-          claudeAiOauth: {
-            ...(raw?.claudeAiOauth || {}),
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
-            expiresAt: refreshed.expiresAt,
-            scopes: refreshed.scopes,
-            reauthRequired: undefined,
-            ...(refreshed.identity ? { identity: refreshed.identity } : {}),
-          },
-        }));
+        await _updateCredentialsFile(creds.path, (raw) => {
+          // Only over the credential this exchange spent: a sign-out or a new
+          // sign-in that landed while the request was in flight wins.
+          const spent = raw?.claudeAiOauth;
+          if (spent?.accessToken !== creds.accessToken || spent?.refreshToken !== creds.refreshToken) return undefined;
+          published = true;
+          return {
+            ...raw,
+            claudeAiOauth: {
+              ...spent,
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken,
+              expiresAt: refreshed.expiresAt,
+              scopes: refreshed.scopes,
+              reauthRequired: undefined,
+              ...(refreshed.identity ? { identity: refreshed.identity } : {}),
+            },
+          };
+        });
       } catch (err) {
         process.stderr.write(
           `[anthropic-oauth] credential save failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`
         );
         throw new Error(`[oauth] credentials save failed: ${err?.message ?? String(err)}`);
+      }
+      if (!published) {
+        const stored = _loadCredentialsFile(creds.path);
+        if (stored) return stored;
+        throw Object.assign(
+          new Error('Anthropic OAuth credentials were removed during the token refresh. Open /providers in mixdog to sign in.'),
+          { reauthRequired: true }
+        );
       }
     }
     return refreshed;

@@ -12,7 +12,7 @@
  * pair, so /providers and every existing importer resolve unchanged. The login
  * flow is wired here because this module owns the token store it writes into.
  */
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
@@ -31,6 +31,7 @@ import {
   normalizeExpiresAtMs,
   oauthCredentialStatus,
 } from './lib/oauth-token-utils.mjs';
+import { removeStoredTokens, replaceStoredTokens } from './lib/oauth-token-store.mjs';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
 import { CODEX_OAUTH_ORIGINATOR } from './openai-codex-endpoints.mjs';
 
@@ -192,20 +193,34 @@ export function describeOpenAIOAuthCredentials() {
   }
 }
 
-export function forgetOpenAIOAuthCredentials() {
-  let removed = false;
-  const ownPath = getOwnTokenPath();
-  if (existsSync(ownPath)) {
-    unlinkSync(ownPath);
-    bumpConfigInputEpoch();
-    removed = true;
-  }
+// Under the store's write lock, queued behind any save already in flight, so
+// that save cannot restore the sign-in after this resolves.
+export async function forgetOpenAIOAuthCredentials() {
+  const removed = await removeStoredTokens(getOwnTokenPath());
+  if (removed) bumpConfigInputEpoch();
   return { removed };
+}
+
+// Publishes a refresh's tokens only over the credential that refresh spent. A
+// sign-out or a new sign-in that landed while the exchange was in flight wins:
+// the stored sign-in is adopted, and a removed one is not restored.
+async function publishRefreshedTokens(previous, tokens) {
+  if (await replaceStoredTokens(getOwnTokenPath(), previous, tokens)) {
+    bumpConfigInputEpoch();
+    return tokens;
+  }
+  const stored = loadTokens();
+  if (stored) return stored;
+  throw Object.assign(
+    new Error('OpenAI OAuth credentials were removed during the token refresh. Open /providers in mixdog to sign in.'),
+    { reauthRequired: true, status: 401 }
+  );
 }
 
 // --- Token refresh ---
 const PERMANENT_REFRESH_FAILURE_RE = /invalid_grant|revoked|reused|refresh_token_(?:expired|invalidated)/i;
-async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
+async function exchangeRefreshToken(previous) {
+  const refreshToken = previous.refresh_token;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TOKEN_REFRESH_TIMEOUT_MS);
   try {
@@ -255,10 +270,9 @@ async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
       refresh_token: json.refresh_token || refreshToken,
       expires_at: expiresAt,
       account_id: extractAccountId(json.access_token),
-      identity: identityFromTokens(json.id_token, json.access_token) || normalizeAccountIdentity(previousIdentity),
+      identity: identityFromTokens(json.id_token, json.access_token) || normalizeAccountIdentity(previous.identity),
     };
-    await saveTokens(tokens);
-    return tokens;
+    return await publishRefreshedTokens(previous, tokens);
   } catch (err) {
     if (err?.name === 'AbortError')
       throw Object.assign(new Error(`OpenAI OAuth token refresh timed out after ${TOKEN_REFRESH_TIMEOUT_MS}ms`), {
@@ -321,7 +335,7 @@ async function refreshUnderLock({ currentToken, force, reason, startingTokens })
       process.stderr.write(`[agent-trace] auth-refresh-needed expiringInMs=${_expiringInMs}\n`);
     }
     process.stderr.write(`[openai-oauth] Token ${reason}, refreshing...\n`);
-    const refreshed = await exchangeRefreshToken(latest.refresh_token, latest.identity);
+    const refreshed = await exchangeRefreshToken(latest);
     if (process.env.MIXDOG_DEBUG_AGENT) {
       process.stderr.write(`[agent-trace] auth-refresh-done elapsed=${Date.now() - _refreshT0}ms ok=${!!refreshed}\n`);
     }
