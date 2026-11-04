@@ -65,21 +65,27 @@ export function daemonShouldDetach({ platform = process.platform, processType = 
 // Data calls and lifecycle control must never share a socket pool. A burst of
 // long /call requests can occupy every data socket; health/register/deregister
 // still need a reserved lane so a new terminal can always attach or recover.
+// Idle pooled sockets close before the daemon's 5 s keep-alive does: a request
+// written to a socket the server is closing at that moment fails ECONNRESET.
+const DAEMON_IDLE_SOCKET_MS = 4_000;
 const daemonCallAgent = new http.Agent({
   keepAlive: true,
   keepAliveMsecs: 5_000,
+  timeout: DAEMON_IDLE_SOCKET_MS,
   maxSockets: 64,
   maxFreeSockets: 8,
 });
 const daemonUrgentAgent = new http.Agent({
   keepAlive: true,
   keepAliveMsecs: 5_000,
+  timeout: DAEMON_IDLE_SOCKET_MS,
   maxSockets: 8,
   maxFreeSockets: 2,
 });
 const daemonControlAgent = new http.Agent({
   keepAlive: true,
   keepAliveMsecs: 5_000,
+  timeout: DAEMON_IDLE_SOCKET_MS,
   maxSockets: 4,
   maxFreeSockets: 2,
 });
