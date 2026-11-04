@@ -151,7 +151,7 @@ export function noteStoppedShellJobsOnError(error, shellJobs) {
 }
 
 // The timestamp the stop was measured from, and which clock it is.
-function resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt }) {
+function resolveWatchdogAbortClock({ snapshot, policy, anchorTs }) {
   if (snapshot && policy) {
     if (snapshot.waitingForFirstSemantic) {
       if (snapshot.modelRequestStartedAt)
@@ -161,13 +161,11 @@ function resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt 
     if (snapshot.lastProgressAt) return { at: snapshot.lastProgressAt, field: 'last_progress_at' };
     if (snapshot.firstActivityAt) return { at: snapshot.firstActivityAt, field: 'first_activity_at' };
   }
-  if (lastProgressAt) return { at: lastProgressAt, field: 'reported_progress_at' };
   if (anchorTs) return { at: anchorTs, field: 'anchor_ts' };
   return { at: null, field: null };
 }
 
-// Which deadline fired, read from the abort message. `idle_bare` is the form
-// the registry/dispatch fallback throws when no progress snapshot existed.
+// Which deadline fired, read from the abort message.
 function watchdogAbortKind(message) {
   const limit = Number(/\((\d+)ms/.exec(message)?.[1]) || null;
   if (/^agent first transport stale/.test(message)) return { window: 'first_response', form: 'first_transport', limit };
@@ -176,7 +174,6 @@ function watchdogAbortKind(message) {
   if (/^agent task stale \(\d+ms without stream\/tool progress\)/.test(message)) {
     return { window: 'idle', form: 'idle_progress', limit };
   }
-  if (/^agent task stale/.test(message)) return { window: 'idle', form: 'idle_bare', limit };
   if (/^agent progress checks failed/.test(message)) return { window: 'idle', form: 'checks_failed', limit: null };
   return { window: null, form: 'other', limit: null };
 }
@@ -197,7 +194,6 @@ function recordAgentWatchdogAbortRow({
   clock,
   elapsed,
   anchorTs,
-  lastProgressAt,
   iteration,
   observation,
   registrationId,
@@ -231,7 +227,7 @@ function recordAgentWatchdogAbortRow({
     waiting_for_transport: snapshot ? Boolean(snapshot.waitingForTransport) : null,
     waiting_for_first_semantic: snapshot ? Boolean(snapshot.waitingForFirstSemantic) : null,
     awaiting_user: snapshot?.awaitingUser || null,
-    last_progress_at: snapshot?.lastProgressAt || lastProgressAt || null,
+    last_progress_at: snapshot?.lastProgressAt || null,
     last_keepalive_at: snapshot?.lastKeepaliveAt || null,
     anchor_ts: anchorTs || null,
     current_tool: snapshot?.currentTool || null,
@@ -246,7 +242,6 @@ function recordAgentWatchdogAbort({
   policy = null,
   now = Date.now(),
   anchorTs = 0,
-  lastProgressAt = 0,
   iteration = null,
   observation = null,
   registrationId = null,
@@ -254,7 +249,7 @@ function recordAgentWatchdogAbort({
 }) {
   if (!sessionId || !error) return;
   // A caller that decided on its own clock (the failed-checks stop) names it.
-  const clock = comparedClock || resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt });
+  const clock = comparedClock || resolveWatchdogAbortClock({ snapshot, policy, anchorTs });
   const elapsed = clock.at ? Math.max(0, now - clock.at) : null;
   try {
     appendAgentTrace({
@@ -281,7 +276,6 @@ function recordAgentWatchdogAbort({
       clock,
       elapsed,
       anchorTs,
-      lastProgressAt,
       iteration,
       observation,
       registrationId,

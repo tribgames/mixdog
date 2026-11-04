@@ -321,6 +321,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         } catch (error) {
           throw carryReportOnError(error, earlierReport);
         }
+        // The turn has claimed the runtime (markSessionAskStart): its model work starts.
+        askTurns.askStarted(sessionId, { turnId });
         // From here the turn's own unwind (ask-turn-failure) acks or releases
         // its entries; the queue keeps owning only the not-yet-started ones.
         queue.markStarted();

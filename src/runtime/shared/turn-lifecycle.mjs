@@ -5,7 +5,11 @@
 // settle is never read as a later turn's. Import-free leaf.
 
 /** One layer's channel. `observer.onTurnStart({ turnId, startedAt,
- *  submissionIds })`, `observer.onTurnAskEnded({ turnId })` once the turn's
+ *  submissionIds })`, `observer.onTurnAskStarted({ turnId })` once the
+ *  turn's ask has claimed the session's runtime (its progress snapshot exists
+ *  from here until the ask ends; what runs before it — a compaction the turn
+ *  waits on, preparation, the session lock — has no model work yet),
+ *  `observer.onTurnAskEnded({ turnId })` once the turn's
  *  model work is over (its ask returned or threw) and only its cleanup
  *  remains, and `observer.onTurnSettled({ turnId, status, result, error,
  *  abortReason, abortCause })`, `status` 'done' | 'failed' | 'cancelled';
@@ -41,6 +45,7 @@ export function createTurnLifecycle() {
       };
     },
     started: (sessionId, event) => notify(sessionId, 'onTurnStart', event),
+    askStarted: (sessionId, event) => notify(sessionId, 'onTurnAskStarted', event),
     askEnded: (sessionId, event) => notify(sessionId, 'onTurnAskEnded', event),
     settled: (sessionId, event) => notify(sessionId, 'onTurnSettled', event),
   };

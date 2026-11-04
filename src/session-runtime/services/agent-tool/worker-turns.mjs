@@ -5,11 +5,14 @@
  * the route that runs it: the canonical session runtime
  * (sessionSurface.observeSessionTurns) or the in-process manager's ask loop
  * (mgr.observeSessionTurns). At a turn's real start the owner stamps the row
- * `running` from that moment and arms the progress watchdog; when its ask
- * ends, or at its outcome on a route that reports no ask end, it stops that
- * watchdog; at its outcome it settles the row as a send's result reads
- * (settledWorkerStatus). Turns are keyed by their own id, so an earlier
- * turn's late settle never touches the next one.
+ * `running` from that moment; once its ask has started (the runtime's
+ * progress snapshot exists from then) it arms the progress watchdog, which
+ * judges model work only; when its ask ends, or at its outcome on a route
+ * that reports no ask end, it stops that watchdog; at its outcome it settles
+ * the row as a send's result reads (settledWorkerStatus). What a turn waits on
+ * before its ask (a compaction, preparation, the session lock) is bounded by
+ * that work's own deadline, never by the watchdog. Turns are keyed by their
+ * own id, so an earlier turn's late settle never touches the next one.
  */
 import { randomUUID } from 'node:crypto';
 import { createProgressWatchdogRegistry } from '../agent-watchdog-registry.mjs';
@@ -118,14 +121,19 @@ export function createWorkerTurns({
       task_id: job?.taskId || null,
       turnStartedAt: new Date(startedAt).toISOString(),
     });
-    owner.current = {
-      turnId,
-      job,
-      watchdog: progressWatchdogs.start(sessionId, watchdogPolicyFor(session), session.agent || null, {
-        onProgress: progressStamper(session, tag),
-      }),
-    };
+    owner.current = { turnId, job, watchdog: null };
     notifyStatusChange();
+  }
+
+  // The turn's ask has started: its model work, which the progress watchdog
+  // judges, runs from here.
+  function turnAskStarted(sessionId, owner, { turnId }) {
+    const turn = owner.current;
+    if (!turn || turn.turnId !== turnId || turn.watchdog) return;
+    const session = sessionOf(sessionId, owner);
+    turn.watchdog = progressWatchdogs.start(sessionId, watchdogPolicyFor(session), session.agent || null, {
+      onProgress: progressStamper(session, tagForSession(sessionId)),
+    });
   }
 
   // The turn's model work is over: the progress watchdog, which judges only
@@ -161,6 +169,7 @@ export function createWorkerTurns({
     owners.set(sessionId, owner);
     owner.unobserve = source.observeSessionTurns(sessionId, {
       onTurnStart: (turn) => turnStarted(sessionId, owner, turn),
+      onTurnAskStarted: (event) => turnAskStarted(sessionId, owner, event),
       onTurnAskEnded: (event) => turnAskEnded(owner, event),
       onTurnSettled: (outcome) => turnSettled(sessionId, owner, outcome),
     });

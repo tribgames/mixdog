@@ -101,38 +101,6 @@ const FAKE_CLOCK = `
     };
 `;
 
-test('a manager with no progress snapshot writes snapshot_present false', () => {
-  const { rows } = runAndReadRows(`
-    ${FAKE_CLOCK}
-    const { createProgressWatchdogRegistry } = await import('./src/session-runtime/services/agent-watchdog-registry.mjs');
-    const mgr = {
-      getSessionLastProgressAt: () => 0,
-      linkParentSignalToSession: (_id, signal) => {
-        onAbort(signal);
-        return () => {};
-      },
-    };
-    createProgressWatchdogRegistry({ mgr }).start('sess_daemon_2', { idleStaleMs: 50 }, 'worker');
-    await sweepUntilAbort(1);
-  `);
-  assert.equal(rows.length, 1);
-  const [row] = rows;
-  assert.equal(row.kind, 'stall_abort');
-  assert.equal(row.session_id, 'sess_daemon_2');
-  assert.equal(row.agent, 'worker');
-  assert.equal(row.snapshot_present, false);
-  assert.equal(row.form, 'idle_bare');
-  assert.equal(row.window, 'idle');
-  assert.equal(row.limit_ms, 50);
-  assert.equal(row.stage, null);
-  assert.equal(row.anchor_ts, START);
-  assert.equal(row.elapsed_ms, 1000);
-  assert.equal(row.compared_field, 'anchor_ts');
-  assert.equal(row.compared_at, row.anchor_ts);
-  assert.equal(row.snapshot_source, null);
-  assert.match(row.registration_id, /^[0-9a-f]{8}$/);
-});
-
 test('a failed-checks stop reports the last successful sweep as its compared clock', () => {
   // Sweep 1 reads fine; sweeps 2 and 3 fail. Measured from sweep 1, the third
   // sweep is the first past the 1.5 s limit (2 s); measured from the anchor,
@@ -158,6 +126,7 @@ test('a failed-checks stop reports the last successful sweep as its compared clo
   assert.equal(rows.length, 1);
   const [row] = rows;
   assert.equal(row.form, 'checks_failed');
+  assert.match(row.registration_id, /^[0-9a-f]{8}$/);
   assert.equal(row.compared_field, 'last_successful_check_at');
   assert.equal(row.anchor_ts, START);
   assert.equal(row.compared_at, START + 1000);

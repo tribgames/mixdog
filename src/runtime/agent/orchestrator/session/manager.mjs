@@ -51,7 +51,6 @@ export {
   forEachSessionRuntime,
   hideSessionFromList,
   getSessionAbortSignal,
-  getSessionLastProgressAt,
   linkParentSignalToSession,
 } from './manager/runtime-liveness.mjs';
 
