@@ -23,10 +23,16 @@ import { runInRootAsyncContext } from './root-async-context.mjs';
  * release function; while any hold is open the worker stays referenced, so a
  * caller that waits on an unref'd request still keeps the process alive.
  *
+ * `label` (optional): names the worker in error messages; defaults to `url`.
+ * Give it when `url` is inline source (`eval: true`).
+ *
  * `onEvent` (optional): receives what the worker sends with postWorkerEvent
  * (messages that answer no request).
  */
-export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null, ...workerOptions } = {}) {
+export function createWorkerRequestClient(
+  url,
+  { idleExitMs = 0, onEvent = null, label = String(url), ...workerOptions } = {}
+) {
   let worker = null;
   let nextRequestId = 0;
   // Requests belong to the worker they were posted to: a replacement worker
@@ -109,7 +115,7 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
         pending = new Map();
         clearIdleTimer();
       }
-      rejectOwned(Object.assign(new Error(`worker exited (${code}): ${url}`), { code: 'EWORKEREXIT' }));
+      rejectOwned(Object.assign(new Error(`worker exited (${code}): ${label}`), { code: 'EWORKEREXIT' }));
     });
     worker = created;
     settleRef(created);
@@ -146,7 +152,7 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
             clearIdleTimer();
           }
           reject(
-            Object.assign(new Error(`worker request timed out after ${timeoutMs} ms: ${url}`), { code: 'ETIMEDOUT' })
+            Object.assign(new Error(`worker request timed out after ${timeoutMs} ms: ${label}`), { code: 'ETIMEDOUT' })
           );
           void target.terminate();
         }, timeoutMs);

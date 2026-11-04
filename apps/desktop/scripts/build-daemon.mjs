@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { build } from 'esbuild';
 
+import { modelCatalogWorkerDefine } from '../../../scripts/model-catalog-worker-source.mjs';
 import { optionValue } from './cli-args.mjs';
 import { writeRemoteServerDependencies } from './remote-server-deps.mjs';
 
@@ -30,6 +31,9 @@ const RUNTIME_ONLY_LAZY_IMPORT = /^\.\.\/office\/portable\/portable-soffice\.mjs
 await build({
   entryPoints: [join(desktopDir, 'src', 'main', 'desktop-service.ts')],
   outfile,
+  // A CJS bundle has an empty import.meta.url, so the model catalog's worker is
+  // embedded as source: the service stays one file in dev, packaged and remote installs.
+  define: await modelCatalogWorkerDefine(),
   bundle: true,
   platform: 'node',
   format: 'cjs',

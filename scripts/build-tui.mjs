@@ -16,6 +16,7 @@
 import { build } from 'esbuild';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { modelCatalogWorkerDefine } from './model-catalog-worker-source.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src', 'tui');
@@ -74,6 +75,8 @@ await build({
   platform: 'node',
   target: 'node22',
   jsx: 'automatic',
+  // The bundled model catalog has no worker file beside src/tui/dist/.
+  define: await modelCatalogWorkerDefine(),
   // Local shared helpers are bundled so relative paths stay valid from
   // src/tui/dist/. Process shutdown stays external so the CLI and checked-in
   // TUI bundle use the same process-global lifecycle state.

@@ -214,9 +214,17 @@ const PRICING_OVERRIDES = {
 
 // The multi-MB overlays are parsed and narrowed in a worker thread; only the
 // projection reaches the host event loop. The worker starts on first use.
-const requestWorker = createWorkerRequestClient(new URL('./model-catalog-worker.mjs', import.meta.url), {
-  idleExitMs: 5000,
-});
+// Bundles (the desktop service is CJS with an empty import.meta.url; the TUI
+// bundle has no worker file beside it) embed the bundled worker source at build
+// time (scripts/model-catalog-worker-source.mjs).
+const requestWorker =
+  typeof __MODEL_CATALOG_WORKER_SOURCE__ === 'string'
+    ? createWorkerRequestClient(__MODEL_CATALOG_WORKER_SOURCE__, {
+        eval: true,
+        label: 'model-catalog-worker (embedded)',
+        idleExitMs: 5000,
+      })
+    : createWorkerRequestClient(new URL('./model-catalog-worker.mjs', import.meta.url), { idleExitMs: 5000 });
 
 // A normal parse of both overlays (about 8 MB) takes ~0.1 s; the bound is set
 // two orders of magnitude above that so ordinary slow or contended machines
