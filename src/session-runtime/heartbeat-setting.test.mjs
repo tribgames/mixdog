@@ -252,6 +252,7 @@ test('the heartbeat interval end to end over the real config file: default, setu
     import { existsSync, readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';
     import { loadConfig, saveConfig } from './src/runtime/agent/orchestrator/config.mjs';
+    import { subscribeConfigChange } from './src/runtime/shared/config.mjs';
     import { createSettingsApi } from './src/session-runtime/settings-api.mjs';
     import { createSetupToolExecutor } from './src/session-runtime/setup-tool/executor.mjs';
     import { createMixyHeartbeat } from './src/session-runtime/mixy-heartbeat.mjs';
@@ -327,9 +328,23 @@ test('the heartbeat interval end to end over the real config file: default, setu
     assert.equal(stored().heartbeatIntervalMinutes, 30);
 
     // A hand-edited value outside the choices reads as the default, and is not kept.
+    // Another process's edit reaches this one through the config watch.
+    const editSeen = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        stop();
+        reject(new Error('the config watch never delivered the hand edit'));
+      }, 5000);
+      const stop = subscribeConfigChange(() => {
+        if (loadConfig({ secrets: false }).heartbeatIntervalMinutes !== 60) return;
+        clearTimeout(timer);
+        stop();
+        resolve();
+      });
+    });
     const raw = JSON.parse(readFileSync(configPath, 'utf8'));
     raw.agent.heartbeatIntervalMinutes = 7;
     writeFileSync(configPath, JSON.stringify(raw));
+    await editSeen;
     assert.equal(loadConfig({ secrets: false }).heartbeatIntervalMinutes, 60);
     assert.equal(api.getHeartbeatSettings().intervalMinutes, 60);
 

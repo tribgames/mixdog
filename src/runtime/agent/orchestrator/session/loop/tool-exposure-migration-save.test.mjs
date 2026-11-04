@@ -19,6 +19,8 @@ const { applyDeferredToolSurface, selectDeferredTools } = await import('../../ru
 test.after(async () => {
   await settleSessionSummaryIndex();
   await (await import('../store/lifecycle-barriers.mjs')).flushSessionCloseMetrics();
+  // A held session writer lock keeps its file (and the dir) from being removed on Windows.
+  (await import('../store/session-writer-claim.mjs')).releaseHeldSessionWriters();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   rmSync(root, { recursive: true, force: true });
