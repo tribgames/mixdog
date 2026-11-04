@@ -99,9 +99,9 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
   // previous session's worktree capture held its review bar (and the pane's
   // reveal) for seconds. The outgoing read still answers its own cache.
   if (capabilityRequestInFlight.current?.scopeKey === requestedScope) {
-    // The boundary effect and the busy poll both ask when one commit moves
-    // a boundary: the read already sent for it answers both, so a queued
-    // follow-up would only repeat it.
+    // The boundary effect and a running turn's background read both ask when
+    // one commit moves a boundary: the read already sent for it answers both,
+    // so a queued follow-up would only repeat it.
     const issued = sameCommitRequest.current;
     if (
       issued?.scopeKey === requestedScope &&
@@ -119,7 +119,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
       boundaryKey: reviewBoundaryKey,
       refreshWorktree: refreshWorktree || (samePending && pending.refreshWorktree),
       summary,
-      // A queued foreground read stays foreground when a poll joins it.
+      // A queued foreground read stays foreground when a background read joins it.
       background: background && (!samePending || pending.background),
     };
     return;
@@ -144,8 +144,8 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     const cacheable = requestedCheckpoint !== 'none';
     // The entry read a session's open already started is this same request
     // (stored summary, no worktree refresh, foreground): its answer is taken
-    // rather than asked for again. A refresh, a poll and an expanded patch are
-    // different requests and are issued as usual.
+    // rather than asked for again. A refresh, a background read and an
+    // expanded patch are different requests and are issued as usual.
     const entryRead = !refreshWorktree && summary && !background ? turnReviewPrefetch(requestedScope) : undefined;
     let result = entryRead ? await entryRead : null;
     if (!result) {
