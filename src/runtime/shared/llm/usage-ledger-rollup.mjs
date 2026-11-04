@@ -374,6 +374,8 @@ function mergeLegacyDays(db, { days, hourly, hourlyDay, fromDay, toDay }) {
  * recorded as run for one of them (a Lead's agents, theirs in turn).
  */
 export function readSessionUsage(db, sessionIds, ownerIds = []) {
+  // The sums answer only once they hold every stored record.
+  if (!sessionDaysComplete(db)) throw new Error('The usage ledger is still building its session sums');
   const total = empty();
   const rows = db
     .prepare(`
@@ -383,12 +385,11 @@ export function readSessionUsage(db, sessionIds, ownerIds = []) {
                 UNION
                 SELECT o.session FROM usage_session_owners o JOIN owned ON o.owner=owned.id
             ), mine AS (
-                SELECT day,route,COUNT(*) AS turns,SUM(input) AS input,SUM(output) AS output,
+                SELECT day,route,SUM(turns) AS turns,SUM(input) AS input,SUM(output) AS output,
                     SUM(cache_read) AS cache_read,SUM(cache_write) AS cache_write,
                     SUM(cost_usd) AS cost_usd,SUM(duration_ms) AS duration_ms,
-                    SUM(CASE WHEN duration_ms>0 AND output>0 THEN output ELSE 0 END) AS speed_output,
-                    SUM(CASE WHEN duration_ms>0 AND output>0 THEN duration_ms ELSE 0 END) AS speed_ms
-                FROM usage_events WHERE session IN (
+                    SUM(speed_output) AS speed_output,SUM(speed_ms) AS speed_ms
+                FROM usage_session_days WHERE session IN (
                     SELECT id FROM usage_sessions WHERE value IN (SELECT value FROM json_each(?))
                     UNION SELECT id FROM owned)
                 GROUP BY day,route
@@ -451,6 +452,249 @@ export const DAY_REVISION_SCHEMA = `
     CREATE TRIGGER IF NOT EXISTS day_rev_session_names_update AFTER UPDATE ON usage_sessions BEGIN ${GLOBAL_BUMP} END;
     CREATE TRIGGER IF NOT EXISTS day_rev_session_names_delete AFTER DELETE ON usage_sessions BEGIN ${GLOBAL_BUMP} END;
 `;
+
+// A session's records summed per day and route, so a session read adds up
+// that many rows instead of scanning every record. Route is the grain the
+// route selection works on (`best`, the minimum-rank rule, stays in the read
+// query and is applied to these sums exactly as it was to the records), so
+// nothing about which record counts is decided here. Triggers keep the sums
+// equal to usage_events for every writer and process, whatever the statement
+// (insert, update, delete, or either with OR REPLACE / OR IGNORE).
+const SESSION_DAY_SUMS = (row, sign) => {
+  const speed = `${row}.duration_ms>0 AND ${row}.output>0`;
+  return `${sign}1,${sign}${row}.input,${sign}${row}.output,${sign}${row}.cache_read,${sign}${row}.cache_write,
+        ${sign}COALESCE(${row}.cost_usd,0),${sign}${row}.duration_ms,
+        ${sign}CASE WHEN ${speed} THEN ${row}.output ELSE 0 END,${sign}CASE WHEN ${speed} THEN ${row}.duration_ms ELSE 0 END`;
+};
+// A session whose range the build has not reached is left to it: the build
+// recomputes the whole range from the records, so a delta applied beforehand
+// (a delete of its last record, say, subtracting from sums not yet built)
+// would only corrupt what it then replaces.
+const SESSION_BUILT = (row) => `(SELECT complete=1 OR ${row}.session<next FROM usage_session_days_state)`;
+const SESSION_DAY_UPSERT = (row, sign) => `INSERT INTO usage_session_days
+        SELECT ${row}.session,${row}.day,${row}.route,${SESSION_DAY_SUMS(row, sign)},
+        ${ROUTE_FIELD(`${row}.route`, 0)},${ROUTE_FIELD(`${row}.route`, 1)} WHERE ${SESSION_BUILT(row)}
+        ON CONFLICT(session,day,route) DO UPDATE SET turns=turns+excluded.turns,input=input+excluded.input,
+        output=output+excluded.output,cache_read=cache_read+excluded.cache_read,
+        cache_write=cache_write+excluded.cache_write,cost_usd=cost_usd+excluded.cost_usd,
+        duration_ms=duration_ms+excluded.duration_ms,speed_output=speed_output+excluded.speed_output,
+        speed_ms=speed_ms+excluded.speed_ms;`;
+
+// Revisions, three kinds, all moved by triggers so every connection and
+// process moves them. What a session's numbers are a function of:
+//  - its own records: a revision per session;
+//  - the rank selection of each day/provider/model route its records sit on,
+//    which another session's record can change (a detail supersedes a gateway
+//    summary): a revision per route key, bumped when the minimum rank stored
+//    for the key changes, and for both keys when a record moves routes;
+//  - who ran for whom (moved or removed links), session names and the route
+//    definitions: one membership revision.
+// A group's token (readUsageToken) combines the ones its sessions depend on.
+const BUMP_SESSION = (session) =>
+  `INSERT INTO usage_session_revisions VALUES (${session},1) ON CONFLICT(session) DO UPDATE SET rev=rev+1;`;
+const BUMP_KEY = (day, provider, model) =>
+  `INSERT INTO usage_key_revisions VALUES (${day},${provider},${model},1)
+        ON CONFLICT(day,provider,model) DO UPDATE SET rev=rev+1;`;
+const BUMP_MEMBERSHIP = 'UPDATE usage_membership_revision SET rev=rev+1;';
+const ROUTE_FIELD = (route, index) => `(SELECT json_extract(signature,'$[${index}]') FROM usage_routes WHERE id=${route})`;
+const BUMP_EVENT_KEY = (row) =>
+  BUMP_KEY(`${row}.day`, ROUTE_FIELD(`${row}.route`, 0), ROUTE_FIELD(`${row}.route`, 1));
+const BUMP_DAILY_KEY = (row) =>
+  BUMP_KEY(`CAST(REPLACE(${row}.day,'-','') AS INTEGER)`, `${row}.provider`, `${row}.model`);
+const DAILY_OTHERS = (row) => `day=${row}.day AND provider=${row}.provider AND model=${row}.model`;
+const MEMBERSHIP_TRIGGERS = [
+  ['usage_routes', ['UPDATE', 'DELETE']],
+  ['usage_sessions', ['UPDATE', 'DELETE']],
+  // A new link only adds a member, which the token counts; moving or removing one can net out.
+  ['usage_session_owners', ['UPDATE', 'DELETE']],
+]
+  .flatMap(([table, events]) =>
+    events.map(
+      (event) => `CREATE TRIGGER IF NOT EXISTS membership_${table}_${event.toLowerCase()}
+        AFTER ${event} ON ${table} BEGIN ${BUMP_MEMBERSHIP} END;`
+    )
+  )
+  .join('\n');
+const SESSION_DAYS_SCHEMA = `
+    CREATE TABLE IF NOT EXISTS usage_session_days (
+        session INTEGER NOT NULL, day INTEGER NOT NULL, route INTEGER NOT NULL,
+        turns INTEGER NOT NULL, input REAL NOT NULL, output REAL NOT NULL,
+        cache_read REAL NOT NULL, cache_write REAL NOT NULL, cost_usd REAL NOT NULL,
+        duration_ms REAL NOT NULL, speed_output REAL NOT NULL, speed_ms REAL NOT NULL,
+        -- The route's provider and model, kept beside it for the route-key revisions.
+        provider TEXT, model TEXT,
+        PRIMARY KEY(session,day,route)
+    ) WITHOUT ROWID;
+    -- Where the build of the sums from the records already stored has got to:
+    -- sessions below \`next\` are built. The sums are read only once complete.
+    CREATE TABLE IF NOT EXISTS usage_session_days_state (
+        id INTEGER PRIMARY KEY CHECK(id=1), complete INTEGER NOT NULL, next INTEGER NOT NULL);
+    INSERT OR IGNORE INTO usage_session_days_state
+        SELECT 1,NOT EXISTS(SELECT 1 FROM usage_events),0;
+    CREATE TABLE IF NOT EXISTS usage_session_revisions (session INTEGER PRIMARY KEY, rev INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS usage_key_revisions (
+        day INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, rev INTEGER NOT NULL,
+        PRIMARY KEY(day,provider,model)) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS usage_membership_revision (id INTEGER PRIMARY KEY CHECK(id=1), rev INTEGER NOT NULL);
+    INSERT OR IGNORE INTO usage_membership_revision VALUES (1,0);
+    -- A record id is stored once. Say so for every statement form: an OR REPLACE
+    -- deletes the old row without firing delete triggers (unless a connection
+    -- sets recursive_triggers), which would leave its sums behind.
+    CREATE TRIGGER IF NOT EXISTS session_days_duplicate BEFORE INSERT ON usage_events
+        WHEN EXISTS (SELECT 1 FROM usage_events WHERE id=NEW.id) BEGIN SELECT RAISE(IGNORE); END;
+    CREATE TRIGGER IF NOT EXISTS session_days_id BEFORE UPDATE OF id ON usage_events
+        WHEN NEW.id IS NOT OLD.id BEGIN SELECT RAISE(ABORT,'a usage record id does not change'); END;
+    CREATE TRIGGER IF NOT EXISTS session_days_insert AFTER INSERT ON usage_events
+        BEGIN ${SESSION_DAY_UPSERT('NEW', '')} ${BUMP_SESSION('NEW.session')} END;
+    CREATE TRIGGER IF NOT EXISTS session_days_delete AFTER DELETE ON usage_events
+        BEGIN ${SESSION_DAY_UPSERT('OLD', '-')} ${BUMP_SESSION('OLD.session')} END;
+    CREATE TRIGGER IF NOT EXISTS session_days_update AFTER UPDATE ON usage_events
+        BEGIN ${SESSION_DAY_UPSERT('OLD', '-')} ${SESSION_DAY_UPSERT('NEW', '')}
+        ${BUMP_SESSION('OLD.session')} ${BUMP_SESSION('NEW.session')} END;
+    CREATE TRIGGER IF NOT EXISTS key_revision_event_route AFTER UPDATE OF route,day ON usage_events
+        WHEN OLD.route IS NOT NEW.route OR OLD.day IS NOT NEW.day
+        BEGIN ${BUMP_EVENT_KEY('OLD')} ${BUMP_EVENT_KEY('NEW')} END;
+    -- The rank a key is read at is the lowest stored for it (\`best\`).
+    CREATE TRIGGER IF NOT EXISTS key_revision_daily_insert AFTER INSERT ON daily
+        WHEN NEW.rank < COALESCE((SELECT MIN(rank) FROM daily WHERE ${DAILY_OTHERS('NEW')}
+            AND NOT (rank=NEW.rank AND kind=NEW.kind AND cost_source=NEW.cost_source
+                AND conversation=NEW.conversation)),1000000)
+        BEGIN ${BUMP_DAILY_KEY('NEW')} END;
+    CREATE TRIGGER IF NOT EXISTS key_revision_daily_delete AFTER DELETE ON daily
+        WHEN OLD.rank <= COALESCE((SELECT MIN(rank) FROM daily WHERE ${DAILY_OTHERS('OLD')}),1000000)
+        BEGIN ${BUMP_DAILY_KEY('OLD')} END;
+    CREATE TRIGGER IF NOT EXISTS key_revision_daily_update AFTER UPDATE ON daily
+        WHEN OLD.rank IS NOT NEW.rank OR OLD.day IS NOT NEW.day OR OLD.provider IS NOT NEW.provider
+            OR OLD.model IS NOT NEW.model
+        BEGIN ${BUMP_DAILY_KEY('OLD')} ${BUMP_DAILY_KEY('NEW')} END;
+    -- A route rewritten to another provider or model carries its sums with it.
+    CREATE TRIGGER IF NOT EXISTS session_days_route AFTER UPDATE OF signature ON usage_routes
+        WHEN json_extract(OLD.signature,'$[0]') IS NOT json_extract(NEW.signature,'$[0]')
+            OR json_extract(OLD.signature,'$[1]') IS NOT json_extract(NEW.signature,'$[1]')
+        BEGIN
+            UPDATE usage_session_days SET provider=json_extract(NEW.signature,'$[0]'),
+                model=json_extract(NEW.signature,'$[1]') WHERE route=NEW.id;
+        END;
+    ${MEMBERSHIP_TRIGGERS}
+`;
+/**
+ * Creates the sums, their triggers and the ledger revision, in one short
+ * transaction. Cheap whatever the ledger's size: it never builds the sums from
+ * stored records (see buildSessionDaysStep), so the thread that opens the
+ * ledger is never held up by it.
+ */
+export function prepareSessionDays(db) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(SESSION_DAYS_SCHEMA);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+export function sessionDaysComplete(db) {
+  return db.prepare('SELECT complete FROM usage_session_days_state').get()?.complete === 1;
+}
+
+/** Records one build step covers, at most (a single session may exceed it). */
+export const SESSION_DAYS_STEP_EVENTS = 40_000;
+
+/**
+ * Builds the sums from the stored records a step of sessions at a time, each
+ * step its own short transaction that also commits how far it got, so a
+ * ledger of any size can be built without holding the write lock for long,
+ * be interrupted at any point, and be resumed by this or another process. A
+ * step recomputes its sessions from the records, and the triggers apply
+ * deltas only to sessions already built, so a write that lands between steps
+ * is counted once whichever side of the build it falls. Returns true when the
+ * sums are complete.
+ */
+export function buildSessionDaysStep(db, budget = SESSION_DAYS_STEP_EVENTS) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const { complete, next } = db.prepare('SELECT complete,next FROM usage_session_days_state').get();
+    if (complete) {
+      db.exec('COMMIT');
+      return true;
+    }
+    let last = null;
+    let events = 0;
+    let exhausted = true;
+    const sessions = db.prepare(
+      'SELECT session,COUNT(*) AS n FROM usage_events WHERE session>=? GROUP BY session ORDER BY session'
+    );
+    for (const row of sessions.iterate(next)) {
+      if (last !== null && events + row.n > budget) {
+        exhausted = false;
+        break;
+      }
+      last = row.session;
+      events += row.n;
+    }
+    // The last step also clears whatever lies beyond the sessions that still have records.
+    if (exhausted) db.prepare('DELETE FROM usage_session_days WHERE session>=?').run(next);
+    else db.prepare('DELETE FROM usage_session_days WHERE session BETWEEN ? AND ?').run(next, last);
+    if (last !== null) {
+      db.prepare(`INSERT INTO usage_session_days
+        SELECT e.session,e.day,e.route,COUNT(*),SUM(e.input),SUM(e.output),SUM(e.cache_read),SUM(e.cache_write),
+            SUM(COALESCE(e.cost_usd,0)),SUM(e.duration_ms),
+            SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END),
+            SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END),
+            json_extract(r.signature,'$[0]'),json_extract(r.signature,'$[1]')
+        FROM usage_events e JOIN usage_routes r ON r.id=e.route
+        WHERE e.session BETWEEN ? AND ? GROUP BY e.session,e.day,e.route`).run(next, last);
+    }
+    db.prepare('UPDATE usage_session_days_state SET complete=?,next=? WHERE id=1').run(
+      exhausted ? 1 : 0,
+      last === null ? next : last + 1
+    );
+    db.exec('COMMIT');
+    return exhausted;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+/** Builds the sums to completion in this thread (small ledgers and tests; the ledger worker steps through it). */
+export function buildSessionDays(db, budget) {
+  while (!buildSessionDaysStep(db, budget));
+}
+
+/**
+ * The token of a group of sessions: it changes whenever a number readSessionUsage
+ * would return for the group can have changed, and not otherwise. A group is
+ * the sessions named (`sessionIds`, owners and listed agents) and every
+ * session recorded as run for one of `ownerIds`, transitively, as in the read.
+ * It combines the revisions of those sessions, of the route keys their
+ * records sit on, and the membership revision (see the schema above).
+ */
+export function readUsageToken(db, sessionIds, ownerIds = []) {
+  const row = db
+    .prepare(`
+        WITH RECURSIVE owned(id) AS (
+            SELECT o.session FROM usage_session_owners o JOIN usage_sessions s ON s.id=o.owner
+            WHERE s.value IN (SELECT value FROM json_each(?))
+            UNION
+            SELECT o.session FROM usage_session_owners o JOIN owned ON o.owner=owned.id
+        ), members AS (
+            SELECT id FROM usage_sessions WHERE value IN (SELECT value FROM json_each(?))
+            UNION SELECT id FROM owned
+        )
+        SELECT (SELECT rev FROM usage_membership_revision) AS membership,
+            (SELECT COUNT(*) FROM members) AS members,
+            (SELECT COALESCE(SUM(rev),0) FROM usage_session_revisions WHERE session IN (SELECT id FROM members)) AS sessions,
+            -- Route keys are revised rarely (only when a rank selection or a record's route changes),
+            -- so the few revised keys are looked up in the group's sums, not the group's rows listed.
+            (SELECT COALESCE(SUM(k.rev),0) FROM usage_key_revisions k WHERE EXISTS (
+                SELECT 1 FROM usage_session_days d WHERE d.session IN (SELECT id FROM members)
+                    AND d.day=k.day AND d.provider=k.provider AND d.model=k.model)) AS keys
+    `)
+    .get(JSON.stringify(ownerIds), JSON.stringify(sessionIds));
+  return `${row.membership}.${row.members}.${row.sessions}.${row.keys}`;
+}
 
 // In-window days (those with any stored rollup input) with their revisions.
 function readDayFingerprints(db, fromDay, toDay) {

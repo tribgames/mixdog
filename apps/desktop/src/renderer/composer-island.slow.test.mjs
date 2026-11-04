@@ -1006,50 +1006,100 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
   );
 });
 
-test("an open agents panel follows an agent's new usage within about a second, one read per burst", async (t) => {
+test('an open agents panel reads when the ledger records a response for the Lead or any agent under it, and only then', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
   const { root, document, window, publishPool } = mount(t);
-  let agentTokens = 100_000;
+  const ledger = { agentTokens: 100_000, unmeasured: 0 };
   const reads = [];
-  window.mixdogDesktop.invokeCapability = async (request) => {
-    if (request.capability !== 'getSessionUsage') return { value: null };
+  const gates = [];
+  window.mixdogDesktop.invokeCapability = (request) => {
+    if (request.capability !== 'getSessionUsage') return Promise.resolve({ value: null });
     reads.push(request);
-    return {
-      value: {
-        ...ledgerUsage(1_000),
-        agents: ledgerUsage(agentTokens),
-        sessions: { 's-a': ledgerUsage(agentTokens) },
-      },
-    };
+    return new Promise((resolve) =>
+      gates.push(() =>
+        resolve({
+          value: {
+            ...ledgerUsage(1_000),
+            agents: ledgerUsage(ledger.agentTokens, { unmeasured: ledger.unmeasured }),
+            sessions: {
+              's-a': ledgerUsage(ledger.agentTokens, { unmeasured: ledger.unmeasured }),
+              's-n': ledgerUsage(500),
+            },
+          },
+        })
+      )
+    );
   };
+  const answer = () => act(async () => gates.shift()());
+  // The Lead's row, an agent, and an agent that agent spawned; each carries its latest ledger record stamp.
+  const ledgerState = { mine: 0, other: 0 };
+  const publishRows = () =>
+    publishPool([
+      poolAgent('lead', { sessionId: 'island-session', ownerSessionId: 'island-session', ledgerToken: `g.${ledgerState.mine}` }),
+      poolAgent('run-a', { sessionId: 's-a', ledgerToken: `g.${ledgerState.mine}` }),
+      poolAgent('run-n', { sessionId: 's-n', parentSessionId: 's-a', ledgerToken: `g.${ledgerState.mine}` }),
+      poolAgent('other', { sessionId: 's-x', ownerSessionId: 'another-lead', ledgerToken: `o.${ledgerState.other}` }),
+    ]);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
-  await publishPool([poolAgent('run-a', { sessionId: 's-a' })]);
+  await publishRows();
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   await act(async () => t.mock.timers.tick(1));
-  const rowTokens = () => document.querySelector('.composer-island-agent-tokens')?.textContent;
-  assert.equal(reads.length, 1);
-  assert.equal(rowTokens(), '100K');
-  // The agent answers a model call: its pool row moves several times in a burst.
-  agentTokens = 250_000;
-  for (let total = 1; total <= 5; total += 1) {
-    await publishPool([
-      poolAgent('run-a', { sessionId: 's-a', usage: { inputTokens: total, outputTokens: 0, totalTokens: total } }),
-    ]);
+  const rowTokens = () =>
+    Object.fromEntries(
+      [...document.querySelectorAll('.composer-island-agent-item')].map((item) => [
+        item.querySelector('.agent-pool-row').dataset.agentTag,
+        item.querySelector('.composer-island-agent-tokens')?.textContent ?? null,
+      ])
+    );
+  assert.equal(reads.length, 1, 'opening reads the ledger');
+  await answer();
+  assert.equal(rowTokens()['run-a'], '100K');
+  await act(async () => t.mock.timers.tick(3_600_000));
+  assert.equal(reads.length, 1, 'a quiet panel does not read');
+
+  // The ledger changes for this group: its token moves on every pool row of the group.
+  const commit = () => {
+    ledgerState.mine += 1;
+    return publishRows();
+  };
+  // A burst of changes while the read runs: one at once, one follow-up.
+  ledger.agentTokens = 250_000;
+  for (let burst = 0; burst < 5; burst += 1) await commit();
+  assert.equal(reads.length, 2, 'the first change reads at once; the burst waits for it');
+  await answer();
+  assert.equal(reads.length, 3, 'and costs one follow-up read');
+  await answer();
+  assert.equal(rowTokens()['run-a'], '250K');
+
+  // A nested agent's response, the Lead's own, and another Lead's detail that supersedes this
+  // group's gateway summary all move this group's token.
+  for (const reason of ['a nested agent', 'the Lead', "another Lead's superseding detail"]) {
+    const before = reads.length;
+    await commit();
+    assert.equal(reads.length, before + 1, `${reason} refreshes the panel`);
+    await answer();
   }
-  await act(async () => t.mock.timers.tick(1_200));
-  assert.equal(reads.length, 2, 'the burst cost one read');
-  assert.equal(rowTokens(), '250K');
-  // The Lead's own call (its usage readout replaced) is a cue as well.
-  agentTokens = 400_000;
-  await publish({ stats: { usageReadout: { input: 10, cacheRead: 0, cacheWrite: 0, output: 5 } } });
-  await act(async () => t.mock.timers.tick(1_200));
-  assert.equal(reads.length, 3);
-  assert.equal(rowTokens(), '400K');
-  // Streamed text changes the lane but not the ledger: no read.
-  await publish({ stats: { usageReadout: { input: 10, cacheRead: 0, cacheWrite: 0, output: 5 } }, busy: true });
+  // Unrelated sessions committing, busy, moves their own group's token and nothing of ours.
+  for (let busy = 0; busy < 20; busy += 1) {
+    ledgerState.other += 1;
+    await publishRows();
+  }
+  assert.equal(reads.length, 6, 'a quiet panel reads nothing while other sessions are busy');  // Lane frames (streamed text, a busy flag) are not the ledger.
+  await publish({ busy: true });
   await publish({ busy: true, streamingTail: { id: 't1', kind: 'assistant', text: 'hello' } });
-  await act(async () => t.mock.timers.tick(5_000));
-  assert.equal(reads.length, 4, 'busy changed once; streaming text added no read');
+  await act(async () => t.mock.timers.tick(60_000));
+  assert.equal(reads.length, 6, 'nothing else reads');
+  // A response with no usage moves no running total; the ledger now says unknown.
+  ledger.unmeasured = 1;
+  await commit();
+  assert.equal(reads.length, 7);
+  await answer();
+  assert.equal(rowTokens()['run-a'], null, 'the number gives way to unknown');
+
+  // The Lead's turn settling takes one reading.
+  await publish({ busy: false });
+  assert.equal(reads.length, 8);
+  await answer();
 });
 
 test('the usage summary model sums exact sessions only', async () => {

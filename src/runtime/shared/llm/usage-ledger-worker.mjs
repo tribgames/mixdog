@@ -7,7 +7,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import { serveWorkerRequests } from '../worker-requests.mjs';
 import { UsageLedger } from './usage-ledger.mjs';
-import { readSessionUsage, rollupDelta, rollupUsage } from './usage-ledger-rollup.mjs';
+import {
+  buildSessionDaysStep,
+  readSessionUsage,
+  readUsageToken,
+  rollupDelta,
+  rollupUsage,
+} from './usage-ledger-rollup.mjs';
 import { readQuotaHistory, readQuotaWindows } from './usage-ledger-quota.mjs';
 import { readUsageRequests } from './usage-ledger-requests.mjs';
 import { applyUsageRepairIfUnchanged, selectUsageRepairCandidates } from './usage-ledger-repair.mjs';
@@ -58,10 +64,40 @@ function recordBatch(ledger, rows) {
   }
 }
 
+// A ledger written before the per-session sums existed has them built here,
+// the only place they are: a step of sessions at a time, each its own short
+// transaction, with the thread yielding between steps. Other requests, writes
+// included, are served between steps; a session read waits for the whole build.
+const sessionSums = new Map();
+function sessionSumsReady(path) {
+  if (!sessionSums.has(path)) {
+    const build = (async () => {
+      const db = new DatabaseSync(path);
+      try {
+        db.exec('PRAGMA busy_timeout=5000');
+        while (!buildSessionDaysStep(db)) await new Promise((resolve) => setImmediate(resolve));
+      } finally {
+        db.close();
+      }
+    })();
+    sessionSums.set(path, build);
+    // A failed build is attempted again by the next request.
+    build.catch(() => sessionSums.delete(path));
+  }
+  return sessionSums.get(path);
+}
+
 const operations = {
   rollup: ({ path, options }) => read(path, (db) => rollupUsage(db, options)),
   rollupDelta: ({ path, options, known, now }) => read(path, (db) => rollupDelta(db, options, known, now)),
-  sessionUsage: ({ path, sessionIds, ownerIds }) => read(path, (db) => readSessionUsage(db, sessionIds, ownerIds)),
+  sessionUsage: async ({ path, sessionIds, ownerIds }) => {
+    await sessionSumsReady(path);
+    return read(path, (db) => readSessionUsage(db, sessionIds, ownerIds));
+  },
+  usageTokens: async ({ path, groups }) => {
+    await sessionSumsReady(path);
+    return read(path, (db) => groups.map(({ owner, ids }) => readUsageToken(db, ids, [owner])));
+  },
   requests: ({ path, options }) => read(path, (db) => readUsageRequests(db, options)),
   record: ({ path, rows }) => write(path, (ledger) => recordBatch(ledger, rows)),
   recordQuota: ({ path, samples }) => write(path, (ledger) => ledger.recordQuota(samples)),

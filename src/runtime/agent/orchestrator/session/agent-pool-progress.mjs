@@ -35,6 +35,27 @@ export function withLiveUsage(rows, liveSession) {
   });
 }
 
+/** `rows` of each group (a Lead and the agents under it, told apart by the
+ *  owner each row names) carrying that group's usage-ledger token
+ *  (`ledgerToken`, from `tokensOf(groups)`: owner -> the session ids listed
+ *  under it). The token moves exactly when a number the ledger gives for the
+ *  group can have changed, a response with no usage included, so a reader of
+ *  the ledger knows when its figures went stale without reading them. */
+export function withLedgerToken(rows, tokensOf) {
+  const groups = new Map();
+  for (const row of rows) {
+    const owner = row?.ownerSessionId;
+    if (!owner || !row.sessionId) continue;
+    if (!groups.has(owner)) groups.set(owner, new Set([owner]));
+    groups.get(owner).add(row.sessionId);
+  }
+  const tokens = tokensOf(groups);
+  return rows.map((row) => {
+    const token = tokens.get(row?.ownerSessionId);
+    return token === undefined ? row : { ...row, ledgerToken: token };
+  });
+}
+
 /** `rows` with progress fields on every row `runtimeEntry(sessionId)` reports
  *  in flight. `awaitingTask` marks a row whose agent waits on its background
  *  work: 'wait' while its turn sits in `task wait`, 'background' while it is

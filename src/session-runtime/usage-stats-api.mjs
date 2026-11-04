@@ -1,8 +1,7 @@
 // One durable accounting store. No transcript rescans or diagnostic retention
 // dependencies after the one-time import of surviving historical originals.
 import { getUsageLedger } from '../runtime/shared/llm/usage-ledger.mjs';
-import { importUsageHistory } from '../runtime/shared/llm/usage-ledger-import.mjs';
-import { refreshUnpricedUsageAsync } from '../runtime/shared/llm/usage-pricing-refresh.mjs';
+import { importUsageHistory } from '../runtime/shared/llm/usage-ledger-import.mjs';import { refreshUnpricedUsageAsync } from '../runtime/shared/llm/usage-pricing-refresh.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { sessionUsageSnapshot, usageStatsSnapshot } from './services/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from './services/usage-stats-period.mjs';
@@ -273,6 +272,54 @@ export function createUsageStatsApi({
       await importing;
     }
   }
+  // sessionId -> { tail, shared }: the session's read chain. The ledger worker
+  // serves one request at a time and a read is several of them, so a session
+  // never has two reads going. A call identical to one already running or
+  // waiting (several windows or surfaces) shares it; a different one waits
+  // its turn and then runs alone.
+  const sessionReads = new Map();
+  function readSessionUsageOnce(sessionId, key, read) {
+    let lane = sessionReads.get(sessionId);
+    if (!lane) {
+      lane = { tail: Promise.resolve(), last: null, shared: new Map() };
+      sessionReads.set(sessionId, lane);
+    }
+    const held = lane.shared.get(key);
+    if (held) return held;
+    const pending = lane.tail.then(read).finally(() => {
+      if (lane.shared.get(key) === pending) lane.shared.delete(key);
+      if (lane.last === pending) sessionReads.delete(sessionId);
+    });
+    // The next read waits for this one to end, however it ends.
+    lane.last = pending;
+    lane.tail = pending.catch(() => undefined);
+    lane.shared.set(key, pending);
+    return pending;
+  }
+  async function readSessionUsage(sessionId, others, agents) {
+    const store = ledger();
+    if (!store) throw new Error('Usage ledger is unavailable');
+    await store.settleWrites();
+    const scopes = accountScopes(accountPool);
+    const usage = await store.sessionUsageAsync(sessionUsageIdsFor(scopes, sessionId));
+    const result = { sessionId, ...sessionUsageSnapshot(usage) };
+    if (agents) {
+      const named = others.flatMap((id) => sessionUsageIdsFor(scopes, id));
+      result.agents = sessionUsageSnapshot(await store.sessionUsageAsync(named, [sessionId]));
+    }
+    if (!others.length) return result;
+    // Every sibling request settles before the read ends, so a failure never
+    // releases the chain while the worker still serves the others.
+    const settled = await Promise.allSettled(
+      others.map(async (id) => [
+        id,
+        sessionUsageSnapshot(await store.sessionUsageAsync(sessionUsageIdsFor(scopes, id))),
+      ])
+    );
+    const failed = settled.find((outcome) => outcome.status === 'rejected');
+    if (failed) throw failed.reason;
+    return { ...result, sessions: Object.fromEntries(settled.map((outcome) => outcome.value)) };
+  }
   return {
     async getUsageStats(options = {}) {
       const store = ledger();
@@ -362,25 +409,11 @@ export function createUsageStatsApi({
     async getSessionUsage(options = {}) {
       const sessionId = getSessionId();
       if (!sessionId) return null;
-      const store = ledger();
-      if (!store) throw new Error('Usage ledger is unavailable');
-      await store.settleWrites();
-      const scopes = accountScopes(accountPool);
-      const usage = await store.sessionUsageAsync(sessionUsageIdsFor(scopes, sessionId));
-      const result = { sessionId, ...sessionUsageSnapshot(usage) };
       const others = otherSessionIds(options, sessionId);
-      if (options?.agents === true) {
-        const named = others.flatMap((id) => sessionUsageIdsFor(scopes, id));
-        result.agents = sessionUsageSnapshot(await store.sessionUsageAsync(named, [sessionId]));
-      }
-      if (!others.length) return result;
-      const totals = await Promise.all(
-        others.map(async (id) => [
-          id,
-          sessionUsageSnapshot(await store.sessionUsageAsync(sessionUsageIdsFor(scopes, id))),
-        ])
+      const agents = options?.agents === true;
+      return readSessionUsageOnce(sessionId, JSON.stringify([agents, others]), () =>
+        readSessionUsage(sessionId, others, agents)
       );
-      return { ...result, sessions: Object.fromEntries(totals) };
     },
 
     /**

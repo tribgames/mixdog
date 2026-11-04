@@ -4,13 +4,9 @@
 // (getSessionUsage). A figure is shown only when every session it covers was
 // fully measured; nothing is estimated or apportioned.
 import { useEffect, useRef, useState } from 'react';
+import type { DesktopAgentPoolRow } from '../shared/contract';
 import { record } from './record-utils';
 
-/** Re-read no more often than this while the agents panel stays open. A read
- *  is one ledger query on the worker thread, and a burst of cues collapses
- *  into one trailing read, so this bounds how late a figure can be after the
- *  runtime's cue (a model call's usage landing) without polling. */
-const ISLAND_USAGE_REFRESH_MS = 1_000;
 /** Same bound the desktop main process enforces on the request. */
 const MAX_AGENT_SESSION_IDS = 64;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
@@ -107,22 +103,43 @@ export function islandUsageSummary(value: unknown, agentSessionIds: readonly str
 }
 
 /**
- * The Lead session's getSessionUsage with its agents' total and rows, read while the
- * agents panel is open: at once on opening or when the agent set changes,
- * otherwise at most every ISLAND_USAGE_REFRESH_MS, and only when `revision`
- * (the agent pool, which carries each agent's running totals, and the Lead's
- * own usage figures, both already pushed) moved. The read
- * runs on the ledger worker; a failed read keeps the last answer.
+ * What moves when a ledger figure for the session can have changed: the token
+ * of the session's group that the pool rows carry (`ledgerToken`). The ledger
+ * moves it for the group's own records, its agents at any depth, ownership,
+ * and another session's record that changes which rows the ledger counts
+ * for them; other sessions' commits leave it alone. A settled Lead turn also
+ * moves the cue.
+ */
+export function islandUsageCue(
+  pool: readonly DesktopAgentPoolRow[] | null | undefined,
+  leadSessionId: string,
+  settledTurns: number
+): string {
+  const token = (pool ?? []).find((row) => row.ownerSessionId === leadSessionId && row.ledgerToken)?.ledgerToken;
+  return `${settledTurns}|${token ?? ''}`;
+}
+
+/**
+ * The Lead session's getSessionUsage with its agents' total and rows for the
+ * open agents panel. The ledger is the only source of the figures. It is read
+ * on opening, when the agent set changes, and when `cue` moves: the cue is
+ * the ledger's own token for the session's group that the agent pool already
+ * pushes, plus settled turns, so nothing polls. No read starts while the session's
+ * previous one is unanswered (the ledger worker serves one request at a time,
+ * so it would only queue behind it); cues that land meanwhile collapse into
+ * one follow-up read. A failed read keeps the last answer.
  */
 export function useIslandSessionUsage(
   sessionId: string,
   agentSessionIds: readonly string[],
   open: boolean,
-  revision: unknown
+  cue: string
 ): unknown {
   const [usage, setUsage] = useState<{ sessionId: string; value: unknown } | null>(null);
   const known = usage?.sessionId === sessionId ? usage.value : (lastUsage.get(sessionId) ?? null);
-  const lastRead = useRef({ at: 0, ids: '' });
+  const reading = useRef(new Set<string>());
+  const wanted = useRef('');
+  const readAgain = useRef<(() => void) | null>(null);
   const ids = islandUsageSessionIds(agentSessionIds);
   const idsKey = ids.join('\n');
   const mounted = useRef(true);
@@ -132,31 +149,44 @@ export function useIslandSessionUsage(
       mounted.current = false;
     };
   }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the refresh trigger; ids ride idsKey
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ids ride idsKey; cue is the trigger
   useEffect(() => {
     if (!open || !sessionId) {
-      lastRead.current = { at: 0, ids: '' };
+      wanted.current = '';
+      readAgain.current = null;
       return undefined;
     }
     const api = window.mixdogDesktop;
     if (typeof api?.invokeCapability !== 'function') return undefined;
-    const since = lastRead.current.ids === idsKey ? Date.now() - lastRead.current.at : Number.POSITIVE_INFINITY;
-    const timer = window.setTimeout(
-      () => {
-        lastRead.current = { at: Date.now(), ids: idsKey };
-        Promise.resolve(
-          api.invokeCapability({ capability: 'getSessionUsage', args: [{ sessionIds: ids, agents: true }], sessionId })
-        ).then(
+    const read = () => {
+      if (reading.current.has(sessionId)) {
+        wanted.current = sessionId;
+        return;
+      }
+      reading.current.add(sessionId);
+      Promise.resolve(
+        api.invokeCapability({ capability: 'getSessionUsage', args: [{ sessionIds: ids, agents: true }], sessionId })
+      )
+        .then(
           (result) => {
             rememberUsage(sessionId, result?.value ?? null);
             if (mounted.current) setUsage({ sessionId, value: result?.value ?? null });
           },
           () => undefined
-        );
-      },
-      Math.max(0, ISLAND_USAGE_REFRESH_MS - since)
-    );
-    return () => window.clearTimeout(timer);
-  }, [open, sessionId, idsKey, revision]);
+        )
+        .finally(() => {
+          reading.current.delete(sessionId);
+          if (wanted.current !== sessionId) return;
+          wanted.current = '';
+          readAgain.current?.();
+        });
+    };
+    readAgain.current = read;
+    read();
+    return () => {
+      readAgain.current = null;
+    };
+  }, [open, sessionId, idsKey, cue]);
   return known;
 }
+
