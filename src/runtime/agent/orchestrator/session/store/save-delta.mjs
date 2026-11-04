@@ -1,4 +1,5 @@
 import { hash } from 'node:crypto';
+import v8 from 'node:v8';
 import { _messagesForDisk, _sessionForDisk } from './serialize.mjs';
 import { sensitiveValuesVersion } from '../sensitive-values.mjs';
 
@@ -77,14 +78,43 @@ function _printMessages(live, diskMessages, prev) {
   );
 }
 
+// v8's own round-trip keeps a Buffer a Buffer (with its toJSON), where
+// structuredClone — what the worker's postMessage applies — yields a plain
+// Uint8Array. Writing a Buffer as the Uint8Array view of its bytes makes the
+// round-trip produce exactly what structuredClone does.
+class CloneSerializer extends v8.DefaultSerializer {
+  _writeHostObject(view) {
+    return super._writeHostObject(
+      Buffer.isBuffer(view) ? new Uint8Array(view.buffer, view.byteOffset, view.byteLength) : view
+    );
+  }
+}
+
+function _serialize(value) {
+  const serializer = new CloneSerializer();
+  serializer.writeHeader();
+  serializer.writeValue(value);
+  return serializer.releaseBuffer();
+}
+
 /**
- * What one attempt sent, without copying the transcript: a detached copy of
- * the (small) header, the live message references and their fingerprints.
+ * What one attempt sent, without copying the transcript: the header detached
+ * at post time, the live message references and their fingerprints. The
+ * header is only failure evidence, so it is kept serialized (a snapshot no
+ * later mutation reaches) and rebuilt by _attemptEvidence on a failure; the
+ * success path never pays the deserialize. A value v8 cannot serialize but
+ * structuredClone accepts (a SharedArrayBuffer) takes the structuredClone
+ * path for this save; only a header structuredClone refuses has no evidence.
  */
 function _attemptRecord(header, refs, prints) {
   if (!prints) return null;
-  const detached = _cloneOrNull({ ...header, messages: [] });
-  return detached ? { header: detached, refs, prints } : null;
+  const evidenceHeader = { ...header, messages: [] };
+  try {
+    return { header: _serialize(evidenceHeader), cloned: null, refs, prints };
+  } catch {
+    const cloned = _cloneOrNull(evidenceHeader);
+    return cloned ? { header: null, cloned, refs, prints } : null;
+  }
 }
 
 /**
@@ -94,12 +124,13 @@ function _attemptRecord(header, refs, prints) {
  */
 export function _attemptEvidence(attempt) {
   if (!attempt) return null;
-  const messages = _messagesForDisk(attempt.refs, attempt.header.id);
+  const header = attempt.header ? v8.deserialize(attempt.header) : attempt.cloned;
+  const messages = _messagesForDisk(attempt.refs, header.id);
   for (let index = 0; index < messages.length; index += 1) {
     const print = attempt.prints[index];
     if (print === null || _messagePrint(messages[index]) !== print) return null;
   }
-  return { ...attempt.header, messages };
+  return { ...header, messages };
 }
 
 function _isPureAppend(refs, live) {
