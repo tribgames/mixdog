@@ -108,25 +108,6 @@ function isDaemonTransportFailure(error: unknown): boolean {
   );
 }
 
-/** The daemon answered retry-later (busy or not ready; session-client
- *  attachment-calls): it refused before dispatching and serves again shortly,
- *  on the same attachment. */
-function isRetryLater(error: unknown): boolean {
-  return (error as { retryable?: unknown } | null)?.retryable === true;
-}
-
-const RETRY_LATER_BASE_MS = 250;
-const RETRY_LATER_MAX_MS = 4_000;
-const RETRY_LATER_BUDGET_MS = 60_000;
-
-/** Jittered exponential delay before asking a retry-later daemon again,
- *  never sooner than the daemon's own hint. */
-function retryLaterDelayMs(attempt: number, error: unknown): number {
-  const backoff = Math.min(RETRY_LATER_MAX_MS, RETRY_LATER_BASE_MS * 2 ** attempt);
-  const hint = Number((error as { retryAfterMs?: unknown } | null)?.retryAfterMs) || 0;
-  return Math.max(hint, Math.round(backoff * (0.8 + Math.random() * 0.4)));
-}
-
 /** One call outlived its inactivity bound on a daemon that still answers. */
 function isCallTimeout(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === 'ESESSIONTIMEOUT';
@@ -358,7 +339,7 @@ export class SessionTransport implements DesktopTransport {
       const initialized = await this.measureBootPhase(
         'desktop-init',
         () =>
-          this.callAdmitted(attached!, 'desktop.init', {
+          attached!.call('desktop.init', {
             desktopId: this.requestedDesktopId,
             moduleUrl,
             options: initOptions,
@@ -369,7 +350,7 @@ export class SessionTransport implements DesktopTransport {
       await this.measureBootPhase(
         'desktop-state-resync',
         () =>
-          this.callAdmitted(attached!, 'desktop.control', {
+          attached!.call('desktop.control', {
             desktopId: this.desktopId,
             message: { kind: 'state-resync' },
           }),
@@ -378,7 +359,7 @@ export class SessionTransport implements DesktopTransport {
       await this.measureBootPhase(
         'desktop-background-ready',
         () =>
-          this.callAdmitted(attached!, 'desktop.ready', {
+          attached!.call('desktop.ready', {
             desktopId: this.desktopId,
           }),
         { attempt }
@@ -550,37 +531,6 @@ export class SessionTransport implements DesktopTransport {
     return recovery;
   }
 
-  /** One daemon call that a retry-later refusal does not fail: it is asked
-   *  again on the same attachment, under the same options (call id), with
-   *  jittered backoff and nothing shown. Past RETRY_LATER_BUDGET_MS the
-   *  refusal is handed back as a transport failure, for the recovery path; a
-   *  transport closed meanwhile is never asked again. */
-  private async callAdmitted(
-    client: AttachedDaemon,
-    name: string,
-    args: Record<string, unknown>,
-    options?: { timeoutMs?: number; callId?: string }
-  ): Promise<unknown> {
-    const startedAt = performance.now();
-    const handOff = (error: unknown): never => {
-      if (this.closed) throw new Error('Mixdog daemon transport is closed.', { cause: error });
-      throw Object.assign(error as object, { daemonTransportError: true });
-    };
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        return await client.call(name, args, options);
-      } catch (error) {
-        if (!isRetryLater(error)) throw error;
-        const waitMs = retryLaterDelayMs(attempt, error);
-        if (this.closed || performance.now() - startedAt + waitMs > RETRY_LATER_BUDGET_MS) handOff(error);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
-        // Checked again after the wait: a timer that fired late (the loop
-        // stalled) or a transport closed meanwhile must not dispatch.
-        if (this.closed || performance.now() - startedAt > RETRY_LATER_BUDGET_MS) handOff(error);
-      }
-    }
-  }
-
   private async activeClient(): Promise<AttachedDaemon> {
     if (this.initializing) await this.initializing;
     if (this.recovering) await this.recovering;
@@ -636,7 +586,7 @@ export class SessionTransport implements DesktopTransport {
       const callId = `desktop-invoke:${this.requestedDesktopId}:${message.id}`;
       let value: unknown;
       try {
-        value = await this.callAdmitted(client, 'desktop.invoke', args, { callId });
+        value = await client.call('desktop.invoke', args, { callId });
       } catch (error) {
         // A pooled loopback socket can be reset while the daemon itself stays
         // healthy (notably during adapter handoff). Retry the exact logical
@@ -645,7 +595,7 @@ export class SessionTransport implements DesktopTransport {
         let failure = error;
         if (isTransientConnectionReset(error)) {
           try {
-            value = await this.callAdmitted(client, 'desktop.invoke', args, { callId });
+            value = await client.call('desktop.invoke', args, { callId });
             failure = null;
           } catch (retryError) {
             failure = retryError;
@@ -662,14 +612,14 @@ export class SessionTransport implements DesktopTransport {
               ? String(message.args?.[0] || '')
               : '';
           this.emit('diagnostic', 'session-call-timeout', { method: message.method, ...(target ? { target } : {}) });
-          value = await this.callAdmitted(client, 'desktop.invoke', args, { callId });
+          value = await client.call('desktop.invoke', args, { callId });
           failure = null;
         }
         if (failure) {
           if (!isDaemonTransportFailure(failure)) throw failure;
           await this.recoverDaemon(client, failure instanceof Error ? failure.message : String(failure));
           client = await this.activeClient();
-          value = await this.callAdmitted(client, 'desktop.invoke', args, { callId });
+          value = await client.call('desktop.invoke', args, { callId });
         }
       }
       this.emit('message', {
@@ -697,7 +647,7 @@ export class SessionTransport implements DesktopTransport {
 
   private async control(message: DesktopServiceInbound): Promise<void> {
     const client = await this.activeClient();
-    await this.callAdmitted(client, 'desktop.control', {
+    await client.call('desktop.control', {
       desktopId: this.desktopId,
       message,
     });

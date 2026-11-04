@@ -13,6 +13,8 @@ import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 const stubDaemon = (infoPath, stoppedPath, wedged = false) => `
 import http from 'node:http';
 import { writeFileSync } from 'node:fs';
+import { startSupervisorLink } from ${JSON.stringify(new URL('./daemon-supervisor-link.mjs', import.meta.url).href)};
+const link = startSupervisorLink();
 const infoPath = ${JSON.stringify(infoPath)};
 const stoppedPath = ${JSON.stringify(stoppedPath)};
 const server = http.createServer((req, res) => {
@@ -29,7 +31,7 @@ const server = http.createServer((req, res) => {
 });
 server.listen(0, '127.0.0.1', () => {
   writeFileSync(infoPath, JSON.stringify({ pid: process.pid, port: server.address().port }));
-  process.send?.({ type: 'ready' });
+  link.ready();
 });
 `;
 

@@ -1,15 +1,14 @@
 import { rmdirSync, rmSync, statSync } from 'node:fs';
-import { readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { writeJsonAtomicSync } from './atomic-file.mjs';
-import { withFileLock, withFileLockSync } from './file-lock.mjs';
+import { withFileLockSync } from './file-lock.mjs';
 import { readJsonSafe } from './json-file.mjs';
 import { isPidAlive } from './pid-liveness.mjs';
 
 // Claim-lock protocol shared by the sync and async paths: `<path>.claim.lock`
 // is a file-lock.mjs lock, published atomically with its holder's pid and
 // token. A holder whose pid is alive is waited out however long it holds the
-// lock — a holder stalled mid-refresh still owns it: reclaiming it on age let
-// a successor claim the record and the stalled refresh then overwrite it. Its
+// lock — a holder stalled mid-write still owns it: reclaiming it on age let
+// a successor claim the record and the stalled write then overwrite it. Its
 // lock is reclaimed only once that pid is dead, and only the holder's own
 // acquisition (pid + token) is ever released. A lock naming no holder — the
 // bare directory versions before this one took the lock with — is reclaimed
@@ -19,15 +18,7 @@ const CLAIM_LOCK_STALE_MS = 5000;
 const CLAIM_LOCK_OPTS = Object.freeze({ timeoutMs: CLAIM_LOCK_TIMEOUT_MS, staleMs: CLAIM_LOCK_STALE_MS });
 const BUSY = Symbol('claim lock busy');
 
-// A claim or handoff is flushed before it is published. The heartbeat's async
-// refresh below is not: it rewrites the record every few seconds, and a record
-// a crash leaves NUL reads as "no owner" (readJsonSafe), so the next claim
-// simply takes over.
-function writeJsonAtomic(path, value) {
-  writeJsonAtomicSync(path, value);
-}
-
-// Held by another live process or this one's async holder ('busy'). Any other
+// Held by another live process ('busy'). Any other
 // failure (an unwritable data directory) is thrown, as before.
 function claimLockHeld(error) {
   return error?.code === 'ELOCKCONTENDED' || (error?.code === 'ELOCKTIMEOUT' && error.cause?.code === 'EEXIST');
@@ -69,54 +60,17 @@ function withClaimLockSync(path, fn) {
   }
 }
 
-// The same lock taken without blocking the event loop: every file operation
-// and every retry wait is awaited (a synchronous refresh once held the
-// daemon's loop for 20 s in one rmSync under disk contention).
-async function withClaimLock(path, fn) {
-  const lockPath = `${path}.claim.lock`;
-  try {
-    if (legacyLockStale(await stat(lockPath))) await rmdir(lockPath);
-  } catch {}
-  let entered = false;
-  try {
-    return await withFileLock(
-      lockPath,
-      () => {
-        entered = true;
-        return fn();
-      },
-      CLAIM_LOCK_OPTS
-    );
-  } catch (error) {
-    if (!entered && claimLockHeld(error)) return BUSY;
-    throw error;
-  }
-}
-
 function namesOtherPid(record, pid) {
   return Boolean(record?.pid) && Number(record.pid) !== Number(pid);
 }
 
-async function readJsonSafeAsync(path) {
-  try {
-    return JSON.parse(await readFile(path, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-// A live pid alone does not prove the record's process still owns it: the OS
-// reuses pids. `isStale(owner)` lets a caller with a stronger proof (the
-// daemon's published discovery) reject a live-pid record; `stale` reports it.
-export function readSingletonOwner(path, { isStale = null } = {}) {
+export function readSingletonOwner(path) {
   const owner = readJsonSafe(path);
-  if (!owner || typeof owner !== 'object') return { owner: null, alive: false, stale: false };
-  const pidAlive = isPidAlive(owner.pid);
-  const stale = pidAlive && typeof isStale === 'function' && isStale(owner) === true;
-  return { owner, alive: pidAlive && !stale, stale };
+  if (!owner || typeof owner !== 'object') return { owner: null, alive: false };
+  return { owner, alive: isPidAlive(owner.pid) };
 }
 
-export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid, meta = {}, isStale = null } = {}) {
+export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid, meta = {} } = {}) {
   const owner = {
     kind,
     pid,
@@ -124,10 +78,7 @@ export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid,
     ...meta,
   };
   const livePeer = (current) =>
-    Boolean(current?.pid) &&
-    Number(current.pid) !== Number(pid) &&
-    isPidAlive(current.pid) &&
-    !(typeof isStale === 'function' && isStale(current) === true);
+    Boolean(current?.pid) && Number(current.pid) !== Number(pid) && isPidAlive(current.pid);
 
   const current = readJsonSafe(path);
   if (livePeer(current)) {
@@ -139,7 +90,7 @@ export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid,
     if (livePeer(lockedCurrent)) {
       return { owned: false, owner: lockedCurrent };
     }
-    writeJsonAtomic(path, owner);
+    writeJsonAtomicSync(path, owner);
     return { owned: true, owner };
   });
   return result === BUSY ? { owned: false, owner: readJsonSafe(path) } : result;
@@ -154,44 +105,6 @@ export function releaseSingletonOwner(path, pid = process.pid) {
   } catch {
     return false;
   }
-}
-
-// Rewrite the caller's own record (`owner.pid`) under the claim lock: when it
-// still names that pid or is gone, it becomes `owner` ('refreshed'); a record
-// naming another pid is reported, never overwritten ('superseded'); a claim
-// lock held past its wait leaves the record alone ('busy').
-export function refreshSingletonOwner(path, owner) {
-  const result = withClaimLockSync(path, () => {
-    const current = readJsonSafe(path);
-    if (namesOtherPid(current, owner.pid)) return { status: 'superseded', owner: current };
-    writeJsonAtomic(path, owner);
-    return { status: 'refreshed', owner };
-  });
-  return result === BUSY ? { status: 'busy', owner: null } : result;
-}
-
-/** refreshSingletonOwner without blocking the event loop: the same claim
- *  lock (mutually exclusive with the sync claim/refresh/handoff), the same
- *  verdicts, every file operation and retry wait awaited. Its awaited write
- *  may stall, so the record is read again right before it is replaced: a
- *  record another pid wrote meanwhile is reported, never overwritten. */
-export async function refreshSingletonOwnerAsync(path, owner) {
-  const result = await withClaimLock(path, async () => {
-    const current = await readJsonSafeAsync(path);
-    if (namesOtherPid(current, owner.pid)) return { status: 'superseded', owner: current };
-    let tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      await writeFile(tmp, `${JSON.stringify(owner, null, 2)}\n`);
-      const latest = await readJsonSafeAsync(path);
-      if (namesOtherPid(latest, owner.pid)) return { status: 'superseded', owner: latest };
-      await rename(tmp, path);
-      tmp = null;
-      return { status: 'refreshed', owner };
-    } finally {
-      if (tmp) await rm(tmp, { force: true }).catch(() => {});
-    }
-  });
-  return result === BUSY ? { status: 'busy', owner: null } : result;
 }
 
 // Atomic ownership handoff: replace the owner record from fromPid to toOwner
@@ -211,7 +124,7 @@ export function handoffSingletonOwner(path, fromPid, toOwner = {}) {
       claimedAt: new Date().toISOString(),
       ...toOwner,
     };
-    writeJsonAtomic(path, owner);
+    writeJsonAtomicSync(path, owner);
     return { owned: true, owner };
   });
   return result === BUSY ? { owned: false, owner: readJsonSafe(path) } : result;

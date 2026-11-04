@@ -41,10 +41,10 @@ test('npm postinstall prepares every required release-native asset', async () =>
     const calls = [];
     const installers = fixtureInstallers(root, (name, dataDir) => calls.push([name, dataDir]));
     const prepared = await prepareRequiredNativeAssets({ packageRoot: root, installers });
-    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn']);
+    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn', 'supervisor']);
     assert.deepEqual(
       calls.map(([name]) => name),
-      ['graph', 'patch', 'spawn']
+      ['graph', 'patch', 'spawn', 'supervisor']
     );
     assert.equal(new Set(calls.map(([, dataDir]) => dataDir)).size, 1);
     for (const [name, fileName] of Object.entries(NATIVE_TOOL_FILENAMES)) {
@@ -65,7 +65,7 @@ test('Windows on ARM prepares the native assets it runs under x64 emulation', as
       arch: 'arm64',
       installers: fixtureInstallers(root),
     });
-    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn']);
+    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn', 'supervisor']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -85,6 +85,9 @@ test('unsupported host platforms fail closed before downloading native assets', 
           throw new Error('should not download');
         },
         spawn: async () => {
+          throw new Error('should not download');
+        },
+        supervisor: async () => {
           throw new Error('should not download');
         },
       },
@@ -107,6 +110,7 @@ test('a required native asset failure rejects the complete install step', async 
             throw new Error('release unavailable');
           },
           spawn: async () => join(root, 'existing'),
+          supervisor: async () => join(root, 'existing'),
         },
       }),
       /release unavailable/

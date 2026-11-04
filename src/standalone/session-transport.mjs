@@ -36,8 +36,7 @@ export function createSessionTransport({
   // Asked before every register/call; false answers 503 (the daemon's owner
   // lease is not held — daemon-owner.mjs).
   admitWork = () => true,
-  // Why admitWork refused: retry-later (with retryAfterMs) while it may serve
-  // again shortly, else fenced (daemon-refusal.mjs).
+  // Why admitWork refused (fenced, daemon-refusal.mjs).
   workRefusal,
   // The daemon's one admission gate; an embedder without one gets its own,
   // counting the status' busy sessions.

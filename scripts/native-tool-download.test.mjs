@@ -9,7 +9,7 @@ import {
   nativeToolInstalledName,
   nativeToolPlatformAssets,
 } from './native-tool-download.mjs';
-import { GRAPH_PLATFORMS, PATCH_PLATFORMS, SPAWN_PLATFORMS } from './verify-release-assets.mjs';
+import { GRAPH_PLATFORMS, PATCH_PLATFORMS, SPAWN_PLATFORMS, SUPERVISOR_PLATFORMS } from './verify-release-assets.mjs';
 
 // Independent literals: the published asset names for the complete kind x platform matrix.
 const GRAPH_FILES = {
@@ -33,10 +33,17 @@ const SPAWN_FILES = {
   'linux-x64': 'mixdog-spawn-linux-x64',
   'win32-x64': 'mixdog-spawn-win32-x64.exe',
 };
-const PUBLISHED = { graph: GRAPH_FILES, patch: PATCH_FILES, spawn: SPAWN_FILES };
+const SUPERVISOR_FILES = {
+  'darwin-arm64': 'mixdog-supervisor-darwin-arm64',
+  'darwin-x64': 'mixdog-supervisor-darwin-x64',
+  'linux-arm64': 'mixdog-supervisor-linux-arm64',
+  'linux-x64': 'mixdog-supervisor-linux-x64',
+  'win32-x64': 'mixdog-supervisor-win32-x64.exe',
+};
+const PUBLISHED = { graph: GRAPH_FILES, patch: PATCH_FILES, spawn: SPAWN_FILES, supervisor: SUPERVISOR_FILES };
 
 test('native tool asset names match the published matrix for every kind and platform', () => {
-  assert.deepEqual([...NATIVE_TOOL_KINDS], ['graph', 'patch', 'spawn']);
+  assert.deepEqual([...NATIVE_TOOL_KINDS], ['graph', 'patch', 'spawn', 'supervisor']);
   assert.deepEqual([...NATIVE_TOOL_PLATFORM_KEYS], Object.keys(PATCH_FILES));
   for (const kind of NATIVE_TOOL_KINDS) {
     assert.deepEqual(nativeToolPlatformAssets(kind), PUBLISHED[kind], kind);
@@ -51,6 +58,7 @@ test('release verification expects the published matrix', () => {
   assert.deepEqual(GRAPH_PLATFORMS, GRAPH_FILES);
   assert.deepEqual(PATCH_PLATFORMS, PATCH_FILES);
   assert.deepEqual(SPAWN_PLATFORMS, SPAWN_FILES);
+  assert.deepEqual(SUPERVISOR_PLATFORMS, SUPERVISOR_FILES);
 });
 
 test('native tool install names, asset names and URLs follow the release layout', () => {

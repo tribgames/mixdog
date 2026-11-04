@@ -11,10 +11,12 @@ import {
   GRAPH_PLATFORMS,
   PATCH_PLATFORMS,
   SPAWN_PLATFORMS,
+  SUPERVISOR_PLATFORMS,
   validateGraphManifest,
   validatePatchManifest,
   validateRuntimeManifest,
   validateSpawnManifest,
+  validateSupervisorManifest,
   verifyAssetDownloads,
   verifyReleaseAssets,
 } from './verify-release-assets.mjs';
@@ -101,15 +103,15 @@ function graphFixture() {
   };
 }
 
-function spawnFixture() {
+function cargoPinnedFixture(kind, platforms) {
   return {
     version: VERSION,
     _comment: 'test fixture',
     assets: Object.fromEntries(
-      Object.entries(SPAWN_PLATFORMS).map(([platform, filename]) => [
+      Object.entries(platforms).map(([platform, filename]) => [
         platform,
         {
-          url: `https://github.com/tribgames/mixdog/releases/download/spawn-v${VERSION}/${filename}`,
+          url: `https://github.com/tribgames/mixdog/releases/download/${kind}-v${VERSION}/${filename}`,
           sha256,
         },
       ])
@@ -117,11 +119,18 @@ function spawnFixture() {
   };
 }
 
+const spawnFixture = () => cargoPinnedFixture('spawn', SPAWN_PLATFORMS);
+const supervisorFixture = () => cargoPinnedFixture('supervisor', SUPERVISOR_PLATFORMS);
+
 test('accepts independent strict patch, runtime, app, and graph versions', () => {
   assert.equal(validatePatchManifest(patchFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
   assert.equal(validateRuntimeManifest(runtimeFixture()).release_tag, 'runtime-v1.2.3');
   assert.equal(validateGraphManifest(graphFixture(), { version: APP_VERSION }).version, GRAPH_VERSION);
   assert.equal(validateSpawnManifest(spawnFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
+  assert.equal(
+    validateSupervisorManifest(supervisorFixture(), `[package]\nversion = "${VERSION}"\n`).version,
+    VERSION
+  );
 });
 
 test('tool manifests may add a verified win32-arm64 asset beyond the required platforms', () => {
@@ -314,12 +323,14 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   const runtime = runtimeFixture();
   const graph = graphFixture();
   const spawn = spawnFixture();
+  const supervisor = supervisorFixture();
   const expectedUrls = new Set(
     [
       ...Object.values(patch.assets),
       ...Object.values(runtime.assets),
       ...Object.values(graph.assets),
       ...Object.values(spawn.assets),
+      ...Object.values(supervisor.assets),
     ].map(({ url }) => url)
   );
   const paths = {
@@ -329,6 +340,8 @@ test('full guard reads deterministic fixtures and downloads every declared asset
     graphManifestPath: join(dir, 'graph.json'),
     spawnManifestPath: join(dir, 'spawn.json'),
     spawnCargoPath: join(dir, 'spawn-Cargo.toml'),
+    supervisorManifestPath: join(dir, 'supervisor.json'),
+    supervisorCargoPath: join(dir, 'supervisor-Cargo.toml'),
     packagePath: join(dir, 'package.json'),
   };
   await Promise.all([
@@ -338,6 +351,8 @@ test('full guard reads deterministic fixtures and downloads every declared asset
     writeFile(paths.graphManifestPath, JSON.stringify(graph)),
     writeFile(paths.spawnManifestPath, JSON.stringify(spawn)),
     writeFile(paths.spawnCargoPath, `[package]\nversion = "${VERSION}"\n`),
+    writeFile(paths.supervisorManifestPath, JSON.stringify(supervisor)),
+    writeFile(paths.supervisorCargoPath, `[package]\nversion = "${VERSION}"\n`),
     writeFile(paths.packagePath, JSON.stringify({ version: APP_VERSION })),
   ]);
   let downloads = 0;
@@ -358,7 +373,7 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  assert.equal(downloads, 20);
+  assert.equal(downloads, 25);
   assert.deepEqual(new Set(requestedUrls), expectedUrls);
 });
 
@@ -379,6 +394,7 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/patch-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/graph-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/spawn-release\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/supervisor-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/release\.yml/);
   assert.match(deploy, /changedSince\(`\$\{tagPrefix\}\$\{manifestVersion\}`/);
   assert.match(
@@ -436,7 +452,7 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.equal(jobs['prepare-native'].outputs.sha, '${{ steps.bump.outputs.sha }}');
   assert.match(
     jobs['prepare-native'].steps.find((step) => step.id === 'bump').run,
-    /create_tag "\$SPAWN_BUILD" "\$SPAWN_TAG"\s*\n\s*echo "sha=\$\(git rev-parse HEAD\)" >> "\$GITHUB_OUTPUT"\s*$/
+    /create_tag "\$SPAWN_BUILD" "\$SPAWN_TAG"\s*\n\s*create_tag "\$SUPERVISOR_BUILD" "\$SUPERVISOR_TAG"\s*\n\s*echo "sha=\$\(git rev-parse HEAD\)" >> "\$GITHUB_OUTPUT"\s*$/
   );
   for (const [name, job] of Object.entries(jobs)) {
     assert.ok(![job.needs ?? []].flat().includes('linux-native-tools-warm'), `${name} must not wait on the warm-up`);
@@ -1268,14 +1284,15 @@ advisoryTest('desktop production dependencies contain only main-process runtime 
 
 test('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {
   const voiceConfig = JSON.parse(await readFile(new URL('./voice-runtime-config.json', import.meta.url), 'utf8'));
-  const [runtime, voice, patch, graph, spawn] = await Promise.all([
+  const [runtime, voice, patch, graph, spawn, supervisor] = await Promise.all([
     workflow('build-runtime.yml'),
     workflow('build-voice-runtime.yml'),
     workflow('patch-release.yml'),
     workflow('graph-release.yml'),
     workflow('spawn-release.yml'),
+    workflow('supervisor-release.yml'),
   ]);
-  for (const worker of [runtime, voice, patch, graph, spawn]) assert.match(worker, /workflow_call:/);
+  for (const worker of [runtime, voice, patch, graph, spawn, supervisor]) assert.match(worker, /workflow_call:/);
   assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
   // Shipped runtime assets are immutable: every publish step uses the gate's
   // planned tag, never the requested one.
@@ -1303,6 +1320,7 @@ test('native release workflows are reusable and unchanged runtime platforms stay
   for (const [name, worker] of [
     ['graph', graph],
     ['spawn', spawn],
+    ['supervisor', supervisor],
   ]) {
     assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
     assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);

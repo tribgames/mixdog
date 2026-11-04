@@ -243,6 +243,10 @@ jobs:
       - name: Build the native spawn test binary
         if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
+      # Daemon suites start the daemon under the supervisor built from this
+      # source (a checkout's release build is preferred over the pinned download).
+      - name: Build the native supervisor
+        run: npm run build:supervisor:test
       # Every *.test.mjs under src/ and scripts/ runs here by existing
       # (scripts/test.mjs); a suite that guards a contract cannot stay local.
       - name: Run the default test lane (shard ${{ matrix.shard }}/3)
@@ -302,6 +306,10 @@ jobs:
       - name: Build the native spawn test binary
         if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
+      # Daemon suites start the daemon under the supervisor built from this
+      # source (a checkout's release build is preferred over the pinned download).
+      - name: Build the native supervisor
+        run: npm run build:supervisor:test
       - name: Run the slow test lane (shard ${{ matrix.shard }}/2)
         run: npm run test:slow -- --test-shard=${{ matrix.shard }}/2
 
@@ -362,6 +370,10 @@ jobs:
       - name: Build the native spawn test binary
         if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
+      # Daemon suites start the daemon under the supervisor built from this
+      # source (a checkout's release build is preferred over the pinned download).
+      - name: Build the native supervisor
+        run: npm run build:supervisor:test
       - name: Run the default test lane (shard ${{ matrix.shard }}/3)
         run: npm test -- --test-shard=${{ matrix.shard }}/3
 

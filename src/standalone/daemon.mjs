@@ -6,13 +6,14 @@
 // transport (broadcast session frames) — so the
 // terminal TUI and the desktop app are views over ONE writer instead of each
 // booting a separate service and arbitrating ownership on disk.
-// Spawned (or attached-to) by createStandaloneChannelWorker; ownership is an
-// OS-held lock kept for the process lifetime (daemon-owner-lock.mjs), released
-// by the kernel however this process ends, plus the owner record older daemons
-// and launchers read (daemon-owner.mjs). A live peer holding the lock (or a
-// live pre-lock daemon's record) makes this process exit(0) so the spawner
-// attaches to the winner. A main thread frozen past the freeze limit is killed
-// from the watchdog thread (daemon-freeze-watchdog.mjs) and replaced.
+// Spawned (or attached-to) by the launchers under its supervisor
+// (native/mixdog-supervisor, session-runtime/services/daemon-candidate.mjs);
+// ownership is an OS-held lock kept for the process lifetime
+// (daemon-owner-lock.mjs), released by the kernel however this process ends.
+// A live peer holding the lock makes this process exit(0) so the spawner
+// attaches to the winner. The supervisor pings this main thread
+// (daemon-supervisor-link.mjs) and kills and replaces a daemon frozen past the
+// freeze limit.
 //
 // The unified host identity is set before the channels runtime is loaded so
 // worker-main skips its parent-IPC loop and this entry owns start()/stop().
@@ -47,26 +48,17 @@ import path from 'node:path';
 import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
-import { writeJsonAtomicAsync } from '../runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync, writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { prewarmOwnerOnlyAclWin32 } from '../runtime/shared/file-permissions.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { listenerLeakWarningLine } from '../runtime/shared/listener-leak-warning.mjs';
-import { claimSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
-import {
-  OWNER_LOCK_OWNERSHIP,
-  createOwnerRecordKeeper,
-  daemonOwnerTimings,
-  discoveryPid,
-  ownerRecordFromLockHolder,
-  ownerRecordYieldsToLock,
-  proveDaemonOwner,
-  readDiscoveryAsync,
-  startOwnerLivenessListener,
-} from './daemon-owner.mjs';
+import { readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { followOwnedFiles } from './daemon-owned-files.mjs';
+import { discoveryPid, readDiscoveryAsync } from './daemon-owner.mjs';
 import { acquireDaemonOwnerLock, daemonOwnerLockPath } from './daemon-owner-lock.mjs';
-import { createFreezeWatchdog, freezeWatchdogTimings } from './daemon-freeze-watchdog.mjs';
-import { DAEMON_FENCED, DAEMON_RETRY_LATER } from './daemon-refusal.mjs';
+import { startSupervisorLink } from './daemon-supervisor-link.mjs';
+import { DAEMON_FENCED } from './daemon-refusal.mjs';
 import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
 import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
@@ -113,7 +105,7 @@ import {
   installDaemonExitRecorder,
   reconcileLostDaemonCaptures,
 } from '../session-runtime/services/daemon-crash-capture/daemon-exit-record.mjs';
-import { createDaemonTelemetry, createStallDescriber } from './daemon-telemetry.mjs';
+import { createDaemonTelemetry } from './daemon-telemetry.mjs';
 import { slowSpans } from '../runtime/shared/slow-span.mjs';
 import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
@@ -164,6 +156,16 @@ process.on('exit', flushDaemonLogsSync);
 // sidecar (the launcher usually cannot: it is often gone before the daemon).
 const exitRecorder = installDaemonExitRecorder({ dataDir: DATA_DIR });
 
+// Answered from the first moment: a boot that freezes is a freeze too.
+const supervisorLink = startSupervisorLink({
+  describe: () => {
+    const work = inFlightWork();
+    return Object.entries(work)
+      .map(([name, value]) => `${name}=${value}`)
+      .join(' ');
+  },
+});
+
 let channels = null;
 let transport = null;
 let sessionTransport = null;
@@ -181,14 +183,8 @@ let replacementRequested = null;
 // The OS owner lock, referenced for the process lifetime: a collected
 // connection would release it.
 let ownerLock = null;
-let ownerRecordKeeper = null;
-let freezeWatchdog = null;
-// Main-thread /health listener, only while the freeze watchdog's thread (which
-// normally hosts it) is not up: before its late ready, or while it restarts.
-let ownerLiveness = null;
-// The liveness port the owner record names (or is about to).
-let livenessPort = null;
-// The endpoints daemon.json carries once published; a heartbeat re-publishes
+let ownedFileWatch = null;
+// The endpoints daemon.json carries once published; its change event re-publishes
 // them when the file goes missing (TEMP cleanup).
 let publishedEndpoints = null;
 // Remote mode only: the loopback relay that lets headless runs started from
@@ -275,7 +271,7 @@ async function shutdown(reason, code = 0, error = null) {
   if (shuttingDown) return;
   shuttingDown = true;
   daemonWorkGate.shutdown();
-  ownerRecordKeeper?.stop();
+  ownedFileWatch?.close();
   settleExit(reason, code, error);
   if (shutdownRecheckTimer) {
     clearTimeout(shutdownRecheckTimer);
@@ -558,115 +554,61 @@ function yieldOwnership(pid, detail) {
   process.exit(0);
 }
 
-/** The owner record names `port` from now on (written at once once the
- *  keeper runs; the claim picks it up before). Once written, a main-thread
- *  listener on another port is retired. */
-function publishLivenessPort(port) {
-  livenessPort = port;
-  if (!ownerRecordKeeper) return;
-  void ownerRecordKeeper.update({ livenessPort: port }).then((status) => {
-    if (status === 'refreshed' && livenessPort === port) retireMainThreadLiveness();
-  });
-}
-
-function retireMainThreadLiveness() {
-  if (!ownerLiveness || ownerLiveness.port === livenessPort) return;
-  void ownerLiveness.close();
-  ownerLiveness = null;
-}
-
-/** A main-thread owner-liveness listener while no freeze watchdog thread is up
- *  to host it, published unless one's listener came up meanwhile. */
-async function startMainThreadLiveness() {
-  ownerLiveness ||= await startOwnerLivenessListener({ log });
-  if (freezeWatchdog?.running) retireMainThreadLiveness();
-  else if (ownerLiveness) publishLivenessPort(ownerLiveness.port);
-}
-
 /** Ownership: the OS lock, taken without waiting. A contender that cannot take
- *  it yields to the holder. Holding it, a pre-lock daemon's live record is
- *  still honored (the old daemon takes no lock); every other record is
- *  replaced with this process's. */
+ *  it yields to the holder. Holding it, any owner record left on disk is a dead
+ *  holder's: it is replaced, once, with this process's — what launchers, the
+ *  pg orphan sweep and checkpoint recovery read. */
 async function claimDaemonOwnership(bootPhases) {
   const lock = await acquireDaemonOwnerLock(OWNER_LOCK_PATH);
   if (!lock.held) yieldOwnership(readSingletonOwner(OWNER_PATH).owner?.pid, 'another daemon holds the owner lock');
   ownerLock = lock;
   bootPhases.mark('owner-locked');
-  const timings = daemonOwnerTimings();
-  // Up BEFORE the claim, so even the first record names a liveness port that
-  // answers with this pid — on the watchdog's thread, so it answers through
-  // main-thread freezes too.
-  const describeStall = createStallDescriber({ spans: slowSpans, getWork: inFlightWork });
-  freezeWatchdog = createFreezeWatchdog({
-    ...freezeWatchdogTimings(),
-    logPath: LOG_PATH,
-    dataDir: DATA_DIR,
-    getWork: inFlightWork,
-    onStall: (from, to) => log(`event loop stalled ${Math.round(to - from)}ms | ${describeStall(from, to)}`),
-    // null: no watchdog thread is up to answer; the main thread does until one is.
-    onLivenessPort: (port) => (port ? publishLivenessPort(port) : void startMainThreadLiveness()),
-    onUnrecoverable: (downMs) =>
-      void shutdown(`freeze watchdog could not be restarted for ${downMs}ms; a new daemon takes over`, 1),
-    log,
-  });
-  const watchdogPort = await freezeWatchdog.start();
-  if (watchdogPort) livenessPort = watchdogPort;
-  else await startMainThreadLiveness();
-  bootPhases.mark('freeze-watchdog-started');
-  // A pre-lock record is reclaimable only when its holder's endpoint does not
-  // answer with its pid (daemon-owner.mjs); probed before the sync claim.
-  const current = readSingletonOwner(OWNER_PATH).owner;
-  const proof =
-    current && !ownerRecordFromLockHolder(current)
-      ? await proveDaemonOwner(current, { discoveryPath: DAEMON_DISCOVERY_PATH, staleMs: timings.staleMs })
-      : null;
-  const claim = claimSingletonOwner(OWNER_PATH, {
-    kind: 'mixdog-daemon',
-    pid: process.pid,
-    meta: {
+  // The lock alone decides ownership, so the record is written without any
+  // claim protocol. A daemon that cannot write it never serves under a dead
+  // holder's record: it exits, and its supervisor's exit tells the launcher.
+  try {
+    writeJsonAtomicSync(OWNER_PATH, {
+      kind: 'mixdog-daemon',
+      pid: process.pid,
+      claimedAt: new Date().toISOString(),
       cwd: CWD,
       protocol: SESSION_PROTOCOL,
       revision: SESSION_REVISION,
       version: runtimeVersion(),
-      ownership: OWNER_LOCK_OWNERSHIP,
-      // With the pid, the identity of this process (a reused pid starts later).
       processStartedAt: new Date(performance.timeOrigin).toISOString(),
-      heartbeatAt: new Date().toISOString(),
-      ...(livenessPort ? { livenessPort } : {}),
-    },
-    isStale: (owner) => {
-      const yields = ownerRecordYieldsToLock(owner, { proof, staleMs: timings.staleMs });
-      if (yields) {
-        log(
-          `replacing owner record pid=${owner.pid} ownership=${owner.ownership ?? 'pre-lock'}` +
-            ` claimedAt=${owner.claimedAt} heartbeatAt=${owner.heartbeatAt ?? '-'} probe=${proof?.verdict ?? '-'}`
-        );
-      }
-      return yields;
-    },
-  });
-  if (!claim.owned) yieldOwnership(claim.owner?.pid, 'a live pre-lock daemon owns the owner record');
+    });
+  } catch (error) {
+    log(`owner record ${OWNER_PATH} could not be written: ${error?.message || error} — exiting`);
+    exitRecorder.setReason('owner record write failed', 1, error);
+    process.exit(1);
+  }
   bootPhases.mark('owner-claimed');
-  // Rewritten from here on, through boot, for readers that judge by the
-  // heartbeat. A pre-lock daemon taking the record over, or the lock file
-  // vanishing, means another daemon may serve this data dir — at most one may.
-  ownerRecordKeeper = createOwnerRecordKeeper({
-    ownerPath: OWNER_PATH,
-    owner: claim.owner,
-    heartbeatMs: timings.heartbeatMs,
-    lockIntact: () => ownerLock.intact(),
-    log,
-    onBeat: republishMissingDiscovery,
-    onSuperseded: (record) => fenceDaemon(`owner claim superseded by pid=${record?.pid}`),
-    onLockLost: () => fenceDaemon(`owner lock file ${OWNER_LOCK_PATH} was deleted or replaced`),
-  });
-  ownerRecordKeeper.start();
-  // The watchdog's late ready may have come before the claim, which named it.
-  if (claim.owner.livenessPort === livenessPort) retireMainThreadLiveness();
+  watchOwnedFiles();
   process.on('exit', () => {
     try {
       releaseSingletonOwner(OWNER_PATH, process.pid);
     } catch {}
+  });
+}
+
+/** The lock file (deleted or replaced, a new daemon could lock another: this
+ *  one stops) and daemon.json (deleted by a TEMP cleanup or overwritten:
+ *  re-published), followed by change events (daemon-owned-files.mjs). */
+function watchOwnedFiles() {
+  const unlessStopping = (handler) => () => {
+    if (!shuttingDown) handler();
+  };
+  ownedFileWatch = followOwnedFiles({
+    handlers: new Map([
+      [
+        OWNER_LOCK_PATH,
+        unlessStopping(() => {
+          if (!ownerLock.intact()) fenceDaemon(`owner lock file ${OWNER_LOCK_PATH} was deleted or replaced`);
+        }),
+      ],
+      [DAEMON_DISCOVERY_PATH, unlessStopping(republishMissingDiscovery)],
+    ]),
+    log,
   });
 }
 
@@ -726,7 +668,7 @@ function daemonStatusSnapshot() {
 function publishDaemonDiscovery({ channel, session, modelProxy = null }) {
   // A re-publish keeps the first publication's startedAt.
   publishedEndpoints = { channel, session, modelProxy, startedAt: publishedEndpoints?.startedAt ?? Date.now() };
-  return writeJsonAtomicAsync(
+  const written = writeJsonAtomicAsync(
     DAEMON_DISCOVERY_PATH,
     {
       protocol: SESSION_PROTOCOL,
@@ -743,6 +685,7 @@ function publishDaemonDiscovery({ channel, session, modelProxy = null }) {
     },
     { compact: true, secret: true }
   );
+  return written.then(() => ownedFileWatch?.published(DAEMON_DISCOVERY_PATH));
 }
 
 /** Remote mode only: the model proxy bridge endpoint to publish, or null. */
@@ -767,40 +710,20 @@ async function startModelProxyBridge(bootPhases) {
 }
 
 /** Asked before every register/call (answered 503 when false). Ownership is
- *  the OS lock held for the process lifetime; what refuses work is a shutdown
- *  (fenced, replaced or stopping) and, after an event-loop stall, the owner
- *  record not yet re-verified as naming this process (a pre-lock daemon may
- *  have taken it over meanwhile; daemon-owner.mjs). */
+ *  the OS lock held for the process lifetime; only a shutdown (fenced,
+ *  replaced or stopping) refuses work, and that daemon never serves again. */
 function admitOwnerWork() {
-  return !shuttingDown && (ownerRecordKeeper ? ownerRecordKeeper.admit() : true);
+  return !shuttingDown;
 }
 
-/** admitOwnerWork for the HTTP front doors: a request arriving while the
- *  record is being re-verified waits for that refresh instead of being
- *  refused at once. */
-async function admitOwnerWorkAsync() {
-  if (shuttingDown) return false;
-  return ownerRecordKeeper ? ownerRecordKeeper.admitAsync() : true;
-}
-
-/** Why admission just refused, for the front doors' 503. A record still
- *  being re-verified (the claim lock busy, a write failing) may come back: it
- *  is retried every tick. A stopping or superseded daemon never does. */
 function ownerWorkRefusal() {
-  if (!shuttingDown && ownerRecordKeeper?.verifying) {
-    return {
-      code: DAEMON_RETRY_LATER,
-      message: 'daemon owner record is being re-verified after a stall',
-      retryAfterMs: 250,
-    };
-  }
   return { code: DAEMON_FENCED, message: 'daemon is shutting down' };
 }
 
-/** Another daemon may serve this data dir (a pre-lock daemon took the record,
- *  the lock file vanished): refuse new work at once, unpublish this endpoint
- *  so launchers stop finding it, then shut down within the shutdown budget. */
-function fenceDaemon(reason) {
+/** Another daemon may serve this data dir (the lock file vanished): refuse
+ *  new work at once, unpublish this endpoint so launchers stop finding it,
+ *  then shut down within the shutdown budget. */
+function fenceDaemon(reason, code = 0) {
   if (shuttingDown) return;
   log(`${reason} — refusing new work and stopping so only one daemon serves`);
   sessionTransport?.commitDrain?.(reason);
@@ -811,19 +734,26 @@ function fenceDaemon(reason) {
   } catch (e) {
     log(`daemon.json unpublish failed: ${e?.message || e}`);
   }
-  void shutdown(reason);
+  void shutdown(reason, code);
 }
 
-/** Heartbeat follow-up while this process still owns the lock: a daemon.json
+/** On a change event of daemon.json while this process owns the lock: one
  *  deleted (TEMP cleanup) or overwritten while it runs is written again, so
  *  new clients keep finding the one daemon that serves this data dir. */
-// Read and rewritten asynchronously, one check at a time: this runs after
-// every heartbeat, and its synchronous read of daemon.json was measured
-// blocking the loop for 5.9 s under disk contention.
+// Read and rewritten asynchronously, one check at a time: a synchronous read
+// of daemon.json was measured blocking the loop for 5.9 s under disk
+// contention.
 let republishing = false;
+// A change while a check runs may postdate what that check read.
+let republishAgain = false;
 function republishMissingDiscovery() {
-  if (!publishedEndpoints || shuttingDown || republishing) return;
+  if (!publishedEndpoints || shuttingDown) return;
+  if (republishing) {
+    republishAgain = true;
+    return;
+  }
   republishing = true;
+  republishAgain = false;
   void (async () => {
     try {
       if ((await readDiscoveryAsync(DAEMON_DISCOVERY_PATH))?.pid === process.pid || shuttingDown) return;
@@ -840,6 +770,7 @@ function republishMissingDiscovery() {
       log(`daemon.json re-publish failed: ${error?.message || error}`);
     } finally {
       republishing = false;
+      if (republishAgain) republishMissingDiscovery();
     }
   })();
 }
@@ -868,7 +799,9 @@ function announceDaemonReady({ port, token, startedAt, bootPhases }) {
   // surface as uncaughtException and (pre-fix) flip the daemon degraded
   // forever. process.connected gates the obvious-dead case; the send callback
   // swallows the async delivery error so it never reaches uncaughtException.
-  if (process.connected && process.send) {
+  // A supervised daemon (the launchers' path) tells its supervisor instead.
+  if (supervisorLink.supervised) supervisorLink.ready();
+  else if (process.connected && process.send) {
     safeIpcSend(process, { type: 'ready', port, token });
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
@@ -913,7 +846,7 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
   transport = createChannelTransport({
     handleCall: channelsRuntime.handleCall,
     agentBroker: agentDispatchBroker,
-    admitWork: admitOwnerWorkAsync,
+    admitWork: admitOwnerWork,
     workRefusal: ownerWorkRefusal,
     log,
     // The durable channel link lives in this file. Without it a restart loses
@@ -1258,21 +1191,12 @@ async function main() {
     },
     onUpgradeRequested: requestDaemonReplacement,
     workGate: daemonWorkGate,
-    admitWork: admitOwnerWorkAsync,
+    admitWork: admitOwnerWork,
     workRefusal: ownerWorkRefusal,
   });
   const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
   const modelProxyEndpoint = await startModelProxyBridge(bootPhases);
-  // A boot whose holder stopped answering may have been superseded by a
-  // contender between beats; never publish over the winner's endpoint. An
-  // unreadable record (an antivirus lock) is not a takeover.
-  const ownerPid = Number(readSingletonOwner(OWNER_PATH).owner?.pid) || 0;
   if (shuttingDown) return;
-  if (ownerPid && ownerPid !== process.pid) {
-    log(`owner record now names pid=${ownerPid} — exiting for attach before publishing`);
-    exitRecorder.setReason(`owner claim superseded by pid=${ownerPid} before publish`, 0);
-    process.exit(0);
-  }
   await publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint, modelProxy: modelProxyEndpoint });
   bootPhases.mark('discovery-published');
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);

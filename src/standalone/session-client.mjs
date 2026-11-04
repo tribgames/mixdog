@@ -21,12 +21,11 @@ import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { systemProxyHandoffEnv } from '../runtime/shared/llm/system-proxy.mjs';
 import { daemonCrashCaptureDir, daemonDataDir } from '../session-runtime/services/daemon-crash-capture.mjs';
 import { forkDaemonCandidate } from '../session-runtime/services/daemon-candidate.mjs';
-import { daemonOwnerIsStale, proveDaemonOwnerRecord } from './daemon-owner.mjs';
+import { daemonOwnerLockHeld, daemonOwnerLockPath } from './daemon-owner-lock.mjs';
 import { IN_TREE_DAEMON_STOP_GRACE_MS } from './daemon-stop-budget.mjs';
 import { createAttachmentCalls } from './session-client/attachment-calls.mjs';
 import { daemonUnavailableError } from './session-client/daemon-unavailable.mjs';
 import { createLeaseHeartbeat } from './session-client/lease-heartbeat.mjs';
-import { DAEMON_RETRY_LATER, replyRetryAfterMs } from './daemon-refusal.mjs';
 import { clampLeaseMs } from './session-transport/client-registry/client-grace.mjs';
 import {
   EVENT_STREAM_LIVENESS_TIMEOUT_MS,
@@ -143,8 +142,6 @@ function request({
             const err = new Error(parsed?.error || data || `HTTP ${res.statusCode}`);
             err.statusCode = res.statusCode;
             if (parsed?.code) err.code = String(parsed.code);
-            const retryAfterMs = replyRetryAfterMs(parsed, res.headers['retry-after']);
-            if (retryAfterMs) err.retryAfterMs = retryAfterMs;
             reject(err);
             return;
           }
@@ -332,21 +329,28 @@ async function replaceLowerDaemon(discovery, initialHealth, { log, onUpgradeWait
   throw error;
 }
 
-/** Fork one daemon candidate DETACHED (it outlives this client — machine
- *  global) and resolve when it reports ready OR exits (race loss/crash); the
+/** Start one daemon candidate under its supervisor, DETACHED (it outlives
+ *  this client — machine global), and resolve when it reports ready OR exits (race loss/crash); the
  *  caller then re-reads discovery and attaches to whoever won. The shared fork
  *  and crash capture live in ./daemon-candidate.mjs.
  *  `entry` is a test seam; production always forks the real daemon. */
-// Daemons this process forked into its own process tree (daemonShouldDetach
-// false: the packaged Windows Desktop). Such a child is killed with its
-// launcher (libuv's kill-on-close job), which skips its whole teardown —
-// PostgreSQL stop included — so the launcher's quit stops it first.
+// Supervisors this process started into its own process tree
+// (daemonShouldDetach false: the packaged Windows Desktop), each with the pid
+// of the daemon it runs now. Such a supervisor is killed with its launcher
+// (libuv's kill-on-close job), and its daemon with it, which skips the whole
+// teardown — PostgreSQL stop included — so the launcher's quit stops it first.
 const inTreeDaemons = new Map();
+
+/** [supervisor, daemon pid] of every in-tree supervisor still running. */
+function runningInTree() {
+  return [...inTreeDaemons].filter(([child]) => child.exitCode === null && child.signalCode === null);
+}
 
 export async function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = daemonEntry() }) {
   const t0 = performance.now();
   const at = () => Math.round(performance.now() - t0);
   const detached = daemonShouldDetach();
+  let supervisor = null;
   return forkDaemonCandidate({
     launcher: 'session-client',
     entry,
@@ -373,21 +377,19 @@ export async function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry
     timeoutMs,
     onForked: (child) => {
       const forkMs = at();
-      child.once('spawn', () => {
-        log(`daemon fork: forkMs=${forkMs} spawnEventMs=${at()}`);
-        if (!detached && child.pid) {
-          inTreeDaemons.set(child.pid, child);
-          child.once('exit', () => inTreeDaemons.delete(child.pid));
-        }
-      });
+      supervisor = child;
+      child.once('spawn', () => log(`daemon fork: forkMs=${forkMs} spawnEventMs=${at()}`));
+      if (!detached) child.once('exit', () => inTreeDaemons.delete(child));
+    },
+    onSpawned: (pid) => {
+      if (!detached && supervisor.exitCode === null) inTreeDaemons.set(supervisor, pid);
     },
     onReady: () => log(`daemon ready at=${at()}ms`),
   });
 }
 
 /** Spawn-or-attach discovery for the machine-global daemon.
- *  `entry` and `proveOwner` are test seams; production always forks the real
- *  daemon and probes the real owner. */
+ *  `entry` is a test seam; production always starts the real daemon. */
 export async function ensureDaemon({
   cwd = process.cwd(),
   log = () => {},
@@ -395,7 +397,6 @@ export async function ensureDaemon({
   readyTimeoutMs = null,
   onUpgradeWait = null,
   entry = daemonEntry(),
-  proveOwner = proveDaemonOwnerRecord,
 } = {}) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
   let requestedTimeoutMs = DEFAULT_DAEMON_READY_TIMEOUT_MS;
@@ -406,9 +407,8 @@ export async function ensureDaemon({
   let deadline = Date.now() + timeoutMs;
   const maxSpawnAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
   let spawnAttempts = 0;
-  let waitingOwnerPid = 0;
+  let waitingOwnerPid = -1;
   let waitingDrainPid = 0;
-  let staleOwnerPid = 0;
   // What the passes observed, for the error when no endpoint ever appears.
   let unansweredDiscovery = null;
   let waitedOwner = null;
@@ -464,39 +464,22 @@ export async function ensureDaemon({
     }
     // A concurrent launcher can win the owner lock before it publishes
     // daemon.json. That is a healthy singleton boot, not a reason to spawn five
-    // doomed contenders and report "endpoint unavailable" after ~500 ms. A
-    // live pid whose heartbeat stopped is a reused pid (daemon-owner.mjs):
-    // spawn, and the candidate reclaims it.
-    // A live-pid record whose heartbeat looks stale (or that has none: v1.1.2
-    // and older) is reclaimable only when its holder's endpoint does not
-    // answer with its pid — a crashed daemon leaves its files behind, naming a
-    // pid the OS may have reused. A probe cut short by this deadline proves
-    // nothing either way.
-    const proof = await proveOwner(daemonOwnerPath(), {
-      discoveryPath: sessionDiscoveryPath(),
-      budgetMs: Math.max(1, deadline - Date.now()),
-    });
-    const ownerState = readSingletonOwner(daemonOwnerPath(), {
-      isStale: (owner) => daemonOwnerIsStale(owner, { proof }),
-    });
-    if (ownerState.stale && Number(ownerState.owner?.pid) !== staleOwnerPid) {
-      staleOwnerPid = Number(ownerState.owner?.pid) || 0;
-      log(
-        `daemon owner record pid=${staleOwnerPid} heartbeatAt=${ownerState.owner?.heartbeatAt ?? '-'}` +
-          ` probe=${proof?.verdict ?? '-'} is stale; spawning a daemon to reclaim it`
-      );
-    }
-    const ownerPid = ownerState.alive ? Number(ownerState.owner?.pid) || 0 : 0;
-    if (ownerPid) {
-      waitedOwner = { pid: ownerPid, claimedAt: ownerState.owner?.claimedAt ?? null };
+    // doomed contenders and report "endpoint unavailable" after ~500 ms. The
+    // lock itself says whether a daemon lives; the owner record only names it
+    // (a crashed daemon leaves its record behind, naming a pid the OS may
+    // have reused).
+    if (await daemonOwnerLockHeld(daemonOwnerLockPath(daemonDataDir()))) {
+      const record = readSingletonOwner(daemonOwnerPath());
+      const ownerPid = record.alive ? Number(record.owner?.pid) || 0 : 0;
+      waitedOwner = { pid: ownerPid || null, claimedAt: record.owner?.claimedAt ?? null };
       if (ownerPid !== waitingOwnerPid) {
         waitingOwnerPid = ownerPid;
-        log(`waiting for daemon owner pid=${ownerPid} to publish its session endpoint`);
+        log(`waiting for daemon owner pid=${ownerPid || '-'} to publish its session endpoint`);
       }
       await delay(Math.min(DAEMON_OWNER_POLL_MS, Math.max(1, deadline - Date.now())));
       continue;
     }
-    waitingOwnerPid = 0;
+    waitingOwnerPid = -1;
     waitedOwner = null;
     if (spawnAttempts >= maxSpawnAttempts) break;
     spawnAttempts += 1;
@@ -519,14 +502,10 @@ export async function ensureDaemon({
 }
 
 /** Registers this client with the daemon. Transport failures are retried
- *  briefly; a 4xx is the daemon's verdict and is not. A daemon answering
- *  retry-later is asked again when its Retry-After says, within
- *  REGISTER_VERIFY_BUDGET_MS, without spending a transport retry. */
-const REGISTER_VERIFY_BUDGET_MS = 60_000;
+ *  briefly; a 4xx is the daemon's verdict and is not. */
 async function registerSessionClient({ port, serverToken, body }) {
   let registrationError = null;
-  const verifyDeadline = Date.now() + REGISTER_VERIFY_BUDGET_MS;
-  for (let attempt = 0; attempt < 3; ) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await request({
         port,
@@ -540,16 +519,7 @@ async function registerSessionClient({ port, serverToken, body }) {
     } catch (error) {
       registrationError = error;
       if (Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 500) throw error;
-      if (error?.code === DAEMON_RETRY_LATER) {
-        const waitMs = error.retryAfterMs || 250;
-        if (Date.now() + waitMs >= verifyDeadline) throw error;
-        await delay(waitMs);
-        // A late timer (the loop stalled) must not ask past the budget.
-        if (Date.now() >= verifyDeadline) throw error;
-        continue;
-      }
-      attempt += 1;
-      if (attempt < 3) await delay(100 * attempt);
+      if (attempt < 2) await delay(100 * (attempt + 1));
     }
   }
   throw registrationError || new Error('session registration failed');
@@ -689,7 +659,8 @@ export async function stopInTreeDaemon({
   discovery = readSessionDiscovery(),
 } = {}) {
   const startedAt = Date.now();
-  const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
+  const trees = runningInTree();
+  const pids = trees.map(([, pid]) => pid);
   const outcome = {
     stopped: false,
     inTree: pids,
@@ -722,8 +693,10 @@ export async function stopInTreeDaemon({
     }
   }
   const deadline = Date.now() + Math.max(1, Number(timeoutMs) || IN_TREE_DAEMON_STOP_GRACE_MS);
-  while (pids.some((pid) => isPidAlive(pid)) && Date.now() < deadline) await delay(50);
-  outcome.stopped = !pids.some((pid) => isPidAlive(pid));
+  // A supervisor exits right after its daemon.
+  const running = () => trees.some(([child]) => child.exitCode === null && child.signalCode === null);
+  while (running() && Date.now() < deadline) await delay(50);
+  outcome.stopped = !running();
   outcome.elapsedMs = Date.now() - startedAt;
   return outcome;
 }
@@ -735,7 +708,7 @@ export async function stopInTreeDaemon({
  *  `none` — no in-tree daemon serves, so the install kills nothing;
  *  `unknown` — the daemon could not be asked. `release` reopens admission. */
 export async function holdInTreeDaemon({ release = false, ttlMs, discovery = readSessionDiscovery() } = {}) {
-  const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
+  const pids = runningInTree().map(([, pid]) => pid);
   if (!pids.length) return { status: 'none', busy: 0, error: null };
   if (discovery?.port && !pids.includes(Number(discovery.pid))) return { status: 'none', busy: 0, error: null };
   if (!discovery?.port) return { status: 'unknown', busy: 0, error: 'no daemon discovery' };

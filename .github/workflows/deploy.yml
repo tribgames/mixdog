@@ -58,6 +58,10 @@ jobs:
       spawn_bump: ${{ steps.plan.outputs.spawn_bump }}
       spawn_version: ${{ steps.plan.outputs.spawn_version }}
       spawn_tag: ${{ steps.plan.outputs.spawn_tag }}
+      supervisor_build: ${{ steps.plan.outputs.supervisor_build }}
+      supervisor_bump: ${{ steps.plan.outputs.supervisor_bump }}
+      supervisor_version: ${{ steps.plan.outputs.supervisor_version }}
+      supervisor_tag: ${{ steps.plan.outputs.supervisor_tag }}
       runtime_tag: ${{ steps.plan.outputs.runtime_tag }}
       native_changed: ${{ steps.plan.outputs.native_changed }}
       runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
@@ -246,6 +250,13 @@ jobs:
             tagPrefix: 'spawn-v',
             paths: ['native/mixdog-spawn'],
           });
+          const supervisor = component({
+            name: 'supervisor',
+            manifestPath: 'src/runtime/agent/orchestrator/tools/supervisor-manifest.json',
+            cargoPath: 'native/mixdog-supervisor/Cargo.toml',
+            tagPrefix: 'supervisor-v',
+            paths: ['native/mixdog-supervisor'],
+          });
           // native=skip reuses the pinned manifests. That is only safe while no
           // native source moved since the release each manifest pins; otherwise
           // the app would ship without the committed native fix.
@@ -258,7 +269,7 @@ jobs:
           const runtimeTag = readJson('src/runtime/memory/data/runtime-manifest.json').release_tag;
           if (!/^runtime-v\d+\.\d+\.\d+$/.test(runtimeTag)) throw new Error(`Invalid runtime tag ${runtimeTag}`);
           const nativeChanged = mode !== 'skip'
-            && [patch, graph, spawn].some(component => component.build);
+            && [patch, graph, spawn, supervisor].some(component => component.build);
           const runtimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
             '.github/workflows/build-runtime.yml',
             'scripts/build-runtime-linux.sh',
@@ -328,6 +339,10 @@ jobs:
             spawn_bump: String(mode !== 'skip' && spawn.bump),
             spawn_version: spawn.version,
             spawn_tag: spawn.tag,
+            supervisor_build: String(mode !== 'skip' && supervisor.build),
+            supervisor_bump: String(mode !== 'skip' && supervisor.bump),
+            supervisor_version: supervisor.version,
+            supervisor_tag: supervisor.tag,
             runtime_tag: runtimeTag,
             native_changed: String(nativeChanged),
             runtime_needed: String(runtimeNeeded),
@@ -380,6 +395,10 @@ jobs:
           SPAWN_BUMP: ${{ needs.plan.outputs.spawn_bump }}
           SPAWN_VERSION: ${{ needs.plan.outputs.spawn_version }}
           SPAWN_TAG: ${{ needs.plan.outputs.spawn_tag }}
+          SUPERVISOR_BUILD: ${{ needs.plan.outputs.supervisor_build }}
+          SUPERVISOR_BUMP: ${{ needs.plan.outputs.supervisor_bump }}
+          SUPERVISOR_VERSION: ${{ needs.plan.outputs.supervisor_version }}
+          SUPERVISOR_TAG: ${{ needs.plan.outputs.supervisor_tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -409,13 +428,17 @@ jobs:
           if (process.env.SPAWN_BUMP === 'true') {
             setCargoVersion('mixdog-spawn', 'native/mixdog-spawn', process.env.SPAWN_VERSION);
           }
+          if (process.env.SUPERVISOR_BUMP === 'true') {
+            setCargoVersion('mixdog-supervisor', 'native/mixdog-supervisor', process.env.SUPERVISOR_VERSION);
+          }
           NODE
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add native/mixdog-patch/Cargo.toml native/mixdog-patch/Cargo.lock \
             native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
-            native/mixdog-spawn/Cargo.toml native/mixdog-spawn/Cargo.lock
+            native/mixdog-spawn/Cargo.toml native/mixdog-spawn/Cargo.lock \
+            native/mixdog-supervisor/Cargo.toml native/mixdog-supervisor/Cargo.lock
           if ! git diff --cached --quiet; then
             git commit -m "chore(native): prepare incremental release assets"
             git push origin "HEAD:${DEFAULT_BRANCH}"
@@ -446,6 +469,7 @@ jobs:
           create_tag "$PATCH_BUILD" "$PATCH_TAG"
           create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
           create_tag "$SPAWN_BUILD" "$SPAWN_TAG"
+          create_tag "$SUPERVISOR_BUILD" "$SUPERVISOR_TAG"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # The native version bump above changes the native sources the old-glibc
@@ -518,9 +542,19 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.spawn_tag }}
 
+  supervisor:
+    name: incremental-supervisor
+    needs: [plan, prepare-native]
+    if: ${{ needs.plan.outputs.supervisor_build == 'true' }}
+    uses: ./.github/workflows/supervisor-release.yml
+    permissions:
+      contents: write # callee prepare/sync create releases and push the manifest
+    with:
+      tag: ${{ needs.plan.outputs.supervisor_tag }}
+
   prepare-app:
     name: prepare-app-release
-    needs: [plan, prepare-native, runtime, voice, patch, graph, spawn]
+    needs: [plan, prepare-native, runtime, voice, patch, graph, spawn, supervisor]
     if: >-
       ${{
         always()
@@ -531,6 +565,7 @@ jobs:
         && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
         && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
+        && (needs.supervisor.result == 'success' || needs.supervisor.result == 'skipped')
       }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15

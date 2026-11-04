@@ -226,6 +226,43 @@ function noteExit(capture, { code = null, signal = null } = {}) {
   );
 }
 
+/** The supervisor killed the daemon this record follows (its main thread
+ *  stopped answering) and started `pid` in its place, on the same fd 2. The
+ *  replaced boot is closed out in a sidecar of its own (an exclusive new
+ *  identity, sharing this boot's raw file), and this record is re-pointed at
+ *  the replacement: its pid, boot time and ready state, and later its exit. */
+function noteReplaced(capture, pid) {
+  const { record } = capture;
+  if (record.exitedAt || !record.pid || record.pid === pid) return;
+  const at = capture.now();
+  mirror(capture);
+  const replaced = {
+    ...record,
+    exitedAt: new Date(at).toISOString(),
+    exitCode: null,
+    exitSignal: null,
+    exitReason: `killed by its supervisor: main thread stopped answering; replacement pid=${pid}`,
+    uptimeMs: Math.max(0, at - capture.startedAtMs),
+    stderrBytes: captureSize(capture),
+  };
+  if (capture.recordPath) {
+    const dir = path.dirname(capture.recordPath);
+    for (let attempt = 1; attempt <= CAPTURE_ID_ATTEMPTS; attempt += 1) {
+      const recordPath = path.join(dir, `daemon-${stamp(at)}-${record.launcherPid}-${capture.nonce()}.json`);
+      try {
+        fs.writeFileSync(recordPath, JSON.stringify(replaced), { mode: 0o600, flag: 'wx' });
+        break;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') break;
+      }
+    }
+  }
+  capture.log(`daemon pid=${record.pid} replaced by its supervisor with pid=${pid} (frozen)`);
+  capture.startedAtMs = at;
+  Object.assign(record, { pid, spawnedAt: replaced.exitedAt, ready: false, readyAt: null });
+  persist(capture);
+}
+
 /** Record a spawn failure — the synchronous `fork` throw AND the
  *  asynchronous `'error'` event, which may arrive with no `'exit'` at all.
  *  Idempotent, so a launcher may call it alongside the tracked listener. */
@@ -392,6 +429,7 @@ export function beginDaemonSpawnCapture({
     },
     log,
     now,
+    nonce,
     startedAtMs,
     stem: null,
     capturePath: null,
@@ -421,6 +459,7 @@ export function beginDaemonSpawnCapture({
     },
     track: (child, options) => trackChild(capture, child, options),
     noteReady: () => noteReady(capture),
+    noteReplaced: (pid) => noteReplaced(capture, pid),
     noteExit: (outcome) => noteExit(capture, outcome),
     noteSpawnError: (error) => noteSpawnError(capture, error),
     mirror: () => mirror(capture),

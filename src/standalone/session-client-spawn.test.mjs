@@ -11,7 +11,7 @@ import { spawnDaemonCandidate } from './session-client.mjs';
 // real daemon sends, then a known exit AFTER the launcher detached.
 const STUB_DAEMON = `
 process.stderr.write('stub daemon boot diagnostic\\n');
-process.send?.({ type: 'ready' });
+(await import(${JSON.stringify(new URL('./daemon-supervisor-link.mjs', import.meta.url).href)})).startSupervisorLink().ready();
 setTimeout(() => { process.exit(7); }, 150);
 `;
 
@@ -126,7 +126,7 @@ async function probeDaemonEnv(t, { env: launcherEnv = {} } = {}) {
 const seen = {};
 for (const key of ${JSON.stringify(['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY', 'MIXDOG_SYSTEM_PROXY', HANDOFF_VAR])}) seen[key] = process.env[key];
 writeFileSync(${JSON.stringify(out)}, JSON.stringify(seen));
-process.send?.({ type: 'ready' });
+(await import(${JSON.stringify(new URL('./daemon-supervisor-link.mjs', import.meta.url).href)})).startSupervisorLink().ready();
 setTimeout(() => process.exit(0), 150);
 `
   );

@@ -46,7 +46,7 @@ for root in "$deb_root" "$ai_root"; do
 done
 diff -r "$deb_root/resources/native-tools" "$ai_root/resources/native-tools"
 sha256sum "$deb_root"/resources/native-tools/*
-required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node"
+required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/native-tools/mixdog-supervisor,resources/app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node"
 for root in "$deb_root" "$ai_root"; do
 	echo "== glibc floor: $root"
 	node "$here/linux-glibc-floor.mjs" "$root" "$max" --arch "$arch" --require "$required"
