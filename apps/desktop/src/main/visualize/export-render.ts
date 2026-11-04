@@ -1,10 +1,12 @@
 /**
  * Renders one visualize page (a local page-server lease URL) off screen for an
  * export: the whole page as a PNG, or a PDF. The page runs in its own
- * throw-away window and in-memory session, cut off from the app, and — unless
- * its tab allowed network — from every address but its own lease's.
+ * throw-away window at an origin of its own on the off-screen in-memory
+ * session, cut off from the app, and — unless its tab allowed network — from
+ * every address but its own origin's.
  */
-import { randomUUID } from 'node:crypto';
+import type { Session } from 'electron';
+import { isOffscreenOriginUrl, type OffscreenOrigins, offscreenOrigins } from './offscreen-origins';
 import { localizeProblemText } from './page-problems';
 
 /** Viewport width the page lays out at, and the tallest/widest PNG taken. */
@@ -21,7 +23,8 @@ const READY_POLL_MS = 50;
 
 /** Whether the export window may make `url`'s request: its lease's own
  *  origin and inline `data:` / `blob:` / `about:` content always; any other
- *  http(s)/ws(s) address only when `allowNetwork`; no other scheme. */
+ *  http(s)/ws(s) address only when `allowNetwork`, and never another
+ *  off-screen page's origin; no other scheme. */
 export function exportRequestAllowed(leaseOrigin: string, url: string, allowNetwork: boolean): boolean {
   let target: URL;
   try {
@@ -31,7 +34,8 @@ export function exportRequestAllowed(leaseOrigin: string, url: string, allowNetw
   }
   if (/^(?:data|blob|about):$/.test(target.protocol)) return true;
   if (!/^(?:https?|wss?):$/.test(target.protocol)) return false;
-  return allowNetwork || target.host === new URL(leaseOrigin).host;
+  if (target.host === new URL(leaseOrigin).host) return true;
+  return allowNetwork && !isOffscreenOriginUrl(url);
 }
 
 const clamp = (value: number, max: number): number => Math.min(Math.max(Math.ceil(value) || 1, 1), max);
@@ -60,8 +64,9 @@ export function planPngExport(
   return { ok: true, ...css };
 }
 
-/** A page-server origin, with or without its lease token and trailing slash. */
-const LOOPBACK_LEASE = /https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+(?:\/[\w-]{32})?\/?/g;
+/** A page-server or off-screen render origin, with or without its lease token
+ *  and trailing slash. */
+const LOOPBACK_LEASE = /https?:\/\/(?:127\.0\.0\.1|(?:[\da-f]{32}\.)?localhost|\[::1\])(?::\d+)?(?:\/[\w-]{32})?\/?/g;
 
 /** A page problem seen during an export render, as one line: no page-server
  *  URL (host port or lease token, with or without a trailing slash) and no
@@ -209,10 +214,91 @@ export async function renderPageThumbnail(
   return read.data;
 }
 
-/** Loads `pageUrl` in a throw-away hidden window (own in-memory session, the
- *  lease-only request filter unless `allowNetwork`), lets it settle and runs
- *  `work` on it, collecting the page's problems meanwhile. One deadline covers
- *  the whole run; the window is always destroyed. */
+/** What the shared session asks of the render a request belongs to. */
+interface OffscreenRender {
+  /** The render's own origin: the one its frames keep their origin at. */
+  origin: string;
+  admit(details: { id: number; url: string }): boolean;
+  settled(details: Parameters<typeof failedRequestLine>[0]): void;
+}
+
+interface OffscreenRendering {
+  /** Where every render's page runs, each at an origin of its own. */
+  session: Session;
+  origins: OffscreenOrigins;
+  /** The main process's requests for the pages: each one was already
+   *  admitted by `session`'s filter as its page's request. */
+  network: Session;
+}
+
+/** Every off-screen render runs on this one in-memory session (see
+ *  offscreen-origins for why one, and why an origin per render). Neither it
+ *  nor `network` keeps an HTTP cache: a response one render fetched is no
+ *  other's to reuse.
+ *
+ *  A request is judged by the render whose window made it (`webContentsId`,
+ *  which a page's dedicated workers carry too); one without a window — a
+ *  service worker's or a shared worker's — has no render to answer for it
+ *  and is refused, so no service worker registers.
+ *
+ *  Cookies stay inside a render as they did with a session per render: no
+ *  request carries or sets one (both sessions are shared), and a frame from
+ *  any other origin runs sandboxed in an opaque origin, without
+ *  `document.cookie`. A page keeps the script cookies of its own origin,
+ *  which no other render ever has. */
+const OFFSCREEN_PARTITION = 'visualize-offscreen';
+const OFFSCREEN_NETWORK_PARTITION = 'visualize-offscreen-network';
+/** What a frame from another origin runs under: everything but its origin. */
+const FOREIGN_FRAME_POLICY = 'sandbox allow-scripts allow-forms allow-modals allow-pointer-lock allow-presentation';
+const offscreenRenders = new Map<number, OffscreenRender>();
+let offscreenRendering: OffscreenRendering | null = null;
+
+/** `headers` without the ones named `name` (any case). */
+const without = <T>(headers: Record<string, T>, name: string): Record<string, T> =>
+  Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== name));
+
+function offscreen(session: typeof import('electron').session): OffscreenRendering {
+  if (offscreenRendering) return offscreenRendering;
+  const shared = session.fromPartition(OFFSCREEN_PARTITION, { cache: false });
+  const network = session.fromPartition(OFFSCREEN_NETWORK_PARTITION, { cache: false });
+  const renderOf = (webContentsId: number | undefined) =>
+    webContentsId === undefined ? undefined : offscreenRenders.get(webContentsId);
+  shared.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    callback({ cancel: !renderOf(details.webContentsId)?.admit(details) });
+  });
+  shared.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
+    callback({ requestHeaders: without(details.requestHeaders, 'cookie') });
+  });
+  shared.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
+    const responseHeaders = without(details.responseHeaders ?? {}, 'set-cookie');
+    const own = renderOf(details.webContentsId)?.origin;
+    if (details.resourceType === 'subFrame' && (own === undefined || new URL(details.url).origin !== own)) {
+      const policy = Object.keys(responseHeaders).find((key) => key.toLowerCase() === 'content-security-policy');
+      responseHeaders[policy ?? 'Content-Security-Policy'] = [
+        ...(policy ? responseHeaders[policy] : []),
+        FOREIGN_FRAME_POLICY,
+      ];
+    }
+    callback({ responseHeaders });
+  });
+  shared.webRequest.onCompleted({ urls: ['<all_urls>'] }, (details) => renderOf(details.webContentsId)?.settled(details));
+  shared.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, (details) =>
+    renderOf(details.webContentsId)?.settled(details)
+  );
+  shared.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  offscreenRendering = {
+    session: shared,
+    origins: offscreenOrigins(shared, (request) => network.fetch(request, { credentials: 'omit' })),
+    network,
+  };
+  return offscreenRendering;
+}
+
+/** Loads `pageUrl` in a throw-away hidden window (the shared off-screen
+ *  session, at an origin of its own served from the page's, the origin-only
+ *  request filter unless `allowNetwork`), lets it settle and runs `work` on
+ *  it, collecting the page's problems meanwhile. One deadline covers the whole
+ *  run; the window is always destroyed and the origin released. */
 async function withOffscreenPage<T>(
   pageUrl: string,
   allowNetwork: boolean,
@@ -228,8 +314,9 @@ async function withOffscreenPage<T>(
 ): Promise<{ data: T; problems: string[] }> {
   const roots = options.roots ?? [];
   options.signal?.throwIfAborted();
-  const { BrowserWindow } = await import('electron');
-  const origin = new URL(pageUrl).origin;
+  const { BrowserWindow, session } = await import('electron');
+  const setup = offscreen(session);
+  const page = new URL(pageUrl);
   const window = new BrowserWindow({
     show: false,
     width: options.size?.width ?? EXPORT_WIDTH,
@@ -237,8 +324,7 @@ async function withOffscreenPage<T>(
     // A requested size is the page's own (no frame taken off it).
     ...(options.size ? { useContentSize: true } : {}),
     webPreferences: {
-      // No `persist:` prefix: an in-memory session shared with nothing.
-      partition: `visualize-export-${randomUUID()}`,
+      session: setup.session,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -251,23 +337,35 @@ async function withOffscreenPage<T>(
   const note = (line: string) => {
     if (problems.length < MAX_EXPORT_PROBLEMS && !problems.includes(line)) problems.push(line);
   };
+  const contentsId = contents.id;
+  // The page's own origin, its every request answered by the page's server.
+  const own = setup.origins.open((url, request) =>
+    setup.network.fetch(`${page.origin}${url.pathname}${url.search}`, {
+      method: request.method,
+      headers: request.headers,
+      redirect: 'manual',
+      credentials: 'omit',
+    })
+  );
+  const { origin } = own;
   let timer: NodeJS.Timeout | undefined;
   try {
-    contents.session.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-      const allowed = exportRequestAllowed(origin, details.url, allowNetwork);
-      if (!allowed) {
-        blockedIds.add(details.id);
-        note(exportProblemLine('blocked request', details.url.replace(/[?#].*/, '').slice(0, 120), 0, roots));
-      }
-      callback({ cancel: !allowed });
-    });
-    const noteRequest = (details: Parameters<typeof failedRequestLine>[0]) => {
-      const line = failedRequestLine(details, blockedIds, roots);
-      if (line) note(line);
+    const render: OffscreenRender = {
+      origin,
+      admit(details) {
+        const allowed = exportRequestAllowed(origin, details.url, allowNetwork);
+        if (!allowed) {
+          blockedIds.add(details.id);
+          note(exportProblemLine('blocked request', details.url.replace(/[?#].*/, '').slice(0, 120), 0, roots));
+        }
+        return allowed;
+      },
+      settled(details) {
+        const line = failedRequestLine(details, blockedIds, roots);
+        if (line) note(line);
+      },
     };
-    contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, noteRequest);
-    contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, noteRequest);
-    contents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    offscreenRenders.set(contentsId, render);
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event) => event.preventDefault());
     contents.on('console-message', (event) => {
@@ -286,8 +384,8 @@ async function withOffscreenPage<T>(
       timer = setTimeout(() => reject(new Error('the page took too long to render for the export')), RENDER_TIMEOUT_MS);
       options.signal?.addEventListener('abort', () => reject(new Error('the export was cancelled')), { once: true });
     });
-    const render = async (): Promise<T> => {
-      await window.loadURL(pageUrl);
+    const draw = async (): Promise<T> => {
+      await window.loadURL(`${origin}${page.pathname}${page.search}${page.hash}`);
       if (options.ready) {
         for (;;) {
           const state = await contents.executeJavaScript(options.ready);
@@ -299,13 +397,15 @@ async function withOffscreenPage<T>(
       await new Promise((resolve) => setTimeout(resolve, options.settleMs ?? SETTLE_MS));
       return work(window);
     };
-    const rendering = render();
+    const rendering = draw();
     // The window is destroyed when the deadline wins: a late failure of the
     // abandoned render is not an unhandled rejection.
     rendering.catch(() => {});
     return { data: await Promise.race([rendering, deadline]), problems };
   } finally {
     clearTimeout(timer);
+    offscreenRenders.delete(contentsId);
     window.destroy();
+    await own.release();
   }
 }
