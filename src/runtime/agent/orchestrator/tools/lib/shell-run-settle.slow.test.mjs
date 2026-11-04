@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { createProcessTreeTracker } from './shell-descendants.mjs';
 import { createSettle } from './shell-run-settle.mjs';
@@ -25,7 +25,7 @@ test('an unconfirmed kill keeps the folder reserved until the real child has exi
     killed: true,
     killUnconfirmed: true,
     foregroundRecordId: 'job_real_unconfirmed_kill',
-    workspaceAdmission: tryAdmitWorkspaceActivity('session', repo, { kind: 'command', pid: child.pid }),
+    workspaceAdmission: await tryAdmitWorkspaceActivityAsync('session', repo, { kind: 'command', pid: child.pid }),
     stdoutDecoder: { end: () => '' },
     stderrDecoder: { end: () => '' },
     taskOutput: {
@@ -42,10 +42,10 @@ test('an unconfirmed kill keeps the folder reserved until the real child has exi
   run.terminationTracker = createProcessTreeTracker({ pid: child.pid });
   assert.equal(await run.terminationTracker.capture(), true);
   await createSettle(run, () => {})(1, 'SIGKILL');
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
   child.kill();
   await exited;
   for (let attempt = 0; run.workspaceAdmission && attempt < 300; attempt++) await delay(100);
   assert.equal(run.workspaceAdmission, null);
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });

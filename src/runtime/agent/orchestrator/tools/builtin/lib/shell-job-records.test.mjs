@@ -16,7 +16,7 @@ import {
   recordShellJobHop,
   retireShellJobRecord,
 } from './shell-job-records.mjs';
-import { holdWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync } from '../../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../../shared/worktrees/test-support.mjs';
 import { executeTaskTool } from '../task-tool.mjs';
 import { shellJobsStatus } from '../../../../../shared/statusline/statusline-segments.mjs';
@@ -353,9 +353,9 @@ test('a failed terminal-record write still releases the workspace admission', as
   await withDataDir('mixdog-shell-records-write-fail-', async (root) => {
     const repo = makeRepo();
     const jobId = `job_write_fail_${process.pid}`;
-    const isHeld = () => {
+    const isHeld = async () => {
       try {
-        holdWorkspaceActivity([repo])();
+        await (await holdWorkspaceActivityAsync([repo]))();
         return false;
       } catch (error) {
         assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -365,12 +365,12 @@ test('a failed terminal-record write still releases the workspace admission', as
     try {
       publishShellJobRecord({ jobId, pid: process.pid, command: 'sleep 1', cwd: repo }, { ownerSessionId: 'sess-w' });
       await _shellJobRecordWritesSettledForTest(jobId);
-      assert.equal(isHeld(), true);
+      assert.equal(await isHeld(), true);
       // The records directory becomes unwritable: every terminal write fails.
       rmSync(join(root, 'shell-jobs'), { recursive: true, force: true });
       writeFileSync(join(root, 'shell-jobs'), '');
       assert.equal(await completeShellJobRecord(jobId, { status: 'completed', exitCode: 0 }), false);
-      assert.equal(isHeld(), false, 'the admission does not depend on the record write');
+      assert.equal(await isHeld(), false, 'the admission does not depend on the record write');
     } finally {
       retireShellJobRecord(jobId);
       await _shellJobRecordWritesSettledForTest(jobId);

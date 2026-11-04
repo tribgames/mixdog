@@ -7,7 +7,7 @@
 import { worktreeError, worktreeRefusal } from '../../runtime/shared/worktrees/contract.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
 import {
-  holdWorkspaceActivity,
+  holdWorkspaceActivityAsync,
   isExternalCheckout,
   releaseAll,
 } from '../../runtime/shared/worktrees/activity-gate.mjs';
@@ -144,7 +144,7 @@ export function createActivityGuards({
       for (const folder of [...new Set(folders)].sort()) {
         release.push(holdProjectFolder(actor, folder, { hold: !isExternalCheckout(folder) }));
       }
-      release.push(holdWorkspaceActivity(folders, { sessionId: actor }));
+      release.push(await holdWorkspaceActivityAsync(folders, { sessionId: actor, bounded: true }));
       const stored = await listWorkspaceConsumers();
       const consumers = new Map(stored.map((session) => [session.id, session]));
       for (const session of listLiveSessions()) if (session?.closed !== true) consumers.set(session.id, session);
@@ -168,7 +168,7 @@ export function createActivityGuards({
       }
       return await run([...consumers.keys()]);
     } finally {
-      releaseAll(release);
+      await releaseAll(release);
     }
   }
 

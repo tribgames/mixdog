@@ -4,13 +4,7 @@ import { once } from 'node:events';
 import { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import {
-  admitWorkspaceActivity,
-  holdWorkspaceActivity,
-  holdWorkspaceActivityAsync,
-  tryAdmitWorkspaceActivity,
-  tryAdmitWorkspaceActivityAsync,
-} from './activity-gate.mjs';
+import { admitWorkspaceActivity, holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from './activity-gate.mjs';
 import { setAdmissionFaults } from './activity-gate-faults.test-hook.mjs';
 import { admitTurn, retainAdmittedTurnWorkspace } from '../../../session-runtime/workspace/admission-gate.mjs';
 import {
@@ -38,16 +32,16 @@ function reader(t, repo, waiting = false, command = false) {
       '--input-type=module',
       '-e',
       `
-    import { tryAdmitWorkspaceActivity, admitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+    import { tryAdmitWorkspaceActivityAsync, admitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
     const cwd = process.argv[1];
-    let leave = tryAdmitWorkspaceActivity('child', cwd, { kind: ${JSON.stringify(command ? 'command' : 'turn')} });
+    let leave = await tryAdmitWorkspaceActivityAsync('child', cwd, { kind: ${JSON.stringify(command ? 'command' : 'turn')} });
     if (!leave) {
       process.send('blocked');
       if (${waiting}) leave = await admitWorkspaceActivity('child', cwd);
       else process.exit(0);
     }
     process.send('active');
-    process.on('message', () => { leave(); process.exit(0); });
+    process.on('message', async () => { await leave(); process.exit(0); });
   `,
       repo,
     ],
@@ -61,27 +55,27 @@ function reader(t, repo, waiting = false, command = false) {
 
 test('same-folder readers remain parallel across processes and prevent a writer', { timeout: 20000 }, async (t) => {
   const repo = makeRepo();
-  const leave = tryAdmitWorkspaceActivity('parent', repo);
+  const leave = await tryAdmitWorkspaceActivityAsync('parent', repo);
   const child = reader(t, repo);
   assert.equal((await once(child, 'message'))[0], 'active');
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
-  leave();
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await leave();
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
   const exited = once(child, 'exit');
   child.send('release');
   await exited;
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });
 
 test('a published writer excludes a later foreign reader until release', { timeout: 20000 }, async (t) => {
   const repo = makeRepo();
-  const release = holdWorkspaceActivity([repo]);
+  const release = await holdWorkspaceActivityAsync([repo]);
   const child = reader(t, repo, true);
   assert.equal((await once(child, 'message'))[0], 'blocked');
   const active = once(child, 'message');
-  release();
+  await release();
   assert.equal((await active)[0], 'active');
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
   const exited = once(child, 'exit');
   child.send('release');
   await exited;
@@ -96,7 +90,7 @@ test('only a proven-dead reader is reclaimed, and an ownerless mutex is not recl
   const exited = once(child, 'exit');
   child.kill();
   await exited;
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
   const lock = join(repo, '.git', 'ownerless.lock');
   writeFileSync(lock, 'corrupt');
   assert.throws(() =>
@@ -113,26 +107,26 @@ test('a command lease whose pid is proven dead no longer blocks after a restart'
   const repo = makeRepo();
   const child = reader(t, repo, false, true);
   assert.equal((await once(child, 'message'))[0], 'active');
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
   const exited = once(child, 'exit');
   child.kill();
   await exited;
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
   assert.deepEqual(JSON.parse(readFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), 'utf8')).leases, []);
 });
 
-test('only a dead command lease is reclaimed; a live one keeps the folder reserved', () => {
+test('only a dead command lease is reclaimed; a live one keeps the folder reserved', async () => {
   const repo = makeRepo();
   const deadPid = spawnSync(process.execPath, ['-e', '']).pid;
-  const stale = tryAdmitWorkspaceActivity('restarted', repo, { kind: 'command', pid: deadPid });
-  const live = tryAdmitWorkspaceActivity('running', repo, { kind: 'command' });
-  assert.throws(
-    () => holdWorkspaceActivity([repo]),
+  const stale = await tryAdmitWorkspaceActivityAsync('restarted', repo, { kind: 'command', pid: deadPid });
+  const live = await tryAdmitWorkspaceActivityAsync('running', repo, { kind: 'command' });
+  await assert.rejects(
+    holdWorkspaceActivityAsync([repo]),
     (error) => error.code === 'WORKTREE_BUSY_JOBS' && error.details.reason === 'folder-in-use'
   );
-  live();
-  holdWorkspaceActivity([repo])();
-  stale();
+  await live();
+  await (await holdWorkspaceActivityAsync([repo]))();
+  await stale();
 });
 
 test('a provisioning turn protects its destination before moving, and releases both roots', async () => {
@@ -143,43 +137,43 @@ test('a provisioning turn protects its destination before moving, and releases b
   await putRecord({ id: 'next', path: target });
   let cwd = repo;
   const leave = await admitTurn({ sessionId: 'moving', cwd: () => cwd });
-  const writer = holdWorkspaceActivity([target]);
-  assert.throws(() => retainAdmittedTurnWorkspace('moving', target), { code: 'WORKTREE_BUSY_JOBS' });
+  const writer = await holdWorkspaceActivityAsync([target]);
+  await assert.rejects(retainAdmittedTurnWorkspace('moving', target), { code: 'WORKTREE_BUSY_JOBS' });
   assert.equal(cwd, repo);
-  writer();
-  retainAdmittedTurnWorkspace('moving', target);
+  await writer();
+  await retainAdmittedTurnWorkspace('moving', target);
   cwd = target;
-  assert.throws(() => holdWorkspaceActivity([target]), { code: 'WORKTREE_BUSY_JOBS' });
-  leave();
-  holdWorkspaceActivity([repo, target])();
+  await assert.rejects(holdWorkspaceActivityAsync([target]), { code: 'WORKTREE_BUSY_JOBS' });
+  await leave();
+  await (await holdWorkspaceActivityAsync([repo, target]))();
 });
 
-test('an external checkout admits readers whatever is held outside it, yet its running reader still refuses a writer', () => {
+test('an external checkout admits readers whatever is held outside it, yet its running reader still refuses a writer', async () => {
   const repo = makeRepo();
   const external = join(tempDir(), 'external');
   git(repo, 'worktree', 'add', '-q', '-b', 'feature/external', external);
-  const writer = holdWorkspaceActivity([repo, external]);
-  const reader = tryAdmitWorkspaceActivity('external-turn', external);
+  const writer = await holdWorkspaceActivityAsync([repo, external]);
+  const reader = await tryAdmitWorkspaceActivityAsync('external-turn', external);
   assert.ok(reader, 'the external folder admits new work');
-  assert.equal(tryAdmitWorkspaceActivity('project-turn', repo), null, 'the project folder waits');
-  writer();
-  assert.throws(
-    () => holdWorkspaceActivity([repo, external]),
+  assert.equal(await tryAdmitWorkspaceActivityAsync('project-turn', repo), null, 'the project folder waits');
+  await writer();
+  await assert.rejects(
+    holdWorkspaceActivityAsync([repo, external]),
     (error) => error.code === 'WORKTREE_BUSY_JOBS' && error.details.reason === 'folder-in-use'
   );
-  reader();
-  holdWorkspaceActivity([repo, external])();
+  await reader();
+  await (await holdWorkspaceActivityAsync([repo, external]))();
 });
 
-test('an external checkout nested inside a held main folder stays admitted', () => {
+test('an external checkout nested inside a held main folder stays admitted', async () => {
   const repo = makeRepo();
   const nested = join(repo, 'nested-checkout');
   git(repo, 'worktree', 'add', '-q', '-b', 'feature/nested', nested);
-  const writer = holdWorkspaceActivity([repo]);
-  const nestedReader = tryAdmitWorkspaceActivity('nested-turn', nested);
+  const writer = await holdWorkspaceActivityAsync([repo]);
+  const nestedReader = await tryAdmitWorkspaceActivityAsync('nested-turn', nested);
   assert.ok(nestedReader, 'a lease on the enclosing folder does not hold the nested external checkout');
-  nestedReader();
-  writer();
+  await nestedReader();
+  await writer();
 });
 
 // Another profile (an empty registry) sees a Mixdog-managed checkout as external.
@@ -190,14 +184,14 @@ function foreignProbe(checkout, sub) {
       '--input-type=module',
       '-e',
       `
-        import { tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        import { tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
         const [root, sub] = process.argv.slice(1);
         const out = {};
         for (const kind of ['turn', 'command']) {
           for (const [name, cwd] of [['root', root], ['sub', sub]]) {
-            const leave = tryAdmitWorkspaceActivity('foreign-' + kind, cwd, { kind });
+            const leave = await tryAdmitWorkspaceActivityAsync('foreign-' + kind, cwd, { kind });
             out[kind + ':' + name] = leave === null;
-            if (leave) leave();
+            if (leave) await leave();
           }
         }
         console.log(JSON.stringify(out));
@@ -217,7 +211,7 @@ test('a management lease inside an external checkout refuses its readers from an
   const checkout = await managedWorktree(repo);
   const sub = join(checkout, 'sub');
   mkdirSync(sub);
-  const release = holdWorkspaceActivity([checkout]);
+  const release = await holdWorkspaceActivityAsync([checkout]);
   assert.deepEqual(foreignProbe(checkout, sub), {
     'turn:root': true,
     'turn:sub': true,
@@ -229,7 +223,7 @@ test('a management lease inside an external checkout refuses its readers from an
     ['management'],
     'no reader lease is left'
   );
-  release();
+  await release();
   assert.deepEqual(foreignProbe(checkout, sub), {
     'turn:root': false,
     'turn:sub': false,
@@ -241,31 +235,31 @@ test('a management lease inside an external checkout refuses its readers from an
 test('a management lease still refuses readers of its checkout after the registry is recovered empty', async () => {
   const repo = makeRepo();
   const checkout = await managedWorktree(repo);
-  const release = holdWorkspaceActivity([checkout]);
+  const release = await holdWorkspaceActivityAsync([checkout]);
   writeFileSync(registryPath(), JSON.stringify({ version: 1, entries: {} }));
-  assert.equal(tryAdmitWorkspaceActivity('after-recovery', checkout), null);
-  assert.equal(tryAdmitWorkspaceActivity('after-recovery', checkout, { kind: 'command' }), null);
+  assert.equal(await tryAdmitWorkspaceActivityAsync('after-recovery', checkout), null);
+  assert.equal(await tryAdmitWorkspaceActivityAsync('after-recovery', checkout, { kind: 'command' }), null);
   assert.deepEqual(
     ledgerOf(repo).leases.map((lease) => lease.kind),
     ['management']
   );
-  release();
-  tryAdmitWorkspaceActivity('after-release', checkout)();
+  await release();
+  await (await tryAdmitWorkspaceActivityAsync('after-release', checkout))();
 });
 
 test('a background command retains admission after its parent turn finishes', async () => {
   const repo = makeRepo();
   const leave = await admitWorkspaceActivity('parent', repo);
   publishShellJobRecord({ jobId: 'job_workspace_handoff', cwd: repo, pid: process.pid }, { ownerSessionId: 'parent' });
-  leave();
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await leave();
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
   await completeShellJobRecord('job_workspace_handoff', { status: 'completed', cwd: repo, exitCode: 0 });
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });
 
 test('a shell targeting a different checkout waits before spawning and cancels without creating a child', async () => {
   const repo = makeRepo();
-  const release = holdWorkspaceActivity([repo]);
+  const release = await holdWorkspaceActivityAsync([repo]);
   const controller = new AbortController();
   const run = { foregroundRecordId: 'job_before_spawn' };
   const pending = spawnShellChild({
@@ -280,21 +274,21 @@ test('a shell targeting a different checkout waits before spawning and cancels w
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
   assert.equal(run.child, undefined);
-  release();
-  holdWorkspaceActivity([repo])();
+  await release();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });
 
 test('cancellation while waiting registers nothing', async () => {
   const repo = makeRepo();
-  const writer = holdWorkspaceActivity([repo]);
+  const writer = await holdWorkspaceActivityAsync([repo]);
   const controller = new AbortController();
   const pending = admitWorkspaceActivity('cancelled', repo, controller.signal);
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
-  writer();
+  await writer();
   const path = join(repo, '.git', 'mixdog-workspace-admission.json');
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).leases, []);
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });
 
 const FILE = 'mixdog-workspace-admission.json';
@@ -346,14 +340,17 @@ async function holding(t, holds, dataDir = tempDir()) {
       '--input-type=module',
       '-e',
       `
-        import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-        const releases = JSON.parse(process.argv[1]).map(([kind, folder]) =>
-          kind === 'management'
-            ? holdWorkspaceActivity([folder])
-            : tryAdmitWorkspaceActivity('silent-' + kind, folder, { kind })
-        );
-        process.on('message', () => {
-          for (const leave of releases) leave();
+        import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
+        const releases = [];
+        for (const [kind, folder] of JSON.parse(process.argv[1])) {
+          releases.push(
+            kind === 'management'
+              ? await holdWorkspaceActivityAsync([folder])
+              : await tryAdmitWorkspaceActivityAsync('silent-' + kind, folder, { kind })
+          );
+        }
+        process.on('message', async () => {
+          for (const leave of releases) await leave();
           process.exit(0);
         });
         process.send('active');
@@ -380,10 +377,10 @@ async function managedWorktree(repo) {
   return path;
 }
 
-test('a damaged primary copy is restored from the mirror: readers continue and a live holder is never lost', () => {
+test('a damaged primary copy is restored from the mirror: readers continue and a live holder is never lost', async () => {
   const repo = makeRepo();
   const path = admissionPath(repo);
-  const leave = tryAdmitWorkspaceActivity('reader', repo);
+  const leave = await tryAdmitWorkspaceActivityAsync('reader', repo);
   const intact = readFileSync(path);
   for (const damaged of [
     Buffer.alloc(intact.length),
@@ -392,14 +389,14 @@ test('a damaged primary copy is restored from the mirror: readers continue and a
     Buffer.from('{"version":2,"leases":[null]}'),
   ]) {
     writeFileSync(path, damaged);
-    const later = tryAdmitWorkspaceActivity('later-reader', repo);
+    const later = await tryAdmitWorkspaceActivityAsync('later-reader', repo);
     assert.ok(later, 'a damaged ledger admits readers');
     assert.ok(
       asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
       'the damaged bytes are kept aside, not overwritten'
     );
-    later();
-    assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+    await later();
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
 
     // A fresh profile meets the same damage: the mirror still names the holder.
     writeFileSync(path, damaged);
@@ -410,10 +407,10 @@ test('a damaged primary copy is restored from the mirror: readers continue and a
         '-e',
         `
           import assert from 'node:assert/strict';
-          import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+          import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
           const cwd = process.argv[1];
-          tryAdmitWorkspaceActivity('new-process', cwd)();
-          assert.throws(() => holdWorkspaceActivity([cwd]), { details: { reason: 'folder-in-use' } });
+          await (await tryAdmitWorkspaceActivityAsync('new-process', cwd))();
+          await assert.rejects(holdWorkspaceActivityAsync([cwd]), { details: { reason: 'folder-in-use' } });
         `,
         repo,
       ],
@@ -423,17 +420,17 @@ test('a damaged primary copy is restored from the mirror: readers continue and a
     assert.equal(next.status, 0, next.stderr);
     for (const copy of asideCopies(repo)) unlinkSync(copy);
   }
-  leave();
-  holdWorkspaceActivity([repo])();
+  await leave();
+  await (await holdWorkspaceActivityAsync([repo]))();
   assert.deepEqual(copiesOf(repo).leases, []);
   assert.equal(ledgerOf(repo).recoveredAt, undefined, 'an intact mirror leaves nothing unknown');
 });
 
-test('a writer that meets the damage first publishes the uncertainty to both copies, so the next writer still waits', () => {
+test('a writer that meets the damage first publishes the uncertainty to both copies, so the next writer still waits', async () => {
   const repo = makeRepo();
   writeFileSync(admissionPath(repo), Buffer.alloc(64));
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
   }
   assert.ok(Number.isFinite(copiesOf(repo).recoveredAt), 'the refused writer published the uncertainty');
 });
@@ -485,9 +482,9 @@ test('a writer that takes the lock the instant a recovery releases it still wait
   await until(() => process.env[released]);
   const interleaved = await runScript(
     `
-      import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+      import { holdWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
       try {
-        holdWorkspaceActivity([process.argv[1]])();
+        await (await holdWorkspaceActivityAsync([process.argv[1]]))();
         console.log('admitted');
       } catch (error) {
         console.log(error.details?.reason ?? error.message);
@@ -511,10 +508,10 @@ test('a crash between keeping the damaged ledger aside and publishing the recove
   // The process dies (no exit handler runs) as the recovered ledger is about to be published.
   const crashed = await runScript(
     `
-      import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+      import { holdWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
       import { setAdmissionFaults } from ${JSON.stringify(faultsUrl)};
       setAdmissionFaults({ op: 'rename', file: ${JSON.stringify(FILE)}, action: 'kill' });
-      holdWorkspaceActivity([process.argv[1]]);
+      await holdWorkspaceActivityAsync([process.argv[1]]);
     `,
     [repo]
   );
@@ -523,20 +520,20 @@ test('a crash between keeping the damaged ledger aside and publishing the recove
     asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
     'the damaged bytes were kept before the crash'
   );
-  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
 });
 
 test('a damaged ledger cannot hide a foreign management operation from readers', { timeout: 20000 }, async (t) => {
   const repo = makeRepo();
   const child = await holding(t, [['management', repo]]);
   zeroFill(admissionPath(repo));
-  assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the operation in progress still excludes readers');
+  assert.equal(await tryAdmitWorkspaceActivityAsync('reader', repo), null, 'the operation in progress still excludes readers');
   const exited = once(child, 'exit');
   child.send('release');
   await exited;
-  const leave = tryAdmitWorkspaceActivity('reader', repo);
+  const leave = await tryAdmitWorkspaceActivityAsync('reader', repo);
   assert.ok(leave, 'readers resume once the operation ended');
-  leave();
+  await leave();
 });
 
 test('invalid lease records drop only themselves; without an intact copy the rest stays uncertain', {
@@ -551,40 +548,40 @@ test('invalid lease records drop only themselves; without an intact copy the res
     return JSON.stringify(ledger);
   };
   writeFileSync(admissionPath(repo), withInvalidRecord());
-  const leave = tryAdmitWorkspaceActivity('parent', repo);
+  const leave = await tryAdmitWorkspaceActivityAsync('parent', repo);
   assert.ok(leave);
   assert.ok(
     ledgerOf(repo).leases.some((lease) => lease.pid === child.pid),
     'the valid foreign lease survived'
   );
   assert.ok(asideCopies(repo).some((copy) => JSON.parse(readFileSync(copy, 'utf8')).leases.length === 2));
-  leave();
+  await leave();
   assert.equal(ledgerOf(repo).recoveredAt, undefined, 'the intact mirror accounts for the invalid record');
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
 
   // The same invalid record in both copies: the valid leases stay, the rest is unknown.
   const damaged = withInvalidRecord();
   writeFileSync(admissionPath(repo), damaged);
   writeFileSync(mirrorPath(repo), damaged);
-  tryAdmitWorkspaceActivity('parent', repo)();
+  await (await tryAdmitWorkspaceActivityAsync('parent', repo))();
   assert.ok(copiesOf(repo).leases.some((lease) => lease.pid === child.pid));
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
   const exited = once(child, 'exit');
   child.send('release');
   await exited;
-  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED, 'its release does not prove the ledger whole');
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED, 'its release does not prove the ledger whole');
 });
 
-test('an unreadable copy is never overwritten and admission resumes after access is restored', () => {
+test('an unreadable copy is never overwritten and admission resumes after access is restored', async () => {
   const repo = makeRepo();
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
   for (const path of [admissionPath(repo), mirrorPath(repo)]) {
     unlinkSync(path);
     mkdirSync(path);
-    assert.throws(() => tryAdmitWorkspaceActivity('blocked', repo), UNVERIFIED);
-    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+    await assert.rejects(tryAdmitWorkspaceActivityAsync('blocked', repo), UNVERIFIED);
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
     rmdirSync(path);
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
   }
 });
 
@@ -597,9 +594,9 @@ for (const kind of ['turn', 'command']) {
     const repo = makeRepo();
     await holding(t, [[kind, repo]]);
     zeroFill(admissionPath(repo));
-    assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
     ageRecovery(repo);
-    assert.throws(() => holdWorkspaceActivity([repo]), IN_USE, 'the mirror still names the live holder');
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE, 'the mirror still names the live holder');
     assert.ok(copiesOf(repo).leases.some((lease) => lease.kind === kind && lease.sessionId === `silent-${kind}`));
   });
 }
@@ -632,14 +629,14 @@ test('#181-2 a recorded background command outlives its publisher until the comm
   assert.deepEqual(await once(publisher, 'exit'), [0, null]);
   assert.ok(ledgerOf(repo).leases.some((lease) => lease.kind === 'command' && lease.pid === command.pid));
   zeroFill(admissionPath(repo));
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), { code: 'WORKTREE_BUSY_JOBS' });
   ageRecovery(repo);
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE, 'no process is left to republish the command');
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE, 'no process is left to republish the command');
   assert.ok(copiesOf(repo).leases.some((lease) => lease.kind === 'command' && lease.pid === command.pid));
   const exited = once(command, 'exit');
   command.kill();
   await exited;
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });
 
 test('#181-3 a damaged mirror is restored from the intact primary with every kind of lease', {
@@ -658,7 +655,7 @@ test('#181-3 a damaged mirror is restored from the intact primary with every kin
   );
   const damaged = Buffer.alloc(readFileSync(mirrorPath(repo)).length);
   writeFileSync(mirrorPath(repo), damaged);
-  tryAdmitWorkspaceActivity('probe', repo)();
+  await (await tryAdmitWorkspaceActivityAsync('probe', repo))();
   assert.deepEqual(
     copiesOf(repo)
       .leases.map((lease) => lease.kind)
@@ -668,27 +665,27 @@ test('#181-3 a damaged mirror is restored from the intact primary with every kin
   assert.ok(asideCopies(repo, mirrorPath(repo)).some((copy) => readFileSync(copy).equals(damaged)));
   // The repaired mirror alone now carries all of them.
   zeroFill(admissionPath(repo));
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
-  assert.equal(tryAdmitWorkspaceActivity('blocked', managed), null, 'the management operation still excludes readers');
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
+  assert.equal(await tryAdmitWorkspaceActivityAsync('blocked', managed), null, 'the management operation still excludes readers');
   assert.equal(copiesOf(repo).recoveredAt, undefined);
 });
 
-test('#181-4 with both copies damaged the uncertainty survives mutations, releases, restarts and any age', () => {
+test('#181-4 with both copies damaged the uncertainty survives mutations, releases, restarts and any age', async () => {
   const repo = makeRepo();
-  const keep = tryAdmitWorkspaceActivity('keep', repo);
+  const keep = await tryAdmitWorkspaceActivityAsync('keep', repo);
   zeroFill(admissionPath(repo));
   zeroFill(mirrorPath(repo));
-  const reader = tryAdmitWorkspaceActivity('reader', repo);
+  const reader = await tryAdmitWorkspaceActivityAsync('reader', repo);
   assert.ok(reader, 'readers still run');
   // This process put `keep` back: some leases came back, which proves nothing about the rest.
   assert.deepEqual(sessions(copiesOf(repo)).sort(), ['keep', 'reader']);
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
-  reader();
-  keep();
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
+  await reader();
+  await keep();
   for (let round = 0; round < 3; round += 1) {
-    tryAdmitWorkspaceActivity(`round-${round}`, repo)();
+    await (await tryAdmitWorkspaceActivityAsync(`round-${round}`, repo))();
     ageRecovery(repo);
-    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
   }
   const restarted = spawnSync(
     process.execPath,
@@ -697,10 +694,10 @@ test('#181-4 with both copies damaged the uncertainty survives mutations, releas
       '-e',
       `
         import assert from 'node:assert/strict';
-        import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
         const cwd = process.argv[1];
-        tryAdmitWorkspaceActivity('restarted', cwd)();
-        assert.throws(() => holdWorkspaceActivity([cwd]), { details: { reason: 'workspace-admission-unreadable' } });
+        await (await tryAdmitWorkspaceActivityAsync('restarted', cwd))();
+        await assert.rejects(holdWorkspaceActivityAsync([cwd]), { details: { reason: 'workspace-admission-unreadable' } });
       `,
       repo,
     ],
@@ -720,7 +717,7 @@ test('#181-5 a missing copy is restored from the other in both directions, never
   ]);
   for (const missing of [mirrorPath(repo), admissionPath(repo)]) {
     unlinkSync(missing);
-    assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
     const ledger = copiesOf(repo);
     assert.deepEqual(sessions(ledger).sort(), ['silent-command', 'silent-turn']);
     assert.equal(ledger.recoveredAt, undefined, 'the remaining copy was complete');
@@ -729,13 +726,13 @@ test('#181-5 a missing copy is restored from the other in both directions, never
 
 // Fails planned writes of one copy: `plan.primary[i]` / `plan.mirror[i]` say
 // whether that copy's i-th write during `run` fails.
-function withFailingWrites(plan, run) {
+async function withFailingWrites(plan, run) {
   setAdmissionFaults(
     { op: 'rename', file: FILE, hits: plan.primary ?? [], action: 'fail', code: 'EIO' },
     { op: 'rename', file: `${FILE}.management`, hits: plan.mirror ?? [], action: 'fail', code: 'EIO' }
   );
   try {
-    return run();
+    return await run();
   } finally {
     setAdmissionFaults();
   }
@@ -755,50 +752,49 @@ test('#181-6 publication faults never acknowledge an unprotected grant, lose a l
 
   // A grant whose write of either copy fails returns no handle and leaves no lease.
   for (const plan of [{ primary: [true] }, { mirror: [true] }]) {
-    assert.throws(() => withFailingWrites(plan, () => tryAdmitWorkspaceActivity('attempt', repo)), UNVERIFIED);
+    await assert.rejects(withFailingWrites(plan, () => tryAdmitWorkspaceActivityAsync('attempt', repo)), UNVERIFIED);
     settled();
   }
-  assert.throws(() => withFailingWrites({ mirror: [true] }, () => holdWorkspaceActivity([managed])), UNVERIFIED);
+  await assert.rejects(withFailingWrites({ mirror: [true] }, () => holdWorkspaceActivityAsync([managed])), UNVERIFIED);
   settled();
-  const probe = tryAdmitWorkspaceActivity('probe', managed);
+  const probe = await tryAdmitWorkspaceActivityAsync('probe', managed);
   assert.ok(probe, 'the failed management grant left no lease behind');
-  probe();
+  await probe();
 
   // Its rollback fails too: the attempt stays recorded (a conservative claim of
   // this live process) and no grant succeeds while the copies cannot be made whole.
-  assert.throws(
-    () =>
-      withFailingWrites({ mirror: [true], primary: [false, true] }, () => tryAdmitWorkspaceActivity('attempt', repo)),
+  await assert.rejects(
+    withFailingWrites({ mirror: [true], primary: [false, true] }, () => tryAdmitWorkspaceActivityAsync('attempt', repo)),
     UNVERIFIED
   );
   assert.ok(inPrimary('attempt') && !inMirror('attempt'));
-  assert.throws(
-    () => withFailingWrites({ mirror: [true, true] }, () => tryAdmitWorkspaceActivity('refused', repo)),
+  await assert.rejects(
+    withFailingWrites({ mirror: [true, true] }, () => tryAdmitWorkspaceActivityAsync('refused', repo)),
     UNVERIFIED
   );
   assert.ok(!inPrimary('refused') && !inMirror('refused'));
   // The next mutation withdraws exactly the pending attempts.
-  const kept = tryAdmitWorkspaceActivity('kept', repo);
+  const kept = await tryAdmitWorkspaceActivityAsync('kept', repo);
   assert.ok(kept);
   settled('kept');
 
   // A release whose write of either copy fails stays pending and is retried by
   // the next mutation; the released lease is never put back.
   for (const plan of [{ primary: [true] }, { mirror: [true] }]) {
-    const done = tryAdmitWorkspaceActivity('done', repo);
-    withFailingWrites(plan, done);
+    const done = await tryAdmitWorkspaceActivityAsync('done', repo);
+    await withFailingWrites(plan, done);
     assert.ok(inPrimary('done') || inMirror('done'), 'a removal that did not land keeps the lease recorded');
-    tryAdmitWorkspaceActivity('next', repo)();
+    await (await tryAdmitWorkspaceActivityAsync('next', repo))();
     settled('kept');
   }
 
   // Without another mutation, the heal tick retries the removal by itself.
-  const late = tryAdmitWorkspaceActivity('late', repo);
-  withFailingWrites({ mirror: [true] }, late);
+  const late = await tryAdmitWorkspaceActivityAsync('late', repo);
+  await withFailingWrites({ mirror: [true] }, late);
   assert.ok(inMirror('late'));
   await until(() => !inMirror('late'));
   settled('kept');
-  kept();
+  await kept();
   settled();
 });
 
@@ -811,7 +807,7 @@ function dieBetweenWrites(repo, step) {
       '--input-type=module',
       '-e',
       `
-        import { tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        import { tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
         import { setAdmissionFaults } from ${JSON.stringify(faultsUrl)};
         setAdmissionFaults({ op: 'rename', file: ${JSON.stringify(`${FILE}.management`)}, action: 'kill' });
         const cwd = process.argv[1];
@@ -829,23 +825,23 @@ test('#181-7 a process dying between the two writes never lets management run ov
 }, async (t) => {
   const repo = makeRepo();
   await holding(t, [['turn', repo]]);
-  const grant = `tryAdmitWorkspaceActivity('interrupted', cwd);`;
+  const grant = `await tryAdmitWorkspaceActivityAsync('interrupted', cwd);`;
   dieBetweenWrites(repo, grant);
   assert.ok(sessions(ledgerOf(repo)).includes('interrupted') && !sessions(mirrorOf(repo)).includes('interrupted'));
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
   // The copy the dead process wrote is damaged afterwards: the older mirror still names the holder.
   dieBetweenWrites(repo, grant);
   zeroFill(admissionPath(repo));
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
   assert.deepEqual(sessions(copiesOf(repo)), ['silent-turn']);
   // Both copies damaged, and the process persisting that dies halfway: the next one still refuses.
   zeroFill(admissionPath(repo));
   zeroFill(mirrorPath(repo));
   dieBetweenWrites(repo, grant);
-  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
 });
 
-test('#181-8 a version 1 ledger keeps every lease; a damaged one beside a management-only mirror stays uncertain', () => {
+test('#181-8 a version 1 ledger keeps every lease; a damaged one beside a management-only mirror stays uncertain', async () => {
   const repo = makeRepo();
   const lease = (kind, path) => ({ kind, sessionId: `v1-${kind}`, pid: process.pid, token: `v1-${kind}`, path });
   const management = lease('management', tempDir());
@@ -853,31 +849,31 @@ test('#181-8 a version 1 ledger keeps every lease; a damaged one beside a manage
   const v1Mirror = JSON.stringify({ version: 1, leases: [management] });
   writeFileSync(admissionPath(repo), JSON.stringify(v1));
   writeFileSync(mirrorPath(repo), v1Mirror);
-  tryAdmitWorkspaceActivity('probe', repo)();
+  await (await tryAdmitWorkspaceActivityAsync('probe', repo))();
   const migrated = copiesOf(repo);
   assert.equal(migrated.version, 2);
   assert.deepEqual(migrated.leases, v1.leases);
   assert.equal(migrated.recoveredAt, undefined, 'an intact version 1 ledger is complete');
-  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), IN_USE);
 
   writeFileSync(admissionPath(repo), Buffer.alloc(64));
   writeFileSync(mirrorPath(repo), v1Mirror);
-  tryAdmitWorkspaceActivity('probe', repo)();
+  await (await tryAdmitWorkspaceActivityAsync('probe', repo))();
   const recovered = copiesOf(repo);
   assert.deepEqual(recovered.leases, [management], 'the mirrored management lease is kept');
   assert.ok('recoveredAt' in recovered, 'a management-only mirror is not a complete ledger');
   ageRecovery(repo);
-  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
 });
 
-test('#181-10 a ledger of a newer build refuses every admission and is left byte-identical', () => {
+test('#181-10 a ledger of a newer build refuses every admission and is left byte-identical', async () => {
   const repo = makeRepo();
   const newer = '{"version":3,"leases":[],"future":true}';
   for (const primary of [newer, '{"version":2,"leases":[]}\n']) {
     writeFileSync(admissionPath(repo), primary);
     writeFileSync(mirrorPath(repo), newer);
-    assert.throws(() => tryAdmitWorkspaceActivity('reader', repo), UNVERIFIED);
-    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+    await assert.rejects(tryAdmitWorkspaceActivityAsync('reader', repo), UNVERIFIED);
+    await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
     assert.equal(readFileSync(admissionPath(repo), 'utf8'), primary);
     assert.equal(readFileSync(mirrorPath(repo), 'utf8'), newer);
   }
@@ -888,21 +884,21 @@ test('#181-11 a new repository and a quiescent reset start clean; two missing co
   timeout: 20000,
 }, async (t) => {
   const repo = makeRepo();
-  holdWorkspaceActivity([repo])();
-  tryAdmitWorkspaceActivity('first', repo)();
+  await (await holdWorkspaceActivityAsync([repo]))();
+  await (await tryAdmitWorkspaceActivityAsync('first', repo))();
   assert.deepEqual(copiesOf(repo), { version: 2, leases: [] });
 
   zeroFill(admissionPath(repo));
   zeroFill(mirrorPath(repo));
-  tryAdmitWorkspaceActivity('reader', repo)();
+  await (await tryAdmitWorkspaceActivityAsync('reader', repo))();
   ageRecovery(repo);
-  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  await assert.rejects(holdWorkspaceActivityAsync([repo]), UNVERIFIED);
   // The documented reset, with nothing running: remove the pair, keep the `.corrupt-` copies.
   const kept = [...asideCopies(repo), ...asideCopies(repo, mirrorPath(repo))];
   assert.equal(kept.length, 2);
   unlinkSync(admissionPath(repo));
   unlinkSync(mirrorPath(repo));
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
   assert.deepEqual(copiesOf(repo), { version: 2, leases: [] });
   assert.ok(kept.every((copy) => existsSync(copy)));
 
@@ -910,14 +906,14 @@ test('#181-11 a new repository and a quiescent reset start clean; two missing co
   await holding(t, [['turn', repo]]);
   unlinkSync(admissionPath(repo));
   unlinkSync(mirrorPath(repo));
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
 });
 
 test('a copy that keeps refusing its replace (EPERM) fails the grant after the bounded retries and is never removed', {
   timeout: 90000,
 }, async (t) => {
   const repo = makeRepo();
-  const keep = tryAdmitWorkspaceActivity('keep', repo);
+  const keep = await tryAdmitWorkspaceActivityAsync('keep', repo);
   const before = readFileSync(admissionPath(repo));
   t.after(() => setAdmissionFaults());
   setAdmissionFaults({ op: 'rename', file: FILE, action: 'fail', code: 'EPERM' });
@@ -925,7 +921,7 @@ test('a copy that keeps refusing its replace (EPERM) fails the grant after the b
   setAdmissionFaults();
   assert.ok(readFileSync(admissionPath(repo)).equals(before), 'the refusing copy was replaced or removed');
   // Once the copy accepts writes again, nothing of the refused grant remains.
-  tryAdmitWorkspaceActivity('after', repo)();
+  await (await tryAdmitWorkspaceActivityAsync('after', repo))();
   assert.deepEqual(sessions(copiesOf(repo)), ['keep']);
-  keep();
+  await keep();
 });

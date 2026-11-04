@@ -5,7 +5,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test, { mock } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { holdWorkspaceActivity } from '../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync } from '../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../shared/worktrees/test-support.mjs';
 
 // The spawn server releases a foreground task's record when it exits, so a
@@ -74,7 +74,7 @@ for (const event of ['close', 'exit']) {
     let free = false;
     for (let i = 0; i < 100 && !free; i += 1) {
       try {
-        holdWorkspaceActivity([repo])();
+        await (await holdWorkspaceActivityAsync([repo]))();
         free = true;
       } catch {
         await delay(100);

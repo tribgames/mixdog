@@ -7,7 +7,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { ResourceAdmissionController, resourceAdmission } from '../../../shared/resource-admission.mjs';
-import { holdWorkspaceActivity } from '../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync } from '../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../shared/worktrees/test-support.mjs';
 import { cancelBackgroundTask, getBackgroundTask, registerBackgroundTask } from '../../../shared/background-tasks.mjs';
 import { execShellCommand } from './shell-command.mjs';
@@ -57,11 +57,11 @@ const quickJob = (extra = {}) =>
 async function until(predicate, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const value = predicate();
+    const value = await predicate();
     if (value) return value;
     await delay(20);
   }
-  return predicate();
+  return await predicate();
 }
 
 const runningJobs = () => listNativeTasks().filter((task) => task.status === 'running');
@@ -212,9 +212,9 @@ test('cancelling a queued command still in the foreground frees its workspace on
 }, async () => {
   const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 1, maxHighLoad: 12 } });
   const repo = makeRepo();
-  const workspaceFree = () => {
+  const workspaceFree = async () => {
     try {
-      holdWorkspaceActivity([repo])();
+      await (await holdWorkspaceActivityAsync([repo]))();
       return true;
     } catch {
       return false;

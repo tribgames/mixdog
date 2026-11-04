@@ -5,7 +5,7 @@ import '../lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
 
@@ -60,14 +60,14 @@ after(cleanupTempDirs);
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 async function until(read, ms = 5_000) {
   const deadline = Date.now() + ms;
-  while (!read()) {
+  while (!(await read())) {
     assert.ok(Date.now() < deadline, 'condition not reached');
     await flush();
   }
 }
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -91,9 +91,9 @@ function registerJob(taskId, sessionId, command) {
 
 // The state a foreground command leaves when its root exited with a live
 // descendant: folder admission adopted under the job id, survivors task registered.
-function finishedCommandWithSurvivor({ jobId, owner, pid, reachable = true }) {
+async function finishedCommandWithSurvivor({ jobId, owner, pid, reachable = true }) {
   const repo = makeRepo();
-  adoptShellWorkspaceAdmission(jobId, tryAdmitWorkspaceActivity(owner, repo, { kind: 'command' }));
+  adoptShellWorkspaceAdmission(jobId, await tryAdmitWorkspaceActivityAsync(owner, repo, { kind: 'command' }));
   tree.state.next = () => processTable([{ pid, ppid: 1, token: 'survivor' }]);
   renderCompletedResult({
     result: {
@@ -137,7 +137,7 @@ test('two background jobs and a survivors task are listed, then all stopped; oth
   // The running foreground command of the current turn: a native task with no
   // background task behind it.
   tasks.set('job_stopall_foreground', { jobId: 'job_stopall_foreground', status: 'running', ownerSessionId: owner });
-  const repo = finishedCommandWithSurvivor({ jobId: 'job_stopall_survivors', owner, pid: 7501 });
+  const repo = await finishedCommandWithSurvivor({ jobId: 'job_stopall_survivors', owner, pid: 7501 });
   await flush();
 
   const listed = listStoppableShellJobs(ctx(owner));
@@ -150,7 +150,7 @@ test('two background jobs and a survivors task are listed, then all stopped; oth
     listStoppableShellJobs(ctx(other)).map((job) => job.taskId),
     ['job_stopall_foreign']
   );
-  assert.equal(isHeld(repo), true);
+  assert.equal(await isHeld(repo), true);
 
   // The survivor exits once killed.
   tree.state.next = () => processTable([]);
@@ -172,7 +172,7 @@ test('two background jobs and a survivors task are listed, then all stopped; oth
   assert.equal(tasks.get('job_stopall_foreground').status, 'running');
   assert.ok(!nativeCancels.includes('job_stopall_foreground'), 'the foreground command is never cancelled');
   assert.deepEqual(listStoppableShellJobs(ctx(owner)), []);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('a survivor that ignores the kill ends as still stopping and keeps being swept', async (t) => {
@@ -180,18 +180,18 @@ test('a survivor that ignores the kill ends as still stopping and keeps being sw
   const owner = 'sess_stopall_stubborn';
   const jobId = 'job_stopall_stubborn';
   tasks.set(jobId, { jobId, status: 'completed', ownerSessionId: owner, exitCode: 0 });
-  const repo = finishedCommandWithSurvivor({ jobId, owner, pid: 7601, reachable: false });
+  const repo = await finishedCommandWithSurvivor({ jobId, owner, pid: 7601, reachable: false });
   await flush();
 
   assert.deepEqual(await stopBackgroundShellJobs(ctx(owner)), { stopped: 0, stopping: 1 });
-  assert.equal(isHeld(repo), true, 'the survivor still runs and holds the folder');
+  assert.equal(await isHeld(repo), true, 'the survivor still runs and holds the folder');
   const sent = killsOf(7601);
   assert.ok(sent > 0, 'the stop sent a kill');
   t.mock.timers.tick(5_000);
   await until(() => killsOf(7601) > sent);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('/stop and the close/reap sweep select the same jobs, for a lead and for an agent sub-session', () => {

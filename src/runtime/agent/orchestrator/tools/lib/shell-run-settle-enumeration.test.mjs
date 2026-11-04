@@ -2,7 +2,7 @@ import './isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 
 // The real process-table reader runs; only the OS enumerator it starts on the
@@ -37,9 +37,9 @@ const { forceReleaseTerminationHold } = await import('../builtin/lib/shell-job-r
 after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -66,7 +66,7 @@ test('a hung enumerator is killed at the deadline and the finished command still
     foregroundRecordPublished: true,
     foregroundRecordInput: { command: 'node build.js', cwd: repo, ownerSessionId: 'session' },
     commandStartedAtMs: 1,
-    workspaceAdmission: tryAdmitWorkspaceActivity('session', repo, { kind: 'command' }),
+    workspaceAdmission: await tryAdmitWorkspaceActivityAsync('session', repo, { kind: 'command' }),
     resourceLease: null,
     stdoutDecoder: { end: () => '' },
     stderrDecoder: { end: () => '' },
@@ -92,7 +92,7 @@ test('a hung enumerator is killed at the deadline and the finished command still
   assert.equal(result.stdout, 'done');
   assert.equal(enumerators[0].timeoutMs, ENUMERATION_DEADLINE_MS, 'the runner kills the hung enumerator');
   assert.equal(enumerators[0].alive, false);
-  assert.equal(isHeld(repo), true, 'unverified descendants keep the folder held');
+  assert.equal(await isHeld(repo), true, 'unverified descendants keep the folder held');
   assert.equal(records.published.at(-1)?.terminationUnconfirmed, true);
   // The termination watch's own pass is bounded the same way.
   await flush();
@@ -102,6 +102,6 @@ test('a hung enumerator is killed at the deadline and the finished command still
   assert.deepEqual(await forceReleaseTerminationHold('job_hung_enumerator', { callerSessionId: 'session' }), {
     released: true,
   });
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
   assert.equal(run.workspaceAdmission, null);
 });

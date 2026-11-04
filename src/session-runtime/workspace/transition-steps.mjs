@@ -166,7 +166,7 @@ export function createTransitionSteps({
       invalidateCaches();
       await persistSession(session);
     });
-    retainAdmittedTurnWorkspace(session.id, next.cwd);
+    await retainAdmittedTurnWorkspace(session.id, next.cwd);
     applyResolvedCwd(next.cwd);
     session.cwd = next.cwd;
     session.workspace = next;
@@ -216,7 +216,7 @@ export function createTransitionSteps({
       await persistSession(session);
     });
     const changed = !samePath(prior.cwd || '', cwd);
-    if (changed) retainAdmittedTurnWorkspace(session.id, cwd);
+    if (changed) await retainAdmittedTurnWorkspace(session.id, cwd);
     applyResolvedCwd(cwd, { persistProjectSelection: true, classifyByMembership });
     if (changed) {
       moveLeadRow(session.id, cwd);

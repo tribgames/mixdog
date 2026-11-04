@@ -20,13 +20,10 @@ const overlaps = (a, b) => isWithin(a, b) || isWithin(b, a);
 
 /**
  * The Int32 slots the admission thread shares with the thread that started
- * it. SYNC: the id of the synchronous request its caller waits for; the
- * admission thread swaps it to -id when it answers, the caller to 0 when it
- * gives up — whichever comes first decides. ANSWERED counts synchronous
- * answers, DONE every finished request, STOPPED is set once the admission
- * thread is gone.
+ * it, for the exit's wait: DONE counts every finished request, STOPPED is set
+ * once the admission thread is gone.
  */
-export const LEDGER_SLOTS = Object.freeze({ SYNC: 0, ANSWERED: 1, DONE: 2, STOPPED: 3, COUNT: 4 });
+export const LEDGER_SLOTS = Object.freeze({ DONE: 0, STOPPED: 1, COUNT: 2 });
 
 /**
  * The admission policy's external exception: a linked checkout Mixdog did not

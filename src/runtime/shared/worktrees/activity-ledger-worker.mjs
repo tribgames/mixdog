@@ -6,7 +6,6 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { LEDGER_SLOTS as SLOT, admit, hold, release } from './activity-ledger.mjs';
 
 const slots = new Int32Array(workerData.slots);
-const { syncPort } = workerData;
 const operations = { admit, hold, release };
 
 // Fault injection for tests only (MIXDOG_ADMISSION_TEST_FAULT_HOOK=1): the
@@ -23,7 +22,6 @@ if (workerData.faultHook) {
 
 process.on('exit', () => {
   Atomics.store(slots, SLOT.STOPPED, 1);
-  Atomics.notify(slots, SLOT.ANSWERED);
   Atomics.notify(slots, SLOT.DONE);
 });
 
@@ -34,19 +32,17 @@ const serialize = (error) => ({
   details: error?.details,
 });
 
-parentPort.on('message', ({ id, op, args, sync }) => {
+// `claim` (a bounded request, activity-gate.mjs): 0 until either side sets
+// it — 1 by its caller giving up, 2 here when answering.
+parentPort.on('message', ({ id, op, args, claim }) => {
   let answer;
   try {
     answer = { id, value: operations[op](args) };
   } catch (error) {
     answer = { id, error: serialize(error) };
   }
-  if (!sync) parentPort.postMessage(answer);
-  else if (Atomics.compareExchange(slots, SLOT.SYNC, id, -id) === id) {
-    syncPort.postMessage(answer);
-    Atomics.add(slots, SLOT.ANSWERED, 1);
-    Atomics.notify(slots, SLOT.ANSWERED);
-  } else if (op !== 'release' && answer.value) {
+  if (!claim || Atomics.compareExchange(new Int32Array(claim), 0, 0, 2) === 0) parentPort.postMessage(answer);
+  else if (op !== 'release' && answer.value) {
     // Its caller stopped waiting and reported the outcome unknown: nobody
     // holds this grant, so it is withdrawn here.
     release(answer.value);

@@ -18,17 +18,19 @@ test('unknown process-probe failures are not treated as proof that a workspace o
   });
   assert.equal(isPidAliveOrUnknown(process.pid), true);
 });
-test('a failing release never strands the remaining workspace holds', () => {
+test('a failing release never strands the remaining workspace holds', async () => {
   const released = [];
-  assert.throws(
-    () =>
-      releaseAll([
-        () => released.push('folder'),
-        () => {
-          throw new Error('lease write failed');
-        },
-        () => released.push('activity'),
-      ]),
+  await assert.rejects(
+    releaseAll([
+      () => released.push('folder'),
+      async () => {
+        throw new Error('lease write failed');
+      },
+      async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        released.push('activity');
+      },
+    ]),
     /lease write failed/
   );
   assert.deepEqual(released, ['activity', 'folder']);

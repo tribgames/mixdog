@@ -2,7 +2,7 @@ import './isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from './process-table-fixture.mjs';
 
@@ -56,9 +56,9 @@ const { forceReleaseTerminationHold } = await import('../builtin/lib/shell-job-r
 after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -86,7 +86,7 @@ test('a startup whose child termination is unconfirmed keeps the reservation unt
     assert.equal(run.killUnconfirmed, true);
     assert.equal(run.terminationTracker.complete, true, 'identities were captured before the kill');
     await flush();
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     const record = published.at(-1);
     assert.equal(record?.terminationUnconfirmed, true, 'the held command stays visible');
     assert.equal(record.jobId, 'job_unconfirmed_startup');
@@ -98,18 +98,18 @@ test('a startup whose child termination is unconfirmed keeps the reservation unt
       false,
       'the hold is owned: another session cannot release it'
     );
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     child.exitCode = 1;
     child.emit('exit', 1, null);
     await flush();
-    assert.equal(isHeld(repo), true, 'the exit is confirmed by the next observation, not the event');
+    assert.equal(await isHeld(repo), true, 'the exit is confirmed by the next observation, not the event');
     mock.timers.tick(5_000);
     await flush();
   } finally {
     mock.timers.reset();
   }
   assert.equal(run.workspaceAdmission, null);
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
 });
 
 test('a failed startup whose killed root leaves a descendant keeps the reservation until it is gone', async (t) => {
@@ -143,14 +143,14 @@ test('a failed startup whose killed root leaves a descendant keeps the reservati
     })
   );
   await flush();
-  assert.equal(isHeld(repo), true, 'the root exit is not the end of its tree');
+  assert.equal(await isHeld(repo), true, 'the root exit is not the end of its tree');
   assert.ok(tree.state.kills.includes(worker.pid), 'the surviving worker is swept like any killed tree');
   t.mock.timers.tick(5_000);
   await flush();
-  assert.equal(isHeld(repo), true);
+  assert.equal(await isHeld(repo), true);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
   await flush();
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
   assert.equal(run.workspaceAdmission, null);
 });
