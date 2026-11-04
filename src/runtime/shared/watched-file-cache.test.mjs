@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { POLL_CONCURRENCY, createWatchedFileCache } from './watched-file-cache.mjs';
+import { POLL_CONCURRENCY, createWatchedFileCache, fileStamp, fileStampSync } from './watched-file-cache.mjs';
 import { eventually, settle, trackWatchers } from './watched-file-cache.test-helpers.mjs';
 
 function fixture(t) {
@@ -261,6 +261,28 @@ test('a first read that failed is answered from memory; the next read re-reads i
   assert.equal(reads.sync, 1, 'never retried synchronously');
   assert.equal(reads.async, 1, 'the reads meanwhile joined one re-read');
   assert.deepEqual(changes, [path]);
+});
+
+test('a stat that fails for any reason but absence rejects, as the sync stamp throws; it is never a stamp', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-watched-cache-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'file');
+  writeFileSync(path, 'x');
+  assert.match(await fileStamp(path), /^\d+:\d+:1:/);
+  assert.equal(await fileStamp(join(dir, 'absent')), 'missing');
+  assert.equal(await fileStamp(join(path, 'below-a-file')), 'missing');
+  for (const code of ['EACCES', 'EPERM', 'EBUSY', 'EIO']) {
+    const failure = Object.assign(new Error(`${code}: stat denied`), { code });
+    t.mock.method(fsp, 'stat', async () => {
+      throw failure;
+    });
+    t.mock.method(fs, 'statSync', () => {
+      throw failure;
+    });
+    await assert.rejects(fileStamp(path), failure, `async ${code}`);
+    assert.throws(() => fileStampSync(path), failure, `sync ${code}`);
+    t.mock.restoreAll();
+  }
 });
 
 // Real-time wait that keeps working while setTimeout is mocked.

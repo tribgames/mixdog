@@ -42,9 +42,12 @@ export function fileStampSync(path) {
   }
 }
 
-/** Async counterpart of fileStampSync; resolves null on unexpected errors. */
+/** Async counterpart of fileStampSync: 'missing' when absent; other errors reject. */
 export function fileStamp(path) {
-  return fsp.stat(path, { bigint: true }).then(stampOf, (error) => (isMissing(error) ? MISSING : null));
+  return fsp.stat(path, { bigint: true }).then(stampOf, (error) => {
+    if (isMissing(error)) return MISSING;
+    throw error;
+  });
 }
 
 // Caches still open; a closed one is released (its owner shut down).

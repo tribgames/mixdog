@@ -60,14 +60,27 @@ export function createConfigSnapshot(load) {
   let expiryTimer = null;
   // The value is the file's stamp: a watch event that finds the file's
   // identity changed (or the file gone) is an input change. A stat that fails
-  // is a failed re-read, which keeps the last stamp until the next event.
+  // is a failed re-read: the cache logs it and keeps the last stamp. What the
+  // file now holds is unknown, so the failure itself counts as an input change
+  // (once per streak), and so does the first stat that works again: the build
+  // after each probes the file fresh instead of trusting a stamp that may be stale.
+  const unstatable = new Set();
   const stamped = (stamp) => ({ value: stamp, stamp });
   const files = createWatchedFileCache(
     {
       load: (path) => stamped(fileStampSync(path)),
       loadAsync: async (path) => {
-        const stamp = await fileStamp(path);
-        if (stamp === null) throw new Error(`[config] cannot stat ${path}`);
+        let stamp;
+        try {
+          stamp = await fileStamp(path);
+        } catch (error) {
+          if (!unstatable.has(path)) {
+            unstatable.add(path);
+            bumpConfigInputEpoch();
+          }
+          throw error;
+        }
+        if (unstatable.delete(path)) bumpConfigInputEpoch();
         return stamped(stamp);
       },
     },
@@ -81,6 +94,7 @@ export function createConfigSnapshot(load) {
   function retarget(dir) {
     entries.clear();
     files.clear();
+    unstatable.clear();
     watched = new Set();
     dataDir = dir;
     // The config-change pass watches this data dir's config while subscribed;

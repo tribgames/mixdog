@@ -280,7 +280,6 @@ const held = createWatchedFileCache(
     },
     async loadAsync(path) {
       const stamp = await fileStamp(path);
-      if (stamp === null) throw new Error(`Cannot stat ${path}`);
       if (stamp === 'missing') return { value: null, stamp };
       try {
         return { value: await readFile(path, 'utf8'), stamp };

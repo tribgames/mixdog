@@ -17,10 +17,7 @@
 // file) has no replacement detection at all, so this watch is extra to it.
 import { createWatchedFileCache, fileStamp, fileStampSync } from '../runtime/shared/watched-file-cache.mjs';
 
-const stamped = (stamp) => {
-  if (stamp === null) throw new Error('stat failed');
-  return { value: stamp };
-};
+const stamped = (stamp) => ({ value: stamp });
 
 /** `handlers`: Map of path → handler(), run on each change of that file. */
 export function followOwnedFiles({ handlers, log }) {
@@ -41,10 +38,19 @@ export function followOwnedFiles({ handlers, log }) {
   return {
     /** This process just wrote `file`. */
     async published(file) {
-      const stamp = await fileStamp(file);
+      let stamp;
+      try {
+        stamp = await fileStamp(file);
+      } catch (error) {
+        // No baseline can be set, so a deletion that follows could read as no
+        // change: the handler judges the file's actual state now.
+        log(`ownership stat of ${file} failed (${error?.message || error}); judging it now`);
+        run(file);
+        return;
+      }
       // Already gone again: that is the change to judge.
       if (stamp === 'missing') run(file);
-      else if (stamp !== null) cache.set(file, stamp);
+      else cache.set(file, stamp);
     },
     close: () => cache.close(),
   };

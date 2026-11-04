@@ -13,6 +13,7 @@ import fs, {
   writeFileSync,
   writeSync,
 } from 'node:fs';
+import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -235,6 +236,35 @@ test('another process’s OAuth login and logout reach the snapshot through the 
 
   rmSync(openaiCredentials(dir));
   await until(() => fullOf().providers['openai-oauth'].enabled === false);
+  assert.deepEqual(fullOf(), cfg.loadConfig());
+});
+
+test('a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can', async (t) => {
+  const dir = useDataDir({ silent: true });
+  foreignWrite(openaiCredentials(dir), SIGNED_IN);
+  fresh();
+  assert.equal(fullOf().providers['openai-oauth'].enabled, true);
+
+  const logged = [];
+  t.mock.method(process.stderr, 'write', (line) => logged.push(String(line)) > 0);
+  const stat = fsp.stat;
+  const denied = Object.assign(new Error('EACCES: permission denied, stat'), { code: 'EACCES' });
+  const restoreStat = t.mock.method(fsp, 'stat', async (path, ...rest) => {
+    if (String(path).endsWith('openai-oauth.json')) throw denied;
+    return stat(path, ...rest);
+  });
+  // The failed stat is the change: before, the old stamp stayed and the old login with it.
+  rmSync(openaiCredentials(dir));
+  await until(() => fullOf().providers['openai-oauth'].enabled === false);
+  assert.deepEqual(fullOf(), cfg.loadConfig());
+  assert.ok(
+    logged.some((line) => line.includes('EACCES')),
+    'the real error is logged'
+  );
+
+  restoreStat.mock.restore();
+  foreignWrite(openaiCredentials(dir), SIGNED_IN);
+  await until(() => fullOf().providers['openai-oauth'].enabled === true);
   assert.deepEqual(fullOf(), cfg.loadConfig());
 });
 
