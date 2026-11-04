@@ -291,11 +291,19 @@ export function startRemoteTransportPeerHost(env: RemoteTransportPeerHostEnv): v
       iceTransportPolicy: REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
       bundlePolicy: 'max-bundle',
     });
-    // Both channels exist before the offer, so it negotiates SCTP for them.
-    const app = pc.createDataChannel(REMOTE_TRANSPORT_CHANNEL_LABEL, { ordered: true });
-    // Ordered too: the `direct:<connectionId>` control lane opens its boxes in
-    // seal order (§3). Its own SCTP stream keeps it from waiting behind bulk.
-    const control = pc.createDataChannel(REMOTE_TRANSPORT_CONTROL_CHANNEL_LABEL, { ordered: true });
+    let app: RTCDataChannel;
+    let control: RTCDataChannel;
+    try {
+      // Both channels exist before the offer, so it negotiates SCTP for them.
+      app = pc.createDataChannel(REMOTE_TRANSPORT_CHANNEL_LABEL, { ordered: true });
+      // Ordered too: the `direct:<connectionId>` control lane opens its boxes in
+      // seal order (§3). Its own SCTP stream keeps it from waiting behind bulk.
+      control = pc.createDataChannel(REMOTE_TRANSPORT_CONTROL_CHANNEL_LABEL, { ordered: true });
+    } catch (error) {
+      // Not registered yet, so no `close` would ever reach it.
+      pc.close();
+      throw error;
+    }
     const connection: Connection = {
       id: connectionId,
       pc,
