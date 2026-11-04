@@ -1,5 +1,30 @@
 {
-  "version": "0.1.0",
-  "_comment": "Bootstrap marker. The supervisor-v0.1.0 release must replace this empty asset set before an application release can pass its native asset gate.",
-  "assets": {}
+  "version": "0.1.1",
+  "_comment": "Synced from immutable supervisor-v release assets.",
+  "assets": {
+    "darwin-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/supervisor-v0.1.1/mixdog-supervisor-darwin-arm64",
+      "sha256": "f958006709d2dfc8e1ff94958662520d457def89da8ff80812dba51a4e51f204"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/supervisor-v0.1.1/mixdog-supervisor-darwin-x64",
+      "sha256": "20bec841cfce5e87bc785c00ff5e810dc09b4c8ee274902b9a655529ff76a9f2"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/supervisor-v0.1.1/mixdog-supervisor-linux-arm64",
+      "sha256": "582afbe982d858b4d5e3dcf77011bdf234a6109bdac1ff4d9bd2f2dce13790b2"
+    },
+    "linux-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/supervisor-v0.1.1/mixdog-supervisor-linux-x64",
+      "sha256": "841396245ca61b0547860e02456e25a49b40fc5c767ec50e988d26ebcbb28fcc"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/supervisor-v0.1.1/mixdog-supervisor-win32-arm64.exe",
+      "sha256": "65717601dbca1629a8ff1041de940277d0e8ea931a43cf4311d07d5f6b30dc84"
+    },
+    "win32-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/supervisor-v0.1.1/mixdog-supervisor-win32-x64.exe",
+      "sha256": "960ae9b3fe644b85a8081b8baf4ed61775c5f0ea635fb78a839b1b670279443c"
+    }
+  }
 }
