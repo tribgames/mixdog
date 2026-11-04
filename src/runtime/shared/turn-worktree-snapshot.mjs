@@ -16,6 +16,7 @@ import {
 } from './review-diff.mjs';
 import { splitPatchSections } from './turn-changes.mjs';
 import { noteTurnReviewChanged } from './turn-boundary-signal.mjs';
+import { notePhase } from './slow-span.mjs';
 
 const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
@@ -213,6 +214,8 @@ function withStateLock(state, task, op = 'task') {
     state.lockDepth -= 1;
     const finishedAt = Date.now();
     const waitMs = (startedAt || finishedAt) - queuedAt;
+    notePhase('snapshot-lock', waitMs);
+    notePhase('snapshot-work', finishedAt - (startedAt || finishedAt));
     if (finishedAt - queuedAt >= SLOW_LOCK_LOG_MS) {
       console.info(
         `[turn-snapshot-lock] op=${op} waitMs=${waitMs} workMs=${finishedAt - (startedAt || finishedAt)} ` +

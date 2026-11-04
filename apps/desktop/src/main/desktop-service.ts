@@ -37,6 +37,7 @@ import type {
 } from './desktop-support';
 import { SessionHost, type SessionClient } from './session-host';
 import { setGitProcessRunner, type GitProcessRunner } from './git-runner';
+import { setPhaseRecorder, type PhaseRecorder } from './phase-recorder';
 import {
   DESKTOP_SERVICE_METHODS,
   type DesktopService,
@@ -147,6 +148,9 @@ interface DesktopServiceRuntime {
   /** The daemon's off-thread child runner. Optional: with an older daemon
    *  git children are spawned on the service's own thread. */
   loadProcessRunner?(): Promise<{ runProcessOffThread: GitProcessRunner }>;
+  /** The daemon's per-call phase timing (`[slow-op]` lines). Optional: an
+   *  older daemon records none. */
+  loadSlowSpan?(): Promise<PhaseRecorder>;
   /** The daemon's per-origin system proxy. Optional: an older daemon has none. */
   loadSystemProxy?(): Promise<SystemProxyModule>;
   executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
@@ -1046,6 +1050,7 @@ export async function createDesktopService({
   // event loop. An older daemon (no runner) keeps the in-thread spawns.
   const processRunner = await runtime.loadProcessRunner?.().catch(() => null);
   setGitProcessRunner(processRunner?.runProcessOffThread ?? null);
+  setPhaseRecorder((await runtime.loadSlowSpan?.().catch(() => null)) ?? null);
   const host = await SessionHost.create(options, runtime);
   const desktopEvents = createDesktopEventBus(host, emit);
   const publishDesktopEvent = desktopEvents.publish;

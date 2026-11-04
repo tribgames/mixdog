@@ -1,8 +1,9 @@
 import { execFile, spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import { startGit } from '../../../../src/runtime/shared/git-launch.mjs';
+import { gitVerb, startGit } from '../../../../src/runtime/shared/git-launch.mjs';
 import { killChildTree } from '../../../../src/runtime/shared/run-child.mjs';
 import { childEnvironment, hookEnvironment } from './child-environment';
+import { notePhase, timePhase } from './phase-recorder';
 
 // Every child starts through startGit (git-launch.mjs): Git for Windows' real
 // binary rather than its launcher when the environment's PATH names one, and
@@ -59,7 +60,15 @@ export type GitProcessRunner = (
   command: string,
   args: string[],
   options: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv | null; timeoutMs?: number; maxBytes?: number }
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+) => Promise<GitProcessResult>;
+
+interface GitProcessResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+  /** Where the runner's worker spent this child's time (process-runner.mjs). */
+  timing?: { queueMs: number; spawnMs: number };
+}
 
 // Set by the daemon's desktop service: process creation is a synchronous
 // native call (seconds long under load), and every git status, review and
@@ -99,9 +108,27 @@ function runOffThread(
     maxBytes = RUN_MAX_BYTES,
     timeoutMs = 0,
   }: { input?: string; maxBytes?: number; timeoutMs?: number } = {}
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  return startGit(env, (command, childEnv) =>
-    runner(command, args, { cwd, env: childEnv, input, timeoutMs, maxBytes })
+): Promise<GitProcessResult> {
+  // Children of one read run side by side, so both sum across them; a failed
+  // child's error carries the same account.
+  const note = (timing: GitProcessResult['timing']): void => {
+    if (!timing) return;
+    notePhase('spawn-queue', timing.queueMs);
+    notePhase('spawn', timing.spawnMs);
+  };
+  return timePhase(`git.${gitVerb(args)}`, () =>
+    startGit(env, (command, childEnv) =>
+      runner(command, args, { cwd, env: childEnv, input, timeoutMs, maxBytes }).then(
+        (result: GitProcessResult) => {
+          note(result.timing);
+          return result;
+        },
+        (error: { timing?: GitProcessResult['timing'] }) => {
+          note(error?.timing);
+          throw error;
+        }
+      )
+    )
   ).catch((error: NodeJS.ErrnoException) => {
     // The runner reports its deadline as ETIMEDOUT; re-code it as a git timeout.
     if (error?.code === 'ETIMEDOUT') error.code = GIT_TIMEOUT_CODE;

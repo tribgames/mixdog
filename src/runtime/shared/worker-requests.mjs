@@ -89,7 +89,8 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
           Object.assign(
             new Error(error.message),
             { code: error.code },
-            typeof error.childExited === 'boolean' ? { childExited: error.childExited, pid: error.pid } : {}
+            typeof error.childExited === 'boolean' ? { childExited: error.childExited, pid: error.pid } : {},
+            error.timing ? { timing: error.timing } : {}
           )
         );
       } else entry.resolve(result);
@@ -183,6 +184,39 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
   return request;
 }
 
+/**
+ * {@link createWorkerRequestClient} over up to `size` workers, for work that
+ * blocks its worker's thread (a synchronous process creation): requests go to
+ * the worker with the fewest unanswered ones, so they overlap instead of
+ * queueing behind each other. A worker starts only when every earlier one is
+ * busy. Same `request`, `request.hold` and `request.running` surface.
+ *
+ * The first worker stays attached once started, as a lone worker would. Every
+ * other one retires after `idleExitMs` without a request (see
+ * createWorkerRequestClient), so a burst's extra threads do not outlive it.
+ * `request.workers()` counts the workers currently attached.
+ */
+export function createWorkerRequestPool(url, { size, idleExitMs = 0, ...options }) {
+  const members = Array.from({ length: size }, (_, index) => ({
+    request: createWorkerRequestClient(url, index === 0 ? options : { ...options, idleExitMs }),
+    unanswered: 0,
+  }));
+  function request(payload, requestOptions) {
+    const member = members.reduce((best, next) => (next.unanswered < best.unanswered ? next : best));
+    member.unanswered += 1;
+    return member.request(payload, requestOptions).finally(() => {
+      member.unanswered -= 1;
+    });
+  }
+  request.hold = () => {
+    const releases = members.map((member) => member.request.hold());
+    return () => releases.forEach((release) => release());
+  };
+  request.workers = () => members.filter((member) => member.request.running()).length;
+  request.running = () => request.workers() > 0;
+  return request;
+}
+
 /** Worker side: send `event` to the client's `onEvent`, outside any request. */
 export function postWorkerEvent(event) {
   parentPort.postMessage({ event });
@@ -205,6 +239,8 @@ export function serveWorkerRequests(handler) {
               ...(typeof error?.childExited === 'boolean'
                 ? { childExited: error.childExited, pid: error.pid ?? null }
                 : {}),
+              // A failed child's account of its time (run-child.mjs runChildTimed).
+              ...(error?.timing ? { timing: error.timing } : {}),
             },
           })
       );

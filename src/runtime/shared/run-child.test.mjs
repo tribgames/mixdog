@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
 import { TREE_KILL_DEADLINE_MS } from '../agent/orchestrator/mcp/child-tree.mjs';
-import { runChild } from './run-child.mjs';
+import { runChild, runChildTimed } from './run-child.mjs';
 
 /** A child that keeps writing (and fails once) after its kill, and exits only when told. */
 function stubbornChild() {
@@ -145,4 +145,24 @@ test('waitForExitMs: a timed-out child is killed and has exited before the timeo
   assert.equal(error.childExited, true);
   assert.ok(error.pid > 0);
   assert.equal(alive(error.pid), false, 'no child left running');
+});
+
+test('runChildTimed reports queue and spawn time for a child that ran and for one that failed', async () => {
+  const ran = await runChildTimed({ command: process.execPath, args: ['-e', ''], maxBytes: 1024 }, Date.now() - 50);
+  assert.equal(ran.code, 0);
+  assert.ok(ran.timing.queueMs >= 50 && ran.timing.spawnMs >= 0);
+
+  const failures = [
+    // A child that outlives its deadline, one that cannot be started, one past its output bound.
+    [{ command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], timeoutMs: 100, maxBytes: 1024 }, 'ETIMEDOUT'],
+    [{ command: 'mixdog-no-such-command', args: [], maxBytes: 1024 }, 'ENOENT'],
+    [{ command: process.execPath, args: ['-e', "process.stdout.write('x'.repeat(5000))"], maxBytes: 100 }, 'EMAXBUFFER'],
+  ];
+  for (const [request, code] of failures) {
+    await assert.rejects(runChildTimed(request, Date.now() - 50), (error) => {
+      assert.equal(error.code, code);
+      assert.ok(error.timing.queueMs >= 50 && error.timing.spawnMs >= 0, `${code} carries its timing`);
+      return true;
+    });
+  }
 });

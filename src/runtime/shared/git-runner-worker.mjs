@@ -3,7 +3,9 @@
 // to { code, stdout, stderr } or an error with the same codes the in-process
 // runner used (ETIMEDOUT, EMAXBUFFER, spawn errors).
 import { startGit } from './git-launch.mjs';
-import { runChild } from './run-child.mjs';
+import { runChildTimed } from './run-child.mjs';
 import { serveWorkerRequests } from './worker-requests.mjs';
 
-serveWorkerRequests((request) => startGit(request.env, (command, env) => runChild({ ...request, command, env })));
+serveWorkerRequests(({ sentAt, ...request }) =>
+  startGit(request.env, (command, env) => runChildTimed({ ...request, command, env }, sentAt))
+);

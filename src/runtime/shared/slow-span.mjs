@@ -36,10 +36,31 @@ export function markPhase(name) {
   span.mark = t;
 }
 
+/** Adds `ms` to the named cost of the caller's span. Unlike markPhase these
+ *  phases may overlap each other and the sequential ones (parallel git children,
+ *  a gate wait inside an action), so each name reports its summed time. */
+export function notePhase(name, ms) {
+  const span = current.getStore();
+  if (!span || !(ms >= 0)) return;
+  span.costs.set(name, (span.costs.get(name) ?? 0) + ms);
+}
+
+/** Runs `task`, adding its elapsed time to the caller's span under `name`. */
+export async function timePhase(name, task) {
+  const span = current.getStore();
+  if (!span) return task();
+  const started = span.now();
+  try {
+    return await task();
+  } finally {
+    notePhase(name, span.now() - started);
+  }
+}
+
 const round = (ms) => Math.round(ms);
 
 function formatSpan(span) {
-  const phases = span.phases.map(([name, ms]) => `${name}=${round(ms)}`).join(' ');
+  const phases = [...span.phases, ...span.costs].map(([name, ms]) => `${name}=${round(ms)}`).join(' ');
   return `${span.label} ${round(span.ms)}ms${phases ? ` ${phases}` : ''}`;
 }
 
@@ -63,6 +84,7 @@ export function createSlowSpans({
         end: span.end,
         ms: span.ms,
         phases: span.phases,
+        costs: span.costs,
       });
       if (ring.length > capacity) ring.shift();
     }
@@ -82,7 +104,7 @@ export function createSlowSpans({
     /** Runs `fn` inside a span; markPhase/annotateSpan inside it attach to this span. */
     async trace(label, fn) {
       const start = now();
-      const span = { label: String(label), start, mark: start, now, phases: [] };
+      const span = { label: String(label), start, mark: start, now, phases: [], costs: new Map() };
       try {
         return await current.run(span, fn);
       } finally {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { annotateSpan, createSlowSpans, markPhase, shortId } from './slow-span.mjs';
+import { annotateSpan, createSlowSpans, markPhase, notePhase, shortId, timePhase } from './slow-span.mjs';
 
 function fixture(options = {}) {
   let t = 0;
@@ -86,4 +86,26 @@ test('a throwing call is still recorded and rethrown', async () => {
 test('shortId truncates and tolerates missing ids', () => {
   assert.equal(shortId('0123456789abcdef'), '01234567');
   assert.equal(shortId(undefined), '');
+});
+
+test('noted phases sum per name, may overlap, and follow the sequential ones in the slow line', async () => {
+  const { spans, logs, advance } = fixture();
+  await spans.trace('desktop.invoke', async () => {
+    notePhase('spawn-queue', 300);
+    await timePhase('git.status', async () => advance(1000));
+    await timePhase('git.status', async () => advance(500));
+    notePhase('spawn-queue', 200);
+    notePhase('ignored', undefined);
+    markPhase('action');
+  });
+  assert.deepEqual(logs, ['[slow-op] desktop.invoke 1500ms action=1500 spawn-queue=500 git.status=1500']);
+  assert.deepEqual([...spans.recent[0].costs], [
+    ['spawn-queue', 500],
+    ['git.status', 1500],
+  ]);
+});
+
+test('phases noted outside a span are dropped', async () => {
+  notePhase('lost', 5);
+  assert.equal(await timePhase('lost', async () => 7), 7);
 });

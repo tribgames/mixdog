@@ -28,6 +28,7 @@ import {
   enforceOwnerOnlyAclWin32Async as _enforceOwnerOnlyAclWin32Async,
 } from './file-permissions.mjs';
 import { sleep, sleepSync } from './sleep.mjs';
+import { notePhase } from './slow-span.mjs';
 
 export { withFileLock, withFileLockSync };
 
@@ -70,10 +71,21 @@ function _drainAdaptiveFileIo() {
 }
 
 function _runAdaptiveFileIo(run) {
+  const queuedAt = Date.now();
+  let startedAt = 0;
   return new Promise((resolve, reject) => {
-    _ioQueue.push({ run, resolve, reject });
+    _ioQueue.push({
+      run: () => {
+        startedAt = Date.now();
+        return run();
+      },
+      resolve,
+      reject,
+    });
     _drainAdaptiveFileIo();
-  });
+    // Reported from the caller's context, not the drain's: the caller's span
+    // (slow-span.mjs) is the one that waited for a slot.
+  }).finally(() => notePhase('io-gate', (startedAt || Date.now()) - queuedAt));
 }
 
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
