@@ -2,7 +2,8 @@
 // it (the tree's own ensureDaemon), in an isolated home, behind the observation
 // entry (daemon-steady-entry.mjs). Used by daemon-steady-state.slow.test.mjs and
 // scripts/daemon-load-bench.mjs.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -100,7 +101,7 @@ export async function launchObservedDaemon({
   try {
     await prepare?.({ root, dataDir });
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 100, retryDelay: 100 });
     throw error;
   }
   const portFile = join(root, 'probe-port');
@@ -160,16 +161,10 @@ export async function launchObservedDaemon({
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    // Its helper processes release the fixture shortly after it exits.
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      try {
-        rmSync(root, { recursive: true, force: true });
-        break;
-      } catch (error) {
-        if (error?.code !== 'EBUSY' || attempt === 99) throw error;
-        await delay(100);
-      }
-    }
+    // Its helper processes release the fixture shortly after it exits. The
+    // promise rm, unlike Electron's native rmSync, removes git's read-only
+    // object files on Windows.
+    await rm(root, { recursive: true, force: true, maxRetries: 100, retryDelay: 100 });
     if (afterExitError) throw afterExitError;
   }
 

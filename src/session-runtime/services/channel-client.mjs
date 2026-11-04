@@ -60,8 +60,11 @@ export async function attachChannel({
   if (!discovery?.port || !discovery?.token || !expectedPid)
     throw new Error('daemon discovery {port, pid, token} required');
   const { port, token: serverToken } = discovery;
-  const callAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 16, maxFreeSockets: 4 });
-  const controlAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4, maxFreeSockets: 2 });
+  // Idle sockets close before the daemon's 5 s keep-alive does, so a request
+  // never lands on a socket the server is closing (ECONNRESET).
+  const idle = { keepAlive: true, keepAliveMsecs: 5_000, timeout: 4_000 };
+  const callAgent = new http.Agent({ ...idle, maxSockets: 16, maxFreeSockets: 4 });
+  const controlAgent = new http.Agent({ ...idle, maxSockets: 4, maxFreeSockets: 2 });
   const registry = createRegistrationClient({
     port,
     serverToken,
