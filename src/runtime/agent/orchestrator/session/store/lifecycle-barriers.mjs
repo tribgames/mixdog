@@ -414,10 +414,18 @@ export function isLifecycleRetry(result) {
 }
 
 /** Wait out `retry` of attempt `attempt` of `id`'s barrier; resolves the
- *  attempt number to run next. */
+ *  attempt number to run next. Rejects (ESAVEWORKERHUNG, recorded as the
+ *  id's lifecycle commit failure) when the commit waited on is a terminated
+ *  save worker's whose exit is overdue: the attempt took and wrote nothing,
+ *  so the session stays open and unchanged, and a later call retries. */
 export async function waitForLifecycleRetry(id, retry, attempt) {
   if (retry.retryAfterCommit === true) {
-    await _writeCommitSettled(id);
+    try {
+      await _writeCommitSettled(id);
+    } catch (err) {
+      _recordLifecycleCommitFailure(id, err);
+      throw err;
+    }
     return attempt;
   }
   await sleep(retry.retryInMs);
@@ -440,7 +448,12 @@ async function _runBarrierAttempts(id, options, run) {
     const result = run(attempt);
     if (!isLifecycleRetry(result)) return result;
     if (options.singleAttempt === true) return null;
-    attempt = await waitForLifecycleRetry(id, result, attempt);
+    try {
+      attempt = await waitForLifecycleRetry(id, result, attempt);
+    } catch {
+      // Recorded by the wait: no barrier landed, like any failed commit.
+      return null;
+    }
   }
 }
 

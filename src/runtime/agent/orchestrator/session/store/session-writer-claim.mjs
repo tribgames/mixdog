@@ -34,7 +34,7 @@ import {
   sameSessionStamp,
   statSessionStamp,
 } from './canonical-reader.mjs';
-import { _recordSaveDrop, _recordSaveFailure } from './live-state.mjs';
+import { _recordLifecycleCommitFailure, _recordSaveDrop, _recordSaveFailure } from './live-state.mjs';
 import { _hasSessionWriteControl, cancelSessionWrites, writeCommitSettled } from './write-guards.mjs';
 
 const CLAIM_DIR = 'session-writer-locks';
@@ -160,11 +160,21 @@ function _letGo(id, path, { cancel, after = null }) {
   if (!settled) return Promise.resolve(drop());
   const token = {};
   _releasing.set(path, token);
-  return settled.then(() => {
-    if (_releasing.get(path) !== token || _held.get(path) !== lock) return false;
-    _releasing.delete(path);
-    return drop();
-  });
+  return settled.then(
+    () => {
+      if (_releasing.get(path) !== token || _held.get(path) !== lock) return false;
+      _releasing.delete(path);
+      return drop();
+    },
+    (err) => {
+      // The rename is a terminated save worker's whose exit is overdue: it
+      // may still land, so the lock is kept and the session stays this
+      // process's to write. Reported like a close or delete it blocks.
+      _recordLifecycleCommitFailure(id, err, 'release');
+      if (_releasing.get(path) === token) _releasing.delete(path);
+      return false;
+    }
+  );
 }
 
 /**

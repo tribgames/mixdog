@@ -4,11 +4,20 @@
  * in one SharedArrayBuffer per id, so the save worker (which receives the
  * buffer inside the write guard) observes the same state as the parent.
  */
+import { threadId } from 'node:worker_threads';
+
 const _writeControls = new Map();
+
+// The commit-lock word holds its holder's owner token, never a bare 1: a
+// thread terminated inside its commit never runs its release, and only a word
+// naming that exact thread may be freed for it once it has exited
+// (releaseExitedOwnerCommits). Thread ids are unique for the process's life.
+const ownerToken = (ownerThreadId) => ownerThreadId + 1;
+const OWN_TOKEN = ownerToken(threadId);
 
 // Layout of the per-id SharedArrayBuffer:
 //   int32  [0] cancellation generation (equality-compared, wrap-safe)
-//   int32  [1] commit lock
+//   int32  [1] commit lock: 0 free, else the holder's owner token
 //   int64  @8 highest LANDED save epoch — 64-bit and 8-byte aligned so the
 //             fence can never wrap or read back negative, unlike an int32
 //             slot which a long-lived process could in principle overflow.
@@ -137,8 +146,10 @@ function _lockDeadline(timeoutMs) {
 
 // One bounded Atomics.wait on the commit-lock slot, never past the deadline.
 function _waitLockSlice(control, deadline) {
+  const holder = Atomics.load(control, 1);
+  if (holder === 0) return;
   const slice = deadline === Infinity ? 25 : Math.min(25, Math.max(1, deadline - Date.now()));
-  Atomics.wait(control, 1, 1, slice);
+  Atomics.wait(control, 1, holder, slice);
 }
 
 /**
@@ -151,10 +162,48 @@ export const WRITE_COMMIT_BUSY = Symbol('session-write-commit-busy');
 // Resolves once the lock slot reads free; the release's Atomics.notify wakes
 // it, and a release that already happened is seen by the load.
 async function _untilCommitReleased(control) {
-  while (Atomics.load(control, 1) !== 0) {
-    const waiting = Atomics.waitAsync(control, 1, 1);
-    if (waiting.async) await waiting.value;
+  for (let holder = Atomics.load(control, 1); holder !== 0; holder = Atomics.load(control, 1)) {
+    await _untilHolderMoves(control, holder);
   }
+}
+
+// Waits on a commit, by the holder's owner token. A holder that turns out to
+// be a save worker terminated inside its commit, whose exit is overdue, has
+// them answered with rejectCommitWaiters instead of left waiting forever.
+const _commitWaiters = new Map(); // token → Set<reject>
+let _onCommitWaiter = null;
+
+/** Register the listener told the owner thread id of each new commit wait. */
+export function onCommitWaiter(listener) {
+  _onCommitWaiter = listener;
+}
+
+function _untilHolderMoves(control, holder) {
+  const waiting = Atomics.waitAsync(control, 1, holder);
+  if (!waiting.async) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let waiters = _commitWaiters.get(holder);
+    if (!waiters) _commitWaiters.set(holder, (waiters = new Set()));
+    const settle = (finish) => (value) => {
+      waiters.delete(fail);
+      if (waiters.size === 0 && _commitWaiters.get(holder) === waiters) _commitWaiters.delete(holder);
+      finish(value);
+    };
+    const fail = settle(reject);
+    waiters.add(fail);
+    waiting.value.then(settle(resolve));
+    _onCommitWaiter?.(holder - 1);
+  });
+}
+
+/** Whether anything waits on a commit lock `ownerThreadId` holds. */
+export function hasCommitWaiters(ownerThreadId) {
+  return _commitWaiters.has(ownerToken(ownerThreadId));
+}
+
+/** Reject every wait on a commit lock `ownerThreadId` holds; the locks stay held. */
+export function rejectCommitWaiters(ownerThreadId, err) {
+  for (const fail of [...(_commitWaiters.get(ownerToken(ownerThreadId)) ?? [])]) fail(err);
 }
 
 // The lock was just taken: refuse a cancelled write and one a newer landed
@@ -176,14 +225,14 @@ function _heldWriteCommit(opts, control) {
 /**
  * Blocking acquisition, for a realm that may wait on its thread: the save
  * worker, and the exit drain with its bounded `timeoutMs`. The main thread
- * takes the lock with tryAcquireWriteCommit / acquireWriteCommitAsync.
+ * otherwise takes the lock with tryAcquireWriteCommit.
  */
 export function acquireWriteCommit(opts, options = {}) {
   const guard = opts?._sessionWriteGuard;
   if (!guard?.buffer) return null;
   const control = new Int32Array(guard.buffer);
   const deadline = _lockDeadline(options.timeoutMs);
-  while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
+  while (Atomics.compareExchange(control, 1, 0, OWN_TOKEN) !== 0) {
     if (Date.now() >= deadline) return WRITE_COMMIT_TIMEOUT;
     _waitLockSlice(control, deadline);
   }
@@ -196,30 +245,42 @@ export function tryAcquireWriteCommit(opts) {
   const guard = opts?._sessionWriteGuard;
   if (!guard?.buffer) return null;
   const control = new Int32Array(guard.buffer);
-  if (Atomics.compareExchange(control, 1, 0, 1) !== 0) return WRITE_COMMIT_BUSY;
+  if (Atomics.compareExchange(control, 1, 0, OWN_TOKEN) !== 0) return WRITE_COMMIT_BUSY;
   return _heldWriteCommit(opts, control);
 }
 
-/** acquireWriteCommit without blocking the thread: each refused attempt
- *  awaits the holder's release, then takes the lock with a compare-exchange. */
-export async function acquireWriteCommitAsync(opts) {
-  for (;;) {
-    const held = tryAcquireWriteCommit(opts);
-    if (held !== WRITE_COMMIT_BUSY) return held;
-    await _untilCommitReleased(new Int32Array(opts._sessionWriteGuard.buffer));
-  }
-}
-
+/** Give back a commit lock this thread holds (a word naming another owner is
+ *  never touched). */
 export function releaseWriteCommit(control) {
   if (!control) return;
-  Atomics.store(control, 1, 0);
-  Atomics.notify(control, 1);
+  if (Atomics.compareExchange(control, 1, OWN_TOKEN, 0) === OWN_TOKEN) Atomics.notify(control, 1);
+}
+
+/**
+ * Free the commit locks among `buffers` (write-guard buffers) still held by
+ * the thread `ownerThreadId`, which has EXITED: it was terminated inside its
+ * commit and never ran its release. Only a word naming exactly that thread is
+ * reset, so a lock any live thread holds is never touched. Returns how many
+ * were freed.
+ */
+export function releaseExitedOwnerCommits(buffers, ownerThreadId) {
+  const token = ownerToken(ownerThreadId);
+  let freed = 0;
+  for (const buffer of new Set(buffers)) {
+    const control = new Int32Array(buffer, 0, CONTROL_I32_LENGTH);
+    if (Atomics.compareExchange(control, 1, token, 0) !== token) continue;
+    Atomics.notify(control, 1);
+    freed++;
+  }
+  return freed;
 }
 
 /**
  * Settles once no commit holds this id's rename lock: null when none holds it
  * now, else a promise resolved by that commit's own release (its
- * Atomics.notify, through Atomics.waitAsync) — the thread never waits.
+ * Atomics.notify, through Atomics.waitAsync) — the thread never waits. It
+ * rejects (ESAVEWORKERHUNG) when the holder is a terminated save worker whose
+ * exit did not come within the hung bound; the lock stays held.
  */
 export function writeCommitSettled(id) {
   const control = _writeControls.get(id);

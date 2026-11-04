@@ -92,14 +92,22 @@ function knownSessionCwds(id) {
  * the commit lock took and changed nothing, and runs again — vetoes included
  * — once that commit's release notifies. `options.singleAttempt` (a caller
  * that decided on what it read in the first attempt's stretch, which the wait
- * would make stale) resolves false instead of waiting.
+ * would make stale) resolves false instead of waiting. A commit held by a
+ * terminated save worker whose exit is overdue resolves false too, recorded
+ * as the lifecycle commit failure (ESAVEWORKERHUNG): nothing is unlinked while
+ * that worker might still rename over the record, and a later call retries.
  */
 export async function deleteSession(id, options = {}) {
   for (;;) {
     const deleted = _deleteSessionAttempt(id, options);
     if (deleted !== _WRITE_COMMIT_BUSY) return deleted;
     if (options.singleAttempt === true) return false;
-    await _writeCommitSettled(id);
+    try {
+      await _writeCommitSettled(id);
+    } catch (err) {
+      _recordLifecycleCommitFailure(id, err, 'delete');
+      return false;
+    }
   }
 }
 

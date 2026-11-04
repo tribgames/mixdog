@@ -234,14 +234,21 @@ function wireToolPolicyRefresh(boot) {
   boot.refreshAgentProfile = refreshAgentProfile;
   boot.applyPendingAgentProfile = applyPendingAgentProfile;
   boot.currentAgents = currentAgents;
-  // A saved bot reaches this runtime's thread when its prompt embeds it (it
-  // runs as that bot, or lists it); the rebuilt prompt is saved with the session.
-  const profileChanges = subscribeAgentProfileChanges(async () => {
-    if (!(await refreshAgentProfile())) return;
-    saveSession(rt.session);
+  boot.disposeAgentProfileChanges = followAgentProfileChanges(boot);
+}
+
+/**
+ * A saved bot reaches this runtime's thread when its prompt embeds it (it
+ * runs as that bot, or lists it): every open runtime hears the change, and
+ * only one whose session it changed saves it, with the rebuilt prompt.
+ * Returns the unsubscribe.
+ */
+export function followAgentProfileChanges(boot) {
+  return subscribeAgentProfileChanges(async () => {
+    if (!(await boot.refreshAgentProfile())) return;
+    saveSession(boot.rt.session);
     boot.invalidateContextStatusCache();
-  });
-  boot.disposeAgentProfileChanges = profileChanges.unsubscribe;
+  }).unsubscribe;
 }
 
 // Built-in install adapters. Memory downloads and loads the embedding model at
@@ -674,9 +681,7 @@ function workflowAgentsApiFor(boot) {
 }
 
 /** A workspace transition's durable save: on disk when it resolves, rejects
- *  when the write fails (immediate mode only queues it). Written in this
- *  realm, so a transition never waits on the save worker, which may never
- *  come up; the commit lock is awaited, never waited for on the thread. */
+ *  when the write fails (immediate mode only queues it). */
 export function persistWorkspaceSession(session) {
   return saveSessionDurably(session);
 }

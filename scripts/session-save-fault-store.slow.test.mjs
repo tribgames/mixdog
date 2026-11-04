@@ -201,16 +201,24 @@ function holdWorkerReply(id) {
   assert.ok(worker && Number.isFinite(reqId), `a worker write of ${id} is in flight`);
   const listeners = worker.listeners('message');
   let held = null;
+  let replied;
+  const arrived = new Promise((resolve) => {
+    replied = resolve;
+  });
   const deliver = (message) => {
     for (const listener of listeners) listener.call(worker, message);
   };
   const route = (message) => {
-    if (held === null && message?.reqId === reqId) held = message;
-    else deliver(message);
+    if (held === null && message?.reqId === reqId) {
+      held = message;
+      replied();
+    } else deliver(message);
   };
   worker.removeAllListeners('message');
   worker.on('message', route);
   return {
+    /** Resolves once the held write has settled in the worker (reply held). */
+    arrived,
     release() {
       worker.off('message', route);
       for (const listener of listeners) worker.on('message', listener);
@@ -608,15 +616,27 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     const older = saveSessionAsync(raceSession);
     // Its settlement is held until the newer failure below is recorded.
     const olderSettlement = holdWorkerReply(raceId);
-    // Newer turn, whose own commit fails while that write is in flight.
+    const onDiskCount = () => JSON.parse(readFileSync(racePath, 'utf8')).messages.length;
+    let bound;
+    await Promise.race([
+      olderSettlement.arrived,
+      new Promise((_, reject) => {
+        bound = setTimeout(() => reject(new Error('the older worker write never settled')), 10_000);
+      }),
+    ]).finally(() => clearTimeout(bound));
+    assert.equal(onDiskCount(), 2, 'the older write landed before its reply');
+    // Newer turn, queued behind that write per id; the exit drain is the one
+    // path that settles it first, and its commit fails.
     raceSession.messages.push({ role: 'user', content: 'r3-live-only' });
+    const newer = saveSessionAsync(raceSession).catch(() => {});
     setSessionSaveFault({ ids: raceId, count: 1 });
-    await assert.rejects(saveSessionDurably(raceSession), /injected save commit fault/);
-    assert.ok(getSessionSaveError(raceId), 'the newer failure is recorded');
+    drainSessionStore();
+    await newer;
+    assert.match(getSessionSaveError(raceId)?.message ?? '', /injected save commit fault/, 'the newer failure is recorded');
 
     olderSettlement.release();
-    await older; // the OLDER write settles afterwards
-    assert.equal(JSON.parse(readFileSync(racePath, 'utf8')).messages.length, 2, 'the older write did land');
+    await older.catch(() => {}); // the OLDER write settles afterwards
+    assert.equal(onDiskCount(), 2, 'the older write did land');
     assert.ok(getSessionSaveError(raceId), 'an older landed write must not clear a newer failure');
     evictIdleLiveSessions({ isSessionLive: () => false });
     assert.equal(loadSession(raceId).messages.length, 3, 'the newest transcript stays pinned and readable');
@@ -1131,6 +1151,9 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     setSessionSaveFault({ ids: failId, count: 1 });
     await assert.rejects(saveSessionDurably(failSession), /injected save commit fault/);
     assert.ok(getSessionSaveError(failId), 'the newer failure is recorded');
+    // The worker took that one fault; this realm's armed copy must not fail
+    // the drain's in-process write too.
+    setSessionSaveFault(null);
     const deferredOlder = parkDeferredSnapshot(failOlder, olderEpoch);
 
     drainSessionStore();
@@ -1305,9 +1328,12 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
       updatedAt: Date.now(),
       messages: [...staleSession.messages, { role: 'assistant', content: 'newer-landed' }],
     };
-    await saveSessionDurably(newerLanded);
+    // A durable save queues behind that held write; the drain writes it
+    // under its own newer epoch and must still skip the older park.
+    const newerSave = saveSessionDurably(newerLanded);
     drainSessionStore();
     parkedWrite.release();
+    await assert.rejects(newerSave, { code: 'ESESSIONSTOREDRAINED' });
     const afterStale = JSON.parse(readFileSync(stalePath, 'utf8'));
     assert.equal(
       afterStale.messages.length,

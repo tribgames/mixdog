@@ -1,5 +1,14 @@
+import { randomBytes } from 'node:crypto';
 import { MessageChannel, Worker } from 'node:worker_threads';
-import { guardedSaveOptions as _guardedSaveOptions, releaseSessionWriteControl } from './write-guards.mjs';
+import {
+  guardedSaveOptions as _guardedSaveOptions,
+  hasCommitWaiters,
+  onCommitWaiter,
+  rejectCommitWaiters,
+  releaseExitedOwnerCommits,
+  releaseSessionWriteControl,
+} from './write-guards.mjs';
+import { sessionPath } from './session-paths.mjs';
 import { _ensureLifecycleFields } from './serialize.mjs';
 import {
   _attemptEvidence,
@@ -33,6 +42,7 @@ import {
   sessionSaveFaultSyncKey,
   _onSessionSaveFaultChange,
   _sessionStoreTestMode,
+  _discardSaveTmp,
 } from './save-fault.mjs';
 import { connectOwnCommitPeer } from './canonical-reader.mjs';
 import { sessionWriterRefusal, refuseSessionWrite } from './session-writer-claim.mjs';
@@ -53,6 +63,13 @@ export const _saveWorkerPending = new Map();
 export const _saveAsyncQueued = new Map();
 // id → reqId of the in-flight write for that id (enforces one-in-flight-per-id).
 export const _saveAsyncInflight = new Map();
+// Writes a retired worker may still be inside — commit lock held, scratch
+// file on disk — until its 'exit' proves the thread gone (_recoverExitedWorker).
+const _strandedWrites = new WeakMap(); // worker → [{ id, buffer, scratchPath }]
+// The in-flight mark of an id whose last write is stranded in such a worker is
+// `{ awaitingExitOf: worker }`: later saves of it queue behind the mark until
+// that worker's locks are back, each answered within the hung bound.
+const _awaitingExitOf = (id) => _saveAsyncInflight.get(id)?.awaitingExitOf ?? null;
 let _saveWorkerReqId = 0;
 let _saveWorkerRefCount = 0;
 let _deferredSaveReqId = 0;
@@ -391,9 +408,94 @@ function _releaseIdleWorker(worker) {
   worker.terminate().catch(() => {});
 }
 
+// ── Hung-worker watchdog ────────────────────────────────────────────────────
+// While a write is outstanding the worker must show progress — start its next
+// write or settle the current one — within SAVE_WORKER_HUNG_MS. The worker
+// runs writes one at a time, so the clock measures a single write (or the
+// spawn before the first), never the whole queue. A healthy multi-MB write
+// with fsync takes milliseconds to a few seconds even on a loaded disk; the
+// bound is the supervisor's daemon freeze limit (DAEMON_FREEZE_LIMIT_MS,
+// 120 s), past which the daemon itself would be replaced as frozen. A worker
+// silent that long is hung: it is terminated and every outstanding save
+// rejects with ESAVEWORKERHUNG, recorded as a save failure (live snapshot
+// pinned), so the next save writes the current state through a fresh worker.
+// The same clock runs for a retired worker whose 'exit' is still due (Node
+// does not bound termination: a blocking syscall can delay it indefinitely)
+// while saves queue behind its stranded writes or a close, detach, delete or
+// writer release waits on a commit lock it holds; its progress is that exit.
+// Those waits fail with ESAVEWORKERHUNG when it expires, the session stays
+// dirty, and the commit lock stays held until the exit really arrives.
+const SAVE_WORKER_HUNG_MS = 120_000;
+let _saveWorkerHungMs = SAVE_WORKER_HUNG_MS;
+const _progressTimers = new Map(); // worker → its running no-progress clock
+const _workerThreadIds = new WeakMap(); // worker → its thread id, read at spawn
+const _strandedByThread = new Map(); // thread id → retired worker not yet exited
+
+// A wait on a commit lock a retired, unexited worker holds runs on its clock.
+onCommitWaiter((ownerThreadId) => {
+  const worker = _strandedByThread.get(ownerThreadId);
+  if (worker && !_progressTimers.has(worker)) _watchWorkerProgress(worker);
+});
+
+function _clearProgressWatch(worker) {
+  clearTimeout(_progressTimers.get(worker));
+  _progressTimers.delete(worker);
+}
+
+/** Ids whose saves queue behind `worker`'s stranded writes. */
+function _idsAwaitingExitOf(worker) {
+  return (_strandedWrites.get(worker) ?? [])
+    .map(({ id }) => id)
+    .filter((id) => _awaitingExitOf(id) === worker && _saveAsyncQueued.has(id));
+}
+
+/** (Re)start `worker`'s progress clock while anything waits on it: posted
+ *  writes for the live worker; for a retired one, queued saves and waits on
+ *  the commit locks it holds. */
+function _watchWorkerProgress(worker) {
+  _clearProgressWatch(worker);
+  const waitedOn =
+    worker === _saveWorker
+      ? _saveWorkerPending.size > 0
+      : _idsAwaitingExitOf(worker).length > 0 || hasCommitWaiters(_workerThreadIds.get(worker));
+  if (!waitedOn) return;
+  const timer = setTimeout(() => _onNoProgress(worker), _saveWorkerHungMs);
+  timer.unref?.();
+  _progressTimers.set(worker, timer);
+}
+
+function _onNoProgress(worker) {
+  _progressTimers.delete(worker);
+  const err = new Error(
+    worker === _saveWorker
+      ? `[session-store] save worker made no progress for ${_saveWorkerHungMs}ms and was terminated; the session stays unsaved until its next save`
+      : `[session-store] a save worker terminated inside its commit has not exited after ${_saveWorkerHungMs}ms; the session's commit lock stays held and the session stays unsaved until a later save`
+  );
+  err.code = 'ESAVEWORKERHUNG';
+  if (worker === _saveWorker) {
+    _retireWorkerBookkeeping(err);
+    worker.terminate().catch(() => {});
+    return;
+  }
+  for (const id of _idsAwaitingExitOf(worker)) {
+    const q = _saveAsyncQueued.get(id);
+    _saveAsyncQueued.delete(id);
+    _failWorkerWrite(id, q.summaryVersion, q.waiters, err, q.epoch, q.incarnation, null);
+    _releaseSessionIncarnation(q.incarnation);
+  }
+  rejectCommitWaiters(_workerThreadIds.get(worker), err);
+}
+
 /** TEST-ONLY, gated: the live worker instance (or null), and the idle delay. */
 export function _saveWorkerForTest() {
   return _sessionStoreTestMode() ? _saveWorker : null;
+}
+
+/** TEST-ONLY, gated: the hung-worker bound (non-finite restores the default). */
+export function _setSaveWorkerHungMsForTest(ms) {
+  if (!_sessionStoreTestMode()) return false;
+  _saveWorkerHungMs = Number.isFinite(ms) && ms > 0 ? ms : SAVE_WORKER_HUNG_MS;
+  return true;
 }
 
 export function _setSaveWorkerIdleMsForTest(ms) {
@@ -450,9 +552,16 @@ function _onWorkerReply(worker, reply) {
  * fault state.
  */
 function _retireWorkerBookkeeping(err) {
+  const worker = _saveWorker;
+  _clearProgressWatch(worker);
   _saveWorker = null;
   _faultSyncedKey = null;
   _clearDeltaBaselines();
+  const stranded = [..._saveWorkerPending.values()].map((p) => ({
+    id: p.id,
+    buffer: p.opts?._sessionWriteGuard?.buffer,
+    scratchPath: p.scratchPath,
+  }));
   for (const [, p] of _saveWorkerPending) {
     _failWorkerWrite(p.id, p.summaryVersion, p.waiters, err, p.epoch, p.incarnation, _attemptEvidence(p.attempt));
     _releaseSessionIncarnation(p.incarnation);
@@ -466,8 +575,42 @@ function _retireWorkerBookkeeping(err) {
     _releaseSessionIncarnation(q.incarnation);
   }
   _saveAsyncQueued.clear();
-  _saveAsyncInflight.clear();
+  // An earlier retired worker's marks stay until that worker has exited.
+  for (const id of _saveAsyncInflight.keys()) {
+    if (!_awaitingExitOf(id)) _saveAsyncInflight.delete(id);
+  }
   _saveWorkerRefCount = 0;
+  if (worker && stranded.length > 0) {
+    _strandedWrites.set(worker, stranded);
+    _strandedByThread.set(_workerThreadIds.get(worker), worker);
+    for (const { id } of stranded) _saveAsyncInflight.set(id, { awaitingExitOf: worker });
+    // Waits already on its commit locks now run on its clock.
+    _watchWorkerProgress(worker);
+  }
+}
+
+/**
+ * The retired `worker` has exited, so nothing runs in it any more: free the
+ * commit locks its stranded writes still hold — only words naming that very
+ * thread — and their scratch files, then post what queued behind each mark.
+ */
+function _recoverExitedWorker(worker) {
+  const stranded = _strandedWrites.get(worker);
+  if (!stranded) return;
+  const ownerThreadId = _workerThreadIds.get(worker);
+  _strandedWrites.delete(worker);
+  _strandedByThread.delete(ownerThreadId);
+  _clearProgressWatch(worker);
+  releaseExitedOwnerCommits(
+    stranded.map(({ buffer }) => buffer).filter(Boolean),
+    ownerThreadId
+  );
+  for (const { id, scratchPath } of stranded) {
+    _discardSaveTmp(scratchPath);
+    if (_awaitingExitOf(id) !== worker) continue;
+    _saveAsyncInflight.delete(id);
+    _promoteQueuedWrite(id);
+  }
 }
 
 function _getOrSpawnWorker() {
@@ -484,6 +627,8 @@ function _getOrSpawnWorker() {
     workerData: { ownCommitPort: port2 },
     transferList: [port2],
   });
+  // Read now: the id is gone once the thread is.
+  _workerThreadIds.set(worker, worker.threadId);
   connectOwnCommitPeer(port1);
   _saveWorker = worker;
   // Push current fault state before any write can be posted: the worker's
@@ -509,7 +654,9 @@ function _getOrSpawnWorker() {
       return;
     }
     if (worker !== _saveWorker) return; // stale instance: not our bookkeeping
-    _onWorkerReply(worker, message);
+    // A write started (`__start`) or settled: progress either way.
+    if (message.__start === undefined) _onWorkerReply(worker, message);
+    _watchWorkerProgress(worker);
   });
   worker.on('error', (err) => {
     if (worker !== _saveWorker) return; // a replacement owns the maps now
@@ -519,14 +666,16 @@ function _getOrSpawnWorker() {
     // 'exit' ALWAYS follows 'error' (which already nulled _saveWorker) and
     // can arrive after a replacement spawned: only the current instance may
     // retire the shared bookkeeping.
-    if (worker !== _saveWorker) return;
     // Reject pending resolvers on ANY exit (code 0 included) so an idle
     // worker that races a pending postMessage cannot leak resolvers. The
     // map is empty on the normal idle-exit path so the loop is a no-op,
     // but it remains safe for the race window where exit fires after
     // saveSessionAsync registered a resolver but before the worker
     // received the message.
-    _retireWorkerBookkeeping(new Error(`[session-store] save worker exited with code ${code}`));
+    if (worker === _saveWorker) {
+      _retireWorkerBookkeeping(new Error(`[session-store] save worker exited with code ${code}`));
+    }
+    _recoverExitedWorker(worker);
   });
   worker.unref(); // don't keep process alive
   return worker;
@@ -566,11 +715,15 @@ function _postAsyncWrite(
   // nested message/tool/media field in the live session can never be
   // recorded as what a failed settlement attempted.
   const attempt = wire.attempt;
+  // Named here, so a worker terminated mid-write leaves no scratch file the
+  // parent cannot find (_recoverExitedWorker).
+  const scratch = randomBytes(6).toString('hex');
   _saveWorkerPending.set(reqId, {
     id,
     session,
     transcript,
     attempt,
+    scratchPath: `${sessionPath(id)}.${scratch}.tmp`,
     opts,
     summaryVersion,
     summaryRow,
@@ -594,11 +747,13 @@ function _postAsyncWrite(
     // receiving writes in the first run's removed directory. The dir current
     // at POST time travels with the write: a write still queued in the worker
     // when the env flips lands where its own session lives.
-    w.postMessage({ ...wireForPost, id, opts, reqId, dataDir: getPluginData() });
+    w.postMessage({ ...wireForPost, id, opts, reqId, scratch, dataDir: getPluginData() });
     // Ref AFTER successful postMessage so a queue/throw failure path does
     // not leave the worker held alive with no pending message. Paired with
     // the unref in the message handler when count hits 0.
     if (++_saveWorkerRefCount === 1) w.ref();
+    // A post is not progress: it starts the clock only when none is running.
+    if (!_progressTimers.has(w)) _watchWorkerProgress(w);
   } catch (err) {
     // Projection SUCCEEDED but posting failed: carry the exact projected
     // attempt with the error so the caller records immutable evidence
@@ -670,6 +825,17 @@ export function saveSessionAsync(session, opts, options = {}) {
     _failWorkerWrite(id, summaryVersion, [], err, epoch, null, err?.attemptSnapshot ?? null);
     return Promise.reject(err);
   }
+  return writeAdmittedSave(id, session, safeOpts, summaryVersion, epoch, revision);
+}
+
+/**
+ * Hand an ADMITTED save (live snapshot published, summary row cached, guard
+ * stamped with `epoch`) to the worker: projection and the whole-record
+ * serialization happen there, and a pure append ships only its tail. Resolves
+ * the SAVE_OUTCOME_* once the worker settled it — SAVED after the rename —
+ * and rejects on a failed write, with the same coalescing as saveSessionAsync.
+ */
+export function writeAdmittedSave(id, session, safeOpts, summaryVersion, epoch, revision = 0) {
   // Projection/clone now happen at POST time (see _postAsyncWrite): pending
   // entries hold the LIVE session reference — same object listings and the
   // exit drain already consume — so superseded saves never pay a projection.
@@ -699,6 +865,10 @@ export function saveSessionAsync(session, opts, options = {}) {
           waiters: [waiter],
         });
       }
+      // Queued behind a retired worker's stranded write: answered within the
+      // hung bound even if that worker never exits.
+      const stranded = _awaitingExitOf(id);
+      if (stranded && !_progressTimers.has(stranded)) _watchWorkerProgress(stranded);
       return;
     }
     // Idle for this id — post immediately as the in-flight write. The
@@ -792,6 +962,8 @@ export function _resetSaveWorkerBookkeeping() {
   _saveAsyncQueued.clear();
   _saveAsyncInflight.clear();
   _saveWorkerRefCount = 0;
+  for (const timer of _progressTimers.values()) clearTimeout(timer);
+  _progressTimers.clear();
   _clearDeltaBaselines();
 }
 
