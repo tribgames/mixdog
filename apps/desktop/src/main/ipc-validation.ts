@@ -431,6 +431,9 @@ const CAPABILITY_ARITY = {
   setAutoEffortBase: [1, 1],
   setMemoryToolsEnabled: [1, 1],
   getDeveloperSettings: [0, 0],
+  getNetworkProxy: [0, 1],
+  setNetworkProxy: [1, 2],
+  testNetworkProxy: [0, 1],
   setDeveloperOption: [2, 2],
   setBuiltinToolEnabled: [2, 2],
   installBuiltinFeature: [1, 2],
@@ -1504,6 +1507,19 @@ function validateSessionUsageArgs(options: unknown): void {
   }
 }
 
+/** The shape only; the runtime validates the values (an invalid address is rejected there and not stored). */
+function validateNetworkProxyPatch(patch: unknown): void {
+  const record = optionalPlainRecord(patch);
+  if (!record) throw new TypeError('network proxy settings must be an object.');
+  requireAllowedKeys(record, new Set(['mode', 'url', 'exceptions']), 'network proxy settings');
+  if (!Object.keys(record).length) throw new TypeError('network proxy settings require at least one setting.');
+  for (const key of ['mode', 'url', 'exceptions']) {
+    if (record[key] !== undefined && typeof record[key] !== 'string') {
+      throw new TypeError(`network proxy ${key} must be a string.`);
+    }
+  }
+}
+
 function validateSettingCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
   if (BOOLEAN_FIRST_CAPABILITIES.has(capability) && typeof args[0] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
@@ -1529,6 +1545,16 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
     );
   }
   if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
+  if (capability === 'setNetworkProxy') validateNetworkProxyPatch(args[0]);
+  if (capability === 'getNetworkProxy' || capability === 'testNetworkProxy' || capability === 'setNetworkProxy') {
+    const options = capability === 'setNetworkProxy' ? args[1] : args[0];
+    if (options !== undefined) {
+      const record = optionalPlainRecord(options);
+      if (!record) throw new TypeError(`${capability} options must be an object.`);
+      requireAllowedKeys(record, new Set(['provider']), `${capability} options`);
+      if (record.provider !== undefined) requiredString(record.provider, 'network proxy provider', 128);
+    }
+  }
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
     throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
   }

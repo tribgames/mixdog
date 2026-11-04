@@ -23,6 +23,7 @@ import { type CustomModel, CustomProviderModelsList } from './custom-provider-mo
 import { pairRecord, pairRows, type PairRow } from './pair-list-rows';
 import { parseRequestBody, RequestBodyField, requestBodyText, RequestOptionsSection } from './custom-request-options';
 import { errorMessageText } from '../ErrorNotice';
+import { requestOpenNetworkProxy } from './network-proxy-settings';
 
 export const CUSTOM_PROTOCOLS = [
   { value: 'openai-chat', label: 'OpenAI Chat Completions' },
@@ -116,6 +117,12 @@ function friendlyMessage(raw: string): string {
 function failure(reason: unknown): string {
   return friendlyMessage(errorMessageText(reason));
 }
+
+// A timeout or a refused connection: the network, which the proxy setting may be the cause of.
+const NETWORK_FAILURE = /timed out|ETIMEDOUT|ECONNREFUSED|fetch failed|Connection error/i;
+const isNetworkFailure = (error: RecordValue) =>
+  error.kind === 'timeout' || NETWORK_FAILURE.test(String(error.message || ''));
+const isNetworkFailureReason = (reason: unknown) => NETWORK_FAILURE.test(errorMessageText(reason));
 
 type Run = PanelContext['run'];
 
@@ -291,6 +298,8 @@ function useCustomProviderConnection({
   const [working, setWorking] = useState<'' | 'test' | 'save'>('');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveError, setSaveError] = useState('');
+  // The last failure was a timeout or refusal: offer the proxy setting.
+  const [proxyHint, setProxyHint] = useState(false);
   // Discovery errors come from discoverCustomProviderModels (Refresh models).
   const [discoveryError, setDiscoveryError] = useState('');
   const attempt = useRef(0);
@@ -308,9 +317,13 @@ function useCustomProviderConnection({
       setRows(listed);
       const error = discoveryOutcome(found, listed);
       setDiscoveryError(error ? discoveryFailure(error) : '');
+      setProxyHint(Boolean(error && isNetworkFailure(error)));
       if (error && needsManualEntry(error)) openManualEntry();
     } catch (reason) {
-      if (attempt.current === mine) setDiscoveryError(failure(reason));
+      if (attempt.current === mine) {
+        setDiscoveryError(failure(reason));
+        setProxyHint(isNetworkFailureReason(reason));
+      }
     } finally {
       if (attempt.current === mine) setWorking('');
     }
@@ -327,6 +340,7 @@ function useCustomProviderConnection({
     if (!error) return true;
     if (attempt.current === mine) {
       setSaveError(discoveryFailure(error));
+      setProxyHint(isNetworkFailure(error));
       if (needsManualEntry(error)) openManualEntry();
     }
     return false;
@@ -345,6 +359,7 @@ function useCustomProviderConnection({
         const error = record(result.error);
         if (needsManualEntry(error)) openManualEntry();
         setTestResult({ ok: false, message: discoveryFailure(error) });
+        setProxyHint(isNetworkFailure(error));
         return;
       }
       if (result.ok !== true) {
@@ -357,7 +372,10 @@ function useCustomProviderConnection({
         message: number ? t('Connection successful with key {{number}}.', { number }) : t('Connection successful.'),
       });
     } catch (reason) {
-      if (attempt.current === mine) setTestResult({ ok: false, message: failure(reason) });
+      if (attempt.current === mine) {
+        setTestResult({ ok: false, message: failure(reason) });
+        setProxyHint(isNetworkFailureReason(reason));
+      }
     } finally {
       if (attempt.current === mine) setWorking('');
     }
@@ -388,12 +406,14 @@ function useCustomProviderConnection({
     } catch (reason) {
       if (attempt.current !== mine) return;
       setSaveError(failure(reason));
+      setProxyHint(isNetworkFailureReason(reason));
       setWorking('');
     }
   };
 
   return {
     working,
+    proxyHint,
     testResult,
     saveError,
     discoveryError,
@@ -409,6 +429,7 @@ function useCustomProviderConnection({
     clearOutcome() {
       setTestResult(null);
       setSaveError('');
+      setProxyHint(false);
     },
     clearSaveError: () => setSaveError(''),
   };
@@ -420,12 +441,18 @@ function CustomProviderOutcome({
   discoveryError,
   testResult,
   saveError,
+  proxyHint,
+  onOpenProxy,
 }: {
+  onOpenProxy(): void;
   working: boolean;
   discoveryError: string;
   testResult: { ok: boolean; message: string } | null;
   saveError: string;
+  /** The failure was a timeout or refusal: link to Settings → System → Network proxy. */
+  proxyHint: boolean;
 }) {
+  const failed = Boolean(discoveryError || saveError || (testResult && !testResult.ok));
   return (
     <>
       {working && (
@@ -451,6 +478,11 @@ function CustomProviderOutcome({
           <p className="settings-error" role="alert">
             {saveError}
           </p>
+        )}
+        {failed && proxyHint && (
+          <button type="button" className="network-proxy-link" onClick={onOpenProxy}>
+            {t('Proxy settings')}
+          </button>
         )}
       </div>
     </>
@@ -539,7 +571,7 @@ function CustomProviderForm({
     openManualEntry: () => setManualOpen(true),
     onSaved: onClose,
   });
-  const { working, testResult, saveError, discoveryError, refreshModels, test, stopWaiting } = connection;
+  const { working, proxyHint, testResult, saveError, discoveryError, refreshModels, test, stopWaiting } = connection;
   const changed = connection.clearOutcome;
   const disabled = busy || working !== '';
   const close = () => {
@@ -747,6 +779,11 @@ function CustomProviderForm({
             discoveryError={discoveryError}
             testResult={testResult}
             saveError={saveError}
+            proxyHint={proxyHint}
+            onOpenProxy={() => {
+              onClose();
+              requestOpenNetworkProxy();
+            }}
           />
         </form>
         <footer>

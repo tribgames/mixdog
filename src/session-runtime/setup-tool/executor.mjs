@@ -101,6 +101,7 @@ const ACTION_APPLIES_TO = {
   install_builtin: 'every conversation, this one included, from its next turn',
   set_output_style: 'every conversation, this one included, from its next turn',
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
+  set_network_proxy: 'the next connection of every provider path; open connections keep their route',
   set_system_shell: 'subsequent shell calls',
   save_automation: 'the automation worker; scheduled runs follow the saved timing',
   delete_automation: 'future automation runs',
@@ -496,6 +497,7 @@ const SETUP_STATUS_READERS = {
   update: (rt) => rt.getUpdateSettings?.() || {},
   onboarding: (rt) => rt.getOnboardingStatus?.() || {},
   worktree: (rt) => rt.getWorktreeSettings(),
+  'network-proxy': (rt) => rt.getNetworkProxy(),
   schedules: automationStatus,
   webhooks: automationStatus,
   hooks: hookStatus,
@@ -544,7 +546,7 @@ function validateSetupInput(args) {
       }
     }
   }
-  for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount', 'worktree']) {
+  for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount', 'worktree', 'networkProxy']) {
     if (args[field] && !Object.keys(args[field]).length) throw new Error(`${field} requires at least one setting`);
   }
   return action;
@@ -742,6 +744,7 @@ const SETUP_ACTION_HANDLERS = {
   set_heartbeat_interval: (rt, args) => rt.setHeartbeatInterval(requireHeartbeatIntervalMinutes(args.minutes)),
   set_reactions_enabled: (rt, args) => rt.setReactionsEnabled(requireBoolean(args.enabled)),
   set_worktree_settings: (rt, args) => rt.setWorktreeSettings(args.worktree),
+  set_network_proxy: (rt, args) => rt.setNetworkProxy(args.networkProxy),
   forget_provider_auth: async (rt, args) => {
     const name = requireText(args.name, 'name');
     const setup = await rt.getProviderSetup({});

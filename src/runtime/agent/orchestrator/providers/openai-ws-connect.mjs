@@ -20,6 +20,8 @@
 import { lookup as dnsLookup } from 'node:dns';
 import net from 'node:net';
 import tls from 'node:tls';
+import { routeForUrl } from '../../../shared/llm/http-agent.mjs';
+import { openProxyTunnel } from '../../../shared/llm/proxy-tunnel.mjs';
 import { resolveTimeoutMs } from '../stall-policy.mjs';
 
 const DNS_TTL_MS = resolveTimeoutMs('MIXDOG_PROVIDER_WS_DNS_TTL_MS', 30_000, { minMs: 1_000, maxMs: 300_000 });
@@ -76,11 +78,39 @@ const _tlsSessions = new Map();
 /**
  * `ws` createConnection: the shared lookup for every socket, plus TLS
  * resumption for secure ones. Mirrors ws's own servername defaulting.
+ *
+ * The network proxy policy decides the route (proxy-tunnel.mjs): direct is the
+ * socket returned at once; through a proxy the socket arrives by `callback`
+ * once the CONNECT tunnel is up, and a proxy failure goes to it as an error.
  */
-export function createWsConnection(options) {
-  if (options.protocol === 'ws:' || options.protocol === 'http:') {
-    return net.connect({ ...options, path: options.socketPath, lookup: cachedLookup });
-  }
+export function createWsConnection(options, callback) {
+  // ws leaves `protocol` unset and names the scheme only through the default port.
+  const secure = options.protocol ? !(options.protocol === 'ws:' || options.protocol === 'http:') : options.defaultPort !== 80;
+  const host = net.isIP(options.host) === 6 ? `[${options.host}]` : options.host;
+  // A throw here (a manual proxy without an address) fails the handshake request.
+  const route = routeForUrl(`${secure ? 'wss' : 'ws'}://${host}:${options.port}`);
+  if (!route.then && !route.proxy) return directWsConnection(options, secure);
+  Promise.resolve(route)
+    .then(async ({ proxy }) => {
+      if (!proxy) return directWsConnection(options, secure);
+      const tunnel = await openProxyTunnel(proxy, options.host, Number(options.port));
+      const socket = secure ? secureWsConnection(options, { socket: tunnel }) : tunnel;
+      // A socket made by net.connect/tls.connect gets the handshake timeout from `options.timeout`; this one is handed in.
+      if (options.timeout) socket.setTimeout(options.timeout);
+      return socket;
+    })
+    .then(
+      (socket) => callback(null, socket),
+      (error) => callback(error)
+    );
+}
+
+function directWsConnection(options, secure) {
+  if (!secure) return net.connect({ ...options, path: options.socketPath, lookup: cachedLookup });
+  return secureWsConnection(options, { lookup: cachedLookup });
+}
+
+function secureWsConnection(options, extra) {
   const sessionKey = `${options.host}:${options.port}`;
   const servername =
     options.servername || options.servername === '' ? options.servername : net.isIP(options.host) ? '' : options.host;
@@ -88,7 +118,7 @@ export function createWsConnection(options) {
     ...options,
     path: undefined,
     servername,
-    lookup: cachedLookup,
+    ...extra,
     session: _tlsSessions.get(sessionKey),
   });
   socket.on('session', (session) => _tlsSessions.set(sessionKey, session));

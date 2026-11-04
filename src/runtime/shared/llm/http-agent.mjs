@@ -22,6 +22,7 @@
 import { createRequire } from 'node:module';
 import { BlockList, isIP } from 'node:net';
 import { runInRootAsyncContext } from '../root-async-context.mjs';
+import { currentProxySetting, decideProxyRoute } from './proxy-policy.mjs';
 
 const require = createRequire(import.meta.url);
 let _undici = null;
@@ -31,9 +32,10 @@ function undici() {
 }
 
 let _agent = null;
-let _globalInstalled = false;
-/** The system-proxy router (adoptPrivateProxy), installed as the global dispatcher. */
+/** The proxy-policy router (createProxyDispatcher), installed as the global dispatcher. */
 let _router = null;
+/** The OS route (system-proxy.mjs systemProxyRoute) registered by adoptPrivateProxy; null without one. */
+let _systemRoute = null;
 
 function envInt(name, fallback) {
   const raw = process.env[name];
@@ -43,38 +45,48 @@ function envInt(name, fallback) {
 }
 
 /**
- * Detect whether outbound HTTP is meant to flow through a proxy or any custom
- * global dispatcher. When so, pinning our own bare keep-alive `Agent` as the
- * per-request `dispatcher` would silently bypass `setGlobalDispatcher(...)` and
- * env-proxy wiring — so callers must fall back to the global dispatcher.
- *
- * What is preserved (we step aside): explicit proxy env vars, undici's built-in
- * `ProxyAgent`, and ANY non-default global dispatcher — i.e. any installed
- * global whose constructor name is not `Agent` (undici's default global is a
- * plain `Agent`). Our own singleton is never installed via
- * `setGlobalDispatcher`, so this never self-detects.
+ * Whether the global dispatcher is somebody else's: undici's ProxyAgent,
+ * EnvHttpProxyAgent, a MockAgent or a user subclass — any global whose
+ * constructor name is not the plain `Agent` undici installs by default — other
+ * than our own router. We step aside for it instead of installing the router
+ * over it.
  *
  * Accepted gap: a custom dispatcher deliberately constructed AS a plain undici
- * `Agent` and set as the global is indistinguishable from the default here, so
- * we'd keep using our shared pool. That's tolerable — such a dispatcher is
- * itself a direct-connection pool (no proxy hop), so the bypass risk is minimal.
+ * `Agent` and set as the global is indistinguishable from the default here.
  */
-function proxyConfigured() {
-  const env = process.env;
-  if (PROXY_VARS.some((name) => env[name])) return true;
-  if (env.NODE_USE_ENV_PROXY) return true;
-  try {
-    const g = undici().getGlobalDispatcher?.();
-    // Our own router sends its direct origins to the shared pool below.
-    if (_router && g === _router) return false;
-    // Any non-default global dispatcher (constructor name other than the plain
-    // `Agent` undici installs by default) is treated as custom — ProxyAgent,
-    // EnvHttpProxyAgent, MockAgent, or a user subclass — and we step aside.
-    if (g?.constructor && g.constructor.name !== 'Agent') return true;
-  } catch {
-    /* getGlobalDispatcher unavailable — treat as no proxy */
-  }
-  return false;
+function foreignDispatcher() {
+  const g = undici().getGlobalDispatcher();
+  return g !== _router && !!g?.constructor && g.constructor.name !== 'Agent';
+}
+
+/**
+ * Make the proxy-policy router the global dispatcher, so that every fetch of
+ * this process follows the network proxy setting (proxy-policy.mjs). With
+ * `replaceForeign` it also replaces another global dispatcher (what adopting
+ * the environment or the OS proxy always did). Returns whether the router is
+ * installed.
+ */
+function installPolicyRouter(replaceForeign) {
+  if (_router && undici().getGlobalDispatcher() === _router) return true;
+  if (!replaceForeign && foreignDispatcher()) return false;
+  _router = createProxyDispatcher();
+  undici().setGlobalDispatcher(_router);
+  return true;
+}
+
+/**
+ * The route for `target` (an http(s) or ws(s) URL) under the network proxy
+ * setting: `{ proxy, via }` (see decideProxyRoute), or a promise of one while
+ * the OS route is looked up. Throws for a manual proxy without an address.
+ * Raw-socket paths (WebSocket, HTTP/2) ask this too, to tunnel like fetch does.
+ */
+export function routeForUrl(target, setting = currentProxySetting()) {
+  return decideProxyRoute(target, { setting, env: process.env, system: _systemRoute, isLocalHost });
+}
+
+/** The OS proxy route of `origin` whatever the setting says (to describe what `off` ignores); `{ proxy: null }` without one. */
+export function osProxyRoute(origin) {
+  return _systemRoute ? _systemRoute(origin) : { proxy: null };
 }
 
 const PROXY_VARS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
@@ -148,47 +160,37 @@ export function withEnvProxy(env) {
 }
 
 /**
- * The global dispatcher under a proxy: local and LAN hosts (isLocalHost, which
- * includes every dotless name) connect directly, every other host follows the
- * proxy variables and NO_PROXY. `direct` and `proxied` replace the two inner
- * dispatchers (tests).
+ * The global dispatcher: each origin goes where the network proxy setting
+ * sends it (routeForUrl) — the shared LLM pool when direct, a ProxyAgent leg
+ * of the chosen proxy otherwise. The setting is asked per request, so a change
+ * applies to the next connection. `direct` and `proxied` replace the legs
+ * (tests); a `direct` dispatcher instance stands for the pool.
  */
 export function createProxyDispatcher({ direct = null, proxied = null } = {}) {
-  const { Agent, Dispatcher, EnvHttpProxyAgent } = undici();
-  class LocalBypassProxyAgent extends Dispatcher {
-    #direct = direct ?? new Agent();
-    #proxied = proxied ?? new EnvHttpProxyAgent();
-
-    dispatch(opts, handler) {
-      const { hostname } = new URL(opts.origin);
-      return (isLocalHost(hostname) ? this.#direct : this.#proxied).dispatch(opts, handler);
-    }
-
-    async close() {
-      await Promise.all([this.#direct.close(), this.#proxied.close()]);
-    }
-
-    async destroy(error) {
-      await Promise.all([this.#direct.destroy(error), this.#proxied.destroy(error)]);
-    }
-  }
-  return new LocalBypassProxyAgent();
+  return createRoutedProxyDispatcher({
+    route: routeForUrl,
+    direct: direct ? () => direct : llmAgent,
+    proxied: proxied ?? ((uri) => new (undici().ProxyAgent)({ ...llmAgentOptions(), uri })),
+    // Local hosts are the policy's call (a manual proxy has no hardcoded bypass).
+    bypassLocal: false,
+  });
 }
 
 let _envProxyAdopted = false;
 
 /**
- * Honour proxy variables in this already-running process (createProxyDispatcher
- * as the global dispatcher) and, through the inherited env, in every child it
- * spawns. No-op without a proxy variable, when the user set NODE_USE_ENV_PROXY
- * to anything but 1, or once adopted.
+ * Install the proxy-policy router as this process's global dispatcher and,
+ * when the environment holds proxy variables, mark the env so that every child
+ * this process spawns honours them too. Returns whether the env was marked:
+ * false without a proxy variable, when the user set NODE_USE_ENV_PROXY to
+ * anything but 1, or once adopted.
  */
 export function adoptEnvProxy(env = process.env) {
+  installPolicyRouter(true);
   const next = withEnvProxy(env);
   if (_envProxyAdopted || next.NODE_USE_ENV_PROXY !== '1' || !PROXY_VARS.some((name) => next[name])) return false;
   env.NODE_USE_ENV_PROXY = '1';
   if (next.NO_PROXY !== undefined) env.NO_PROXY = next.NO_PROXY;
-  undici().setGlobalDispatcher(createProxyDispatcher());
   _envProxyAdopted = true;
   return true;
 }
@@ -261,9 +263,11 @@ function startDeferred(handler) {
 
 /**
  * A dispatcher that routes each origin on its own: local and LAN hosts connect
- * directly without asking, every other origin by `route(origin)` — `{ proxy }`
- * (a proxy URL, or null for direct), or a promise of one, which the request
- * waits for. A request aborted meanwhile settles at once and is never sent.
+ * directly without asking (unless `bypassLocal` is false: then `route` decides
+ * for them too), every other origin by `route(origin)` — `{ proxy }` (a proxy
+ * URL, or null for direct), or a promise of one, which the request waits for.
+ * A `route` that throws or rejects fails the request: it never goes direct. A
+ * request aborted meanwhile settles at once and is never sent.
  * `direct()` gives the direct leg (read per request: the pool can be replaced),
  * `proxied(uri)` builds the leg of one proxy, kept for reuse.
  */
@@ -271,6 +275,7 @@ export function createRoutedProxyDispatcher({
   route,
   direct = null,
   proxied = (uri) => new (undici().ProxyAgent)({ uri }),
+  bypassLocal = true,
 }) {
   const { Agent, Dispatcher } = undici();
   let ownDirect = null;
@@ -291,15 +296,18 @@ export function createRoutedProxyDispatcher({
 
     dispatch(opts, handler) {
       const url = new URL(opts.origin);
-      const decided = isLocalHost(url.hostname) ? null : route(url.origin);
+      let decided = null;
+      if (!bypassLocal || !isLocalHost(url.hostname)) {
+        try {
+          decided = route(url.origin);
+        } catch (error) {
+          decided = Promise.reject(error);
+        }
+      }
       if (typeof decided?.then !== 'function') return this.#leg(decided).dispatch(opts, handler);
       const started = startDeferred(handler);
-      decided
-        .then(
-          (decision) => decision,
-          () => null
-        )
-        .then((decision) => {
+      decided.then(
+        (decision) => {
           const legHandler = started();
           if (!legHandler) return;
           try {
@@ -307,7 +315,12 @@ export function createRoutedProxyDispatcher({
           } catch (error) {
             failDispatch(legHandler, error);
           }
-        });
+        },
+        (error) => {
+          const legHandler = started();
+          if (legHandler) failDispatch(legHandler, error);
+        }
+      );
       return true;
     }
 
@@ -323,23 +336,17 @@ export function createRoutedProxyDispatcher({
 }
 
 /**
- * Route this process's fetch per origin by a proxy decision that came from the
- * OS rather than from the user's environment (system-proxy.mjs): `route` as in
- * createRoutedProxyDispatcher. It lives in the dispatcher only: no proxy
- * variable is written, so shells, tools and other CLIs this process spawns see
- * none. Direct origins use the shared LLM pool and every proxy leg its
- * settings. No-op once a proxy is adopted.
+ * Let the network proxy policy follow a proxy decision that came from the OS
+ * rather than from the user's environment (system-proxy.mjs): `route` as in
+ * createRoutedProxyDispatcher, asked in `system` mode for hosts the user's
+ * variables do not cover. It lives in the dispatcher only: no proxy variable
+ * is written, so shells, tools and other CLIs this process spawns see none.
+ * Returns false when `route` is already the one registered.
  */
 export function adoptPrivateProxy(route) {
-  if (_envProxyAdopted) return false;
-  const router = createRoutedProxyDispatcher({
-    route,
-    direct: llmAgent,
-    proxied: (uri) => new (undici().ProxyAgent)({ ...llmAgentOptions(), uri }),
-  });
-  undici().setGlobalDispatcher(router);
-  _router = router;
-  _envProxyAdopted = true;
+  if (_systemRoute === route) return false;
+  _systemRoute = route;
+  installPolicyRouter(true);
   return true;
 }
 
@@ -370,7 +377,6 @@ function llmAgentOptions() {
 function llmAgent() {
   if (_agent?.destroyed || _agent?.closed) {
     _agent = null;
-    _globalInstalled = false;
   }
   _agent ??= new (undici().Agent)({ ...llmAgentOptions(), connect: rootContextConnector() });
   return _agent;
@@ -392,59 +398,31 @@ function rootContextConnector() {
  * between agent turns; sockets per origin are unbounded unless
  * MIXDOG_LLM_CONNECTIONS sets a cap.
  *
- * Returns `undefined` when a proxy / any custom (non-default) global dispatcher
- * is configured, so `fetch({ dispatcher: undefined })` falls back to that
- * global dispatcher instead of bypassing it. `dispatcher: undefined` is a
- * harmless fetch option, so call sites need no change. Under the system-proxy
- * router (the global dispatcher) the pool is its direct leg.
+ * Always returns `undefined`: it installs the proxy-policy router as the
+ * global dispatcher (unless a custom, non-default global dispatcher is already
+ * there, which is left alone), so `fetch({ dispatcher: undefined })` rides it.
+ * mixdog standalone has a separate undici instance from Node's fetch undici,
+ * so a per-request dispatcher would throw UND_ERR_INVALID_ARG anyway. The pool
+ * is the router's direct leg. See port-plan D7.
  */
 export function getLlmDispatcher() {
-  if (proxyConfigured() || _router) return undefined;
-  llmAgent();
-  // mixdog standalone: separate undici instance from Node's fetch undici, so
-  // a per-request dispatcher throws UND_ERR_INVALID_ARG. Install globally once
-  // and omit the per-request dispatcher. See port-plan D7.
-  if (!_globalInstalled) {
-    try {
-      undici().setGlobalDispatcher(_agent);
-      _globalInstalled = true;
-    } catch {
-      /* fall back */
-    }
-  }
-  return _globalInstalled ? undefined : _agent;
+  installPolicyRouter(false);
+  return undefined;
 }
 
 /**
- * Replace the global pool before retiring its old generation. SDK clients
+ * Replace the direct pool before retiring its old generation. SDK clients
  * use global fetch without calling getLlmDispatcher() on every attempt.
  * Graceful close drains unrelated in-flight requests instead of aborting
- * every provider because one origin failed. No-op under a proxy.
+ * every provider because one origin failed. No-op under a custom dispatcher.
  */
 export function recycleLlmDispatcher() {
-  if (proxyConfigured()) return false;
+  if (foreignDispatcher()) return false;
   const old = _agent;
   if (!old) return false;
   _agent = null;
-  _globalInstalled = false;
   _preconnectedAt.clear();
   // The router asks for the pool per request, so the next one gets a new pool.
-  if (_router) {
-    try {
-      old.close().catch(() => {});
-    } catch {}
-    return true;
-  }
-  getLlmDispatcher();
-  if (undici().getGlobalDispatcher() !== _agent) {
-    const unused = _agent;
-    _agent = old;
-    _globalInstalled = false;
-    try {
-      unused?.close()?.catch?.(() => {});
-    } catch {}
-    return false;
-  }
   try {
     old.close().catch(() => {});
   } catch {
@@ -476,9 +454,9 @@ function _preconnectTtlMs() {
  */
 export function preconnect(origin) {
   try {
-    // With a proxy / custom global dispatcher in play we deliberately don't own
-    // the connection pool, so there's no warm socket to seed — no-op.
-    if (proxyConfigured()) return;
+    // Under a custom global dispatcher we deliberately don't own the
+    // connection pool, so there's no warm socket to seed — no-op.
+    if (foreignDispatcher()) return;
     if (!origin || typeof origin !== 'string') return;
     let url;
     try {

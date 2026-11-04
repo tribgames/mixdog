@@ -44,6 +44,7 @@ import { preloadProviderPanel } from './provider-panel';
 import { FOCUSABLE_SELECTOR, openModal, portaledMenuOpen, trapTab } from './dialog-modality';
 import { preloadGitPanelInfo } from './git-panel-info';
 import { ServerSettingsScope } from './server-settings-scope';
+import { onOpenNetworkProxyRequest } from './network-proxy-settings';
 import { RemotePcLabel } from '../RemotePcSwitcher';
 import {
   DEVICE_SETTINGS_CATEGORIES,
@@ -143,6 +144,8 @@ export const SettingsView = memo(function SettingsView({
     },
     [remoteSettings, hostOpenAccess, serverWindow]
   );
+  // A failed provider check links to the System page's Network proxy group.
+  useEffect(() => onOpenNetworkProxyRequest(() => openCategory('system')), [openCategory]);
   const deviceCategory = category === 'display' || category === 'skin';
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);

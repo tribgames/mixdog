@@ -26,6 +26,7 @@ import { DelegationPanel, InstructionBadges, useInstructionEditor } from './inst
 import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
 import { NotificationsPanel } from './notification-panel';
+import { NetworkProxyGroup } from './network-proxy-settings';
 import { WorktreesPanel } from './worktrees-panel';
 
 import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
@@ -620,6 +621,7 @@ function SystemPanel(context: PanelContext) {
       {/* The updater is this PC's: a server window has no update entry. */}
       {!isSshConnectionWindow() && <UpdatePanel {...context} />}
       <DesktopPowerGroup />
+      <NetworkProxyGroup active={context.active} />
       <Group title={t('Diagnostics')}>
         <ResourceRow
           title={t('Runtime, providers and installation')}
