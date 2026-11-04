@@ -647,6 +647,8 @@ test('export problem lines carry no host path and no page-server lease URL', () 
     exportProblemLine('error', `read ${join(cwd, 'design', 'a.png')} failed`, 0, [cwd]),
     exportProblemLine('error', 'read C:\\Users\\someone\\private\\data.json failed', 0, [cwd]),
     exportProblemLine('error', 'read /home/someone/private/data.json failed'),
+    // An off-screen render's own origin.
+    exportProblemLine('error', `at http://${'0f'.repeat(16)}.localhost/${token}/app.js`, 0, [cwd]),
   ];
   for (const line of lines) {
     assert.doesNotMatch(
