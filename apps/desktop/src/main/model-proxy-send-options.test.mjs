@@ -28,11 +28,13 @@ const NOT_SEND_OPTIONS = new Map([
   ['openai-ws-connect.mjs::all', '`options` is the dns.lookup options object of the cached lookup'],
   ['openai-ws-connect.mjs::family', '`options` is the dns.lookup options object of the cached lookup'],
   ['openai-ws-connect.mjs::hints', '`options` is the dns.lookup options object of the cached lookup'],
+  ['openai-ws-connect.mjs::defaultPort', "`options` is the ws library's socket connect options (createConnection)"],
   ['openai-ws-connect.mjs::host', "`options` is the ws library's socket connect options (createConnection)"],
   ['openai-ws-connect.mjs::port', "`options` is the ws library's socket connect options (createConnection)"],
   ['openai-ws-connect.mjs::protocol', "`options` is the ws library's socket connect options (createConnection)"],
   ['openai-ws-connect.mjs::servername', "`options` is the ws library's socket connect options (createConnection)"],
   ['openai-ws-connect.mjs::socketPath', "`options` is the ws library's socket connect options (createConnection)"],
+  ['openai-ws-connect.mjs::timeout', "`options` is the ws library's socket connect options (createConnection)"],
   [
     'effort-configuration.mjs::protocol',
     "the custom route's wire protocol, set by the adapter itself from its own provider config",
