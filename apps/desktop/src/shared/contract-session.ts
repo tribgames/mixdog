@@ -143,6 +143,10 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   toolCalls?: number | null;
   /** The agent's own step list: finished of counted steps, and the step in hand. */
   todo?: { completed: number; total: number; current?: string } | null;
+  /** The usage-ledger token of the row's group (its Lead and the agents under
+   *  it): moves exactly when a ledger figure for the group can have changed.
+   *  Every row of a group carries the same value. */
+  ledgerToken?: string;
 }
 
 export interface DesktopAgentPoolUsage {

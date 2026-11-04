@@ -12,13 +12,14 @@
  *  this daemon's in-memory turn activity (every session runs inline here, so
  *  it is the single source of truth; worker index files only declare work). */
 async function loadSessionStoreWithRuntimeActivity() {
-  const [store, runtime, progress, tasks, liveState] = await Promise.all([
+  const [store, runtime, progress, tasks, liveState, groupTokens] = await Promise.all([
     import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
     // The import-free leaf holding the runtime map: no session manager graph.
     import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
     import('../runtime/agent/orchestrator/session/agent-pool-progress.mjs'),
     import('../runtime/shared/background-tasks.mjs'),
     import('../runtime/agent/orchestrator/session/store/live-state.mjs'),
+    import('../runtime/shared/llm/usage-group-tokens.mjs'),
   ]);
   return {
     ...store,
@@ -34,9 +35,12 @@ async function loadSessionStoreWithRuntimeActivity() {
       });
       const awaiting = tasks.activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true });
       return progress.withTurnProgress(
-        progress.withLiveUsage(
-          progress.withLiveTodo(rows, (sessionId) => liveState._liveSessions.get(sessionId)),
-          (sessionId) => liveState._liveSessions.get(sessionId)
+        progress.withLedgerToken(
+          progress.withLiveUsage(
+            progress.withLiveTodo(rows, (sessionId) => liveState._liveSessions.get(sessionId)),
+            (sessionId) => liveState._liveSessions.get(sessionId)
+          ),
+          groupTokens.groupUsageTokens
         ),
         (sessionId) => runtime.runtimeState.get(sessionId),
         runtime.isTurnInFlight,

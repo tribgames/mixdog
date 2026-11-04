@@ -13,9 +13,11 @@ import { usageRollupDayKey, isConversationUsageSource, num } from './usage-rollu
 import { priceUsage } from './cost.mjs';
 import {
   DAY_REVISION_SCHEMA,
+  prepareSessionDays,
   assembleRollup,
   knownRollupDays,
   readSessionUsage,
+  readUsageToken,
   rollupDelta,
   rollupUsage,
 } from './usage-ledger-rollup.mjs';
@@ -27,6 +29,7 @@ import {
   readUsageRequests,
 } from './usage-ledger-requests.mjs';
 import { SHARE_ENV } from 'node:worker_threads';
+import { emitSessionActivityChange } from '../session-activity-signal.mjs';
 import { createWorkerRequestClient } from '../worker-requests.mjs';
 
 // One worker (usage-ledger-worker.mjs) runs the ledger's heavy SQLite work —
@@ -48,6 +51,11 @@ const requestLedgerWorker = createWorkerRequestClient(new URL('./usage-ledger-wo
 export function usageLedgerWorkerRunning() {
   return requestLedgerWorker.running();
 }
+// Worker operations that change what the ledger holds. Their completion is a
+// commit this process learns of, so the Agents pool (which carries the group
+// ledger tokens) is woken to re-read it.
+const WRITE_OPERATIONS = new Set(['record', 'applyRepair']);
+
 const stores = new Map();
 const ROLLUP_CACHE_LIMIT = 8;
 const windowShape = (options) => JSON.stringify({ ...options, fromMs: undefined, toMs: undefined });
@@ -428,6 +436,7 @@ export class UsageLedger {
             ${REQUEST_LOG_SCHEMA}
             PRAGMA user_version=2;
         `);
+    prepareSessionDays(this.db);
     this.prepareStatements();
   }
 
@@ -450,7 +459,23 @@ export class UsageLedger {
 
   /** Run one ledger-worker operation against this ledger's file. */
   workerRequest(op, payload = {}) {
-    return requestLedgerWorker({ ...payload, op, path: this.path });
+    const request = requestLedgerWorker({ ...payload, op, path: this.path });
+    if (!WRITE_OPERATIONS.has(op)) return request;
+    return request.finally(() => emitSessionActivityChange());
+  }
+
+  /** Moves when any connection or process commits to the ledger (cheap; for deciding whether to ask anything). */
+  commitStamp() {
+    const { local, shared } = this.changeStamp.get();
+    return `${local}:${shared}`;
+  }
+
+  /** The tokens (readUsageToken) of groups `{ owner, ids }`, read on the ledger worker, in order. */
+  usageTokensAsync(groups) {
+    if (this.path === ':memory:') {
+      return Promise.resolve().then(() => groups.map(({ owner, ids }) => readUsageToken(this.db, ids, [owner])));
+    }
+    return this.workerRequest('usageTokens', { groups });
   }
 
   close() {
@@ -548,6 +573,7 @@ export class UsageLedger {
         inserted += 1;
       }
       this.db.exec('COMMIT');
+      emitSessionActivityChange();
       return inserted;
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -788,6 +814,12 @@ export class UsageLedger {
     // most recently used queries only.
     if (this.rollups.size > ROLLUP_CACHE_LIMIT) this.rollups.delete(this.rollups.keys().next().value);
   }
+}
+
+/** The ledger this process already has open, or null (asking never opens one). */
+export function usageLedgerIfOpen() {
+  const path = usageLedgerPath();
+  return (path && stores.get(path)) || null;
 }
 
 export function getUsageLedger() {

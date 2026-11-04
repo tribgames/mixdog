@@ -137,27 +137,38 @@ export function useCommandSurfaceLifecycle({
         return;
       }
       const capabilities = LOADERS[surface];
-      const results = await Promise.all(
-        capabilities.map((capability) => {
-          const read = readSurfaceCapability(
-            api,
-            capabilityRequest(
-              capability,
-              surface === 'context' && capability === 'contextStatus' ? [{ inspect: true }] : []
-            )
-          );
-          // The session-spend footer is secondary: a ledger failure leaves it
-          // out instead of failing the context reading beside it.
-          return capability === 'getSessionUsage' ? read.catch((): Awaited<typeof read> => ({ value: null })) : read;
-        })
-      );
+      const reads = capabilities.map((capability) => {
+        const read = readSurfaceCapability(
+          api,
+          capabilityRequest(capability, surface === 'context' && capability === 'contextStatus' ? [{ inspect: true }] : [])
+        );
+        // The session-spend footer is secondary: a ledger failure leaves it
+        // out instead of failing the context reading beside it.
+        return capability === 'getSessionUsage' ? read.catch((): Awaited<typeof read> => ({ value: null })) : read;
+      });
+      // The ledger answers behind whatever else is queued on its worker, so the
+      // spend never holds the reading back: it fills in when it arrives.
+      const usageAt = capabilities.indexOf('getSessionUsage');
+      const results = await Promise.all(reads.map((read, index) => (index === usageAt ? undefined : read)));
       if (loadSequence.current === request) {
         const next: Record<string, unknown> = {
-          ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
+          ...Object.fromEntries(
+            capabilities.map((capability, index) => [
+              capability,
+              index === usageAt ? cached?.[capability] : results[index]?.value,
+            ])
+          ),
           ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
         if (cacheable) writeSurfaceDataCache(cacheKey, next);
         setData(next);
+        if (usageAt >= 0) {
+          void reads[usageAt]?.then((usage) => {
+            if (loadSequence.current !== request) return;
+            if (cacheable) writeSurfaceDataCache(cacheKey, { ...next, getSessionUsage: usage.value });
+            setData((current) => ({ ...current, getSessionUsage: usage.value }));
+          });
+        }
       }
     } catch (reason) {
       if (loadSequence.current === request) {

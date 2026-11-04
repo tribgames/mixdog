@@ -98,6 +98,40 @@ test('usage getters omit snapshots while context, inheritance and commands retai
   assert.equal(reads.length, 2);
 });
 
+test('the context reading renders without waiting for the session spend, which fills in when it arrives', async (context) => {
+  clearSurfaceDataCache();
+  context.after(clearSurfaceDataCache);
+  let current;
+  function Harness(props) {
+    current = useCommandSurfaceLifecycle({ ...props, open: true });
+    return null;
+  }
+  const render = setupDomHarness(context, Harness);
+  const snapshot = { sessionId: 'session-test', items: [] };
+  const spend = { resolve: null };
+  const api = {
+    invokeCapability(request) {
+      if (request.capability === 'getSessionUsage') {
+        return new Promise((resolve) => {
+          spend.resolve = resolve;
+        });
+      }
+      return Promise.resolve({ value: { used: 42 }, snapshot });
+    },
+  };
+  await render({ surface: 'context', sessionId: 'session-test', api });
+  assert.equal(current.loading, false, 'the reading is not held by the ledger');
+  assert.equal(current.refreshing, false);
+  assert.deepEqual(current.data.contextStatus, { used: 42 });
+  assert.deepEqual(current.data.snapshot, snapshot);
+  assert.equal(current.data.getSessionUsage, undefined);
+
+  await act(async () => spend.resolve({ value: { tokens: 7 } }));
+  assert.deepEqual(current.data.getSessionUsage, { tokens: 7 });
+  assert.deepEqual(current.data.contextStatus, { used: 42 }, 'the reading is kept when the spend lands');
+  assert.deepEqual(readSurfaceDataCache(current.cacheKey).getSessionUsage, { tokens: 7 });
+});
+
 test('command surface cache enforces bounded LRU eviction at limit 64', () => {
   clearSurfaceDataCache();
 

@@ -14,6 +14,7 @@ import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismi
 import { AgentPoolRow } from './AgentActivityPane';
 import { clearableAgentNode, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
+import type { DesktopAgentPoolRow } from '../shared/contract';
 import {
   AGENT_POOL_RECONCILE_MS,
   agentPoolStore,
@@ -32,7 +33,12 @@ import {
   type JobRow,
   type ShellStopState,
 } from './background-jobs-model';
-import { type IslandUsageSummary, islandUsageSummary, useIslandSessionUsage } from './island-session-usage';
+import {
+  type IslandUsageSummary,
+  islandUsageCue,
+  islandUsageSummary,
+  useIslandSessionUsage,
+} from './island-session-usage';
 import { statsCount, statsPercent, statsTokens } from './usage-stats-model';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
@@ -1096,12 +1102,11 @@ function useAutoDismissShells(sessionId: string, rows: JobRow[]): void {
 
 /** The session's agent rows, finished ones included; polls the shared pool
  *  only while any of them is active. */
-function useIslandAgentRows(sessionId: string): IslandAgentRow[] {
+function useIslandAgentRows(sessionId: string): { agentRows: IslandAgentRow[]; poolRows: DesktopAgentPoolRow[] | null } {
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
+  const poolRows = useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot);
   // Rows the user cleared ("Clear finished") are not listed.
-  const pool = useVisibleAgentPool(
-    useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot)
-  );
+  const pool = useVisibleAgentPool(poolRows);
   const agentRows = useMemo(() => islandAgentRows(pool, sessionId), [pool, sessionId]);
   const hasActive = agentRows.some((row) => !row.finished);
   // An off-screen conversation keeps no reconcile poll alive.
@@ -1111,7 +1116,18 @@ function useIslandAgentRows(sessionId: string): IslandAgentRow[] {
     if (!hasActive || !surfaceActive) return undefined;
     return subscribeSharedPoll(poolStore, () => void refreshAgentPool(poolStore), AGENT_POOL_RECONCILE_MS);
   }, [hasActive, poolStore, surfaceActive]);
-  return agentRows;
+  return { agentRows, poolRows };
+}
+
+/** How many turns of the session have settled (busy, then idle) since it was shown. */
+function useSettledTurns(busy: boolean): number {
+  const wasBusy = useRef(busy);
+  const [settled, setSettled] = useState(0);
+  useEffect(() => {
+    if (wasBusy.current && !busy) setSettled((count) => count + 1);
+    wasBusy.current = busy;
+  }, [busy]);
+  return settled;
 }
 
 /** The pill's agents segment: every agent of the session, finished ones
@@ -1336,7 +1352,7 @@ export const ComposerIsland = memo(function ComposerIsland({
   const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
   const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);
   useAutoDismissShells(sessionId, jobRows);
-  const agentRows = useIslandAgentRows(sessionId);
+  const { agentRows, poolRows } = useIslandAgentRows(sessionId);
   const shellRows = jobRows.filter((row) => !row.finished);
   const finishedShellCount = jobRows.filter((row) => row.finished).length;
   const shellCount = Math.max(Number(snapshot.shellJobs?.count) || 0, shellRows.length);
@@ -1347,15 +1363,12 @@ export const ComposerIsland = memo(function ComposerIsland({
   const [expanded, setExpanded] = useState<ComposerIslandTab>('');
   const toggle = (tab: 'agents' | 'shells') => setExpanded(expanded === tab ? '' : tab);
   const agentSessionIds = useMemo(() => agentRows.map(({ node }) => node.sessionId).filter(Boolean), [agentRows]);
-  // The refresh cue is what moves the ledger: an agent's running totals ride its
-  // pool row, the Lead's ride its usage readout (replaced on every model call),
-  // and a turn settling closes the last call. Any other lane frame (streamed
-  // text, spinner) leaves the ledger as it was; the hook throttles the cues.
-  const leadUsage = snapshot.stats?.usageReadout;
-  const leadBusy = snapshot.busy;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: leadUsage and leadBusy are cues, not read
-  const usageRevision = useMemo(() => ({ agentRows }), [agentRows, leadUsage, leadBusy]);
-  const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, expanded === 'agents', usageRevision);
+  // The ledger is read on opening and whenever the token of this session's
+  // group (carried on the pool rows) moves or a turn of the Lead settles; the
+  // hook never overlaps two reads.
+  const settledTurns = useSettledTurns(Boolean(snapshot.busy));
+  const usageCue = islandUsageCue(poolRows, sessionId, settledTurns);
+  const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, expanded === 'agents', usageCue);
   const usageSummary = useMemo(
     () => islandUsageSummary(sessionUsage, agentSessionIds),
     [sessionUsage, agentSessionIds]
