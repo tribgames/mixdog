@@ -1,4 +1,4 @@
-// A second Mixdog process on the test's data dir (session-writer-claim.test.mjs),
+// A second Mixdog process on the test's data dir (session-writer-claim.slow.test.mjs),
 // driven by one JSON command per stdin line and answering one JSON line each.
 import { createInterface } from 'node:readline';
 
