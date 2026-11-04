@@ -91,7 +91,7 @@ function _dropLock(path, lock) {
 }
 
 // The lock is only this session's while its file is still the one locked: a
-// delete unlinks the file, and a lock on the unlinked inode guards nothing.
+// Windows release unlinks the file, and a lock on an unlinked file guards nothing.
 function _acquire(path) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const lock = acquireOsExclusiveLockSync(path, { namespace: LOCK_NAMESPACE });
@@ -145,14 +145,13 @@ export function heldSessionWriterIds() {
 // when none does, else when that rename's own release notifies (the lock is
 // kept until then). A claim taken up again in between keeps it. `cancel`
 // first cancels every write admitted under it. Resolves whether it went.
-function _letGo(id, path, { cancel, after = null }) {
+function _letGo(id, path, { cancel }) {
   const lock = _held.get(path);
   if (!lock) return Promise.resolve(false);
   if (cancel && _hasSessionWriteControl(id)) cancelSessionWrites(id);
   const drop = () => {
     _held.delete(path);
     _dropLock(path, lock);
-    after?.();
     _emitHeld(id, false);
     return true;
   };
@@ -229,23 +228,22 @@ export function releaseIdleSessionWriterClaim(id) {
   return releaseSessionWriter(id);
 }
 
-/** Delete: the lock goes, and so does its file (no id is ever reused). A
- *  process that locked the file just before the unlink finds it not intact. */
+/** Delete: the lock goes. Its file is removed only where that is safe (Windows,
+ *  in _dropLock): elsewhere an unlink after the release would let a process
+ *  that took the old file in between and one that creates the next both hold
+ *  the claim of an id that can be created again (reserved and home ids are). */
 export function forgetSessionWriter(id) {
   const path = _claimPath(id);
   _endedTenures.delete(sessionPath(id));
-  const unlink = () => {
+  if (_held.has(path)) return _letGo(id, path, { cancel: true });
+  if (process.platform === 'win32') {
     try {
       unlinkSync(path);
     } catch {
-      /* absent, or still open in a process acquiring it: it stays */
+      /* absent, or open in another process: it is theirs */
     }
-  };
-  if (!_held.has(path)) {
-    unlink();
-    return Promise.resolve(false);
   }
-  return _letGo(id, path, { cancel: true, after: unlink });
+  return Promise.resolve(false);
 }
 
 /** Process exit: every claim this process holds (the kernel would anyway). */
@@ -281,10 +279,9 @@ export function sessionWriterHeldElsewhere(id) {
  * it taken, this process's own save is refused as for a session held
  * elsewhere — and none is in flight. A session that already has a writer (an
  * admitted save or open session here, or a claim in another process) cannot
- * be excluded: null. Otherwise `{ release({ retire }) }`; `retire` removes the
- * lock file with the lock, as a delete does. An id can be created again later
- * (reserved and home ids are): a claimant that locked the file in between holds
- * an unlinked inode, which `intact()` reports, and it claims again. While an
+ * be excluded: null. Otherwise `{ release() }`. The lock file stays: removed
+ * after the lock is given back, a claimant that took the old file in between
+ * and one that creates the next could both hold "the" claim. While an
  * exclusion is held in this process, `whenSessionWritersFree` lets an async
  * creator wait it out instead of being refused.
  *
@@ -301,7 +298,7 @@ export function excludeSessionWriters(id) {
   let released = false;
   _excluded.set(path, (_excluded.get(path) ?? 0) + 1);
   return {
-    release({ retire = false } = {}) {
+    release() {
       if (released) return;
       released = true;
       _dropLock(path, lock);
@@ -309,12 +306,6 @@ export function excludeSessionWriters(id) {
       if (left > 0) _excluded.set(path, left);
       else _excluded.delete(path);
       if (left === 0) for (const wake of _excludedWaiters.splice(0)) wake();
-      if (!retire) return;
-      try {
-        unlinkSync(path);
-      } catch {
-        /* absent, or already open in a process acquiring it: it stays */
-      }
     },
   };
 }

@@ -46,7 +46,6 @@ import { sessionModeOf } from './agent-mode.mjs';
 import { byActivityThenId } from './catalog-db/schema.mjs';
 import {
   sessionStampOf,
-  statSessionStamp,
   sameSessionStamp,
   isSettledSessionStamp,
 } from './store/canonical-reader.mjs';
