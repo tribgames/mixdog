@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { POLL_CONCURRENCY, createWatchedFileCache } from './watched-file-cache.mjs';
 import { eventually, settle, trackWatchers } from './watched-file-cache.test-helpers.mjs';
@@ -31,9 +31,10 @@ test('a directory watch is shared by its entries and closes with the last of the
   const b = file('b.json', 'B');
   assert.equal(cache.get(a), 'A');
   cache.set(b, 'B2');
-  assert.deepEqual(watching(), [dir], 'one watcher for the directory');
+  const both = [dir, dirname(dir)].sort();
+  assert.deepEqual(watching(), both, 'one watcher for the directory and one for its parent');
   cache.delete(a);
-  assert.deepEqual(watching(), [dir], 'still held by the other entry');
+  assert.deepEqual(watching(), both, 'still held by the other entry');
   cache.delete(b);
   assert.deepEqual(watching(), [], 'released with its last entry');
 });
@@ -43,6 +44,16 @@ test('a directory watch is shared by its entries and closes with the last of the
 function noticing(t) {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-watched-cache-'));
   const changes = [];
+  const waiting = [];
+  // Resolves with the next announced path; rejects at one deadline.
+  const nextChange = (timeoutMs = 5_000) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('no change announced')), timeoutMs);
+      waiting.push((path) => {
+        clearTimeout(timer);
+        resolve(path);
+      });
+    });
   const reads = { sync: 0, async: 0, beforeSync: () => {}, before: async () => {} };
   const cache = createWatchedFileCache(
     {
@@ -57,13 +68,18 @@ function noticing(t) {
         return { value: await fsp.readFile(path, 'utf8') };
       },
     },
-    { onChange: (path) => changes.push(path) }
+    {
+      onChange: (path) => {
+        changes.push(path);
+        for (const wake of waiting.splice(0)) wake(path);
+      },
+    }
   );
   t.after(() => {
     cache.close();
     rmSync(dir, { recursive: true, force: true });
   });
-  return { dir, cache, changes, reads };
+  return { dir, cache, changes, reads, nextChange };
 }
 
 test('a changed value is reported, whoever wrote it; our own write reads back as no change', async (t) => {
@@ -250,13 +266,14 @@ test('a watcher that errors is closed; its entries wait on the parent and re-rea
   assert.equal(cache.get(path), 'before');
   assert.deepEqual(
     opened.map((entry) => entry.dir),
-    [sub]
+    [sub, dir],
+    'the directory and its parent'
   );
   opened[0].watcher.emit('error', new Error('watch lost'));
   assert.deepEqual(
     opened.map((entry) => entry.dir),
-    [sub, dir],
-    'the parent is watched; the failed directory is not reopened'
+    [sub, dir, dir, dirname(dir)],
+    'the parent is watched as the fallback (with its own parent); the failed directory is not reopened'
   );
   writeFileSync(path, 'during');
   // Unseen by any watch: the read is what asks for it.
@@ -267,7 +284,131 @@ test('a watcher that errors is closed; its entries wait on the parent and re-rea
   mkdirSync(sub);
   writeFileSync(path, 'after');
   await eventually(() => cache.peek(path) === 'after');
-  assert.equal(opened.at(-1).dir, sub, 'watched again once its parent named it');
+  assert.ok(
+    opened.slice(4).some((entry) => entry.dir === sub),
+    'watched again once its parent named it'
+  );
+});
+
+// `fs.watch` handles opened through the cache, in order, with their directory.
+function recordWatches(t) {
+  const original = fs.watch;
+  const opened = [];
+  t.mock.method(fs, 'watch', (target, ...rest) => {
+    const watcher = original(target, ...rest);
+    const record = { dir: String(target), watcher, closed: false };
+    record.closing = new Promise((resolve) => {
+      watcher.once('close', () => {
+        record.closed = true;
+        resolve();
+      });
+    });
+    opened.push(record);
+    return watcher;
+  });
+  return opened;
+}
+
+test('a folder renamed and recreated under a live watch is read afresh, announced and watched again', async (t) => {
+  const opened = recordWatches(t);
+  const { dir, cache, nextChange } = noticing(t);
+  const sub = join(dir, 'sub');
+  mkdirSync(sub);
+  const path = join(sub, 'record.json');
+  writeFileSync(path, 'old');
+  assert.equal(cache.get(path), 'old');
+  const oldFolderWatch = opened.find((entry) => entry.dir === sub);
+
+  // The folder's watch follows the moved folder; only the parent sees the swap.
+  const announced = nextChange();
+  renameSync(sub, join(dir, 'moved'));
+  mkdirSync(sub);
+  writeFileSync(path, 'new');
+  assert.equal(await announced, path, 'the change was announced');
+  assert.equal(cache.peek(path), 'new');
+  await oldFolderWatch.closing;
+  // One watch on the folder and one on its parent: two handles for the folder.
+  const live = opened.filter((entry) => !entry.closed);
+  assert.deepEqual(live.map((entry) => entry.dir).sort(), [dir, sub].sort(), 'the watch moved to the live folder');
+
+  // Watched again: a plain write in the live folder is seen.
+  const again = nextChange();
+  writeFileSync(path, 'newer');
+  assert.equal(await again, path);
+  assert.equal(cache.peek(path), 'newer');
+});
+
+test('a folder deleted and recreated under a live watch is read afresh', async (t) => {
+  const { dir, cache, nextChange } = noticing(t);
+  const sub = join(dir, 'sub');
+  mkdirSync(sub);
+  const path = join(sub, 'record.json');
+  writeFileSync(path, 'old');
+  assert.equal(cache.get(path), 'old');
+  const announced = nextChange();
+  rmSync(sub, { recursive: true, force: true });
+  mkdirSync(sub);
+  writeFileSync(path, 'new');
+  assert.equal(await announced, path);
+  assert.equal(cache.peek(path), 'new');
+});
+
+test('writes inside a watched folder do not re-arm its watch', async (t) => {
+  const opened = recordWatches(t);
+  const { dir, cache, nextChange } = noticing(t);
+  const sub = join(dir, 'sub');
+  mkdirSync(sub);
+  const path = join(sub, 'record.json');
+  writeFileSync(path, 'v0');
+  cache.get(path);
+  const handles = opened.length;
+  for (let i = 1; i <= 5; i += 1) {
+    const announced = nextChange();
+    writeFileSync(path, `v${i}`);
+    await announced;
+  }
+  assert.equal(opened.length, handles, 'a parent change event is not a replacement');
+});
+
+test('a folder watch that closes on its own ends the trust at once', async (t) => {
+  const opened = recordWatches(t);
+  t.mock.method(process.stderr, 'write', () => true);
+  const { dir, cache, nextChange } = noticing(t);
+  const sub = join(dir, 'sub');
+  mkdirSync(sub);
+  const path = join(sub, 'record.json');
+  writeFileSync(path, 'before');
+  assert.equal(cache.get(path), 'before');
+  const announced = nextChange();
+  opened.find((entry) => entry.dir === sub).watcher.emit('close');
+  // Unseen by any watch: the read is what asks for the re-read.
+  writeFileSync(path, 'during');
+  cache.get(path);
+  assert.equal(await announced, path);
+  assert.equal(cache.peek(path), 'during');
+});
+
+test('a parent watch that closes or errors ends the trust: a replacement is then read on demand', async (t) => {
+  for (const kind of ['close', 'error']) {
+    const opened = recordWatches(t);
+    t.mock.method(process.stderr, 'write', () => true);
+    const { dir, cache, nextChange } = noticing(t);
+    const sub = join(dir, 'sub');
+    mkdirSync(sub);
+    const path = join(sub, 'record.json');
+    writeFileSync(path, 'old');
+    assert.equal(cache.get(path), 'old');
+    const parentWatch = opened.find((entry) => entry.dir === dir).watcher;
+    const announced = nextChange();
+    if (kind === 'close') parentWatch.emit('close');
+    else parentWatch.emit('error', new Error('parent watch lost'));
+    renameSync(sub, join(dir, 'moved'));
+    mkdirSync(sub);
+    writeFileSync(path, 'new');
+    assert.equal(await announced, path, kind);
+    assert.equal(cache.peek(path), 'new', kind);
+    opened.length = 0;
+  }
 });
 
 test('a write landing while the previous re-read is in flight is observed', async (t) => {
