@@ -7,7 +7,19 @@ import { importInStages } from '../../../../shared/staged-import.mjs';
 // The agent loop's graph (~140 modules) loads one agent-loop.mjs import per
 // loop turn: no module in it imports loop.mjs or agent-loop.mjs back.
 const AGENT_LOOP = new URL('../loop.mjs', import.meta.url).href;
-const AGENT_LOOP_STAGES = new URL('../agent-loop.mjs', import.meta.url).href;
+// The static imports of agent-loop.mjs, in its source order.
+const AGENT_LOOP_STAGES = [
+  '../loop/pre-dispatch-deny.mjs',
+  '../loop/tool-helpers.mjs',
+  '../loop/transcript-repair.mjs',
+  '../../providers/account-pool.mjs',
+  '../loop/loop-state.mjs',
+  '../../runtime-core/reaction-tool-defs.mjs',
+  '../loop/send-phase.mjs',
+  '../loop/tool-phase.mjs',
+  '../loop/turn-limits.mjs',
+  '../loop/turn-report.mjs',
+].map((stage) => new URL(stage, import.meta.url).href);
 const importAgentLoop = () => importInStages(AGENT_LOOP, AGENT_LOOP_STAGES);
 let _codeGraphRuntimePromise = null;
 let _agentLoopPromise = null;

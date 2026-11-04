@@ -47,13 +47,24 @@ import { importInStages } from '../runtime/shared/staged-import.mjs';
 import { sessionStatusScheduler } from './session-status-scheduler.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
-// Its one module (only mixdog-session-runtime.mjs imports it): its boot
-// modules are the graph's stages.
-const SESSION_RUNTIME_CORE = '../session-runtime/runtime-core.mjs';
+// The static imports of session-runtime/runtime-core.mjs (the one module only
+// mixdog-session-runtime.mjs imports), in its source order: the graph's stages.
+const SESSION_RUNTIME_STAGES = [
+  '../runtime/shared/uv-threadpool-boot.mjs',
+  '../session-runtime/hitch-profile.mjs',
+  '../session-runtime/boot/begin.mjs',
+  '../session-runtime/boot/config.mjs',
+  '../session-runtime/boot/infrastructure.mjs',
+  '../session-runtime/boot/tools.mjs',
+  '../session-runtime/boot/providers.mjs',
+  '../session-runtime/boot/session.mjs',
+  '../session-runtime/boot/apis.mjs',
+  '../session-runtime/boot/facade.mjs',
+];
 const importSessionRuntimeInStages = () =>
   importInStages(
     new URL(SESSION_RUNTIME_MODULE, import.meta.url).href,
-    new URL(SESSION_RUNTIME_CORE, import.meta.url).href
+    SESSION_RUNTIME_STAGES.map((stage) => new URL(stage, import.meta.url).href)
   );
 
 // Shared across create calls so concurrent session startups import the
