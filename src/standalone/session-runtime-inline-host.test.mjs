@@ -289,6 +289,24 @@ test('warmLocalRuntime loads the local module in the background and create reuse
   await host.close('done');
 });
 
+test('warmLocalRuntime hands the warm-up the host closed state', async () => {
+  let warmIsClosed = null;
+  const host = createInlineSessionRuntimeHost({
+    warmKeychain: async () => {},
+    loadLocalModule: async () => ({
+      ...createFakeLocalModule([]),
+      warmLocalSessionRuntime: async ({ isClosed }) => {
+        warmIsClosed = isClosed;
+        return true;
+      },
+    }),
+  });
+  assert.equal(await host.warmLocalRuntime(), true);
+  assert.equal(warmIsClosed(), false);
+  await host.close('done');
+  assert.equal(warmIsClosed(), true);
+});
+
 test('warmLocalRuntime tolerates a failed import and leaves create on the lazy path', async () => {
   const events = [];
   let attempt = 0;

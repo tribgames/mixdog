@@ -14,10 +14,28 @@ test('warm-up loads the session-runtime module once and tolerates failure', asyn
 
   setSessionRuntimeImporterForTest(async () => {
     imports += 1;
-    return { createMixdogSessionRuntime() {} };
+    return { createMixdogSessionRuntime() {}, async preloadSessionRuntimeModules() {} };
   });
   assert.equal(await warmLocalSessionRuntime(), true);
   assert.equal(await warmLocalSessionRuntime(), true);
   assert.equal(imports, 2, 'a loaded module is reused, not re-imported');
   setSessionRuntimeImporterForTest(null);
+});
+
+test('a host closing during the warm-up stops it before the next step', async (t) => {
+  t.after(() => setSessionRuntimeImporterForTest(null));
+  const steps = [];
+  let closed = false;
+  setSessionRuntimeImporterForTest(async () => {
+    steps.push('runtime-graph');
+    closed = true;
+    return {
+      createMixdogSessionRuntime() {},
+      async preloadSessionRuntimeModules() {
+        steps.push('preload');
+      },
+    };
+  });
+  assert.equal(await warmLocalSessionRuntime({ isClosed: () => closed }), false);
+  assert.deepEqual(steps, ['runtime-graph']);
 });

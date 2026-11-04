@@ -2,7 +2,8 @@
 // compilation, evaluation) runs synchronously inside one import() call, so the
 // daemon's session-runtime warm-up held the event loop for ~0.5 s in one
 // piece right after `daemon-ready`. Importing the graph's top-level stages one
-// loop turn apart splits that block without changing what is loaded.
+// loop turn apart splits that block without changing what is loaded. Used for
+// the session-runtime graph and the agent loop's.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
