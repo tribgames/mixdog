@@ -278,6 +278,18 @@ function publicationRefusal(dir, sessionId, epoch) {
 
 const removeQuietly = (path) => unlink(path).catch(() => {});
 
+/** Write all of `data` at `position`: `FileHandle.write` may take fewer bytes
+ *  than asked, and a segment cut short must never be acknowledged. A write
+ *  that takes none fails rather than spin. */
+async function writeFully(handle, data, position) {
+  let done = 0;
+  while (done < data.length) {
+    const { bytesWritten } = await handle.write(data, done, data.length - done, position + done);
+    if (!(bytesWritten > 0)) throw new Error(`short archive write: ${done} of ${data.length} bytes written`);
+    done += bytesWritten;
+  }
+}
+
 /** Write `data` to a private temp file and fsync it — a failed write or
  *  fsync fails the publication — then publish it with a fence check and a
  *  rename: a delete that bumped the epoch (or removed the record) since
@@ -348,7 +360,7 @@ async function appendSegment({ sessionId, seq, at, items, clearedThrough, maxByt
       // Past the fence a delete only unlinks the file this handle writes.
       const refusal = publicationRefusal(dir, sessionId, epoch);
       if (refusal) return refusal;
-      await handle.write(`${segment.line}\n`, size, 'utf8');
+      await writeFully(handle, Buffer.from(`${segment.line}\n`, 'utf8'), size);
       await syncFile(handle);
       return { segments: [...kept.map((entry) => entry.head), compactionSegmentHead(segment.line)] };
     }

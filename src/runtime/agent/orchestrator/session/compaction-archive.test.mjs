@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  promises as fsPromises,
   readdirSync,
   readFileSync,
   rmSync,
@@ -561,6 +562,36 @@ test('fsync failure fails the publication and leaves no temp file', async (t) =>
     archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
     [1, 2]
   );
+});
+
+test('an append that the handle writes only in part is completed before it is acknowledged', async (t) => {
+  const session = storedSession('short-write');
+  scheduleCompactionArchive({ session, before: itemsOf(1, 3), after: [] });
+  await flushCompactionArchiveWrites();
+  const path = compactionArchivePath(sessionsDir, session.id);
+  const probe = await fsPromises.open(path, 'r');
+  const proto = Object.getPrototypeOf(probe);
+  await probe.close();
+  const realWrite = proto.write;
+  // The handle takes half of what it is asked to write, in either call form.
+  t.mock.method(proto, 'write', function shortWrite(data, ...args) {
+    if (typeof data === 'string') {
+      const bytes = Buffer.from(data, args[1] || 'utf8');
+      return realWrite.call(this, bytes.subarray(0, Math.ceil(bytes.length / 2)), 0, Math.ceil(bytes.length / 2), args[0]);
+    }
+    const [offset, length, position] = args;
+    return realWrite.call(this, data, offset, Math.max(1, Math.ceil(length / 2)), position);
+  });
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(2, 3), after: [] });
+  assert.ok(await scheduled.written);
+  await flushCompactionArchiveWrites();
+  const lines = archiveLines(session.id);
+  assert.deepEqual(
+    lines.map((line) => JSON.parse(line).seq),
+    [1, 2]
+  );
+  assert.equal(readFileSync(path, 'utf8').endsWith('\n'), true);
+  assert.equal(existsSync(join(sessionsDir, `${session.id}.compaction-archive.pending`)), false);
 });
 
 test('a page never reads or parses the segments it skips', async () => {
