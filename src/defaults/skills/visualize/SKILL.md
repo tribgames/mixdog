@@ -20,6 +20,11 @@ results are shown; the tool schema owns action fields.
 **Hard rule — seeing beats reading, or it is not this skill**: draw when the
 answer is a layout, a state, a flow, a spatial relation, or a look. Scope,
 tradeoffs, and wording decisions stay in chat even when the topic is UI.
+**Hard rule — the page shows, it does not explain**: on-page text is a short
+title, at most one lead line, a one-line caption per frame, and the copy of
+the drawn UI itself. Structure walkthroughs, rationale, specs (px, coordinates,
+asset sources) and change lists never go on the page as paragraphs; what the
+user must confirm goes briefly in the chat report.
 - *Show* — any artifact you produced or changed (HTML, deck, document, sheet,
   PDF, image, video, local dev page): `open` it once when ready. Edits reload
   the tab; never reopen to refresh.
