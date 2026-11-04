@@ -8,7 +8,7 @@ import {
   writeServerPid,
   refreshActiveInstance,
 } from './runtime-paths.mjs';
-// Worker boot maintenance: worker-log rotation + stale worker-log/session GC + plugin-data
+// Worker boot maintenance: worker-log rotation + stale worker-log GC + plugin-data
 // sibling prune, the SIGTERM handler, runtime-dir init, and the
 // non-worker-mode owner-identity publish + CLI worker start.
 const ROTATED_WORKER_LOGS = [
@@ -55,25 +55,6 @@ function pruneStaleScopedLogs() {
   } catch {}
 }
 
-// GC stale ephemeral session files. closeSession plants a closed=true
-// tombstone, but bench / smoke / probe drivers historically created sessions
-// without ever calling closeSession, leaving 175-byte placeholders behind.
-// 7-day TTL is safe because live agent sessions touch their JSON file on
-// every ask iteration, so any file older than 7 days is provably abandoned.
-function pruneStaleSessionFiles() {
-  const sessionsDir = path.join(DATA_DIR, 'sessions');
-  try {
-    const now = Date.now();
-    for (const name of fs.readdirSync(sessionsDir)) {
-      if (!name.endsWith('.json')) continue;
-      const filePath = path.join(sessionsDir, name);
-      try {
-        if (now - fs.statSync(filePath).mtimeMs > STALE_WORKER_FILE_TTL_MS) fs.unlinkSync(filePath);
-      } catch {}
-    }
-  } catch {}
-}
-
 export function runWorkerBootstrap({
   instanceId,
   isWorkerMode,
@@ -82,7 +63,6 @@ export function runWorkerBootstrap({
 }) {
   rotateWorkerLogs();
   pruneStaleScopedLogs();
-  pruneStaleSessionFiles();
   // Count-based cap: drop oldest *.log siblings when plugin-data accumulates
   // hundreds of per-process files (doctor warns above 300).
   try {
