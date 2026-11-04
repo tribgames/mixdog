@@ -43,6 +43,15 @@ export function scriptedChildTree() {
       killProcessTrees: async (pids) => {
         state.kills.push(...pids);
       },
+      // run-child.mjs's tree kill; null is "the pass could not run", after
+      // which the real helper kills the root child directly too.
+      spawnTreeKill: (pids, { root = null } = {}) => {
+        state.kills.push(...pids);
+        try {
+          root?.kill();
+        } catch {}
+        return null;
+      },
       killStdioChildTreeFast: () => false,
       shutdownStdioChild: async () => false,
     },
