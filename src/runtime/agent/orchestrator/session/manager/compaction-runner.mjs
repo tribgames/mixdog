@@ -641,40 +641,37 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   const { session, messages, mode, force, resolvedSessionId, reserveTokens } = plan;
   const { freshContextResult } = run;
   const numbers = await afterCompactionNumbers(plan, run.compacted);
+  const now = Date.now();
   // Reconcile with the live transcript synchronously up to the replacement
   // below: a turn in flight owns it and would overwrite the result, and a
   // transcript that no longer extends the snapshot cannot take it. Both
   // leave the conversation exactly as it is now. Messages a finished turn
-  // appended are kept, in order, after the compacted result.
-  const appended = isSessionCompactionBlocked(resolvedSessionId) ? null : appendedSinceSnapshot(plan);
-  if (!appended) {
-    return recordFailedCompaction(
+  // appended are kept, in order, after the compacted result. Checked first
+  // too, so a compaction that cannot apply claims no archive segment.
+  const reconcile = () => (isSessionCompactionBlocked(resolvedSessionId) ? null : appendedSinceSnapshot(plan));
+  const moved = () =>
+    recordFailedCompaction(
       plan,
       { compactError: new Error(TRANSCRIPT_MOVED_ERROR), freshContextError: null },
       compactStartedAt
     );
-  }
-  const { beforeBytes, afterBytes, afterMessageTokens, postCompactPolicy, afterTokens, changed, transcript } =
-    appended.length ? withAppendedMessages(plan, numbers, appended) : numbers;
-  let unchangedReason = null;
-  if (!changed) unchangedReason = force ? 'nothing to compact' : 'below threshold';
-  const now = Date.now();
-  // Older titleless sessions: keep a name before the transcript that carries
-  // the first prompt is replaced.
-  if (changed) backfillFallbackSessionTitle(session, messages);
+  if (!reconcile()) return moved();
   // Write-ahead: what this compaction drops is durable (pending sidecar)
   // before the shortened transcript is adopted, since any later save persists
-  // it. A sidecar that cannot be written keeps the old transcript.
+  // it. A sidecar that cannot be written keeps the old transcript. What it
+  // drops is the snapshot's messages the compacted result lacks, so messages
+  // appended meanwhile never change it.
   let archive = null;
-  if (changed && plan.archive) {
+  if (numbers.changed && plan.archive) {
     try {
       archive = prepareCompactionArchive({
         session,
         sessionId: resolvedSessionId,
         before: messages,
-        after: transcript,
+        after: numbers.transcript,
         at: now,
       });
+      if (archive) await archive.durable;
     } catch (archiveError) {
       writeStderrBestEffort(
         `[session] compaction not applied (sess=${resolvedSessionId || 'unknown'}): ${archiveError?.message || archiveError}\n`
@@ -682,6 +679,19 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
       return recordFailedCompaction(plan, { compactError: archiveError, freshContextError: null }, compactStartedAt);
     }
   }
+  // The sidecar write yielded: reconcile again, from here synchronously.
+  const appended = reconcile();
+  if (!appended) {
+    archive?.cancel();
+    return moved();
+  }
+  const { beforeBytes, afterBytes, afterMessageTokens, postCompactPolicy, afterTokens, changed, transcript } =
+    appended.length ? withAppendedMessages(plan, numbers, appended) : numbers;
+  let unchangedReason = null;
+  if (!changed) unchangedReason = force ? 'nothing to compact' : 'below threshold';
+  // Older titleless sessions: keep a name before the transcript that carries
+  // the first prompt is replaced.
+  if (changed) backfillFallbackSessionTitle(session, messages);
   session.messages = transcript;
   // The compacted transcript breaks the cache anyway: a staged working-folder
   // change re-roots the system prompt now and needs no notice any more.

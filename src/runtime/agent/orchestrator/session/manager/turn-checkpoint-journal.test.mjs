@@ -1,6 +1,6 @@
 // Focused coverage for the append/coalesced turn-checkpoint journal that
 // replaced the 150ms full growing-turn snapshot:
-//   * prompt durability still lands synchronously on the first flush,
+//   * prompt durability lands with the first flush's header, off the event loop,
 //   * replay reproduces the exact full-snapshot object (messages + partial
 //     text/reasoning + tool pairing) at bounded write cost,
 //   * crash-torn tails, stale journals, wholesale transcript rewrites,
@@ -97,16 +97,173 @@ function holdJournalWrites() {
   };
 }
 
-test('first flush anchors the prompt synchronously', () => {
+test('first flush anchors the prompt once its header lands', async () => {
   const sessionId = 'sess-anchor';
   const turn = startTurn(sessionId);
   assert.equal(turn.flush(), true);
-  // No await: the header is the crash-durability anchor and must be on disk
-  // before the provider call returns control.
+  // The header is the crash-durability anchor: the turn awaits it before the
+  // provider runs.
+  assert.equal(await turn.recorder.landed(), true);
   const checkpoint = readTurnCheckpoint(sessionId);
   assert.equal(checkpoint.turnToken, `tok-${sessionId}`);
   assert.equal(checkpoint.generation, 3);
   assert.deepEqual(checkpoint.turnMessages, [{ role: 'user', content: 'do the thing' }]);
+});
+
+// Sync fs calls that only read; anything else (a write, rename, unlink, mkdir,
+// open, fsync, a lock file) blocks the event loop on the disk.
+const SYNC_READ = /^(readFileSync|existsSync|statSync|lstatSync|fstatSync|readdirSync|accessSync|realpathSync) /;
+
+test('turn start (header, journal open, lock) and the seal never write on the event loop', async (t) => {
+  const { syncFsCalls } = await import('../../../../shared/sync-fs-calls.fixture.mjs');
+  const waits = [];
+  const wait = Atomics.wait;
+  t.mock.method(Atomics, 'wait', (...args) => {
+    waits.push(args[3]);
+    return wait(...args);
+  });
+  const sessionId = 'sess-off-main';
+  const turn = startTurn(sessionId);
+  const calls = await syncFsCalls(async () => {
+    assert.equal(turn.flush(), true);
+    assert.equal(await turn.recorder.landed(), true);
+    turn.outgoing.push({ role: 'assistant', content: 'the answer' });
+    const sealed = turn.recorder.record({
+      boundary: 1,
+      currentUserContent: turn.prompt,
+      turnOutgoing: turn.outgoing,
+      interruption: turn.tracker,
+      sealed: true,
+    });
+    assert.equal(sealed, true);
+    await settleTurnCheckpointWrites(sessionId);
+  });
+  assert.deepEqual(
+    calls.filter((call) => !SYNC_READ.test(call)),
+    []
+  );
+  assert.deepEqual(waits, []);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.sealed, true);
+  assert.deepEqual(checkpoint.turnMessages, turn.outgoing.slice(1));
+});
+
+test('a save recording a new epoch whose header write is still queued publishes that header first', async () => {
+  const sessionId = 'sess-save-before-header';
+  const session = { id: sessionId, transcriptEpoch: 'e0' };
+  const tracker = createTurnInterruptionTracker();
+  const outgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'compact me' },
+  ];
+  const recorder = createTurnCheckpointRecorder({
+    session,
+    sessionId,
+    generation: 3,
+    turnToken: `tok-${sessionId}`,
+    startedAt: 1000,
+    base: baseOf(outgoing),
+  });
+  const flush = () => recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
+  flush();
+  assert.equal(await recorder.landed(), true);
+  const hold = holdJournalWrites();
+  try {
+    // A history rewrite mints a new epoch; its header write is held in flight.
+    outgoing.splice(0, 1, { role: 'system', content: '[summary]' });
+    flush();
+    assert.notEqual(session.transcriptEpoch, 'e0');
+    assert.equal(readTurnCheckpoint(sessionId).fullTranscript, undefined, 'the rewrite is not on disk yet');
+    // The save's snapshot hook: the header naming the new epoch lands first.
+    recorder.publishPendingHeader();
+    const onDisk = readTurnCheckpoint(sessionId);
+    assert.equal(onDisk.fullTranscript, true);
+    assert.equal(onDisk.transcriptEpoch, session.transcriptEpoch);
+  } finally {
+    hold.release();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, session.transcriptEpoch);
+});
+
+test('an older header write still renaming never lands over a newer header a save published', async (t) => {
+  const sessionId = 'sess-header-fence';
+  const session = { id: sessionId, transcriptEpoch: 'e0' };
+  const tracker = createTurnInterruptionTracker();
+  const outgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'compact me' },
+  ];
+  const recorder = createTurnCheckpointRecorder({
+    session,
+    sessionId,
+    generation: 3,
+    turnToken: `tok-${sessionId}`,
+    startedAt: 1000,
+    base: baseOf(outgoing),
+  });
+  const flush = () => recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
+  flush();
+  assert.equal(await recorder.landed(), true);
+  // The first rename onto the header is held: that write is genuinely in flight.
+  const headerPath = turnCheckpointPath(sessionId);
+  const realRename = fs.promises.rename;
+  let renameReached;
+  const reached = new Promise((resolve) => {
+    renameReached = resolve;
+  });
+  let releaseRename;
+  const renameHeld = new Promise((resolve) => {
+    releaseRename = resolve;
+  });
+  let held = false;
+  t.mock.method(fs.promises, 'rename', async (from, to) => {
+    if (!held && to === headerPath) {
+      held = true;
+      renameReached();
+      await renameHeld;
+    }
+    return realRename(from, to);
+  });
+  syncBuiltinESMExports();
+  let releaseNext;
+  try {
+    outgoing.splice(0, 1, { role: 'system', content: '[summary one]' });
+    flush();
+    const older = session.transcriptEpoch;
+    await reached;
+    // A second rewrite queues the newer header; the next lane step is held.
+    outgoing.splice(0, 1, { role: 'system', content: '[summary two]' });
+    flush();
+    const newer = session.transcriptEpoch;
+    assert.notEqual(newer, older);
+    let nextReached;
+    const next = new Promise((resolve) => {
+      nextReached = resolve;
+    });
+    _setJournalOpGateForTest(
+      () =>
+        new Promise((resolve) => {
+          releaseNext = resolve;
+          nextReached();
+        })
+    );
+    // The save's snapshot hook publishes the newer header now.
+    recorder.publishPendingHeader();
+    assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, newer);
+    // The older rename goes ahead; the newer open is still held behind it.
+    releaseRename();
+    await next;
+    assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, newer, 'the header never regresses');
+  } finally {
+    releaseRename();
+    _setJournalOpGateForTest(null);
+    releaseNext?.();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, session.transcriptEpoch);
 });
 
 test('a header write that failed is written again, so the later answer is recoverable', async (t) => {
@@ -114,12 +271,13 @@ test('a header write that failed is written again, so the later answer is recove
   const turn = startTurn(sessionId);
   // The header's publish fails once (a transient storage fault) and storage
   // then recovers.
-  t.mock.method(fs, 'renameSync', () => {
+  t.mock.method(fs.promises, 'rename', async () => {
     throw Object.assign(new Error('storage fault'), { code: 'EIO' });
   });
   syncBuiltinESMExports();
   try {
-    assert.throws(() => turn.flush(), /storage fault/);
+    assert.equal(turn.flush(), true);
+    assert.equal(await turn.recorder.landed(), false);
   } finally {
     t.mock.restoreAll();
     syncBuiltinESMExports();
@@ -143,6 +301,7 @@ test('journal replay reproduces the full snapshot at bounded cost', async () => 
   const sessionId = 'sess-replay';
   const turn = startTurn(sessionId);
   turn.flush();
+  await turn.recorder.landed();
   const headerBytes = statSync(turnCheckpointPath(sessionId)).size;
   const body = 'x'.repeat(2000);
   for (let i = 0; i < 40; i += 1) {
@@ -498,6 +657,7 @@ test('a new turn fences an older IN-FLIGHT append (no stale turn under a new tok
   const sessionId = 'sess-fence';
   const first = startTurn(sessionId, 'first prompt');
   first.flush();
+  await first.recorder.landed();
   const hold = holdJournalWrites();
   let during;
   let second;
@@ -527,13 +687,14 @@ test('a new turn fences an older IN-FLIGHT append (no stale turn under a new tok
       }),
       true
     );
-    // Interim window: header is the new turn, the journal is still the old
-    // one. Replay must reject it rather than merge an old turn.
+    // Interim window: the new turn's open waits behind the old append, so
+    // the disk still holds the old turn's header and durable journal prefix,
+    // never a mix of the two turns.
     during = readTurnCheckpoint(sessionId);
   } finally {
     hold.release();
   }
-  assert.equal(during.turnToken, 'tok-second');
+  assert.equal(during.turnToken, `tok-${sessionId}`);
   assert.ok(!JSON.stringify(during).includes('STALE_OLD_TURN'));
 
   await settleTurnCheckpointWrites(sessionId);
@@ -550,6 +711,7 @@ test('overflow never writes ahead of an older IN-FLIGHT append (latest-wins hold
   const sessionId = 'sess-overflow';
   const turn = startTurn(sessionId);
   turn.flush();
+  await turn.recorder.landed();
   const headBytes = statSync(turnJournalPath(sessionId)).size;
   const hold = holdJournalWrites();
   try {
@@ -613,6 +775,7 @@ test('clear while a write is IN FLIGHT drops the header now and the journal afte
   const sessionId = 'sess-clear-race';
   const turn = startTurn(sessionId);
   turn.flush();
+  await turn.recorder.landed();
   const hold = holdJournalWrites();
   try {
     turn.outgoing.push({ role: 'assistant', content: 'inflight' });
@@ -633,6 +796,7 @@ test('stop while a write is IN FLIGHT keeps that write and drops only queued del
   const sessionId = 'sess-stop-race';
   const turn = startTurn(sessionId);
   turn.flush();
+  await turn.recorder.landed();
   const hold = holdJournalWrites();
   try {
     turn.outgoing.push({ role: 'assistant', content: 'inflight-kept' });

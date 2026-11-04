@@ -177,6 +177,7 @@ test('the daemon owner sweeps orphan checkpoint journals when it starts, in work
     turnOutgoing: [{ role: 'user', content: PROMPT }],
     interruption: createTurnInterruptionTracker(),
   });
+  assert.equal(await live.landed(), true);
   assert.ok((await sweepOrphanTurnJournals()) >= 1);
   assert.equal(existsSync(inline), false);
   assert.equal(readTurnCheckpoint('startup_sweep_live')?.turnToken, 'tok-startup_sweep_live');
@@ -185,7 +186,7 @@ test('the daemon owner sweeps orphan checkpoint journals when it starts, in work
   // The header check and the delete are one step under the session's
   // checkpoint lock, exclusive with a turn's header publish plus journal open.
   const { checkpointLockPath } = await import('./turn-checkpoint-journal.mjs');
-  const { withFileLockSync } = await import('../../../../shared/file-lock.mjs');
+  const { withFileLock, withFileLockSync } = await import('../../../../shared/file-lock.mjs');
   const racing = orphan('startup_sweep_racing');
   // A turn in another process holds the lock (publishing its header and
   // opening its journal): the sweep skips the session and never waits.
@@ -204,7 +205,8 @@ test('the daemon owner sweeps orphan checkpoint journals when it starts, in work
     startedAt: 1,
     base: { epoch: 'e0', refs: [] },
   });
-  withFileLockSync(checkpointLockPath('startup_sweep_racing'), () => {
+  let opened;
+  await withFileLock(checkpointLockPath('startup_sweep_racing'), async () => {
     const startedAt = Date.now();
     opening.record({
       boundary: 0,
@@ -212,8 +214,12 @@ test('the daemon owner sweeps orphan checkpoint journals when it starts, in work
       turnOutgoing: [{ role: 'user', content: PROMPT }],
       interruption: createTurnInterruptionTracker(),
     });
-    assert.ok(Date.now() - startedAt < 2000, 'the turn is bounded by the lock wait');
+    opened = opening.landed().then((landed) => ({ landed, ms: Date.now() - startedAt }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  const { landed, ms } = await opened;
+  assert.equal(landed, true);
+  assert.ok(ms < 2000, 'the turn is bounded by the lock wait');
   assert.equal(readTurnCheckpoint('startup_sweep_racing')?.turnToken, 'tok-startup_sweep_racing');
   // Header published: the journal is no longer an orphan.
   assert.equal(removeOrphanTurnJournals(), 0);

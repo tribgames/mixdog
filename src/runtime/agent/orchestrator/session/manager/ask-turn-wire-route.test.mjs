@@ -45,7 +45,7 @@ const opened = (session) => ({
   runtime: {},
   turnSignal: new AbortController().signal,
   askGeneration: 1,
-  checkpoint: { schedule() {} },
+  checkpoint: { schedule() {}, landed: async () => true },
   turnToken: 't',
   startedAt: Date.now(),
   codexTurnId: null,
