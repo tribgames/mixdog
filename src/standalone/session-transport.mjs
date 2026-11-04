@@ -16,8 +16,8 @@
 // the assembly of everything below), client-registry (attach / drop / grace /
 // lease), call-lanes (fair schedulers), call-route (idempotent /call) and
 // routes (the HTTP front door).
-import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createDaemonHttpServer } from '../runtime/shared/daemon-keep-alive.mjs';
 import { createLoopbackListener } from '../runtime/shared/loopback-listener.mjs';
 import { createTransportStack } from './session-transport/stack.mjs';
 import { createWorkGate } from './daemon-work-gate.mjs';
@@ -89,7 +89,7 @@ export function createSessionTransport({
     if (closed) return Promise.reject(new Error('session service transport is closed'));
     const fixedPort = configuredPort();
     listener ??= createLoopbackListener({
-      server: http.createServer(handleRequest),
+      server: createDaemonHttpServer(handleRequest),
       basePort: fixedPort,
       maxPort: fixedPort,
       onListening(port) {

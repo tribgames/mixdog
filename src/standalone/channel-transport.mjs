@@ -16,8 +16,8 @@
 // the sub-services in channel-transport/ (remote binding, client registry,
 // notify routing, call dispatch, HTTP routes); this file owns the listener
 // lifecycle, draining and the public surface.
-import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createDaemonHttpServer } from '../runtime/shared/daemon-keep-alive.mjs';
 import { createLoopbackListener } from '../runtime/shared/loopback-listener.mjs';
 import { readRemoteIntent } from './channel-binding.mjs';
 import { createRemoteBinding } from './channel-transport/remote-binding.mjs';
@@ -143,7 +143,7 @@ export function createChannelTransport({
   function start() {
     if (state.closed) return Promise.reject(new Error('channel transport is closed'));
     listener ??= createLoopbackListener({
-      server: http.createServer(handleRequest),
+      server: createDaemonHttpServer(handleRequest),
       onListening(port) {
         boundPort = port;
         binding.publishRemoteState();
