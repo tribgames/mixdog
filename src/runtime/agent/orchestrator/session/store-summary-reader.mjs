@@ -290,7 +290,14 @@ export async function listStoredSessionSummariesAsync(options = {}) {
     return listStoredSessionSummaries(options);
   }
   const answer = await catalogDbListing(null);
-  return answer ? answer.rows : listStoredSessionSummaries();
+  return answer ? answer.rows : listJsonSummariesAsync();
+}
+
+/** listStoredSessionSummaries for an async caller: the cold build and the
+ *  reconcile both await their reads. */
+async function listJsonSummariesAsync() {
+  const index = await ordinaryCatalog.loadIndexAsync();
+  return (await ordinaryCatalog.refreshAsync(index)).rows ?? indexListing(index) ?? [];
 }
 
 const DEFAULT_PAGE_LIMIT = 50;
@@ -315,7 +322,7 @@ export async function listStoredSessionSummaryPage(options = {}) {
     };
   }
   // The JSON listing is already in catalog order.
-  const ordered = listStoredSessionSummaries().filter((row) => isAfterCursor(row, after));
+  const ordered = (await listJsonSummariesAsync()).filter((row) => isAfterCursor(row, after));
   const sessions = ordered.slice(0, limit);
   return {
     sessions,
