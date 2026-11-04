@@ -7,6 +7,7 @@
  */
 import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { forgetSessionSaveBaseline } from '../../runtime/agent/orchestrator/session/store/save-worker.mjs';
+import { drainConfigWrites } from '../../runtime/shared/config.mjs';
 import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
 import { PROCESS_RESTART_FAILURE } from '../services/agent-tool/worker-index/row-liveness.mjs';
 import { unregisterLiveSession } from '../../runtime/shared/staged-update.mjs';
@@ -85,6 +86,7 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     warmupTimers,
     prewarmTimers,
     flushAllConfigSavesAsync,
+    settleOwnConfigWrites,
     withTeardownDeadline,
     stopSelfUpdateBootCheck,
     disposeSessionTitles,
@@ -133,13 +135,26 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
   // past the bounded wait if it overran).
   const outstandingCloses = new Set();
 
-  /** Persist every queued index write. A close only ever drains: the shared
-   *  indexes stay registered (exit hook included) for the closes still to come. */
-  async function drainIndexWrites() {
+  /** Persist this runtime's queued index writes; a process exit also drains
+   *  every other queue of the process, which no later close will. A close only
+   *  ever drains: the shared indexes stay registered (exit hook included) for
+   *  the closes still to come. */
+  async function drainIndexWrites(scope) {
     try {
       await agentTool.flushIndexWrites?.();
-      await flushAllIndexWrites();
+      if (scope.isProcessExit) await flushAllIndexWrites();
     } catch {}
+  }
+
+  /** This runtime's config writes: its debounced saves, then every write its
+   *  work started directly (webhook, channel, voice settings), each awaited
+   *  even when the other fails. A process exit also waits for every other
+   *  config write of the process. */
+  async function flushConfigWrites(scope) {
+    const [saves] = await Promise.allSettled([flushAllConfigSavesAsync()]);
+    await settleOwnConfigWrites?.();
+    if (scope.isProcessExit) await drainConfigWrites();
+    if (saves.status === 'rejected') throw saves.reason;
   }
 
   // The disposal in progress (if any). New closes wait for it before starting
@@ -179,11 +194,11 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     } catch {
       /* best-effort */
     }
-    // Teardown stays async end-to-end across every writer sharing the config
-    // lock. Never start a synchronous lock wait while an in-process async
-    // holder still needs the event loop to finish and release it.
+    // Teardown stays async end-to-end: never start a synchronous config lock
+    // wait while an in-process async holder still needs the event loop to
+    // finish and release it. A session close waits only for its own writes.
     try {
-      await flushAllConfigSavesAsync();
+      await flushConfigWrites(scope);
     } catch (error) {
       // A failed final flush means config written during this session never
       // reached disk. Teardown still completes (the remaining stops must run),
@@ -232,7 +247,7 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     const finish = async () => {
       for (;;) {
         while (outstandingCloses.size > 0) await Promise.allSettled([...outstandingCloses]);
-        await drainIndexWrites();
+        await drainIndexWrites(scope);
         if (outstandingCloses.size === 0) break;
       }
       await disposeIndexes(scope.teardownReapsWork === true);

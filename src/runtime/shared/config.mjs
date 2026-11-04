@@ -32,6 +32,7 @@ import {
 import { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
 import { bumpConfigInputEpoch } from './config-epoch.mjs';
 import { watchDirectory } from './directory-watch.mjs';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
 export { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey };
 
@@ -976,9 +977,12 @@ function withConfigLockAsync(fn) {
 
 // Process-wide registry at the lock-owning layer: every public async RMW path
 // registers before lock acquisition and unregisters on both fulfillment and
-// rejection. Lifecycle teardown can therefore drain direct callers too, not
-// just its own debounce queues.
+// rejection, so a reader and a process shutdown see direct callers too, not
+// just the debounce queues. A write started inside an owner's context (a
+// session runtime's work: createConfigWriteOwner) is also kept in that
+// owner's set, which is what the owner's close drains.
 const _pendingConfigWrites = new Set();
+const configWriteOwner = runtimeAsyncLocalStorage();
 
 function trackConfigWrite(work) {
   let promise;
@@ -987,18 +991,45 @@ function trackConfigWrite(work) {
   } catch (error) {
     promise = Promise.reject(error);
   }
+  const owned = configWriteOwner.getStore();
   _pendingConfigWrites.add(promise);
+  owned?.add(promise);
   const remove = () => {
     _pendingConfigWrites.delete(promise);
+    owned?.delete(promise);
   };
   promise.then(remove, remove);
   return promise;
 }
 
-export async function pendingConfigWrites() {
-  while (_pendingConfigWrites.size > 0) {
-    await Promise.allSettled([..._pendingConfigWrites]);
+async function settleUntilEmpty(writes) {
+  while (writes.size > 0) {
+    await Promise.allSettled([...writes]);
   }
+}
+
+/** Settles once the config writes in flight at this call have; writes started
+ *  later are newer than what a reader needs, and the atomic rename keeps the
+ *  file whole while they land. */
+export async function pendingConfigWrites() {
+  await Promise.allSettled([..._pendingConfigWrites]);
+}
+
+/** Settles once no config write of this process is in flight, writes started
+ *  while it waits included: the process shutdown barrier. */
+export function drainConfigWrites() {
+  return settleUntilEmpty(_pendingConfigWrites);
+}
+
+/** One session runtime's share of the config writes: `run(fn)` attributes
+ *  every write started in `fn`'s async context to it, and `settled()` resolves
+ *  once none of them is in flight. */
+export function createConfigWriteOwner() {
+  const writes = new Set();
+  return {
+    run: (fn) => configWriteOwner.run(writes, fn),
+    settled: () => settleUntilEmpty(writes),
+  };
 }
 
 export function updateConfigAsync(updater) {

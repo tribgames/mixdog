@@ -87,14 +87,18 @@ function releaseFailedBoot(boot) {
 export async function createMixdogSessionRuntime(options = {}) {
   const boot = beginBoot(bootParams(options));
   try {
-    await loadModules(boot);
-    await resolveConfig(boot);
-    wireInfrastructure(boot);
-    wireTools(boot);
-    wireProviders(boot);
-    wireSessionLifecycle(boot);
-    wireApis(boot);
-    return buildFacade(boot);
+    // Timers and callbacks the stages set up keep this context, so what they
+    // write later is this runtime's too.
+    return await boot.configWrites.run(async () => {
+      await loadModules(boot);
+      await resolveConfig(boot);
+      wireInfrastructure(boot);
+      wireTools(boot);
+      wireProviders(boot);
+      wireSessionLifecycle(boot);
+      wireApis(boot);
+      return buildFacade(boot);
+    });
   } catch (error) {
     releaseFailedBoot(boot);
     throw error;

@@ -4,6 +4,15 @@ export function createDebouncedWriter({ write, onError, delayMs }) {
   let pending = null;
   let timer = null;
   let inFlight = null;
+  let accepted = 0; // one per scheduled value, in schedule order
+  let written = 0; // every value up to this one is written
+  const reachWaiters = new Set();
+
+  function markWritten(snapshot) {
+    if (snapshot.seq <= written) return;
+    written = snapshot.seq;
+    for (const waiter of reachWaiters) if (written >= waiter.target) waiter.resolve(true);
+  }
 
   function clearTimer() {
     if (timer) clearTimeout(timer);
@@ -11,7 +20,8 @@ export function createDebouncedWriter({ write, onError, delayMs }) {
   }
 
   function schedule(value, flushPending = flush) {
-    pending = { value };
+    accepted += 1;
+    pending = { value, seq: accepted };
     clearTimer();
     timer = setTimeout(() => {
       void flushPending();
@@ -29,6 +39,7 @@ export function createDebouncedWriter({ write, onError, delayMs }) {
           onError(error, false);
           return false;
         }
+        markWritten(snapshot);
         if (pending === snapshot) pending = null;
       }
       return true;
@@ -61,13 +72,41 @@ export function createDebouncedWriter({ write, onError, delayMs }) {
       onError(error, true);
       return false;
     }
+    markWritten(snapshot);
     if (pending === snapshot) pending = null;
     return pending === null;
+  }
+
+  /** Resolves true once every value scheduled before this call is written,
+   *  without waiting on values scheduled later; false when the flush `start`
+   *  begins (default: this writer's own) ended first without writing them. */
+  function flushAccepted(start = flush) {
+    return flushTo(accepted, start);
+  }
+
+  /** flushAccepted for a mark taken earlier with acceptedMark(). */
+  function flushTo(target, start = flush) {
+    if (written >= target) return Promise.resolve(true);
+    let waiter;
+    const reached = new Promise((resolve) => {
+      waiter = { target, resolve };
+      reachWaiters.add(waiter);
+    });
+    const ended = Promise.resolve()
+      .then(start)
+      .then(
+        () => written >= target,
+        () => written >= target
+      );
+    return Promise.race([reached, ended]).finally(() => reachWaiters.delete(waiter));
   }
 
   return {
     schedule,
     flush,
+    flushAccepted,
+    flushTo,
+    acceptedMark: () => accepted,
     flushSyncIfIdle,
     hasPending: () => pending !== null,
     getPending: () => pending?.value ?? null,

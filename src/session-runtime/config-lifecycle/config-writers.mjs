@@ -12,19 +12,31 @@
  *                   only serializes agent-section fields, so a top-level
  *                   outputStyle would never reach disk via that path)
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createDebouncedWriter } from '../../runtime/shared/debounced-writer.mjs';
 import { DEFAULT_OUTPUT_STYLE } from '../../runtime/shared/defaults-separation.mjs';
 
 const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
-// Only pending writers are retained. A new runtime must also drain changes
-// accepted by OTHER runtimes before reading its initial config from disk.
+// Only pending writers are retained. A new runtime must also see the changes
+// OTHER runtimes accepted before it reads its initial config from disk.
 const pendingSessionConfigWriters = new Set();
+const UNSAVED_SETTINGS = 'Cannot create a new session: pending settings could not be saved.';
 
-export async function flushPendingSessionConfigWrites() {
+/** Every runtime's pending saves, those accepted while it waits included: the
+ *  process shutdown barrier. */
+export async function drainSessionConfigWrites() {
   while (pendingSessionConfigWriters.size) {
-    await Promise.all([...pendingSessionConfigWriters].map((flush) => flush({ requireSaved: true })));
+    await Promise.all([...pendingSessionConfigWriters].map((writers) => writers.flushAll({ requireSaved: true })));
   }
+}
+
+/** The reader barrier: the changes every runtime had accepted at this call,
+ *  on disk. Changes accepted later are newer than what the reader needs, so a
+ *  busy runtime never holds it. */
+export async function flushPendingSessionConfigWrites() {
+  const saved = await Promise.all([...pendingSessionConfigWriters].map((writers) => writers.flushAccepted()));
+  if (saved.includes(false)) throw new Error(UNSAVED_SETTINGS);
 }
 
 /** `root` with a top-level outputStyle; the retired `agent.outputStyle` copy is dropped. */
@@ -44,43 +56,55 @@ const writeFailure = (label) => (error, sync) =>
   process.stderr.write(`[config] ${sync ? 'debounced' : 'async'} ${label} failed: ${error?.message || error}\n`);
 
 export function createConfigWriters({ cfgMod, sharedCfgMod }) {
+  // A write runs in the context these writers were created in (their runtime's
+  // config-write owner), whoever starts the flush: another runtime's reader
+  // barrier must not take this runtime's writes into its own close.
+  const inOwnerContext = AsyncLocalStorage.snapshot();
+  const owned = (write) => (value) => inOwnerContext(write, value);
   let pendingConfigChanges = [];
   // Synchronous reload remains a synchronous API. It may flush an idle writer,
   // but must retain its pending field overlay while an async write is active.
   const configWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
-    write: async () => {
+    write: owned(async () => {
       const changes = pendingConfigChanges;
       await cfgMod.saveConfigPatchAsync(changes);
       // New edits accepted during this write remain queued; a successful prefix
       // must never be replayed over another runtime's subsequent changes.
       pendingConfigChanges = pendingConfigChanges.slice(changes.length);
-    },
+    }),
     onError: writeFailure('saveConfig'),
   });
   const skillsWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
-    write: (names) => cfgMod.patchSkillsDisabledAsync(names),
+    write: owned((names) => cfgMod.patchSkillsDisabledAsync(names)),
     onError: writeFailure('patchSkillsDisabled'),
   });
   const outputStyleWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
-    write: (styleId) => sharedCfgMod.updateConfigAsync((root) => configWithOutputStyle(root, styleId)),
+    write: owned((styleId) => sharedCfgMod.updateConfigAsync((root) => configWithOutputStyle(root, styleId))),
     onError: (error) => process.stderr.write(`[config] async outputStyle save failed: ${error?.message || error}\n`),
   });
   let configFlushInFlight = null;
 
   function releaseSavedWriter() {
     const pending = configWriter.hasPending() || skillsWriter.hasPending() || outputStyleWriter.hasPending();
-    if (!pending) pendingSessionConfigWriters.delete(flushAllConfigSavesAsync);
+    if (!pending) pendingSessionConfigWriters.delete(registration);
     return !pending;
   }
 
+  // Both channels up to marks the caller took together, at its call: the
+  // skills.disabled patch lands after the config edits accepted before those
+  // marks, never after edits accepted later.
+  async function flushConfigAndSkillsTo(configMark, skillsMark) {
+    const config = configWriter.flushTo(configMark);
+    const skills = skillsWriter.flushTo(skillsMark, () => config.then((saved) => saved && skillsWriter.flush()));
+    return !(await Promise.all([config, skills])).includes(false);
+  }
+
   async function runConfigFlushAsync() {
-    // Config edits precede the dedicated skills.disabled patch.
     do {
-      if (!(await configWriter.flush())) return false;
-      if (!(await skillsWriter.flush())) return false;
+      if (!(await flushConfigAndSkillsTo(configWriter.acceptedMark(), skillsWriter.acceptedMark()))) return false;
     } while (configWriter.hasPending() || skillsWriter.hasPending());
     return true;
   }
@@ -110,19 +134,16 @@ export function createConfigWriters({ cfgMod, sharedCfgMod }) {
     releaseSavedWriter();
   }
 
-  // Teardown barrier for every in-process writer that can hold the shared
-  // mixdog-config lock. Start/drain all debounce channels through their async
-  // variants, then resolve only when every promise tail (including skills,
-  // which config flushes after its whole-section write) has settled.
+  // This runtime's save barrier: start/drain all of its debounce channels
+  // through their async variants, then resolve only when every promise tail
+  // (including skills, which config flushes after its whole-section write) has
+  // settled. Other runtimes' writers are not waited on: a reader of the file
+  // flushes what they accepted itself (flushPendingSessionConfigWrites), and
+  // a process shutdown drains them all (drainSessionConfigWrites).
   async function flushAllConfigSavesAsync({ requireSaved = false } = {}) {
     const saved = await Promise.all([flushConfigSaveAsync(), outputStyleWriter.flush()]);
-    // The shared config layer also tracks writes started directly by channel,
-    // webhook, voice, and future async RMW callers.
-    await sharedCfgMod.pendingConfigWrites();
     releaseSavedWriter();
-    if (requireSaved && saved.includes(false)) {
-      throw new Error('Cannot create a new session: pending settings could not be saved.');
-    }
+    if (requireSaved && saved.includes(false)) throw new Error(UNSAVED_SETTINGS);
   }
 
   async function flushOutputStyleSaveAsync() {
@@ -130,19 +151,32 @@ export function createConfigWriters({ cfgMod, sharedCfgMod }) {
     releaseSavedWriter();
   }
 
+  // What each channel had accepted when another runtime's reader asked; no
+  // channel waits on values another channel accepts later.
+  async function flushAcceptedConfigSaves() {
+    const saved = await Promise.all([
+      flushConfigAndSkillsTo(configWriter.acceptedMark(), skillsWriter.acceptedMark()),
+      outputStyleWriter.flushAccepted(),
+    ]);
+    releaseSavedWriter();
+    return !saved.includes(false);
+  }
+
+  const registration = { flushAll: flushAllConfigSavesAsync, flushAccepted: flushAcceptedConfigSaves };
+
   return {
     queueConfigChanges(changes) {
       pendingConfigChanges = [...pendingConfigChanges, ...changes];
       configWriter.schedule(pendingConfigChanges, flushConfigSaveAsync);
-      pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
+      pendingSessionConfigWriters.add(registration);
     },
     scheduleSkillsSave(names) {
       skillsWriter.schedule(names, flushConfigSaveAsync);
-      pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
+      pendingSessionConfigWriters.add(registration);
     },
     scheduleOutputStyleSave(styleId) {
       outputStyleWriter.schedule(styleId, flushOutputStyleSaveAsync);
-      pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
+      pendingSessionConfigWriters.add(registration);
     },
     flushConfigSave,
     flushConfigSaveAsync,

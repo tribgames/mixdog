@@ -17,8 +17,9 @@ import { resolveRoute } from './shared.mjs';
 export async function resolveConfig(boot) {
   const { rt, params, cfgMod, sharedCfgMod } = boot;
   const configStartedAt = performance.now();
-  await flushPendingSessionConfigWrites();
-  await sharedCfgMod.pendingConfigWrites();
+  // What this process had accepted or started writing when the boot began;
+  // later writes are newer, and never hold a boot behind busy neighbours.
+  await Promise.all([flushPendingSessionConfigWrites(), sharedCfgMod.pendingConfigWrites()]);
   ({
     config: rt.config,
     route: rt.route,

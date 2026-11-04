@@ -39,7 +39,15 @@ export function createRuntimeHandle({ loadRuntimeModule, providerName, model, to
     } catch {}
     const pendingRuntime =
       state.runtime || (state.runtimePromise ? await state.runtimePromise.catch(() => null) : null);
-    if (pendingRuntime) await pendingRuntime.close(reason);
+    if (!pendingRuntime) return;
+    try {
+      await pendingRuntime.close(reason);
+    } finally {
+      // The REPL process ends with its runtime and has no shutdown of its
+      // own: a close drains only the runtime's writes ('cli-eof' is not a
+      // process-exit reason), so everything else of the process lands here.
+      await (await import('../session-runtime/lifecycle/process-drain.mjs')).drainProcessWrites();
+    }
   };
 
   return { ensureRuntime, closeRuntime, getRuntime: () => state.runtime };

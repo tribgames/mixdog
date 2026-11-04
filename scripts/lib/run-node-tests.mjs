@@ -103,6 +103,9 @@ export function testIsolationEnv(scratchDir) {
     // schedule/webhook logs, design-library bindings and the like resolve the
     // default data dir. The desktop preload already does this per process.
     MIXDOG_DATA_DIR: join(scratchDir, 'data'),
+    // Config writes back the data dir up beside the home (~/.mixdog/backups),
+    // not inside it, so the private data dir alone leaves them in the real one.
+    MIXDOG_USER_DATA_BACKUP_ROOT: join(scratchDir, 'backups'),
     // Any session a test composes would otherwise read the real home's
     // AGENTS.md / CLAUDE.md whenever the stored setting is on; tests that
     // exercise the feature clear this and pass their own home.

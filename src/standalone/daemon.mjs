@@ -113,7 +113,6 @@ import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
 import { createSessionControl } from './daemon-session-control.mjs';
 import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
-import { flushAllIndexWrites } from '../session-runtime/services/agent-tool/index-write-queue.mjs';
 import { gatewaySessionRoutesSettled } from '../vendor/statusline/src/gateway/session-routes.mjs';
 import {
   compareRuntimeVersions,
@@ -325,14 +324,20 @@ async function shutdown(reason, code = 0, error = null) {
   } catch (e) {
     log(`heartbeat state flush failed: ${e?.message || e}`);
   }
-  // Every runtime is closed: drain the canonical agent's index writers (and any
-  // other queued index write) before process.exit, whose 'exit' hook cannot
-  // finish async work.
+  // Every runtime is closed: release the canonical agent's index writers, then
+  // drain every queued index and config write before process.exit, whose
+  // 'exit' hook cannot finish async work. A session close waits only for its
+  // own writes, so whatever any runtime (one whose close overran included) or
+  // a direct writer still has queued lands here.
   try {
     await canonicalAgentControl?.dispose?.();
-    await flushAllIndexWrites();
   } catch (e) {
     log(`agent index drain failed: ${e?.message || e}`);
+  }
+  try {
+    await (await import('../session-runtime/lifecycle/process-drain.mjs')).drainProcessWrites();
+  } catch (e) {
+    log(`durable write drain failed: ${e?.message || e}`);
   }
   // Same for statusline route changes: the runtimes and agent workers that
   // queue them are closed, so what they queued lands before exit.

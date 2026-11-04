@@ -5,9 +5,10 @@ import test from 'node:test';
 import { effectiveInstructionFilesMode } from '../../src/runtime/agent/orchestrator/context/instruction-files.mjs';
 import { testIsolationEnv } from './run-node-tests.mjs';
 
-test('test processes get a private data dir and the instruction-files switch forced off', () => {
+test('test processes get a private data dir and backup root, and the instruction-files switch forced off', () => {
   const env = testIsolationEnv(join('scratch', 'run'));
   assert.equal(env.MIXDOG_DATA_DIR, join('scratch', 'run', 'data'));
+  assert.equal(env.MIXDOG_USER_DATA_BACKUP_ROOT, join('scratch', 'run', 'backups'));
   assert.equal(env.TMPDIR, join('scratch', 'run'));
   const prior = process.env.MIXDOG_BOOT_INSTRUCTION_FILES;
   process.env.MIXDOG_BOOT_INSTRUCTION_FILES = env.MIXDOG_BOOT_INSTRUCTION_FILES;
