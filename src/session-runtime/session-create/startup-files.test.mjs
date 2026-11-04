@@ -41,7 +41,24 @@ function spyOnDir(dir) {
   };
 }
 
-test('the create path reads the cwd off-thread and composition then does no directory read', async () => {
+test('the create path reads the cwd off-thread and composition then does no directory read', async (t) => {
+  // The test runner turns instruction files off for every test; this one exercises them.
+  // The test runner turns instruction files off for every test; this one exercises
+  // them, with its own empty home so the real global files are never read.
+  const home = mkdtempSync(join(tmpdir(), 'mixdog-startup-home-'));
+  const saved = {};
+  for (const [name, value] of [['MIXDOG_BOOT_INSTRUCTION_FILES', undefined], ['HOME', home], ['USERPROFILE', home]]) {
+    saved[name] = process.env[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(home, { recursive: true, force: true });
+  });
   const cwd = mkdtempSync(join(tmpdir(), 'mixdog-startup-files-'));
   writeFileSync(join(cwd, 'AGENTS.md'), 'Project rule: be brief.');
   writeFileSync(join(cwd, 'notes.txt'), 'x');
