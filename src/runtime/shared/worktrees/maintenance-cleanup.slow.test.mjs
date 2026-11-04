@@ -5,7 +5,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { configureWorktreeManager } from './manager.mjs';
-import { runWorktreeCleanup, setArchivedSessionWorktrees } from './maintenance.mjs';
+import { cleanupDeletedSessionWorktree, runWorktreeCleanup, setArchivedSessionWorktrees } from './maintenance.mjs';
 import { tryAdmitWorkspaceActivityAsync } from './activity-gate.mjs';
 import { getRecord, putRecord } from './registry.mjs';
 import { cleanupTempDirs, createTestWorktree as create, git, makeRepo, useTempDataDir } from './test-support.mjs';
@@ -84,8 +84,33 @@ test('count limit: the least recently used eligible worktree goes; favorite, liv
   for (const name of ['favorite', 'live', 'dirty', 'young', 'newer'])
     assert.ok(existsSync(made[name].entry.path), name);
   assert.ok(existsSync(join(made.dirty.entry.path, 'wip.txt')));
-  // The removed worktree's merged branch, made by Mixdog, goes with it.
-  assert.equal(branchExists(repo, made.oldest.entry.branch), false);
+  // deleteBranch off (the default): the removed worktree's branch stays.
+  assert.ok(branchExists(repo, made.oldest.entry.branch));
+});
+
+test('deleteBranch: off keeps a merged, Mixdog-created branch through every automatic cleanup; on deletes it', async () => {
+  const repo = makeRepo();
+  const { made, options } = await setup(repo, { kept: { idleMs: 90 * DAY }, gone: { idleMs: 90 * DAY } });
+  assert.equal((await getRecord(made.kept.entry.id)).existingBranch, false);
+  configure({ maxWorktrees: 0, unusedDays: 30, deleteBranch: false });
+  const off = await runWorktreeCleanup(options());
+  assert.deepEqual(off.removed.sort(), [made.kept.entry.id, made.gone.entry.id].sort());
+  assert.ok(branchExists(repo, made.kept.entry.branch));
+  assert.ok(branchExists(repo, made.gone.entry.branch));
+  // The same cleanup with the setting on: the orca rule deletes the merged branch.
+  const again = await setup(repo, { gone2: { idleMs: 90 * DAY } });
+  configure({ maxWorktrees: 0, unusedDays: 30, deleteBranch: true });
+  assert.deepEqual((await runWorktreeCleanup(again.options())).removed, [again.made.gone2.entry.id]);
+  assert.equal(branchExists(repo, again.made.gone2.entry.branch), false);
+  // A deleted session's worktree follows the setting too.
+  const deleted = await create(repo, { nameHint: 'deleted' });
+  configure({ deleteBranch: false });
+  assert.equal((await cleanupDeletedSessionWorktree(deleted.sessionId)).removed, true);
+  assert.ok(branchExists(repo, deleted.entry.branch));
+  const deletedOn = await create(repo, { nameHint: 'deleted-on' });
+  configure({ deleteBranch: true });
+  assert.equal((await cleanupDeletedSessionWorktree(deletedOn.sessionId)).removed, true);
+  assert.equal(branchExists(repo, deletedOn.entry.branch), false);
 });
 
 test('age limit: worktrees unused past the limit go; a running job in a folder keeps it', async () => {
@@ -132,7 +157,7 @@ test('empty prefix: a user branch named like the task is never reused, overwritt
   // A worktree opened on the user's own branch: cleanup never deletes that branch.
   const opened = await create(repo, { branch: 'feature-x', existingBranch: true });
   for (const { entry } of [named, nested, opened]) await backdate(entry, 90 * DAY);
-  configure({ maxWorktrees: 0, unusedDays: 30 });
+  configure({ maxWorktrees: 0, unusedDays: 30, deleteBranch: true });
   const report = await runWorktreeCleanup({
     listSessionIds: async () => [named.sessionId, nested.sessionId, opened.sessionId],
     readActivity: async () => ({}),

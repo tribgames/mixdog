@@ -460,11 +460,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
               minimum: 0,
               description: 'Repository size that asks for confirmation first; 0 never asks.',
             },
-            autoCleanup: {
-              type: 'boolean',
-              description:
-                'Remove clean, merged worktrees when their task ends, with the branch Mixdog created once git considers it merged (its commits stay reachable).',
-            },
+            autoCleanup: { type: 'boolean', description: 'Remove clean, merged worktrees when their task ends.' },
             maxWorktrees: {
               type: 'integer',
               minimum: 0,
@@ -481,6 +477,11 @@ export const SETUP_TOOL_DEFS = Object.freeze([
             cleanupArchived: {
               type: 'boolean',
               description: 'With autoCleanup: archiving a session cleans up its worktrees. Default true.',
+            },
+            deleteBranch: {
+              type: 'boolean',
+              description:
+                'With autoCleanup: also delete the cleaned-up worktree\'s branch when Mixdog created it and git considers it merged (its commits stay reachable). Default false: the branch stays.',
             },
           },
           description: 'set_worktree_settings: only the given fields change.',

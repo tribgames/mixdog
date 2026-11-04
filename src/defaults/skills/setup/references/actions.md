@@ -456,9 +456,10 @@ markers are read with `status desktop`.
   (it is stored in plain text); a proxy that needs one goes in `HTTPS_PROXY`.
 - `set_worktree_settings`: `maxWorktrees` / `unusedDays` of `0` disable that
   cleanup criterion; setting a positive value where it was `0`, or lowering a
-  positive one, makes cleanup remove more: confirm with the user first.
-  Cleanup also deletes a removed worktree's branch when Mixdog created it,
-  once git considers it merged (into the merge target or the branch's
+  positive one, makes cleanup remove more, and `deleteBranch:true` also lets
+  cleanup delete a removed worktree's branch (default `false`: the branch
+  stays): confirm with the user first. Even then only a branch Mixdog created
+  goes, once git considers it merged (into the merge target or the branch's
   upstream); its commits stay reachable, and any other branch stays.
   Commits a removal would drop are kept under `refs/mixdog/recovered/`
   (earlier builds used `refs/mixdog/removed/`; neither is cleaned up): list

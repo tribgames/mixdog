@@ -251,6 +251,7 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
           'maxWorktrees',
           'unusedDays',
           'cleanupArchived',
+          'deleteBranch',
         ],
         'worktree settings'
       );
@@ -276,6 +277,7 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       }
       optionalBoolean(input, 'autoCleanup', 'worktree settings');
       optionalBoolean(input, 'cleanupArchived', 'worktree settings');
+      optionalBoolean(input, 'deleteBranch', 'worktree settings');
       for (const [key, limit] of [
         ['maxWorktrees', DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT],
         ['unusedDays', DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT],

@@ -46,7 +46,7 @@ test("a deleted session's squash-merged worktree goes with its branch; the tip s
   const tip = commitFile(made.entry.path, 'feature.txt', 'feature\n', 'feature');
   git(repo, 'merge', '--squash', made.entry.branch);
   git(repo, 'commit', '-q', '-m', 'squash feature');
-  const result = await cleanupDeletedSessionWorktree(made.sessionId, { autoCleanup: true });
+  const result = await cleanupDeletedSessionWorktree(made.sessionId, { autoCleanup: true, deleteBranch: true });
   assert.equal(result.removed, true);
   assert.equal(branchExists(repo, made.entry.branch), false);
   assert.equal(git(repo, 'rev-parse', `refs/mixdog/recovered/${made.entry.id}/${tip}`), tip);
@@ -86,7 +86,7 @@ test('ignored files no install restores keep a worktree from every automatic rem
   writeFile(regen, 'src/__pycache__/app.cpython-312.pyc', 'bytecode');
   writeFile(regen, '.tool-cache/CACHEDIR.TAG', 'Signature: 8a477f597d28d172789f06886806bc55\n');
   writeFile(regen, '.tool-cache/blob.bin', 'cached');
-  configure({ maxWorktrees: 0, unusedDays: 30 });
+  configure({ maxWorktrees: 0, unusedDays: 30, deleteBranch: true });
   // A deleted session's leftover: kept, not removed.
   const deleted = await cleanupDeletedSessionWorktree(made.deleted.sessionId);
   assert.deepEqual([deleted.removed, deleted.reason], [false, 'WORKTREE_DIRTY']);
