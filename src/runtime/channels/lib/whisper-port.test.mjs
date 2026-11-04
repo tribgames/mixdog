@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import net from 'node:net';
-import { listenerPidsInclude, selectWhisperPort, whisperListenerOwned } from './whisper-port.mjs';
+import {
+  listenerPidsInclude,
+  runOwnershipQuery,
+  selectWhisperPort,
+  whisperListenerOwned,
+} from './whisper-port.mjs';
+
+// A large TCP table makes the Windows ownership query take seconds (6.4 s
+// measured), so a query must run until the caller's signal ends it, not a
+// bound of its own.
+test('an ownership query that outlasts five seconds still answers, and the caller signal ends one', async () => {
+  const slow = ['-e', 'setTimeout(() => console.log("owned"), 5500)'];
+  assert.equal(await runOwnershipQuery(process.execPath, slow), 'owned\n');
+  const started = Date.now();
+  assert.equal(await runOwnershipQuery(process.execPath, slow, AbortSignal.timeout(200)), null);
+  assert.ok(Date.now() - started < 5000, 'the signal, not the query, decides when it ends');
+});
 
 test('listener pid parsing matches whole lines only', () => {
   assert.equal(listenerPidsInclude('4242\r\n', 4242), true);

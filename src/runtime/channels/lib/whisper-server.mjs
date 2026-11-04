@@ -418,6 +418,8 @@ async function startServer(contract) {
 
   // ── Wait for READY: TCP bind + (when flushed) listening-line port assertion. ──
   const deadline = Date.now() + READY_TIMEOUT_MS;
+  // The ownership query runs within this same budget and is ended with it.
+  const readiness = AbortSignal.timeout(READY_TIMEOUT_MS);
   while (Date.now() < deadline) {
     if (mgr.state === STATE.DEAD || !mgr.child) {
       throw new Error(`whisper-server died during startup:\n${mgr.logTail.slice(-1000)}`);
@@ -434,7 +436,7 @@ async function startServer(contract) {
     }
     if (
       (await probePort(host, port)) &&
-      (await whisperListenerOwned(host, port, child.pid)) &&
+      (await whisperListenerOwned(host, port, child.pid, readiness)) &&
       mgr.child === child &&
       child.exitCode === null &&
       mgr.state === STATE.STARTING
@@ -518,7 +520,7 @@ export async function transcribe(wavPath, { language } = {}) {
       // Proven at readiness for this live child; re-prove only without that proof.
       mgr.proof?.child === child && mgr.proof.port === port && child.exitCode === null
         ? true
-        : whisperListenerOwned(host, port, child.pid),
+        : whisperListenerOwned(host, port, child.pid, ctrl.signal),
     ]);
     // Re-check after the awaits: a replacement listener (or child) must never
     // receive audio. Nothing awaits between this check and the request.

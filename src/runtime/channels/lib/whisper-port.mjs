@@ -31,15 +31,17 @@ export function selectWhisperPort(host, preferred) {
 }
 
 // Resolves the query's stdout, or null on any failure (spawn error, non-zero
-// exit, timeout). Asynchronous so the daemon event loop never parks on the
-// ownership query (netstat costs ~54 ms idle and seconds under CPU load).
-function runOwnershipQuery(command, args) {
+// exit, abort). Asynchronous so the daemon event loop never parks on the
+// ownership query. Its cost grows with the TCP table (Get-NetTCPConnection took
+// 6.4 s with ~6,300 connections), so it has no bound of its own: the caller's
+// signal (the readiness deadline, or the request it serves) ends it.
+export function runOwnershipQuery(command, args, signal) {
   return new Promise((resolve) => {
     try {
       execFile(
         command,
         args,
-        { encoding: 'utf8', windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024 * 1024 },
+        { encoding: 'utf8', windowsHide: true, signal, maxBuffer: 16 * 1024 * 1024 },
         (error, stdout) => resolve(error ? null : String(stdout))
       );
     } catch {
@@ -53,7 +55,7 @@ export function listenerPidsInclude(stdout, pid) {
   return stdout.split(/\r?\n/).some((line) => line.trim() === String(pid));
 }
 
-export async function whisperListenerOwned(host, port, pid) {
+export async function whisperListenerOwned(host, port, pid, signal) {
   if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(port)) return false;
   try {
     if (process.platform === 'win32') {
@@ -69,28 +71,25 @@ export async function whisperListenerOwned(host, port, pid) {
           '-NonInteractive',
           '-Command',
           `(Get-NetTCPConnection -LocalAddress '${host}' -LocalPort ${port} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess`,
-        ]
+        ],
+        signal
       );
       if (stdout === null) return false;
       return listenerPidsInclude(stdout, pid);
     }
     if (process.platform === 'linux') {
-      const stdout = await runOwnershipQuery('ss', ['-H', '-ltnp', `sport = :${port}`]);
+      const stdout = await runOwnershipQuery('ss', ['-H', '-ltnp', `sport = :${port}`], signal);
       if (stdout === null) return false;
       return stdout.split(/\r?\n/).some((line) => {
         const fields = line.trim().split(/\s+/);
         return fields[3] === `${host}:${port}` && new RegExp(`\\bpid=${pid},`).test(line);
       });
     }
-    const stdout = await runOwnershipQuery('lsof', [
-      '-nP',
-      '-a',
-      '-p',
-      String(pid),
-      `-iTCP@${host}:${port}`,
-      '-sTCP:LISTEN',
-      '-Fp',
-    ]);
+    const stdout = await runOwnershipQuery(
+      'lsof',
+      ['-nP', '-a', '-p', String(pid), `-iTCP@${host}:${port}`, '-sTCP:LISTEN', '-Fp'],
+      signal
+    );
     return stdout !== null && stdout.split(/\r?\n/).includes(`p${pid}`);
   } catch {
     // No ownership evidence means no readiness and no audio upload.
