@@ -204,7 +204,7 @@ export function nativeCollapseKey(sessionId: string, reason: PushReason): string
 
 /** RFC 8292 wants a contactable sender. A mailto the push service can reach
  *  is the convention; it identifies the software, not the user. */
-const VAPID_SUBJECT = 'mailto:support@tribgames.com';
+const VAPID_SUBJECT = 'mailto:support@mixdog.ai';
 
 /** Whether one device hears this notification. `target` labels the diagnostics. */
 type DeliveryGate = (deviceId: string, foreground: boolean, target: Record<string, unknown>) => Promise<boolean>;

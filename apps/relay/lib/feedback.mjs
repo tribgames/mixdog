@@ -21,7 +21,7 @@ export const MAX_FEEDBACK_BODY_BYTES =
   MAX_FEEDBACK_TEXT_BODY_BYTES + Math.ceil(FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES / 3) * 4 + 4096;
 export const MAX_FEEDBACK_MESSAGE_CHARS = 8000;
 export const MAX_FEEDBACK_EMAIL_CHARS = 254;
-export const DEFAULT_FEEDBACK_TO = 'support@tribgames.com';
+export const DEFAULT_FEEDBACK_TO = 'support@mixdog.ai';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@<>(),;:\\"]+@[^\s@<>(),;:\\"]+\.[^\s@<>(),;:\\"]+$/;

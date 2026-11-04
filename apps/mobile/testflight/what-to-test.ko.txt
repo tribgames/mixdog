@@ -6,4 +6,4 @@ Mixdog Mobile(베타)은 PC의 Mixdog 데스크톱 세션을 휴대폰에서 이
 3. PC에서 연결 요청을 허용합니다.
 
 확인 항목: 세션 목록, 메시지 확인 및 전송, 작업 완료 알림
-문의: support@tribgames.com
+문의: support@mixdog.ai

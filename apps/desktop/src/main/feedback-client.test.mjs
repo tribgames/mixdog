@@ -200,7 +200,7 @@ test('feedback client and relay persist the message before one email handoff, in
   assert.equal(mails.length, 1);
   assert.equal(mails[0].text, normalized.message);
   assert.equal(mails[0].replyTo, normalized.replyTo);
-  assert.equal(mails[0].to, 'support@tribgames.com');
+  assert.equal(mails[0].to, 'support@mixdog.ai');
 });
 
 const shot = (name, type, fill) => {

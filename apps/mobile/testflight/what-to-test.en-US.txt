@@ -6,4 +6,4 @@ How to test
 3. Approve the request on your PC.
 
 Please check: the session list, reading and sending messages, and task-completion notifications.
-Feedback: support@tribgames.com
+Feedback: support@mixdog.ai
