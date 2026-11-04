@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { isHeartbeatSession, markHeartbeatSession } from '../../runtime/shared/routine-trigger.mjs';
-import { wakeMixy } from '../mixy-heartbeat.mjs';
+import { heartbeatStateSettled, wakeMixy } from '../mixy-heartbeat.mjs';
 import { assertHeartbeatSetupAction, scheduleCallerScope } from '../services/schedule-access.mjs';
 import { createSetupToolExecutor } from '../setup-tool/executor.mjs';
 import { createWorkspaceToolHandlers } from './workspace-tools.mjs';
@@ -386,15 +386,19 @@ test('suggest through the tool: recorded, refreshed, declined for good, refused 
     recorded: true,
     refreshed: true,
   });
-  const file = () => JSON.parse(readFileSync(`${resolvePluginData()}/heartbeat.json`, 'utf8'));
+  // The state file is written asynchronously: read it once the writes landed.
+  const file = async () => {
+    await heartbeatStateSettled();
+    return JSON.parse(readFileSync(`${resolvePluginData()}/heartbeat.json`, 'utf8'));
+  };
   assert.deepEqual(
-    file().pending.map(({ key, text }) => [key, text]),
+    (await file()).pending.map(({ key, text }) => [key, text]),
     [['pause-routine:news', 'Pause it, it keeps failing']]
   );
   const declined = await suggest({ key: 'pause-routine:news', value: false });
   assert.equal(declined.dismissed, true);
-  assert.deepEqual(file().pending, []);
-  assert.deepEqual(file().dismissed, ['pause-routine:news']);
+  assert.deepEqual((await file()).pending, []);
+  assert.deepEqual((await file()).dismissed, ['pause-routine:news']);
   const again = await suggest({ key: 'pause-routine:news', title: 'Please?' });
   assert.equal(again.recorded, false);
   assert.match(again.reason, /declined/);

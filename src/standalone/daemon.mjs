@@ -179,6 +179,8 @@ let transcriptPurgeUnregister = null;
 let agentDispatchBroker = null;
 let remoteSessionState = { enabled: false, sessionId: null };
 let shuttingDown = false;
+// Stops Mixy's heartbeat from scheduling; resolves when its running check ended.
+let stopHeartbeat = null;
 let shutdownRecheckTimer = null;
 let replacementRequested = null;
 // The OS owner lock, referenced for the process lifetime: a collected
@@ -279,6 +281,8 @@ async function shutdown(reason, code = 0, error = null) {
     shutdownRecheckTimer = null;
   }
   log(`shutting down (${reason})`);
+  // Mixy's heartbeat schedules no more checks; the one running is awaited below.
+  const heartbeatEnded = stopHeartbeat?.();
   // Backstop: one wedged stop step must never keep the daemon — and with it the
   // listening port, singleton claim and discovery file — alive. Unref'd so the
   // clean path still exits the moment teardown finishes.
@@ -300,6 +304,10 @@ async function shutdown(reason, code = 0, error = null) {
   } catch (e) {
     log(`model proxy bridge stop failed: ${e?.message || e}`);
   }
+  // A running check ends before the session service it calls goes away (its
+  // model calls were just aborted); a user's turn still reaches noteUserTurn
+  // until the service stops below.
+  await heartbeatEnded;
   try {
     await sessionService?.stop?.(reason);
   } catch (e) {
@@ -309,6 +317,13 @@ async function shutdown(reason, code = 0, error = null) {
     await sessionRuntimeHost?.close?.(reason);
   } catch (e) {
     log(`session runtime host stop failed: ${e?.message || e}`);
+  }
+  // Every producer of heartbeat state has stopped: its newest state lands
+  // before exit (the exit hook can only write it synchronously).
+  try {
+    await (await import('../session-runtime/mixy-heartbeat.mjs')).flushHeartbeatState();
+  } catch (e) {
+    log(`heartbeat state flush failed: ${e?.message || e}`);
   }
   // Every runtime is closed: drain the canonical agent's index writers (and any
   // other queued index write) before process.exit, whose 'exit' hook cannot
@@ -1190,7 +1205,12 @@ async function main() {
   // Mixy's heartbeat check (user-set interval) (mixy-heartbeat.mjs), on an unref'd timer.
   import('../session-runtime/mixy-heartbeat.mjs')
     .then(({ startMixyHeartbeat }) =>
-      startMixyHeartbeat({ getSessionService: () => sessionService, log: (line) => log(`heartbeat: ${line}`) })
+      {
+        stopHeartbeat = startMixyHeartbeat({
+          getSessionService: () => sessionService,
+          log: (line) => log(`heartbeat: ${line}`),
+        });
+      }
     )
     .catch((error) => log(`heartbeat start failed: ${error?.message || error}`));
   // Results queued before a restart are posted now; results a finished run

@@ -61,8 +61,9 @@
  * and each expires after 72 hours.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { readFile as readFileAsync, unlink as unlinkAsync } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   MIXY_AGENT_ID,
   agentHomeSessionId,
@@ -70,7 +71,8 @@ import {
 } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomIdOfSession, roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { isRootLeadSession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
-import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync, writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
+import { claimStagedHeader, publishStagedHeader } from '../runtime/shared/staged-publish.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
@@ -146,9 +148,11 @@ let lastUserTurnAt = 0;
 export function noteUserTurn(at = Date.now(), { path = defaultStatePath() } = {}) {
   const time = Number(at) || 0;
   lastUserTurnAt = Math.max(lastUserTurnAt, time);
+  // Not awaited: a submit never waits for the file. A write that fails stays
+  // queued (see updateState), so it is logged here and written again later.
   updateState(path, (next) => {
     next.lastUserInputAt = Math.max(next.lastUserInputAt, time);
-  });
+  }).catch((error) => defaultLog(`user turn note not saved yet: ${errorText(error)}`));
 }
 
 let lastAppInputAt = 0;
@@ -162,7 +166,7 @@ function writeAppInput(path, entry, current) {
   const value = lastAppInputAt;
   updateState(path, (next) => {
     next.lastAppInputAt = Math.max(next.lastAppInputAt, value);
-  });
+  }).catch((error) => defaultLog(`app input note not saved yet: ${errorText(error)}`));
   entry.at = value;
   entry.wroteAt = current;
 }
@@ -208,11 +212,32 @@ export function noteUserInput(
 
 const defaultStatePath = () => join(resolvePluginData(), 'heartbeat.json');
 
+/** What this process sees: the state it holds (or the file, when it holds
+ *  none) plus the changes it queued and has not yet applied. */
 function readState(path) {
+  const file = stateFiles.get(path);
+  const state = file?.state ? structuredClone(file.state) : readDiskState(path);
+  for (const { change } of file?.pending ?? []) change(state);
+  return state;
+}
+
+function readDiskState(path) {
   let raw = null;
   try {
     raw = JSON.parse(readFileSync(path, 'utf8'));
   } catch {}
+  return normalizeState(raw);
+}
+
+async function loadDiskState(path) {
+  let raw = null;
+  try {
+    raw = JSON.parse(await readFileAsync(path, 'utf8'));
+  } catch {}
+  return normalizeState(raw);
+}
+
+function normalizeState(raw) {
   const value = raw && typeof raw === 'object' ? raw : {};
   return {
     // The collection watermark (the last handled check) and the last check begun.
@@ -260,16 +285,134 @@ function pruneReviews(state, at) {
   state.reviews = Object.fromEntries(kept);
 }
 
-/** One synchronous read-modify-write of the state file: Mixy's proposals land
- *  between a check's stages without either side losing the other's change. */
+/** Per state file, as the daemon (the file's only owner: the daemon owner lock
+ *  lives as long as the process) sees it: `state`, the file's content once
+ *  loaded, with every change applied to it; `pending`, changes queued and not
+ *  applied yet; `dirty`, that `state` is not known to be on disk; `running`,
+ *  the one drain writing it; `op`, the write in flight (its staged file is the
+ *  fence the exit flush claims). Dropped once everything is on disk. */
+const stateFiles = new Map();
+let exitFlushInstalled = false;
+
+/** Queue `change` (a function of the state and the values it captured) for
+ *  the state file at `path`. Resolves with its result once the state holding it
+ *  is on disk, and rejects when that write fails; the state then stays dirty and
+ *  the next write, `heartbeatStateSettled` or the exit flush writes it again. */
 function updateState(path, change) {
-  const state = readState(path);
-  const result = change(state);
-  mkdirSync(dirname(path), { recursive: true });
-  writeJsonAtomicSync(path, state);
-  return result;
+  let file = stateFiles.get(path);
+  if (!file) stateFiles.set(path, (file = { state: null, pending: [], dirty: false, running: null, op: null }));
+  const entry = { change };
+  entry.done = new Promise((resolve, reject) => {
+    entry.resolve = resolve;
+    entry.reject = reject;
+  });
+  // The caller decides whether a failure matters; none is left unhandled.
+  entry.done.catch(() => {});
+  file.pending.push(entry);
+  if (!exitFlushInstalled) {
+    exitFlushInstalled = true;
+    process.on('exit', flushStatesSync);
+  }
+  file.running ??= startDrain(path, file);
+  return entry.done;
 }
 
+function startDrain(path, file) {
+  const running = drainState(path, file);
+  running.catch(() => {});
+  return running;
+}
+
+/** The file's single writer. A round applies every change queued so far to the
+ *  state, in order, and publishes the state; changes queued meanwhile make the
+ *  next round, so the last state wins and none is lost. A round settles every
+ *  change it carried: all resolve once it landed, all reject if it failed. A
+ *  failure does not end the drain while changes wait: they go in a round of
+ *  their own (a retry of the dirty state included). The first round also
+ *  retries a dirty state left by an earlier failure. Rejects when the last
+ *  round failed. */
+async function drainState(path, file) {
+  let failure = null;
+  try {
+    for (let retry = true; file.pending.length || (retry && file.dirty); retry = false) {
+      file.state ??= await loadDiskState(path);
+      const batch = file.pending.splice(0);
+      const applied = [];
+      for (const entry of batch) {
+        try {
+          entry.result = entry.change(file.state);
+          applied.push(entry);
+        } catch (error) {
+          entry.reject(error);
+        }
+      }
+      if (applied.length) file.dirty = true;
+      try {
+        await publishState(path, file);
+        file.dirty = false;
+        failure = null;
+        for (const entry of applied) entry.resolve(entry.result);
+      } catch (error) {
+        failure = error;
+        for (const entry of applied) entry.reject(error);
+      }
+    }
+  } finally {
+    file.running = null;
+    if (!file.dirty && !file.pending.length) stateFiles.delete(path);
+  }
+  if (failure) throw failure;
+}
+
+/** Stage the state, then rename it over the file (staged-publish.mjs): the
+ *  exit flush can claim the staged file so this older rename never lands
+ *  over what it writes. */
+async function publishState(path, file) {
+  const op = { stagedPath: `${path}.mixdog-staged`, headerPath: path, superseded: false };
+  file.op = op;
+  try {
+    await writeJsonAtomicAsync(op.stagedPath, file.state);
+    await publishStagedHeader(op);
+  } catch (error) {
+    await unlinkAsync(op.stagedPath).catch(() => {});
+    throw error;
+  } finally {
+    file.op = null;
+  }
+}
+
+/** The exit hook cannot wait for async work: it claims the write in flight (an
+ *  older rename can then no longer land), applies what is still queued to the
+ *  newest state and writes it here, the only synchronous write of the file. */
+function flushStatesSync() {
+  for (const [path, file] of stateFiles) {
+    if (!file.dirty && !file.pending.length) continue;
+    try {
+      if (file.op) claimStagedHeader(file.op);
+      const state = file.state ?? readDiskState(path);
+      for (const { change } of file.pending) change(state);
+      writeJsonAtomicSync(path, state);
+      file.dirty = false;
+      file.pending.length = 0;
+    } catch (error) {
+      defaultLog(`state not saved at exit: ${errorText(error)}`);
+    }
+  }
+}
+
+/** Resolves once the newest state for `path` is on disk, writing it now when
+ *  no write is running (a retry after a failure); rejects when that fails. */
+export function heartbeatStateSettled(path = defaultStatePath()) {
+  const file = stateFiles.get(path);
+  if (!file || (!file.dirty && !file.pending.length)) return Promise.resolve();
+  return (file.running ??= startDrain(path, file));
+}
+
+/** Daemon shutdown, once the producers have stopped: the newest state of every
+ *  file is on disk before the process exits. */
+export function flushHeartbeatState() {
+  return Promise.all([...stateFiles.keys()].map((path) => heartbeatStateSettled(path)));
+}
 const livePending = (state, at) =>
   state.pending.filter((entry) => at - (Number(entry.at) || 0) < HEARTBEAT_LIMITS.suggestionTtlMs);
 const pruneSuggestions = (state, at) => {
@@ -278,7 +421,9 @@ const pruneSuggestions = (state, at) => {
 
 /**
  * Record proposal `key` (action:target) with its one-line `text`, or with
- * `dismissed` that the user declined it. Resolves the receipt Mixy reads.
+ * `dismissed` that the user declined it. Resolves the receipt Mixy reads once
+ * the change is on disk, as the file then was; rejects when it could not be
+ * written (a malformed key throws at once).
  */
 export function recordSuggestion(
   { key, text = '', dismissed = false } = {},
@@ -291,8 +436,8 @@ export function recordSuggestion(
     throw new Error('session: suggest needs key as action:target, e.g. pause-routine:daily-news');
   }
   const line = quotedText(text, SUGGESTION_LIMIT);
+  const at = now();
   return updateState(path, (state) => {
-    const at = now();
     pruneSuggestions(state, at);
     if (dismissed) {
       state.pending = state.pending.filter((entry) => entry.key !== id);
@@ -606,7 +751,7 @@ export async function wakeMixy(
   } finally {
     // Nothing runs on in it: delegation is refused there (workspace-tools.mjs),
     // and the close stops the shell commands it left running.
-    if (!(await releaseHidden(sessionId, release, log))) unreleased(sessionId);
+    if (!(await releaseHidden(sessionId, release, log))) await unreleased(sessionId);
   }
 }
 
@@ -672,7 +817,7 @@ export function createMixyHeartbeat({
   /** Keep hidden session `id` for a later close; none is ever dropped, and a
    *  full list stops new checks (see `beat`). */
   function keepUnreleased(id) {
-    updateState(path, (next) => {
+    return updateState(path, (next) => {
       next.unreleased = [...next.unreleased.filter((kept) => kept !== id), id];
     });
   }
@@ -684,7 +829,7 @@ export function createMixyHeartbeat({
     const closed = [];
     for (const id of unreleased) if (await releaseHidden(id, release, log)) closed.push(id);
     if (closed.length) {
-      updateState(path, (next) => {
+      await updateState(path, (next) => {
         next.unreleased = next.unreleased.filter((id) => !closed.includes(id));
       });
     }
@@ -803,11 +948,11 @@ export function createMixyHeartbeat({
         pruneReviews(next, at);
       });
     if (hash === state.lastHash) {
-      commit();
+      await commit();
       return 'unchanged';
     }
     if (!digest.lines.length) {
-      commit();
+      await commit();
       return 'empty';
     }
     const proposals = livePending(state, at).map((entry) => entry.key);
@@ -818,7 +963,7 @@ export function createMixyHeartbeat({
     let lines = digest.lines;
     if (gated) ({ lines, cursors } = await reviewed(digest, state));
     if (!lines.length) {
-      commit();
+      await commit();
       return 'nothing';
     }
     const recent = state.lastReport && at - state.lastReport.at < REPORT_TTL_MS ? state.lastReport.text : '';
@@ -827,7 +972,7 @@ export function createMixyHeartbeat({
       ? await ask({ digest: lines, ...told, proposals, dismissed })
       : { decision: null };
     if (decision?.action === 'nothing') {
-      commit();
+      await commit();
       return 'nothing';
     }
     let items;
@@ -841,7 +986,7 @@ export function createMixyHeartbeat({
       reported = digest.routines.filter((routine) => routine.severe);
       if (!reported.length) {
         // A failed Maintainer call leaves the digest for the next check.
-        if (!failed) commit();
+        if (!failed) await commit();
         return failed ? 'retry' : 'quiet';
       }
       items = reported.map((routine) => routine.text);
@@ -853,12 +998,12 @@ export function createMixyHeartbeat({
       { items, evidence, ...told, proposals, dismissed },
       { release, unreleased: keepUnreleased }
     );
-    commit(reported, { seen: !failed, report: outcome?.quiet === false ? String(outcome.text || '') : '' });
+    await commit(reported, { seen: !failed, report: outcome?.quiet === false ? String(outcome.text || '') : '' });
     return 'woke';
   }
 
   /** One timer step: runs a check when one is due, enabled and the user is quiet. */
-  async function tick() {
+  async function runTick() {
     if (running) return 'running';
     running = true;
     try {
@@ -868,7 +1013,7 @@ export function createMixyHeartbeat({
       // never created (issue #243); the first check after she is made arms anew.
       if (!(await mixyExists())) {
         if (readState(path).lastBeatAt) {
-          updateState(path, (next) => {
+          await updateState(path, (next) => {
             next.lastBeatAt = 0;
           });
         }
@@ -877,7 +1022,7 @@ export function createMixyHeartbeat({
       const at = now();
       const state = readState(path);
       if (!state.lastBeatAt) {
-        updateState(path, (next) => {
+        await updateState(path, (next) => {
           next.lastBeatAt = at;
         });
         return 'armed';
@@ -895,7 +1040,7 @@ export function createMixyHeartbeat({
         state.lastAppInputAt
       );
       if (at - userAt < limits.idleMs) return 'deferred';
-      updateState(path, (next) => {
+      await updateState(path, (next) => {
         next.lastAttemptAt = at;
       });
       const outcome = await beat(at);
@@ -909,11 +1054,24 @@ export function createMixyHeartbeat({
     }
   }
 
-  return { tick };
+  /** The check in progress (a tick that found one running is not it). */
+  let active = null;
+  function tick() {
+    const run = runTick();
+    if (!active) {
+      active = run;
+      run.then(() => {
+        active = null;
+      });
+    }
+    return run;
+  }
+
+  return { tick, idle: () => active ?? Promise.resolve() };
 }
 
 /** Daemon start: tick the heartbeat a minute after start, then on an unref'd
- *  timer; returns its stop. */
+ *  timer; returns its stop (which resolves once the running check ended). */
 export function startMixyHeartbeat({ timers = globalThis, ...deps } = {}) {
   const heartbeat = createMixyHeartbeat(deps);
   const tick = () => void heartbeat.tick();
@@ -921,8 +1079,10 @@ export function startMixyHeartbeat({ timers = globalThis, ...deps } = {}) {
   const every = timers.setInterval(tick, HEARTBEAT_LIMITS.tickMs);
   first?.unref?.();
   every?.unref?.();
+  // Stops scheduling at once; the promise settles when the check in progress ends.
   return () => {
     timers.clearTimeout(first);
     timers.clearInterval(every);
+    return heartbeat.idle();
   };
 }

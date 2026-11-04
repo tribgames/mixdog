@@ -46,11 +46,12 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { writeFileAtomicAsync, writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { withFileLock, withFileLockSync } from '../../../../shared/file-lock.mjs';
+import { claimStagedHeader, publishStagedHeader } from '../../../../shared/staged-publish.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { redactSettledText, sensitiveValuesVersion } from '../sensitive-values.mjs';
 import { redactSensitiveContent, redactSensitiveMessage, redactSensitiveToolCall } from '../sensitive-projection.mjs';
@@ -515,43 +516,8 @@ function _runJournalOpSync(op) {
   }
 }
 
-// ── Header publication fence ────────────────────────────────────────────────
-// A save may publish a newer header on the calling thread (publishNow) while
-// an older open's header write is in flight. A started rename cannot be
-// cancelled, so the older write is staged first and only renamed over the
-// header from the staged file. The newer publish claims that file before
-// writing: when the claim (an unlink) finds it, the older rename can no longer
-// land; when it does not, the older rename already landed and the newer write
-// follows it. Either way the header never regresses.
-const STAGED_RENAME_RETRY = new Set(['EPERM', 'EACCES', 'EBUSY']);
-const STAGED_RENAME_BACKOFFS_MS = [10, 25, 50, 100, 200, 400, 800];
-
-function claimStagedHeader(op) {
-  op.superseded = true;
-  try {
-    unlinkSync(op.stagedPath);
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
-}
-
-// False when a newer header was published meanwhile and this one was dropped.
-async function publishStagedHeader(op) {
-  for (let attempt = 0; ; attempt++) {
-    if (op.superseded) return false;
-    try {
-      await rename(op.stagedPath, op.headerPath);
-      return true;
-    } catch (error) {
-      if (op.superseded) return false;
-      if (!STAGED_RENAME_RETRY.has(error?.code) || attempt >= STAGED_RENAME_BACKOFFS_MS.length) throw error;
-      await new Promise((resolve) => {
-        setTimeout(resolve, STAGED_RENAME_BACKOFFS_MS[attempt]);
-      });
-    }
-  }
-}
-
+// The header publication fence (a newer header published on the calling thread
+// while an older open's write is in flight) is shared/staged-publish.mjs.
 const SUPERSEDED = Symbol('superseded');
 
 async function _runJournalOpAsync(op) {
