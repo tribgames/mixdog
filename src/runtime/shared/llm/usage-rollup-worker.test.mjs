@@ -7,6 +7,9 @@ import { UsageLedger, makeUsageRecord } from './usage-ledger.mjs';
 import { assembleRollup, knownRollupDays, rollupDelta, rollupUsage } from './usage-ledger-rollup.mjs';
 import { usageRollupDayKey } from './usage-rollup.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
+import * as modelCatalog from './model-catalog.mjs';
+await warmCatalogForTest(modelCatalog);
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

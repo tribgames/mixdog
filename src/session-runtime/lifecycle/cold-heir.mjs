@@ -24,6 +24,7 @@ import {
   invalidateProviderContextBaseline,
 } from '../../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import { deleteSession, evictLiveSession, saveSessionAsync } from '../../runtime/agent/orchestrator/session/store.mjs';
+import { prewarmGitStartupProbes } from '../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { projectWorkspace } from '../../runtime/shared/worktrees/contract.mjs';
 import { writeStderrBestEffort } from '../../runtime/shared/best-effort-stderr.mjs';
 import { replacementSessionCwd } from '../workspace/workspace-state.mjs';
@@ -105,7 +106,7 @@ export function committedSource(source) {
 }
 
 /** A fresh, empty heir record of `source` — system layer only, nothing saved. */
-export function buildColdHeir(source, now = Date.now()) {
+export async function buildColdHeir(source, now = Date.now()) {
   const heir = {
     ...source,
     id: mintSessionId(),
@@ -163,6 +164,9 @@ export function buildColdHeir(source, now = Date.now()) {
   const pending = source.workspaceReroot;
   delete heir.workspaceReroot;
   if (heir.cwd) {
+    // The environment facts read the git probes: answer them off-thread so
+    // composing never spawns git on the main thread.
+    await prewarmGitStartupProbes([heir.cwd]);
     const context = buildWorkspacePromptContext(heir, heir.cwd);
     refreshSessionWorkspaceContext(
       heir,

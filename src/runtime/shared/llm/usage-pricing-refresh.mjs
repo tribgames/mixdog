@@ -1,4 +1,4 @@
-import { pricingCatalogRevisionSync } from './model-catalog.mjs';
+import { pricingCatalogRevisionSync, warmCatalogFromDisk } from './model-catalog.mjs';
 import { repairUsageLedger, repairUsageLedgerAsync } from './usage-ledger-repair.mjs';
 
 const checked = new WeakMap();
@@ -114,6 +114,9 @@ export function refreshUnpricedUsageAsync(ledger) {
 }
 
 async function runRefreshAsync(ledger) {
+  // Repricing and the revision stamp read the resident tables: a refresh
+  // against a not-yet-warm catalog would stamp the empty revision as checked.
+  await warmCatalogFromDisk();
   const steps = refreshSteps(ledger);
   let step = steps.next();
   while (!step.done) {

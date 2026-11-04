@@ -16,6 +16,13 @@ import { runInRootAsyncContext } from './root-async-context.mjs';
  * (or lost with) a worker that is shutting down.
  * `request.running()` reports whether a worker thread is currently attached.
  *
+ * `request(payload, { timeoutMs })`: a request still unanswered after
+ * `timeoutMs` rejects with code `ETIMEDOUT` and its worker is terminated.
+ * `unref`: that request does not keep the process alive while pending (for
+ * best-effort work that may be dropped at exit). `request.hold()` returns a
+ * release function; while any hold is open the worker stays referenced, so a
+ * caller that waits on an unref'd request still keeps the process alive.
+ *
  * `onEvent` (optional): receives what the worker sends with postWorkerEvent
  * (messages that answer no request).
  */
@@ -26,6 +33,8 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
   // must never reject (or answer) another worker's requests.
   let pending = new Map();
   let idleTimer = null;
+  // Callers waiting on the worker's answer (see request.hold).
+  let holds = 0;
 
   function clearIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer);
@@ -43,6 +52,15 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
       void target.terminate();
     }, idleExitMs);
     idleTimer.unref?.();
+  }
+
+  // The one rule for whether the attached worker keeps the process alive: only
+  // while a caller holds it or a pending request did not ask to be unref'd.
+  // Every path that changes either calls this.
+  function settleRef(target) {
+    if (worker !== target) return;
+    if (holds > 0 || [...pending.values()].some((entry) => !entry.unref)) target.ref();
+    else target.unref();
   }
 
   function ensureWorker() {
@@ -64,11 +82,8 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
       const entry = owned.get(id);
       if (!entry) return;
       owned.delete(id);
-      if (owned.size === 0) {
-        // An idle worker never keeps the process alive.
-        created.unref();
-        if (worker === created) armIdleTimer(created);
-      }
+      settleRef(created);
+      if (owned.size === 0 && worker === created) armIdleTimer(created);
       if (error) {
         entry.reject(
           Object.assign(
@@ -95,33 +110,75 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
       }
       rejectOwned(Object.assign(new Error(`worker exited (${code}): ${url}`), { code: 'EWORKEREXIT' }));
     });
-    created.unref();
     worker = created;
+    settleRef(created);
     return created;
   }
 
-  function request(payload) {
+  function request(payload, { timeoutMs = 0, unref = false } = {}) {
     return new Promise((resolve, reject) => {
       const target = ensureWorker();
       clearIdleTimer();
       const id = ++nextRequestId;
       const owned = pending;
-      owned.set(id, { resolve, reject });
-      target.ref();
+      let deadline = null;
+      owned.set(id, {
+        unref,
+        resolve: (value) => {
+          clearTimeout(deadline);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(deadline);
+          reject(error);
+        },
+      });
+      if (timeoutMs > 0) {
+        // An unanswered request means the worker is wedged: reject it, detach
+        // the worker so the next request starts a fresh one, and terminate it.
+        // Its other pending requests are rejected by the exit handler.
+        deadline = setTimeout(() => {
+          owned.delete(id);
+          if (worker === target) {
+            worker = null;
+            pending = new Map();
+            clearIdleTimer();
+          }
+          reject(
+            Object.assign(new Error(`worker request timed out after ${timeoutMs} ms: ${url}`), { code: 'ETIMEDOUT' })
+          );
+          void target.terminate();
+        }, timeoutMs);
+        deadline.unref();
+      }
+      settleRef(target);
       try {
         target.postMessage({ id, payload });
       } catch (error) {
         // Never posted (e.g. an uncloneable payload): drop the entry and
-        // restore the idle state a settled last request would leave.
+        // restore the state a settled last request would leave.
         owned.delete(id);
-        if (owned.size === 0) {
-          target.unref();
-          if (worker === target) armIdleTimer(target);
-        }
+        clearTimeout(deadline);
+        settleRef(target);
+        if (owned.size === 0 && worker === target) armIdleTimer(target);
         throw error;
       }
     });
   }
+  // A caller waiting on the worker's answer keeps the process alive for as long
+  // as it waits, even for requests posted with `unref`. Returns the release;
+  // the last release returns the worker to what its pending requests ask for.
+  request.hold = () => {
+    holds += 1;
+    if (worker) settleRef(worker);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      holds -= 1;
+      if (worker) settleRef(worker);
+    };
+  };
   request.running = () => worker !== null;
   return request;
 }

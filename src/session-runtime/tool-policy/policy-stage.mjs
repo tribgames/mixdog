@@ -48,6 +48,7 @@ import {
   replaceWorkspaceEnvironment,
   withPresentedWorkspaceSlices,
 } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import { prewarmGitStartupProbes } from '../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { leadPartsFor, rewriteConversationBp3Core, rewriteSystemHeading, toolNames } from './surface-helpers.mjs';
 
 export function createPolicyStage({
@@ -155,6 +156,9 @@ export function createPolicyStage({
   // `settings`: the prompt settings sections as they stand (a fold or an
   // empty rebuild presents them); `coreMemoryContext` a snapshot already read.
   async function stagePolicy(session, identity, config, { conversation = false, coreMemoryContext: memory } = {}) {
+    // The environment facts applied right after this stage (refreshEnvironmentFacts)
+    // read the git probes: answer them off-thread so composing never spawns git.
+    if (session.cwd) await prewarmGitStartupProbes([session.cwd]);
     const ownerIsAgent = isAgentOwner(session);
     const schemaAllowedTools = honoredSchemaAllowlist(session.schemaAllowedTools, {
       ownerIsAgent,

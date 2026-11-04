@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import test from 'node:test';
@@ -192,6 +192,30 @@ test('a refresh adopts tokens another writer already stored instead of spending 
   });
   assert.equal(result.tokens.access_token, 'fresh');
   assert.equal(result.coastOnCurrent, false);
+});
+
+test('a token refresh persists the rotated tokens without a synchronous lock or write on the main thread', async (t) => {
+  const { syncFsCalls } = await import('../../../shared/sync-fs-calls.fixture.mjs');
+  writeStoredTokens({ access_token: 'old', refresh_token: 'r1', expires_at: Date.now() - 1_000 });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ access_token: 'rotated', refresh_token: 'r2', expires_in: 3600 }), { status: 200 });
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  let result;
+  const calls = await syncFsCalls(async () => {
+    result = await refreshStoredTokens({
+      current: { access_token: 'old', refresh_token: 'r1', expires_at: Date.now() - 1_000 },
+      force: true,
+    });
+  });
+  assert.equal(result.tokens.access_token, 'rotated');
+  assert.equal(JSON.parse(readFileSync(sandboxPath(getOwnTokenPath()), 'utf-8')).refresh_token, 'r2');
+  assert.deepEqual(
+    calls.filter((call) => /^(write|rename|link|unlink|open|fsync|mkdir|copyFile)/.test(call)),
+    []
+  );
 });
 
 test('a refresh that cannot run coasts on a still-valid token', async (t) => {

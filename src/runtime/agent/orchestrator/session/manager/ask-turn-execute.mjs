@@ -11,6 +11,7 @@ import { appendSkillUpdateNotices } from '../skill-update-notice.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
 import { saveSessionAsync } from '../store.mjs';
+import { warmCatalogFromDisk } from '../../providers/model-catalog.mjs';
 import { hasUserConversationMessage, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
@@ -177,6 +178,9 @@ export async function prepareAskTurn({
   // session keeps the wire it started on); read from the history as the turn
   // found it, awaited with the user turn below.
   const wireRoutePending = pinSessionWireRoute(session, provider);
+  // The turn's context limits come from the catalog: let its disk warm settle
+  // (asynchronously) so a first turn never sizes itself from an empty table.
+  await warmCatalogFromDisk();
   // The turn-level judgment runs while the rest of the turn is prepared; it
   // reads the session as the turn found it (synchronously, on this call).
   // The first request still carries its decision: it is awaited below,

@@ -1023,6 +1023,11 @@ async function main() {
       )
     )
     .catch(() => {});
+  // Parse the cached price/metadata catalogs off-thread so the first turn and
+  // the usage views find them resident.
+  void import('../runtime/shared/llm/model-catalog.mjs')
+    .then((catalog) => catalog.warmCatalogFromDisk({ background: true }))
+    .catch(() => {});
   agentDispatchBroker = createAgentDispatchBroker({
     // Memory-cycle agents use the same lazy provider/orchestrator graph as
     // session actors; it stays unloaded until a real cycle requests it.

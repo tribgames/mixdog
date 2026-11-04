@@ -28,7 +28,10 @@ const reject = (message, extra = {}) => Object.assign(new Error(message), { stat
 const quiet = () => {
   const original = process.stderr.write;
   const lines = [];
-  process.stderr.write = (chunk) => (lines.push(String(chunk)), true);
+  process.stderr.write = (chunk) => {
+    lines.push(String(chunk));
+    return true;
+  };
   return { lines, restore: () => (process.stderr.write = original) };
 };
 
@@ -121,8 +124,10 @@ test('retries once at the nearest allowed level and remembers the rejection on d
   }
   assert.equal(result, 'ok');
   assert.deepEqual(seen, ['xhigh', 'high']);
-  assert.equal(capture.lines.length, 1);
-  assert.match(capture.lines[0], /^\[custom-x\] m1 rejected reasoning effort 'xhigh'; retrying once at 'high'\n$/);
+  // A lazily started SQLite worker may print its one-time experimental warning here.
+  const notes = capture.lines.filter((line) => !line.includes('ExperimentalWarning'));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /^\[custom-x\] m1 rejected reasoning effort 'xhigh'; retrying once at 'high'\n$/);
 
   assert.ok(existsSync(join(dir, 'effort-rejections.json')));
   assert.deepEqual(
@@ -396,4 +401,16 @@ test('the OpenAI-compatible provider retries a rejected effort at the nearest le
   assert.deepEqual(seen, ['xhigh', 'high']);
   await provider.send([], 'model-a', [], { effort: 'xhigh' });
   assert.deepEqual(seen, ['xhigh', 'high', 'high']);
+});
+
+test('recording a rejection makes no synchronous lock or write on the main thread', async () => {
+  const { syncFsCalls } = await import('../../../shared/sync-fs-calls.fixture.mjs');
+  const { recordEffortRejection } = await import('./effort-rejection.mjs');
+  const calls = await syncFsCalls(() => recordEffortRejection('async-probe', 'model-x', 'max', ['low', 'high']));
+  assert.deepEqual(
+    calls.filter((call) => /^(write|rename|link|unlink|open|fsync|mkdir|copyFile)/.test(call)),
+    []
+  );
+  assert.ok(rejectedEffortLevelsSync('async-probe', 'model-x').has('max'));
+  assert.ok(JSON.parse(readFileSync(join(dir, 'effort-rejections.json'), 'utf8')).models);
 });

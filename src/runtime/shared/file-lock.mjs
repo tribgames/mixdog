@@ -4,6 +4,7 @@ import {
   mkdir as mkdirAsync,
   readdir as readdirAsync,
   readFile as readFileAsync,
+  rename as renameAsync,
   stat as statAsync,
   unlink as unlinkAsync,
   writeFile as writeFileAsync,
@@ -72,6 +73,8 @@ const SYNC_IO = {
 
 const ASYNC_IO = {
   stat: (path) => statAsync(path),
+  statId: (path) => statAsync(path, { bigint: true }),
+  rename: (from, to) => renameAsync(from, to),
   read: (path) => readFileAsync(path, 'utf8'),
   mkdirp: (path) => mkdirAsync(path, { recursive: true }),
   createExclusive: (path, data) => writeFileAsync(path, data, { encoding: 'utf8', mode: 0o600, flag: 'wx' }),
@@ -436,10 +439,10 @@ function* acquireLock(lockPath, opts, mode, markHeld, timing = null) {
       if (markHeld) unmarkOsHeld(lockPath);
       lastError = error;
       if (!LOCK_WAIT_CODES.has(error?.code)) throw error;
-      // The reclaim runs synchronously in both modes: it is a few metadata
-      // calls, and an await inside it would let a process exit strand its guard.
+      // Async runs reclaim with async fs calls; a guard stranded by an exit
+      // inside the reclaim is revoked by the stale-guard rule.
       try {
-        if (runSync(tryReclaimStaleLock(lockPath, staleMs, opts.strictOwner === true))) continue;
+        if (yield* tryReclaimStaleLock(lockPath, staleMs, opts.strictOwner === true)) continue;
       } catch {}
       if (timeoutMs <= 0) throw contentionError(lockPath, error, yield* describeLockHolder(lockPath));
       if (Date.now() >= deadline) break;

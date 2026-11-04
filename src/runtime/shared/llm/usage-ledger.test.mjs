@@ -12,6 +12,9 @@ import { importUsageHistory, importTraceRow } from './usage-ledger-import.mjs';
 import { sessionUsageSnapshot, usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
 import { makeTempDirSync, removeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
+import * as modelCatalog from './model-catalog.mjs';
+await warmCatalogForTest(modelCatalog);
 
 const now = new Date(2026, 8, 12, 12).getTime();
 const row = (extra = {}) =>

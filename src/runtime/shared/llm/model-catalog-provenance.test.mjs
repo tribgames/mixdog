@@ -20,11 +20,14 @@ const row = (input, extra = {}) => ({
 });
 const writeCatalog = (file, data) => writeFileSync(join(dir, file), JSON.stringify({ fetchedAt: Date.now(), data }));
 
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
 let generation = 0;
 async function load({ modelsdev, litellm = {} }) {
   writeCatalog('modelsdev-catalog.json', modelsdev);
   writeCatalog('litellm-catalog.json', litellm);
-  return import(`./model-catalog.mjs?provenance=${generation++}`);
+  const catalog = await import(`./model-catalog.mjs?provenance=${generation++}`);
+  await warmCatalogForTest(catalog);
+  return catalog;
 }
 const reversed = (object) => Object.fromEntries(Object.entries(object).reverse());
 const relayPrice = (catalog, id) => catalog.getModelMetadataSync(id, 'cursor-oauth')?.inputCostPerM ?? null;

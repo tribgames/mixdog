@@ -171,6 +171,7 @@ const litellm = {
 writeFileSync(join(dir, 'litellm-catalog.json'), JSON.stringify({ fetchedAt: Date.now(), data: litellm }));
 writeFileSync(join(dir, 'modelsdev-catalog.json'), JSON.stringify({ fetchedAt: Date.now(), data: modelsdev }));
 
+await (await import('./catalog-warm.fixture.mjs')).warmCatalogForTest(await import('./model-catalog.mjs'));
 const catalog = await import('./model-catalog.mjs');
 const registry = await import('./provider-catalog-registry.mjs');
 const injectedFetch = async (url) => ({

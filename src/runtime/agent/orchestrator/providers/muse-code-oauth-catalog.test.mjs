@@ -51,6 +51,8 @@ writeFileSync(
 const { MuseCodeOAuthProvider } = await import('./muse-code-oauth.mjs');
 const tokens = await import('./muse-code-oauth-tokens.mjs');
 const { getModelMetadataSync } = await import('./model-catalog.mjs');
+const { warmCatalogForTest } = await import('../../../shared/llm/catalog-warm.fixture.mjs');
+await warmCatalogForTest(await import('./model-catalog.mjs'));
 const { providerCachedModelsSync } = await import('./provider-catalog-cache.mjs');
 
 const values = (row) => row.reasoningOptions.find((o) => o.type === 'effort').values;

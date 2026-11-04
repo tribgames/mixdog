@@ -85,6 +85,9 @@ const REQUESTED = REQUEST_MODELS;
 mock.module(here('./store.mjs'), { namedExports: { saveMediaAsset: () => ({ id: 'asset' }) } });
 mock.module(here('./defaults.mjs'), { namedExports: { setMediaDefault: () => {} } });
 
+await (await import('../shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../shared/llm/model-catalog.mjs')
+);
 const { getMediaJob, startMediaJob } = await import('./jobs.mjs');
 const { recordMediaUsage } = await import('./media-usage.mjs');
 const { getUsageLedger } = await import('../shared/llm/usage-ledger.mjs');

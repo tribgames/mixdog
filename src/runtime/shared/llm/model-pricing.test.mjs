@@ -171,6 +171,8 @@ writeCatalog('modelsdev-catalog.json', modelsdev);
 writeModels(antigravity);
 
 const catalog = await import('./model-catalog.mjs');
+const { warmCatalogForTest } = await import('./catalog-warm.fixture.mjs');
+await warmCatalogForTest(catalog);
 const { priceUsage } = await import('./cost.mjs');
 const { UsageLedger, makeUsageRecord } = await import('./usage-ledger.mjs');
 const { refreshUnpricedUsage } = await import('./usage-pricing-refresh.mjs');
@@ -627,7 +629,8 @@ test('expired catalogs refresh, failures retain disk prices, and retry waits for
   t.mock.method(globalThis, 'fetch', async (url) => {
     calls++;
     if (failing) throw new Error('fixture network unavailable');
-    return injectedFetch(url);
+    const injected = await injectedFetch(url);
+    return { ok: true, text: async () => JSON.stringify(await injected.json()) };
   });
   await catalog.refreshCatalog();
   assert.equal(calls, 2);

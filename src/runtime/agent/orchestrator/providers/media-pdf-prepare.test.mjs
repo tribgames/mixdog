@@ -28,6 +28,9 @@ writeFileSync(
   })
 );
 
+await (await import('../../../shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../../../shared/llm/model-catalog.mjs')
+);
 const media = await import('./media-normalization.mjs');
 const { toOpenAIMessages } = await import('./openai-compat-wire.mjs');
 

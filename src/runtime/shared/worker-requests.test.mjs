@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { createWorkerRequestClient } from './worker-requests.mjs';
 
@@ -37,4 +38,37 @@ test('a failed post as the only request retires the worker once idle', async (t)
     { name: 'DataCloneError' }
   );
   assertRetiresAfterIdleExit(t, request);
+});
+
+test('a request unanswered past its deadline rejects, terminates the worker and the next request gets a fresh one', async () => {
+  const request = createWorkerRequestClient('setInterval(() => {}, 1000);', { eval: true });
+  await assert.rejects(request({}, { timeoutMs: 100 }), { code: 'ETIMEDOUT' });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(request.running(), false, 'the wedged worker is detached');
+});
+
+test('a post that throws while holds are open leaves the worker referenced', () => {
+  // An isolated process with nothing else pending: only the held worker can keep
+  // it alive until the worker's late event arrives.
+  const workerUrl = new URL('./worker-requests.mjs', import.meta.url).href;
+  const script = `
+    import { createWorkerRequestClient } from ${JSON.stringify(workerUrl)};
+    let arrived;
+    const late = new Promise((resolve) => { arrived = resolve; });
+    const request = createWorkerRequestClient(
+      "setTimeout(() => require('node:worker_threads').parentPort.postMessage({ event: 'late' }), 300);",
+      { eval: true, onEvent: () => { console.log('EVENT'); release(); release(); arrived(); } }
+    );
+    const releases = [request.hold(), request.hold()];
+    const release = () => releases.shift()?.();
+    try { await request({ uncloneable() {} }); } catch { console.log('REJECTED'); }
+    await late;
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  assert.match(result.stdout, /REJECTED/);
+  assert.match(result.stdout, /EVENT/, `exit ${result.status}: ${result.stderr}`);
+  assert.equal(result.status, 0);
 });

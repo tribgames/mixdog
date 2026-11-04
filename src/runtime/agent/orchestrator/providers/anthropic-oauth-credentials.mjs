@@ -10,7 +10,7 @@ import { readFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { updateJsonAtomic, writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 // Every credential write bumps it: the agent config snapshot probes this file.
 import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
@@ -130,15 +130,15 @@ function identityFromTokenResponse(json) {
 // either the old or new file, never a half-written one. Used so refresh_token
 // rotation propagates to other Mixdog readers of the same credentials file
 // instead of leaving them stuck on the previous refresh_token.
-function _saveCredentialsFile(path, raw) {
+async function _saveCredentialsFile(path, raw) {
   // Secret file, not parent-dir ACL mutation. `secret: true` clamps the file
   // itself on Windows; it deliberately leaves the data dir inheritance alone.
-  writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  await writeJsonAtomicAsync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
   bumpConfigInputEpoch();
 }
 
-function _updateCredentialsFile(path, mutator) {
-  const result = updateJsonAtomicSync(path, mutator, { fsyncDir: true, mode: 0o600, secret: true });
+async function _updateCredentialsFile(path, mutator) {
+  const result = await updateJsonAtomic(path, mutator, { fsyncDir: true, mode: 0o600, secret: true });
   bumpConfigInputEpoch();
   return result;
 }
@@ -234,13 +234,13 @@ export function describeAnthropicOAuthCredentials() {
   }
 }
 
-export function forgetAnthropicOAuthCredentials() {
+export async function forgetAnthropicOAuthCredentials() {
   let removed = false;
   for (const path of credentialCandidates()) {
     if (!existsSync(path)) continue;
     try {
       let deleted = false;
-      _updateCredentialsFile(path, (raw) => {
+      await _updateCredentialsFile(path, (raw) => {
         if (!raw?.claudeAiOauth) return undefined;
         const next = { ...raw };
         delete next.claudeAiOauth;
@@ -364,7 +364,7 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
     // invalid_grant.
     if (creds.path && existsSync(creds.path)) {
       try {
-        _updateCredentialsFile(creds.path, (raw) => ({
+        await _updateCredentialsFile(creds.path, (raw) => ({
           ...(raw && typeof raw === 'object' ? raw : {}),
           claudeAiOauth: {
             ...(raw?.claudeAiOauth || {}),
@@ -432,7 +432,7 @@ export async function refreshOAuthCredentials(creds) {
           return _refreshOAuthCredentialsUnlocked(latest);
         }
         try {
-          _updateCredentialsFile(credentialPath, (raw) => {
+          await _updateCredentialsFile(credentialPath, (raw) => {
             const oauth = raw?.claudeAiOauth;
             if (!oauth || oauth.refreshToken !== attempt.refreshToken) return undefined;
             // Non-destructive: tokens stay intact; a new sign-in or a
@@ -532,7 +532,7 @@ export async function preflightAnthropicOAuthCredentials({
           delete raw.claudeAiOauth.refreshToken;
           delete raw.claudeAiOauth.refresh_token;
         }
-        _saveCredentialsFile(snapshotPath, raw);
+        await _saveCredentialsFile(snapshotPath, raw);
       }
       return {
         expiresAt: leased.expiresAt,
@@ -628,7 +628,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri, signa
   // A cancelled login never stores the account it was exchanging.
   signal?.throwIfAborted();
   const credPath = _oauthCredentialsWritePath();
-  const raw = _updateCredentialsFile(credPath, (current) => {
+  const raw = await _updateCredentialsFile(credPath, (current) => {
     const base = current && typeof current === 'object' ? current : {};
     const existingOauth = base.claudeAiOauth || {};
     return {

@@ -14,12 +14,11 @@
  * native endpoint exposed (usually nothing beyond the id).
  */
 
-import { readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { resolvePluginData } from '../plugin-paths.mjs';
-import { writeJsonAtomicAsync } from '../atomic-file.mjs';
+import { writeFileAtomicAsync } from '../atomic-file.mjs';
+import { createWorkerRequestClient } from '../worker-requests.mjs';
 import {
   capabilityFlag,
   rosterRowMetadata,
@@ -38,9 +37,6 @@ import {
   providerSeedRow,
 } from './provider-catalog-registry.mjs';
 import { litellmMediaPricing, litellmPricing, modelsDevPricing, PRICING_RATE_KEYS } from './model-pricing-rates.mjs';
-// Both overlays are narrowed to their read surface before becoming resident;
-// the disk caches below still receive the full payload.
-import { projectLitellmCatalog, projectModelsDevCatalog } from './model-catalog-projection.mjs';
 
 const CATALOG_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CATALOG_CACHE_FILE = 'litellm-catalog.json';
@@ -216,10 +212,31 @@ const PRICING_OVERRIDES = {
   },
 };
 
-async function readDiskCatalog(filePath) {
+// The multi-MB overlays are parsed and narrowed in a worker thread; only the
+// projection reaches the host event loop. The worker starts on first use.
+const requestWorker = createWorkerRequestClient(new URL('./model-catalog-worker.mjs', import.meta.url), {
+  idleExitMs: 5000,
+});
+
+// A normal parse of both overlays (about 8 MB) takes ~0.1 s; the bound is set
+// two orders of magnitude above that so ordinary slow or contended machines
+// finish well inside it. It is a bound, not a guarantee: a request that does
+// not answer in time is dropped, the worker is terminated, and the catalog
+// stays in the same state as a cold start (no disk copy).
+const WORKER_DEADLINE_MS = 30_000;
+
+// Work a caller awaits keeps the process alive. The disk warm's worker read
+// does not (`background`); warmCatalogFromDisk holds the process for its
+// foreground callers instead.
+function parseInWorker(payload, { background = false } = {}) {
+  return requestWorker(payload, { timeoutMs: WORKER_DEADLINE_MS, unref: background });
+}
+
+// A worker that fails or never answers leaves the same state as a cold start:
+// no disk copy.
+async function readDiskCatalog(kind, filePath, options) {
   try {
-    const raw = JSON.parse(await readFile(filePath, 'utf-8'));
-    return raw?.data ? raw : null;
+    return await parseInWorker({ op: 'disk', kind, file: filePath }, options);
   } catch {
     return null;
   }
@@ -227,11 +244,12 @@ async function readDiskCatalog(filePath) {
 
 // One remote price/metadata overlay: an in-memory projection, a stale-ok disk
 // copy, a retry backoff after a failed fetch and a single-flight loader.
-function createCatalogSource({ url, cacheFile, project, label = '' }) {
+// `kind` names the projection the worker applies.
+function createCatalogSource({ url, cacheFile, kind, label = '' }) {
   let cache = null;
   let cacheAt = 0;
-  // Disk warm must not count as "fetched this process" — otherwise a sync
-  // lookup before startup refresh would pin a stale overlay for the whole run.
+  // Disk warm must not count as "fetched this process" — otherwise a lookup
+  // before startup refresh would pin a stale overlay for the whole run.
   let fetchedRemote = false;
   // Single-flight: concurrent load callers share the same in-flight Promise
   // so a cold process only triggers one remote fetch.
@@ -243,18 +261,21 @@ function createCatalogSource({ url, cacheFile, project, label = '' }) {
     try {
       const res = await fetchFn(url, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const text = await res.text();
+      const projection = await parseInWorker({ op: 'parse', kind, text });
+      const fetchedAt = Date.now();
       try {
-        await writeJsonAtomicAsync(
-          cachePath(),
-          { fetchedAt: Date.now(), data },
-          { lock: true, compact: true, fsyncDir: true, timeoutMs: 1000 }
-        );
+        // The payload is stored verbatim: it already parsed in the worker.
+        await writeFileAtomicAsync(cachePath(), `{"fetchedAt":${fetchedAt},"data":${text}}\n`, {
+          lock: true,
+          fsyncDir: true,
+          timeoutMs: 1000,
+        });
       } catch {
         /* cache is best-effort */
       }
-      cache = project(data);
-      cacheAt = Date.now();
+      cache = projection;
+      cacheAt = fetchedAt;
       fetchedRemote = true;
       retryAt = 0;
       return cache;
@@ -262,10 +283,10 @@ function createCatalogSource({ url, cacheFile, project, label = '' }) {
       process.stderr.write(`[model-catalog] ${label}fetch failed: ${err.message}\n`);
       fetchedRemote = false;
       retryAt = Date.now() + PRICING_CATALOG_RETRY_MS;
-      const raw = await readDiskCatalog(cachePath());
-      if (raw?.data) {
-        cache = project(raw.data);
-        cacheAt = raw.fetchedAt || Date.now();
+      const disk = await readDiskCatalog(kind, cachePath());
+      if (disk) {
+        cache = disk.projection;
+        cacheAt = disk.fetchedAt || Date.now();
         return cache;
       }
       return cache || {};
@@ -307,16 +328,14 @@ function createCatalogSource({ url, cacheFile, project, label = '' }) {
       });
       return loadPromise;
     },
-    warmFromDiskSync() {
+    // Stale-ok disk copy, parsed off the event loop. Never replaces a table a
+    // fetch already produced; stays cold when no usable copy exists.
+    async warmFromDisk() {
       if (cache) return;
-      try {
-        const raw = JSON.parse(readFileSync(cachePath(), 'utf-8'));
-        if (raw?.data) {
-          cache = project(raw.data);
-          cacheAt = raw.fetchedAt || Date.now();
-        }
-      } catch {
-        /* disk cache unavailable — stay cold, the async load will fill later */
+      const disk = await readDiskCatalog(kind, cachePath(), { background: true });
+      if (disk && !cache) {
+        cache = disk.projection;
+        cacheAt = disk.fetchedAt || Date.now();
       }
     },
   };
@@ -325,15 +344,32 @@ function createCatalogSource({ url, cacheFile, project, label = '' }) {
 const litellmSource = createCatalogSource({
   url: CATALOG_URL,
   cacheFile: CATALOG_CACHE_FILE,
-  project: projectLitellmCatalog,
+  kind: 'litellm',
 });
 // models.dev is the second auto pricing source (see MODELSDEV_URL).
 const modelsDevSource = createCatalogSource({
   url: MODELSDEV_URL,
   cacheFile: MODELSDEV_CACHE_FILE,
-  project: projectModelsDevCatalog,
+  kind: 'modelsdev',
   label: 'models.dev ',
 });
+
+// Sync lookups read only the resident tables and never parse: a lookup that
+// precedes the warm sees an empty catalog (no catalog metadata, no price)
+// rather than stalling the event loop. Importing this module starts nothing;
+// the daemon starts the warm at boot, and the async paths whose decisions
+// depend on catalog limits or prices await it. It never rejects: a failed or
+// unanswered read leaves the catalog cold.
+let diskWarm = null;
+// The worker read itself never holds the process open. A foreground caller (a
+// turn or a repricing that waits for the answer) holds the worker for as long as it
+// waits, including when it joins a warm the boot already started; the boot
+// call passes `background` and leaves the process free to exit.
+export function warmCatalogFromDisk({ background = false } = {}) {
+  diskWarm ??= Promise.all([litellmSource.warmFromDisk(), modelsDevSource.warmFromDisk()]).then(() => {});
+  if (background) return diskWarm;
+  return diskWarm.finally(requestWorker.hold());
+}
 
 export function loadCatalog(options) {
   return litellmSource.load(options);
@@ -341,8 +377,6 @@ export function loadCatalog(options) {
 export function loadModelsDevCatalog(options) {
   return modelsDevSource.load(options);
 }
-const warmFromDiskSync = () => litellmSource.warmFromDiskSync();
-const warmModelsDevFromDiskSync = () => modelsDevSource.warmFromDiskSync();
 
 // Human label from a models.dev row. Marketing tails such as "(New)",
 // "(2x usage)", "(Unlimited)" are catalog commentary, not part of the name.
@@ -382,7 +416,6 @@ function _modelsDevMetadata(row) {
 // and injected/provider-local transports must remain request-hermetic.
 // `_test` (tests only) injects a fake catalog map without touching disk.
 export function getModelsDevRowSync(id, provider, _test) {
-  if (!_test) warmModelsDevFromDiskSync();
   const cat = _test || modelsDevSource.cache;
   if (!cat) return null;
   const pid = modelsDevProviderId(provider);
@@ -395,7 +428,6 @@ export function getModelsDevRowSync(id, provider, _test) {
 // the sanitizer's family-supersession pass to compare release dates across a
 // provider's whole catalog. Returns null when the catalog is cold/unavailable.
 export function getModelsDevProviderModelsSync(provider, _test) {
-  if (!_test) warmModelsDevFromDiskSync();
   const cat = _test || modelsDevSource.cache;
   if (!cat) return null;
   const pid = modelsDevProviderId(provider);
@@ -406,19 +438,15 @@ export function getModelsDevProviderModelsSync(provider, _test) {
 
 /**
  * Sync lookup. Warm order:
- *   1. in-memory cache (hot path),
- *   2. disk cache one-shot read if memory is cold (first call after boot),
- *   3. null if neither is available (async loadCatalog will fill later).
+ *   1. in-memory cache (filled from disk when this module loaded),
+ *   2. null if no catalog is resident (async loadCatalog will fill later).
  *
- * Used by hot-path loggers (agent-trace usage row) that must not await.
- * The disk fallback is a single ~5ms blocking read on cold start; all
- * subsequent calls hit memory. TTL is intentionally ignored here — stale
- * catalog beats no catalog, and the async path refreshes on schedule.
+ * Used by hot-path loggers (agent-trace usage row) that must not await, so it
+ * never touches disk. TTL is intentionally ignored here — stale catalog beats
+ * no catalog, and the async path refreshes on schedule.
  */
 export function getModelMetadataSync(id, provider) {
   if (!id) return null;
-  warmFromDiskSync();
-  warmModelsDevFromDiskSync();
   return lookupModelMetadata(id, provider, litellmSource.cache || {}, modelsDevSource.cache || {});
 }
 
@@ -949,13 +977,11 @@ function pricingAuditRows(models, provider, metadataOf) {
   return rows;
 }
 
+// The revision of the resident overlays.
 export function pricingCatalogRevisionSync() {
-  warmFromDiskSync();
-  warmModelsDevFromDiskSync();
   return pricingCatalogRevision();
 }
 
-// The revision of the resident overlays, without warming them from disk.
 function pricingCatalogRevision() {
   const aliases = providerCachedModelsSync('antigravity-oauth').map(({ id, wire, pricingModel }) => ({
     id,

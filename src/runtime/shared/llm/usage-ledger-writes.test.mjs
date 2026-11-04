@@ -8,6 +8,9 @@ import { accountProviderSend } from './usage-accounting.mjs';
 import { repairUsageLedger, repairUsageLedgerAsync, usageLedgerIntegrity } from './usage-ledger-repair.mjs';
 import { refreshUnpricedUsage, refreshUnpricedUsageAsync } from './usage-pricing-refresh.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
+import * as modelCatalog from './model-catalog.mjs';
+await warmCatalogForTest(modelCatalog);
 
 // Removed after every test has closed its ledgers (per-test hooks run first).
 const dirs = [];

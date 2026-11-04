@@ -36,7 +36,7 @@ const DEFAULT_DEVICE_INTERVAL_S = 5;
  * @param {(token:string)=>(string|undefined)} deps.extractAccountId
  * @param {(...tokens:string[])=>(object|null)} deps.identityFromTokens
  * @param {(token:string)=>number} deps.expiryFromAccessToken
- * @param {(tokens:object)=>void} deps.saveTokens
+ * @param {(tokens:object)=>void|Promise<void>} deps.saveTokens
  * @param {string} [deps.issuer] auth server base URL (tests point it at a fake server)
  * @param {(ms:number, signal?:AbortSignal)=>Promise<void>} [deps.sleep] device-poll wait (tests inject a fast one)
  * @param {()=>number} [deps.now]
@@ -105,7 +105,7 @@ export function createOpenAIOAuthLogin(deps) {
     };
     // A cancelled login never stores the account it was exchanging.
     signal?.throwIfAborted();
-    saveTokens(tokens);
+    await saveTokens(tokens);
     return tokens;
   }
 

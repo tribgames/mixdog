@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseJsonText, updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { parseJsonText, updateJsonAtomic } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 
 // An OpenAI-compatible endpoint that rejects the requested reasoning effort
@@ -92,12 +92,12 @@ export function rejectedEffortLevelsSync(provider, model) {
 }
 
 /** Remember a rejected level (and the allowed list the endpoint named, if any). */
-export function recordEffortRejection(provider, model, level, allowed = null) {
+export async function recordEffortRejection(provider, model, level, allowed = null) {
   const file = filePath();
   const key = entryKey(provider, model);
   const normalized = levelOf(level);
   try {
-    const data = updateJsonAtomicSync(
+    const data = await updateJsonAtomic(
       file,
       (cur) =>
         addRejection(cur?.version === 1 && cur.models ? cur : { version: 1, models: {} }, key, normalized, allowed),
@@ -224,7 +224,7 @@ export async function withEffortRejectionFallback(provider, model, opts, configE
     const emitted =
       streamed || error?.liveTextEmitted === true || error?.emittedToolCall === true || error?.unsafeToRetry === true;
     if (!rejection || !requested || (levels && !levels.includes(requested))) throw error;
-    recordEffortRejection(provider, model, requested, rejection.allowed);
+    await recordEffortRejection(provider, model, requested, rejection.allowed);
     if (emitted) throw error;
     const level = nearestAcceptedEffort(requested, rejectedWithin(provider, model, levels), {
       allowHigher: Boolean(entry(provider, model)?.allowed),
@@ -237,7 +237,7 @@ export async function withEffortRejectionFallback(provider, model, opts, configE
       return await send(withEffort(first, level));
     } catch (retryError) {
       const again = detectEffortRejection(retryError, level);
-      if (again) recordEffortRejection(provider, model, level, again.allowed);
+      if (again) await recordEffortRejection(provider, model, level, again.allowed);
       throw retryError;
     }
   }

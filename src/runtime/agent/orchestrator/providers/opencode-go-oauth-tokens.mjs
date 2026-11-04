@@ -8,12 +8,7 @@
 import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import {
-  updateJsonAtomicSync,
-  withFileLock,
-  withFileLockSync,
-  writeJsonAtomicSync,
-} from '../../../shared/atomic-file.mjs';
+import { updateJsonAtomic, writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 // Every credential write bumps it: the agent config snapshot probes this file.
 import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
@@ -101,9 +96,11 @@ const tokenDocument = (tokens) => ({
   ...(text(tokens.org_name) ? { org_name: text(tokens.org_name) } : {}),
 });
 
-export function saveTokens(tokens) {
+// Sign-in holds the store lock asynchronously, like refresh and sign-out, so a
+// sign-in landing during a refresh waits for it instead of failing on contention.
+export async function saveTokens(tokens) {
   const doc = tokenDocument(tokens);
-  writeJsonAtomicSync(getOwnTokenPath(), doc, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  await writeJsonAtomicAsync(getOwnTokenPath(), doc, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
   bumpConfigInputEpoch();
   return { ...doc, mtimeMs: fileMtimeMs(getOwnTokenPath()) };
 }
@@ -111,11 +108,11 @@ export function saveTokens(tokens) {
 // Stores `tokens` only over the very credential `previous` was read from,
 // compared under the store's write lock: a sign-in that replaced it, or a
 // sign-out that removed it, meanwhile is kept and the stored state returned.
-function replaceTokens(previous, tokens) {
+async function replaceTokens(previous, tokens) {
   const path = getOwnTokenPath();
   const doc = tokenDocument(tokens);
   let replaced = false;
-  updateJsonAtomicSync(
+  await updateJsonAtomic(
     path,
     (current) => {
       if (current?.access_token !== previous.access_token || current?.refresh_token !== previous.refresh_token) {
@@ -182,7 +179,7 @@ export function describeOpenCodeGoOAuthCredentials() {
 export function forgetOpenCodeGoOAuthCredentials() {
   const path = getOwnTokenPath();
   // Under the store's write lock, so a refresh finishing now cannot restore it.
-  return withFileLockSync(
+  return withFileLock(
     `${path}.lock`,
     () => {
       if (!existsSync(path)) return { removed: false };

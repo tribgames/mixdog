@@ -22,6 +22,9 @@ writeFileSync(
 );
 writeFileSync(join(dir, 'modelsdev-catalog.json'), JSON.stringify({ fetchedAt: Date.now(), data: {} }));
 
+await (await import('../../runtime/shared/llm/catalog-warm.fixture.mjs')).warmCatalogForTest(
+  await import('../../runtime/shared/llm/model-catalog.mjs')
+);
 const { createQuickProviderRows } = await import('./provider-rows.mjs');
 const { metadataFor } = await import('./model-meta.mjs');
 const { providerModelCacheRow } = await import('../model-recency.mjs');

@@ -47,6 +47,7 @@ test('effective Claude CLI version is max(floor, learned, live npm)', async () =
     delete process.env.MIXDOG_CLI_VERSION;
 
     live = null;
+    await mod.settleLearnedCliVersionWrites();
     mod = await import(`./anthropic-oauth-client-version.mjs?offline=${nonce}`);
     await mod.warmCliVersion();
     assert.equal(mod.resolveCliVersion(), above(670));
@@ -67,12 +68,14 @@ test('Claude CLI compatibility floors validate, persist, and never downgrade', a
   const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-anthropic-cli-version-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   const previousOverride = process.env.MIXDOG_CLI_VERSION;
+  let versionsForCleanup = null;
   try {
     process.env.MIXDOG_DATA_DIR = dataDir;
     delete process.env.MIXDOG_CLI_VERSION;
     const nonce = `${process.pid}-${Date.now()}`;
     const versions = await import(`./anthropic-oauth-client-version.mjs?floor=${nonce}`);
 
+    versionsForCleanup = versions;
     assert.equal(versions.resolveCliVersion(), DEFAULT_CLI_VERSION);
     assert.equal(versions.learnRequiredCliVersion('generic invalid request'), null);
 
@@ -85,8 +88,10 @@ test('Claude CLI compatibility floors validate, persist, and never downgrade', a
     });
     assert.equal(versions.resolveCliVersion(), above(20));
 
-    const persisted = JSON.parse(await readFile(join(dataDir, 'anthropic-oauth-cli-version.json'), 'utf-8'));
-    assert.equal(persisted.cliVersion, above(20));
+    await versions.settleLearnedCliVersionWrites();
+    const persistedVersion = async () =>
+      JSON.parse(await readFile(join(dataDir, 'anthropic-oauth-cli-version.json'), 'utf-8')).cliVersion;
+    assert.equal(await persistedVersion(), above(20));
 
     const reloaded = await import(`./anthropic-oauth-client-version.mjs?reload=${nonce}`);
     assert.equal(reloaded.resolveCliVersion(), above(20));
@@ -95,8 +100,9 @@ test('Claude CLI compatibility floors validate, persist, and never downgrade', a
       join(dataDir, 'anthropic-oauth-cli-version.json'),
       JSON.stringify({ version: 1, cliVersion: above(220), updatedAt: Date.now() })
     );
-    const concurrentRaise = versions.learnRequiredCliVersion(gate(above(20), above(120)));
-    assert.equal(concurrentRaise.activeVersion, above(220));
+    versions.learnRequiredCliVersion(gate(above(20), above(120)));
+    await versions.settleLearnedCliVersionWrites();
+    assert.equal(versions.resolveCliVersion(), above(220));
 
     process.env.MIXDOG_CLI_VERSION = '9.9.9';
     const overridden = reloaded.learnRequiredCliVersion(gate(above(220), above(320)));
@@ -108,7 +114,10 @@ test('Claude CLI compatibility floors validate, persist, and never downgrade', a
     const downgrade = reloaded.learnRequiredCliVersion(gate(above(320), '2.1.251'));
     assert.equal(downgrade.updated, false);
     assert.equal(reloaded.resolveCliVersion(), above(320));
+    await reloaded.settleLearnedCliVersionWrites();
+    assert.equal(await persistedVersion(), above(320));
   } finally {
+    await versionsForCleanup?.settleLearnedCliVersionWrites();
     restoreEnv('MIXDOG_DATA_DIR', previousDataDir);
     restoreEnv('MIXDOG_CLI_VERSION', previousOverride);
     await rm(dataDir, { recursive: true, force: true });
@@ -120,13 +129,15 @@ test('Anthropic OAuth retries the exact version gate once and leaves generic 400
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   const previousOverride = process.env.MIXDOG_CLI_VERSION;
   const previousProxy = process.env.HTTPS_PROXY;
+  let settleWrites = async () => {};
   try {
     process.env.MIXDOG_DATA_DIR = dataDir;
     process.env.HTTPS_PROXY = 'http://127.0.0.1:1';
     delete process.env.MIXDOG_CLI_VERSION;
     const nonce = `${process.pid}-${Date.now()}`;
     const { AnthropicOAuthProvider } = await import(`./anthropic-oauth.mjs?retry=${nonce}`);
-    const { resolveCliVersion } = await import('./anthropic-oauth-client-version.mjs');
+    const { resolveCliVersion, settleLearnedCliVersionWrites } = await import('./anthropic-oauth-client-version.mjs');
+    settleWrites = settleLearnedCliVersionWrites;
 
     const provider = Object.create(AnthropicOAuthProvider.prototype);
     provider.config = {};
@@ -189,6 +200,7 @@ test('Anthropic OAuth retries the exact version gate once and leaves generic 400
     restoreEnv('MIXDOG_DATA_DIR', previousDataDir);
     restoreEnv('MIXDOG_CLI_VERSION', previousOverride);
     restoreEnv('HTTPS_PROXY', previousProxy);
+    await settleWrites();
     await rm(dataDir, { recursive: true, force: true });
   }
 });
