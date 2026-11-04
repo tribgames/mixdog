@@ -1,7 +1,7 @@
 import '../../lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../../lib/process-table-fixture.mjs';
 import {
@@ -20,9 +20,9 @@ const { adoptShellWorkspaceAdmission } = await import('../lib/shell-job-records.
 after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -36,7 +36,7 @@ test('the folder reservation handed to survivors is released once they are gone'
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const repo = makeRepo();
   const jobId = 'job_survivor_handoff';
-  adoptShellWorkspaceAdmission(jobId, tryAdmitWorkspaceActivity('session', repo, { kind: 'command' }));
+  adoptShellWorkspaceAdmission(jobId, await tryAdmitWorkspaceActivityAsync('session', repo, { kind: 'command' }));
   const survivor = { pid: process.pid, ppid: 1, token: 'survivor' };
   tree.state.next = () => processTable([survivor]);
   renderCompletedResult({
@@ -64,12 +64,12 @@ test('the folder reservation handed to survivors is released once they are gone'
     timeout: 0,
   });
   await flush();
-  assert.equal(isHeld(repo), true, 'the survivor still runs');
+  assert.equal(await isHeld(repo), true, 'the survivor still runs');
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
   await flush();
   await flush();
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
 });
 
 // An app the command launched on purpose (Start-Process 'Docker Desktop.exe')

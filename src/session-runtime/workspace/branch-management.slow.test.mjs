@@ -7,7 +7,7 @@ import { after, afterEach, beforeEach, test } from 'node:test';
 import { createWorkspaceTransitions } from './transitions.mjs';
 import { admitTurn } from './admission-gate.mjs';
 import { configureWorktreeManager, releaseWorktreeOwner } from '../../runtime/shared/worktrees/manager.mjs';
-import { tryAdmitWorkspaceActivity } from '../../runtime/shared/worktrees/activity-gate.mjs';
+import { tryAdmitWorkspaceActivityAsync } from '../../runtime/shared/worktrees/activity-gate.mjs';
 import { WORKTREE_REFUSAL_REASONS } from '../../runtime/shared/worktrees/contract.mjs';
 import { samePath } from '../../runtime/shared/worktrees/paths.mjs';
 import {
@@ -160,23 +160,23 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
     assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
     rmSync(marker);
 
-    const leave = tryAdmitWorkspaceActivity('other-process-turn', source.path);
+    const leave = await tryAdmitWorkspaceActivityAsync('other-process-turn', source.path);
     await assert.rejects(merge(), (error) => {
       assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
       assert.equal(error.details.reason, 'folder-in-use');
       assert.equal(error.message, WORKTREE_REFUSAL_REASONS['folder-in-use']);
       return true;
     });
-    leave();
+    await leave();
     assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
     // A session-less merge never moves or rewrites an idle session using the source folder.
     const idle = { id: 'idle-user', cwd: source.path, status: 'idle' };
     if (!f.session) f.state.stored = [idle];
     let probed = false;
-    f.state.probe = () => {
+    f.state.probe = async () => {
       probed = true;
-      assert.equal(tryAdmitWorkspaceActivity('reader', source.path), null, 'the branch folder waits');
-      assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the main project waits');
+      assert.equal(await tryAdmitWorkspaceActivityAsync('reader', source.path), null, 'the branch folder waits');
+      assert.equal(await tryAdmitWorkspaceActivityAsync('reader', repo), null, 'the main project waits');
     };
     assert.equal((await merge()).merged, true);
     assert.ok(probed, 'the merge ran under the shared admission');
@@ -191,16 +191,16 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
     const repo = makeRepo();
     const { f, source, merge } = await setup(repo, { external: true });
     commitFile(source.path, 'external.txt', 'external\n');
-    const leave = tryAdmitWorkspaceActivity('external-turn', source.path);
+    const leave = await tryAdmitWorkspaceActivityAsync('external-turn', source.path);
     await assert.rejects(merge(), { code: 'WORKTREE_BUSY_JOBS' });
-    leave();
+    await leave();
     let probed = false;
-    f.state.probe = () => {
+    f.state.probe = async () => {
       probed = true;
-      const reader = tryAdmitWorkspaceActivity('reader', source.path);
+      const reader = await tryAdmitWorkspaceActivityAsync('reader', source.path);
       assert.ok(reader, 'the external folder admits new work');
-      reader();
-      assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the main project waits');
+      await reader();
+      assert.equal(await tryAdmitWorkspaceActivityAsync('reader', repo), null, 'the main project waits');
     };
     assert.equal((await merge()).merged, true);
     assert.ok(probed);

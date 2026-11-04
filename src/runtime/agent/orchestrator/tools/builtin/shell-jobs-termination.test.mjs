@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
 import { waitUntil } from '../lib/wait-until-fixture.mjs';
@@ -79,9 +79,9 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 // The record files are written through the job's async queue; wait on the
 // observable state itself, on a wall-clock budget.
 const until = (read) => waitUntil(read);
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -115,13 +115,13 @@ test('a background job that exits on its own keeps the folder until its survivor
   tree.state.next = () => processTable([{ pid: 6101, ppid: 6100 }]);
   setTask('job_bg_6100', 'completed');
   await flush();
-  assert.equal(isHeld(repo), true, 'the native terminal status is not termination');
+  assert.equal(await isHeld(repo), true, 'the native terminal status is not termination');
   t.mock.timers.tick(5_000);
   await flush();
-  assert.equal(isHeld(repo), true);
+  assert.equal(await isHeld(repo), true);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('a killed background job tracks a grandchild the kill orphaned', async (t) => {
@@ -137,13 +137,13 @@ test('a killed background job tracks a grandchild the kill orphaned', async (t) 
   assert.ok(killShellJob('job_bg_6200'));
   await flush();
   assert.equal(tasks.get('job_bg_6200').status, 'cancelled');
-  assert.equal(isHeld(repo), true, 'the orphaned worker still runs');
+  assert.equal(await isHeld(repo), true, 'the orphaned worker still runs');
   t.mock.timers.tick(5_000);
   await flush();
-  assert.equal(isHeld(repo), true);
+  assert.equal(await isHeld(repo), true);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('a stop that arrives while the promotion snapshot is still being read waits for it, and the job is confirmed gone', async (t) => {
@@ -169,7 +169,7 @@ test('a stop that arrives while the promotion snapshot is still being read waits
   assert.equal(tasks.get('job_bg_7500').status, 'running', 'no kill before the snapshot it relies on');
   land();
   await until(() => tasks.get('job_bg_7500').status === 'cancelled');
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('a background job left unconfirmed is flagged on its record and can be force-released', async (t) => {
@@ -192,12 +192,12 @@ test('a background job left unconfirmed is flagged on its record and can be forc
   assert.equal(record.terminationUnconfirmed, true);
   t.mock.timers.tick(60_000);
   await flush();
-  assert.equal(isHeld(repo), true, 'no timer releases it');
+  assert.equal(await isHeld(repo), true, 'no timer releases it');
   assert.equal((await forceReleaseTerminationHold('job_bg_6300', { callerSessionId: 'someone-else' })).released, false);
   assert.deepEqual(await forceReleaseTerminationHold('job_bg_6300', { callerSessionId: 'sess_bg' }), {
     released: true,
   });
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
   const done = await readShellJobRecord('job_bg_6300');
   assert.equal(done.terminal, true);
   assert.equal(done.status, 'completed');
@@ -231,17 +231,17 @@ test('closing a job owner without a snapshot keeps its hold visible until explic
   });
   assert.equal(record.status, 'running', 'the native root exit cannot confirm an incomplete tree');
   assert.equal(record.terminationUnconfirmed, true);
-  assert.equal(isHeld(repo), true);
+  assert.equal(await isHeld(repo), true);
   const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
   assert.equal(status.orphaned.find((job) => job.taskId === 'job_bg_6400')?.terminationUnconfirmed, true);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
   await flush();
-  assert.equal(isHeld(repo), true, 'an empty later table cannot reconstruct the missing snapshot');
+  assert.equal(await isHeld(repo), true, 'an empty later table cannot reconstruct the missing snapshot');
   assert.deepEqual(await forceReleaseTerminationHold('job_bg_6400', { callerSessionId: 'viewer', callerCwd: repo }), {
     released: true,
   });
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
   const done = await readShellJobRecord('job_bg_6400');
   assert.equal(done.terminal, true);
   assert.equal(done.status, 'cancelled');
@@ -265,10 +265,10 @@ test('stopping a completed root terminates the tracked descendants that outlived
   const stopped = killShellJob('job_bg_6800');
   assert.equal(stopped.killed, true);
   await until(() => tree.state.kills.includes(6801));
-  assert.equal(isHeld(repo), true, 'the folder is released by the termination watch, not by the stop');
+  assert.equal(await isHeld(repo), true, 'the folder is released by the termination watch, not by the stop');
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('stopping a job whose native entry expired still terminates its tracked descendants', async (t) => {
@@ -288,7 +288,7 @@ test('stopping a job whose native entry expired still terminates its tracked des
   await until(() => tree.state.kills.includes(7001));
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('a force-release drops the folder hold without reporting a live job terminated', async (t) => {
@@ -310,7 +310,7 @@ test('a force-release drops the folder hold without reporting a live job termina
   assert.deepEqual(await forceReleaseTerminationHold('job_bg_6900', { callerSessionId: 'sess_bg' }), {
     released: true,
   });
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
   t.mock.timers.tick(5_000);
   await flush();
   assert.equal(isShellJobRunning('job_bg_6900'), true, 'the worker still runs');
@@ -344,7 +344,7 @@ test('after a force-release a permanently unknown job ends its watch without rep
   assert.deepEqual(await forceReleaseTerminationHold('job_bg_7200', { callerSessionId: 'sess_bg' }), {
     released: true,
   });
-  assert.equal(isHeld(repo), false);
+  assert.equal(await isHeld(repo), false);
   t.mock.timers.tick(5_000);
   await flush();
   const reads = tree.state.reads;

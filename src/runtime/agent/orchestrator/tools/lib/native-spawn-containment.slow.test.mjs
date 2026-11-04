@@ -26,7 +26,7 @@ mock.module('../../mcp/child-tree.mjs', {
 });
 const { execShellCommand } = await import('../shell-command.mjs');
 const { shutdownShellJobs } = await import('../builtin/shell-jobs.mjs');
-const { holdWorkspaceActivity } = await import('../../../../shared/worktrees/activity-gate.mjs');
+const { holdWorkspaceActivityAsync } = await import('../../../../shared/worktrees/activity-gate.mjs');
 const { cleanupTempDirs, makeRepo } = await import('../../../../shared/worktrees/test-support.mjs');
 const { cancelOwnedShellTrees } = await import('./owned-shell-trees.mjs');
 const client = await import('./native-spawn-client.mjs');
@@ -115,9 +115,9 @@ function alive(pid) {
     return error?.code === 'EPERM';
   }
 }
-const workspaceFree = (repo) => {
+const workspaceFree = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return true;
   } catch {
     return false;
@@ -162,7 +162,7 @@ test(
     assert.ok(await treeGoneAtOnce(pids), 'root, mid and the detached leaf died at once');
     assert.equal((await result).killed, true);
     assert.ok(
-      await within(AT_ONCE_MS, () => workspaceFree(repo)),
+      await within(AT_ONCE_MS, async () => await workspaceFree(repo)),
       'the workspace is released on the verified-empty job'
     );
     assert.equal(reads.count, 0, 'no process-table read gated the kill or the release');
@@ -182,7 +182,7 @@ test(
     const settled = await result;
     assert.equal(settled.timedOut, true);
     assert.ok(await treeGoneAtOnce(pids), 'the timed-out tree died at once');
-    assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)), 'the workspace is released');
+    assert.ok(await within(AT_ONCE_MS, async () => await workspaceFree(repo)), 'the workspace is released');
     assert.equal(reads.count, 0);
   }
 );
@@ -198,7 +198,7 @@ test('closing the owning session kills a running foreground tree at once', opts,
   assert.equal(typeof cancelled?.then, 'undefined', 'the cancel is sent at once, not after a snapshot');
   assert.ok(await treeGoneAtOnce(pids));
   assert.equal((await result).killed, true);
-  assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)));
+  assert.ok(await within(AT_ONCE_MS, async () => await workspaceFree(repo)));
   assert.equal(reads.count, 0);
 });
 
@@ -216,7 +216,7 @@ test('runtime shutdown kills a promoted background tree at once and confirms it 
   const shutdown = await shutdownShellJobs('test');
   assert.deepEqual(shutdown.treeUnconfirmedJobs, [], 'every tree was confirmed gone within the shutdown bound');
   assert.ok(await treeGoneAtOnce(pids));
-  assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)));
+  assert.ok(await within(AT_ONCE_MS, async () => await workspaceFree(repo)));
 });
 
 test(
@@ -230,7 +230,7 @@ test(
     assert.equal(result.exitCode, 0, result.stderr);
     assert.match(result.stdout, /contained-ok/);
     assert.equal(result.descendants ?? null, null);
-    assert.equal(workspaceFree(repo), true);
+    assert.equal(await workspaceFree(repo), true);
     assert.equal(reads.count, 0, 'the verified-empty job replaces the survivor probe');
   }
 );
@@ -245,7 +245,7 @@ test('a process a finished command started on purpose keeps running and holds th
   assert.ok(result.descendants, 'the survivor is reported, not killed');
   await delay(1_500);
   assert.ok(alive(survivor), 'a normal completion never kills what the command left running');
-  assert.equal(workspaceFree(repo), false, 'the survivor holds the workspace');
+  assert.equal(await workspaceFree(repo), false, 'the survivor holds the workspace');
   writeFileSync(`${pidFile}.stop`, '');
   assert.ok(await within(10_000, () => !alive(survivor)), 'the survivor stopped itself');
 });
@@ -269,7 +269,7 @@ test(
     assert.equal((await result).killed, true);
     assert.ok(reads.count >= 1, 'the identities were read before the kill');
     assert.ok(await within(60_000, () => pids.every((pid) => !alive(pid))), 'the tree is still killed');
-    assert.ok(await within(60_000, () => workspaceFree(repo)), 'and released once confirmed gone');
+    assert.ok(await within(60_000, async () => await workspaceFree(repo)), 'and released once confirmed gone');
     // The opt-out was that command's alone.
     reads.count = 0;
     reads.delayMs = SLOW_READ_MS;

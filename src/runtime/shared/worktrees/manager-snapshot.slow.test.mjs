@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { managedWorktreeRoot } from './contract.mjs';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from './activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from './activity-gate.mjs';
 import {
   claimWorktreeSetup,
   configureWorktreeManager,
@@ -148,8 +148,8 @@ test('a snapshot a worker turn or background shell still runs in is kept until t
   const { entry, sessionId, txId } = await snapshot(repo);
   const txIds = [txId];
   // The leases a worker turn (ask-session) and a background shell take on their cwd.
-  const leaveWorker = tryAdmitWorkspaceActivity('sess_worker', entry.path, { kind: 'turn' });
-  const leaveShell = tryAdmitWorkspaceActivity('sess_worker', entry.path, { kind: 'command' });
+  const leaveWorker = await tryAdmitWorkspaceActivityAsync('sess_worker', entry.path, { kind: 'turn' });
+  const leaveShell = await tryAdmitWorkspaceActivityAsync('sess_worker', entry.path, { kind: 'command' });
   assert.deepEqual(await removeSessionSnapshots(sessionId, { txIds }), {
     removed: [],
     kept: [{ id: entry.id, txId, reason: 'in-use' }],
@@ -161,10 +161,10 @@ test('a snapshot a worker turn or background shell still runs in is kept until t
   });
   const report = await reconcileManagedWorktrees({ liveSessionIds: [], removeOrphans: true });
   assert.deepEqual(report.kept, [{ id: entry.id, reason: 'snapshot-in-use' }]);
-  leaveWorker();
+  await leaveWorker();
   assert.equal((await removeSessionSnapshots(sessionId, { txIds })).kept[0].reason, 'in-use');
   assert.equal(existsSync(entry.path), true);
-  leaveShell();
+  await leaveShell();
   assert.deepEqual(await removeSessionSnapshots(sessionId, { txIds }), { removed: [entry.id], kept: [] });
   assert.equal(existsSync(entry.path), false);
   // A later turn's snapshot reuses the freed slug, yet the earlier turn's
@@ -185,7 +185,7 @@ test('a resumed (deleting) snapshot removal still waits for whatever entered the
     state: 'deleting',
     deleting: { force: true, startedAt: Date.now(), remaining: [{ kind: 'error', error: 'interrupted' }] },
   });
-  const leave = tryAdmitWorkspaceActivity('sess_worker', entry.path, { kind: 'command' });
+  const leave = await tryAdmitWorkspaceActivityAsync('sess_worker', entry.path, { kind: 'command' });
   assert.equal(typeof leave, 'function', 'a consumer entered the surviving folder');
   await assert.rejects(removeSnapshotWorktree({ entryId: entry.id, force: true }), (error) => {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -196,7 +196,7 @@ test('a resumed (deleting) snapshot removal still waits for whatever entered the
   const report = await reconcileManagedWorktrees({ liveSessionIds: [], removeOrphans: true });
   assert.deepEqual(report.kept, [{ id: entry.id, reason: 'snapshot-in-use' }]);
   assert.equal(existsSync(join(entry.path, 'README.md')), true, 'never deleted under the consumer');
-  leave();
+  await leave();
   assert.deepEqual((await reconcileManagedWorktrees({ liveSessionIds: [] })).removed, [entry.id]);
   assert.equal(existsSync(entry.path), false);
 });
@@ -251,14 +251,14 @@ test('a git write of another process in a snapshot and its removal never overlap
   // The other way round: while a removal holds the folder, a write of another
   // process is refused before it runs.
   const second = (await snapshot(repo)).entry;
-  const hold = holdWorkspaceActivity([second.path]);
+  const hold = await holdWorkspaceActivityAsync([second.path]);
   try {
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', commitIn(second.path)], {
       encoding: 'utf8',
     });
     assert.match(out, /is being removed; nothing ran/);
   } finally {
-    hold();
+    await hold();
   }
   assert.equal(
     git(second.path, 'log', '-1', '--format=%s'),

@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 
 import { processTable, scriptedChildTree } from './process-table-fixture.mjs';
@@ -31,9 +31,9 @@ const { noteShellOwnerSessionClosed } = await import('../builtin/lib/shell-job-r
 after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -44,7 +44,7 @@ const isHeld = (repo) => {
 // A foreground run whose kill was never confirmed: it holds the command
 // reservation exactly as spawnShellChild leaves it (a lease under this live
 // runtime's pid), and its child has not exited yet.
-function unconfirmedRun(repo, child, { killUnconfirmed = true } = {}) {
+async function unconfirmedRun(repo, child, { killUnconfirmed = true } = {}) {
   const counters = { resourceLeases: 0 };
   const run = {
     child,
@@ -56,7 +56,7 @@ function unconfirmedRun(repo, child, { killUnconfirmed = true } = {}) {
     foregroundRecordPublished: true,
     foregroundRecordInput: { command: 'node server.js', cwd: repo, ownerSessionId: 'session', clientHostPid: null },
     commandStartedAtMs: 1,
-    workspaceAdmission: tryAdmitWorkspaceActivity('session', repo, { kind: 'command' }),
+    workspaceAdmission: await tryAdmitWorkspaceActivityAsync('session', repo, { kind: 'command' }),
     resourceLease: {
       release: async () => {
         counters.resourceLeases += 1;
@@ -122,19 +122,19 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run, counters } = unconfirmedRun(repo, child);
+    const { run, counters } = await unconfirmedRun(repo, child);
     await capturedBeforeKill(run, [{ pid: ROOT }]);
     await settleAndFlush(run);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     await tick(60_000);
     assert.equal(counters.resourceLeases, 1, 'the bounded capture/resource cleanup still runs');
-    assert.equal(isHeld(repo), true, 'a cleanup timer is not a confirmation');
+    assert.equal(await isHeld(repo), true, 'a cleanup timer is not a confirmation');
     assert.equal(typeof run.workspaceAdmission, 'function');
     exitChild(child);
     tree.state.next = () => processTable([]);
     await tick(5_000);
     assert.equal(run.workspaceAdmission, null);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -145,7 +145,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     tree.state.next = () =>
       processTable([{ pid: ROOT }, { pid: 4300, ppid: ROOT }, { pid: 4301, ppid: 4300, token: 'worker' }]);
     child.kill = () => {
@@ -159,12 +159,12 @@ test(
     assert.equal(run.killUnconfirmed, true);
     exitChild(child, 137);
     await flush();
-    assert.equal(isHeld(repo), true, 'the orphaned worker still runs');
+    assert.equal(await isHeld(repo), true, 'the orphaned worker still runs');
     await tick(5_000);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     tree.state.next = () => processTable([]);
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -173,14 +173,14 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.timedOut = true;
     const survivor = { pid: 4400, ppid: ROOT, token: 'worker' };
     await capturedBeforeKill(run, [{ pid: ROOT }, survivor]);
     exitChild(child, 137);
     tree.state.next = () => processTable([{ ...survivor, ppid: 1 }]);
     await settleAndFlush(run);
-    assert.equal(isHeld(repo), true, 'the root exit alone does not release the folder');
+    assert.equal(await isHeld(repo), true, 'the root exit alone does not release the folder');
     assert.equal(typeof run.workspaceAdmission, 'function');
     assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'shown as termination unconfirmed');
     assert.deepEqual(records.retired, []);
@@ -190,10 +190,10 @@ test(
       'the hold is owned'
     );
     await tick(5_000);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     tree.state.next = () => processTable([]);
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.equal(run.workspaceAdmission, null);
     assert.deepEqual(records.retired, ['job_unconfirmed_kill']);
   })
@@ -204,7 +204,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run, counters } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run, counters } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.foregroundRecordId = 'job_killed_tree_capture';
     run.taskOutput = new TaskOutput('killed_tree_capture');
     run.taskOutput.forceSpill();
@@ -247,13 +247,13 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     await capturedBeforeKill(run, [{ pid: ROOT }, { pid: 4400, ppid: ROOT, token: 'worker' }]);
     exitChild(child, 137);
     tree.state.next = () => processTable([]);
     await settleAndFlush(run);
     await flush();
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.equal(records.published.length, 0, 'never marked unconfirmed');
   })
 );
@@ -265,7 +265,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     await capturedBeforeKill(run, [{ pid: ROOT, token: 'root' }]);
     exitChild(child, 137);
     tree.state.next = () =>
@@ -275,7 +275,7 @@ test(
       ]);
     await settleAndFlush(run);
     assert.equal(run.workspaceAdmission, null);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -284,12 +284,12 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     await capturedBeforeKill(run, [{ pid: ROOT }, { pid: process.pid, ppid: ROOT, token: 'worker' }]);
     exitChild(child, 137);
     tree.state.next = () => processTable([{ pid: process.pid, ppid: 1, token: 'recycled' }]);
     await settleAndFlush(run);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -300,7 +300,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     await capturedBeforeKill(run, [{ pid: ROOT }]);
     let failures = 3;
     tree.state.next = () => {
@@ -310,17 +310,17 @@ test(
     const start = tree.state.reads;
     await settleAndFlush(run);
     assert.equal(tree.state.reads - start, 1);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     await tick(4_999);
     assert.equal(tree.state.reads - start, 1, 'nothing re-checks before the cadence');
     await tick(1);
     assert.equal(tree.state.reads - start, 2);
     await tick(5_000);
     assert.equal(tree.state.reads - start, 3);
-    assert.equal(isHeld(repo), true, 'unknown is never empty');
+    assert.equal(await isHeld(repo), true, 'unknown is never empty');
     await tick(5_000);
     assert.equal(tree.state.reads - start, 4);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -329,17 +329,17 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     const survivor = { pid: process.pid, ppid: ROOT, token: 'service' };
     await capturedBeforeKill(run, [{ pid: ROOT }, survivor]);
     exitChild(child, 137);
     tree.state.next = () => processTable([survivor]);
     await settleAndFlush(run);
     await tick(5_000);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     tree.state.next = () => processTable([]);
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     const reads = tree.state.reads;
     await tick(60_000);
     assert.equal(tree.state.reads, reads, 'no observation after release');
@@ -352,7 +352,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     let result = null;
     run.resolveResult = (value) => {
       result = value;
@@ -377,7 +377,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     // A table read answers with the processes alive when it is taken: a
     // loaded host's enumerator takes it long after it was asked for.
     let alive = [{ pid: ROOT }];
@@ -402,7 +402,7 @@ test(
     exitChild(child, 137);
     await settleAndFlush(run);
     await tick(5_000);
-    assert.equal(isHeld(repo), false, 'the workspace is released once the tree is confirmed gone');
+    assert.equal(await isHeld(repo), false, 'the workspace is released once the tree is confirmed gone');
     run.stopTerminationWatch?.();
   })
 );
@@ -412,7 +412,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     const kills = [];
     child.kill = () => {
       kills.push(Date.now());
@@ -436,9 +436,9 @@ test(
     for (let second = 0; second < 3 * 7 && !run.killUnconfirmed; second += 1) await tick(1_000);
     assert.equal(run.killUnconfirmed, true);
     assert.equal(kills.length, 3, 'every attempt is sent');
-    assert.equal(isHeld(repo), true, 'no snapshot is unknown, never empty');
+    assert.equal(await isHeld(repo), true, 'no snapshot is unknown, never empty');
     await tick(60_000);
-    assert.equal(isHeld(repo), true, 'no timer releases it');
+    assert.equal(await isHeld(repo), true, 'no timer releases it');
     run.stopTerminationWatch();
   })
 );
@@ -452,7 +452,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = containedChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     tree.state.next = () => new Promise(() => {}); // any table read would hang
     const reads = tree.state.reads;
     let kills = 0;
@@ -467,7 +467,7 @@ test(
     child.treeOutcome = 'empty';
     exitChild(child, 137);
     await settleAndFlush(run);
-    assert.equal(isHeld(repo), false, 'released on the verified-empty job');
+    assert.equal(await isHeld(repo), false, 'released on the verified-empty job');
     assert.equal(tree.state.reads, reads, 'no process-table read at all');
   })
 );
@@ -477,7 +477,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = containedChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     const reads = tree.state.reads;
     run.settle = createSettle(run, () => {});
     treeKillForceSettle(run, 'timeout');
@@ -485,12 +485,12 @@ test(
     exitChild(child, 137);
     await settleAndFlush(run);
     await tick(60_000);
-    assert.equal(isHeld(repo), true, 'a root exit is not a verified-empty job');
+    assert.equal(await isHeld(repo), true, 'a root exit is not a verified-empty job');
     assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'shown as termination unconfirmed');
     // A late report (the server kept watching the job) still releases it.
     child.treeOutcome = 'empty';
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.equal(tree.state.reads, reads);
   })
 );
@@ -504,7 +504,7 @@ const LATER = (seconds) => String(BigInt(ROOT_CREATED) + BigInt(seconds) * 10_00
 
 async function cancelRacingNaturalExit(repo, rows) {
   const child = Object.assign(containedChild(), { creationTime: ROOT_CREATED });
-  const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+  const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
   let kills = 0;
   child.kill = () => {
     kills += 1;
@@ -531,11 +531,11 @@ test(
       { pid: 4510, ppid: ROOT, token: LATER(1) },
     ]);
     await tick(60_000);
-    assert.equal(isHeld(repo), true, 'never released on a table read');
+    assert.equal(await isHeld(repo), true, 'never released on a table read');
     assert.equal(raced.kills(), 2, 'the kill is re-sent to the kept job');
     raced.child.treeOutcome = 'empty';
     await tick(5_000);
-    assert.equal(isHeld(repo), false, 'released once the job is verified empty');
+    assert.equal(await isHeld(repo), false, 'released once the job is verified empty');
     assert.equal(raced.reads(), 0, 'no process table consulted');
   })
 );
@@ -548,11 +548,11 @@ test(
     const raced = await cancelRacingNaturalExit(repo, [{ pid: 4530, ppid: ROOT, token: LATER(3) }]);
     await tick(60_000);
     assert.deepEqual(tree.state.kills, [], 'no process is killed by pid');
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.equal(raced.reads(), 0);
     raced.child.treeOutcome = 'empty';
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -563,12 +563,12 @@ test(
     const raced = await cancelRacingNaturalExit(repo, []);
     raced.child.treeOutcome = 'released';
     await tick(60_000);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.equal(
       (await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' })).released,
       true
     );
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.equal(raced.reads(), 0);
   })
 );
@@ -579,7 +579,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = containedChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     const reads = tree.state.reads;
     let treeSettled = false;
     run.settle = createSettle(run, () => {});
@@ -590,7 +590,7 @@ test(
     void run.treeSettled.then(() => (treeSettled = true));
     child.treeOutcome = 'unverified';
     await tick(60_000);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'shown as termination unconfirmed');
     assert.equal(
       (await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' })).released,
@@ -598,7 +598,7 @@ test(
       'its owner can still force-release it'
     );
     await flush();
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     await tick(60_000);
     assert.equal(treeSettled, false, 'never reported terminated');
     assert.equal(tree.state.reads, reads, 'no process table stands in for the missing verification');
@@ -610,7 +610,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = containedChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.killed = false;
     run.foregroundRecordId = 'job_contained_close';
     tree.state.next = () => new Promise(() => {});
@@ -627,7 +627,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.foregroundRecordId = 'job_force_live';
     const survivor = { pid: 4420, ppid: ROOT, token: 'worker' };
     await capturedBeforeKill(run, [{ pid: ROOT }, survivor]);
@@ -645,7 +645,7 @@ test(
     assert.deepEqual(await forceReleaseTerminationHold('job_force_live', { callerSessionId: 'session' }), {
       released: true,
     });
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     const reads = tree.state.reads;
     await tick(5_000);
     assert.ok(tree.state.reads > reads, 'the tree is still observed');
@@ -661,7 +661,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.foregroundRecordId = 'job_force_blind';
     // No pre-kill capture: the exited root's tree can never be confirmed.
     exitChild(child, 137);
@@ -678,7 +678,7 @@ test(
     assert.deepEqual(await forceReleaseTerminationHold('job_force_blind', { callerSessionId: 'session' }), {
       released: true,
     });
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     await tick(5_000);
     const reads = tree.state.reads;
     await tick(60_000);
@@ -692,22 +692,22 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     tree.state.next = () => {
       throw new Error('process enumeration denied');
     };
     await settleAndFlush(run);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.equal(records.published.at(-1).terminationUnconfirmed, true);
     assert.equal(
       (await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'other' })).released,
       false
     );
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.deepEqual(await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' }), {
       released: true,
     });
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.equal(run.workspaceAdmission, null);
     assert.deepEqual(records.retired, ['job_unconfirmed_kill']);
     const reads = tree.state.reads;
@@ -725,7 +725,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.killed = false;
     run.foregroundRecordInput.ownerSessionId = 'closing-fg';
     registerForegroundOwnedTree(run, 'closing-fg');
@@ -740,11 +740,11 @@ test(
     exitChild(child);
     tree.state.next = () => processTable([{ pid: 4301, ppid: 4300 }]);
     await settleAndFlush(run);
-    assert.equal(isHeld(repo), true, 'the orphaned grandchild keeps the folder held');
+    assert.equal(await isHeld(repo), true, 'the orphaned grandchild keeps the folder held');
     assert.equal(records.published.at(-1)?.terminationUnconfirmed, true);
     tree.state.next = () => processTable([]);
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.deepEqual(records.retired, ['job_unconfirmed_kill']);
   })
 );
@@ -772,7 +772,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.killed = false;
     run.foregroundRecordId = 'job_closed_blind';
     run.foregroundRecordInput.ownerSessionId = 'closing-blind';
@@ -788,17 +788,17 @@ test(
     await settleAndFlush(run);
     await flush();
     assert.equal(run.terminationTracker.complete, false, 'session close cannot supply the missing snapshot');
-    assert.equal(isHeld(repo), true, 'no known survivor is not proof that the tree is gone');
+    assert.equal(await isHeld(repo), true, 'no known survivor is not proof that the tree is gone');
     assert.equal(records.published.at(-1)?.terminationUnconfirmed, true);
     assert.deepEqual(records.retired, []);
     tree.state.next = () => processTable([]);
     await tick(5_000);
-    assert.equal(isHeld(repo), true, 'an empty later table also cannot recover the lost parent link');
+    assert.equal(await isHeld(repo), true, 'an empty later table also cannot recover the lost parent link');
     assert.deepEqual(
       await forceReleaseTerminationHold('job_closed_blind', { callerSessionId: 'viewer', callerCwd: repo }),
       { released: true }
     );
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.deepEqual(records.retired, ['job_closed_blind']);
     await tick(5_000);
     const reads = tree.state.reads;
@@ -812,7 +812,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.killed = false;
     run.foregroundRecordId = 'job_closed_linked';
     run.foregroundRecordInput.ownerSessionId = 'closing-linked';
@@ -829,17 +829,17 @@ test(
     await settleAndFlush(run);
     await flush();
     assert.deepEqual(tree.state.kills, [4500], 'the linked survivor is killed');
-    assert.equal(isHeld(repo), true, 'held while it still runs');
+    assert.equal(await isHeld(repo), true, 'held while it still runs');
     tree.state.next = () => processTable([]);
     await tick(5_000);
     assert.equal(run.terminationTracker.complete, false);
-    assert.equal(isHeld(repo), true, 'sweeping known survivors cannot prove the incomplete tree is gone');
+    assert.equal(await isHeld(repo), true, 'sweeping known survivors cannot prove the incomplete tree is gone');
     assert.deepEqual(records.retired, []);
     assert.deepEqual(
       await forceReleaseTerminationHold('job_closed_linked', { callerSessionId: 'viewer', callerCwd: repo }),
       { released: true }
     );
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.deepEqual(records.retired, ['job_closed_linked']);
   })
 );
@@ -850,7 +850,7 @@ test(
     const repo = makeRepo();
     const elsewhere = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     run.foregroundRecordInput.ownerSessionId = 'closing-owner';
     tree.state.next = () => {
       throw new Error('process enumeration denied');
@@ -861,9 +861,9 @@ test(
     assert.equal((await release(repo)).released, false, 'the owner is still open');
     noteShellOwnerSessionClosed('closing-owner');
     assert.equal((await release(elsewhere)).released, false, 'another workspace cannot release it');
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.deepEqual(await release(repo), { released: true });
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     const reads = tree.state.reads;
     await tick(30_000);
     assert.ok(tree.state.reads > reads, 'a force-release does not end the observation');
@@ -875,7 +875,7 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     tree.state.next = () => {
       throw new Error('process enumeration denied');
     };
@@ -883,9 +883,9 @@ test(
     const jobsDir = join(process.env.MIXDOG_DATA_DIR, 'shell-jobs');
     mkdirSync(jobsDir, { recursive: true });
     writeFileSync(join(jobsDir, 'job_unconfirmed_kill.release-requested'), '');
-    assert.equal(isHeld(repo), true, 'nothing is released before the pass');
+    assert.equal(await isHeld(repo), true, 'nothing is released before the pass');
     await tick(5_000);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
     assert.equal(existsSync(join(jobsDir, 'job_unconfirmed_kill.release-requested')), false, 'the request is consumed');
     const reads = tree.state.reads;
     await tick(30_000);
@@ -936,7 +936,7 @@ test(
     withTimers(async () => {
       const repo = makeRepo();
       const child = runningChild();
-      const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+      const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
       run.killed = false;
       let result = null;
       run.resolveResult = (value) => {
@@ -950,14 +950,14 @@ test(
       await flush();
       assert.ok(result, 'the command still returns');
       assert.equal(result.exitCode, 1);
-      assert.equal(isHeld(repo), true, 'unverified descendants keep the folder held');
+      assert.equal(await isHeld(repo), true, 'unverified descendants keep the folder held');
       assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'the record is kept, marked unconfirmed');
       assert.equal(records.published.at(-1)?.jobId, 'job_unconfirmed_kill');
       const retiredBefore = records.retired.length;
       assert.deepEqual(await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' }), {
         released: true,
       });
-      assert.equal(isHeld(repo), false);
+      assert.equal(await isHeld(repo), false);
       assert.equal(run.workspaceAdmission, null);
       assert.equal(records.retired.length, retiredBefore + 1, 'the release retires the kept record');
       const reads = tree.state.reads;
@@ -973,7 +973,7 @@ test(
     withTimers(async () => {
       const repo = makeRepo();
       const child = runningChild();
-      const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+      const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
       run.killed = false;
       exitChild(child, 0);
       let failures = 2;
@@ -983,10 +983,10 @@ test(
       };
       await createSettle(run, () => {})(0, null);
       await flush();
-      assert.equal(isHeld(repo), true);
+      assert.equal(await isHeld(repo), true);
       const retiredBefore = records.retired.length;
       await tick(5_000);
-      assert.equal(isHeld(repo), false, 'the termination watch confirms and releases');
+      assert.equal(await isHeld(repo), false, 'the termination watch confirms and releases');
       assert.equal(records.retired.length, retiredBefore + 1);
     })
   )
@@ -1003,7 +1003,7 @@ test(
     const repo = makeRepo();
     const child = runningChild();
     child.creationTime = '134062416010000000';
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const { run } = await unconfirmedRun(repo, child, { killUnconfirmed: false });
     run.killed = false;
     let result = null;
     run.resolveResult = (value) => {
@@ -1014,7 +1014,7 @@ test(
     await createSettle(run, () => {})(0, null);
     assert.equal(result.exitCode, 0);
     assert.equal(result.descendants, null);
-    assert.equal(isHeld(repo), false);
+    assert.equal(await isHeld(repo), false);
   })
 );
 
@@ -1023,14 +1023,14 @@ test(
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
-    const { run } = unconfirmedRun(repo, child);
+    const { run } = await unconfirmedRun(repo, child);
     tree.state.next = () => {
       throw new Error('process enumeration denied');
     };
     await settleAndFlush(run);
     exitChild(child);
     await tick(15_000);
-    assert.equal(isHeld(repo), true);
+    assert.equal(await isHeld(repo), true);
     assert.equal(typeof run.workspaceAdmission, 'function');
     assert.deepEqual(records.retired, []);
     run.stopTerminationWatch();

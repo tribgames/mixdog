@@ -7,32 +7,32 @@
  * this thread's event loop, and no two threads of the process ever update the
  * ledger at once.
  *
- * The asynchronous API posts its request and settles with the outcome. The
- * synchronous API posts the same request and blocks (Atomics.wait) until it
- * is answered, for at most MIXDOG_ADMISSION_SYNC_TIMEOUT_MS: a request still
- * running then is reported with an unknown outcome — a grant is withdrawn by
- * the admission thread once it finishes, a release still lands. A grant or
- * release is answered only once both copies hold its outcome (or it was
- * refused). If the admission thread stops, every outstanding and later
- * request fails (workspace-admission-unreadable) until the process restarts:
- * it is never restarted, since a ledger lock it held still names this live
- * process. The exit waits (bounded the same way) for the requests already
- * posted, so a release made just before exiting still lands.
+ * Every request is posted and settles with its outcome; no caller ever
+ * blocks its thread on one. A `bounded` request (a management hold, a
+ * mid-turn cwd move) waits at most MIXDOG_ADMISSION_SYNC_TIMEOUT_MS: one
+ * still running then is reported with an unknown outcome, and a grant it
+ * completes afterwards is withdrawn at once. A grant or release is answered
+ * only once both copies hold its outcome (or it was refused). If the
+ * admission thread stops, every outstanding and later request fails
+ * (workspace-admission-unreadable) until the process restarts: it is never
+ * restarted, since a ledger lock it held still names this live process. The
+ * exit waits (bounded the same way) for the requests already posted, so a
+ * release made just before exiting still lands.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from 'node:worker_threads';
+import { SHARE_ENV, Worker } from 'node:worker_threads';
 import { WorktreeError, worktreeRefusal } from './contract.mjs';
 import { envMs, LEDGER_SLOTS as SLOT } from './activity-ledger.mjs';
 
 export { isExternalCheckout } from './activity-ledger.mjs';
 
-// The longest a synchronous caller (or the exit) waits for the admission
+// The longest a bounded request (or the exit) waits for the admission
 // thread, the requests queued ahead of it included: each is bounded by the
 // ledger lock timeout (file-lock.mjs, MIXDOG_LOCK_TIMEOUT_MS) and the atomic
 // writes' rename retries. A chosen ceiling, not a measurement: reaching it is
 // the typed `outcome: 'unknown'` refusal, and MIXDOG_ADMISSION_SYNC_TIMEOUT_MS
-// sets it.
-const syncTimeoutMs = () => envMs('MIXDOG_ADMISSION_SYNC_TIMEOUT_MS', 60_000);
+// (its name kept from the former synchronous wait) sets it.
+const boundMs = () => envMs('MIXDOG_ADMISSION_SYNC_TIMEOUT_MS', 60_000);
 
 // `outcome: 'unknown'`: the request was posted and may have landed.
 const unknownOutcome = (details = {}) =>
@@ -47,7 +47,6 @@ let gate = null;
 function startGate() {
   if (gate) return gate;
   const slots = new Int32Array(new SharedArrayBuffer(SLOT.COUNT * Int32Array.BYTES_PER_ELEMENT));
-  const { port1, port2 } = new MessageChannel();
   let worker;
   try {
     worker = new Worker(new URL('./activity-ledger-worker.mjs', import.meta.url), {
@@ -55,17 +54,15 @@ function startGate() {
       execArgv: [],
       workerData: {
         slots: slots.buffer,
-        syncPort: port2,
         // Tests only: load the fixed fault hook beside the worker (never shipped).
         faultHook: process.env.MIXDOG_ADMISSION_TEST_FAULT_HOOK === '1',
       },
-      transferList: [port2],
     });
   } catch (cause) {
     // Nothing ran: the next request tries again.
     throw Object.assign(worktreeRefusal('workspace-admission-unreadable', { admission: 'unavailable' }), { cause });
   }
-  const current = { worker, slots, syncPort: port1, lastId: 0, posted: 0, waiting: new Map(), stopped: null };
+  const current = { worker, slots, lastId: 0, posted: 0, waiting: new Map(), stopped: null };
   gate = current;
   worker.on('message', (answer) => settleAnswer(current, answer));
   worker.on('error', (error) => stopGate(current, error));
@@ -85,7 +82,10 @@ function stopGate(current, cause) {
   );
   const waiting = [...current.waiting.values()];
   current.waiting.clear();
-  for (const entry of waiting) entry.reject(stoppedError(true));
+  for (const entry of waiting) {
+    clearTimeout(entry.timer);
+    entry.reject(stoppedError(true));
+  }
 }
 
 function revive(error) {
@@ -95,17 +95,20 @@ function revive(error) {
   return revived;
 }
 
-function post(current, op, args, sync) {
-  current.lastId = current.lastId >= 0x3fffffff ? 1 : current.lastId + 1;
-  const id = current.lastId;
-  if (sync) Atomics.store(current.slots, SLOT.SYNC, id);
-  current.worker.postMessage({ id, op, args, sync });
-  current.posted = (current.posted + 1) | 0;
-  return id;
+function forget(current, id) {
+  current.waiting.delete(id);
+  if (!current.waiting.size) current.worker.unref();
 }
 
-/** Posts the request at the call, so it runs after every earlier request of this process. */
-function request(op, args) {
+/**
+ * Posts the request at the call, so it runs after every earlier request of
+ * this process. `bounded`: a request still unanswered once the bound passes
+ * is rejected with the unknown outcome. Its shared claim decides the race
+ * with the answer: whichever of this thread (1) and the admission thread (2)
+ * sets it first wins, so a grant completed after the caller gave up is
+ * withdrawn by the admission thread before it takes the next request.
+ */
+function request(op, args, { bounded = false } = {}) {
   let current;
   try {
     current = startGate();
@@ -114,58 +117,32 @@ function request(op, args) {
   }
   if (current.stopped) return Promise.reject(stoppedError(false));
   return new Promise((resolve, reject) => {
-    const id = post(current, op, args, false);
-    current.waiting.set(id, { resolve, reject });
+    current.lastId = current.lastId >= 0x3fffffff ? 1 : current.lastId + 1;
+    const id = current.lastId;
+    const claim = bounded ? new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)) : null;
+    current.worker.postMessage({ id, op, args, claim: claim?.buffer });
+    current.posted = (current.posted + 1) | 0;
+    const entry = { resolve, reject, timer: null };
+    current.waiting.set(id, entry);
     if (current.waiting.size === 1) current.worker.ref();
+    if (claim) {
+      entry.timer = setTimeout(() => {
+        // Lost: the admission thread claimed it and its answer is on the way.
+        if (Atomics.compareExchange(claim, 0, 0, 1) !== 0) return;
+        forget(current, id);
+        reject(unknownOutcome());
+      }, boundMs());
+    }
   });
 }
 
 function settleAnswer(current, { id, value, error }) {
   const entry = current.waiting.get(id);
   if (!entry) return;
-  current.waiting.delete(id);
-  if (!current.waiting.size) current.worker.unref();
+  forget(current, id);
+  clearTimeout(entry.timer);
   if (error) entry.reject(revive(error));
   else entry.resolve(value);
-}
-
-/**
- * The request answered while this thread blocks. The admission thread never
- * waits for this one, so the wait ends with its answer, its stop, or the
- * deadline — after which the request no longer counts as this caller's: the
- * admission thread withdraws a grant it then completes (activity-ledger-worker).
- */
-function callSync(op, args) {
-  const current = startGate();
-  if (current.stopped) throw stoppedError(false);
-  const { slots } = current;
-  const id = post(current, op, args, true);
-  const deadline = Date.now() + syncTimeoutMs();
-  for (;;) {
-    const seen = Atomics.load(slots, SLOT.ANSWERED);
-    for (
-      let received = receiveMessageOnPort(current.syncPort);
-      received;
-      received = receiveMessageOnPort(current.syncPort)
-    ) {
-      if (received.message.id !== id) continue;
-      if (received.message.error) throw revive(received.message.error);
-      return received.message.value;
-    }
-    if (Atomics.load(slots, SLOT.STOPPED) === 1) {
-      stopGate(current, new Error('stopped while a synchronous request waited'));
-      throw stoppedError(true);
-    }
-    let left = deadline - Date.now();
-    if (left <= 0) {
-      if (Atomics.compareExchange(slots, SLOT.SYNC, id, 0) === id) throw unknownOutcome();
-      // The admission thread already claimed the slot (SYNC is -id): the
-      // answer is on its way and its notify wakes this wait; 1 s only bounds
-      // a missed wake.
-      left = 1_000;
-    }
-    Atomics.wait(slots, SLOT.ANSWERED, seen, left);
-  }
 }
 
 // `exit` listeners run synchronously while the admission thread still runs:
@@ -175,7 +152,7 @@ function callSync(op, args) {
 // behind belongs to a dead pid, which the next reader drops.
 function drainOnExit(current) {
   const { slots } = current;
-  const deadline = Date.now() + syncTimeoutMs();
+  const deadline = Date.now() + boundMs();
   for (;;) {
     const done = Atomics.load(slots, SLOT.DONE);
     if (done === current.posted || current.stopped || Atomics.load(slots, SLOT.STOPPED) === 1) return;
@@ -191,29 +168,11 @@ const handled = (promise) => {
 };
 
 /**
- * The release of a synchronous grant: returns once the removal was attempted
- * (one that did not land is retried by the admission thread, as always).
- * Throws only when the admission thread stopped.
- */
-function syncRelease(leases) {
-  let done = false;
-  return () => {
-    if (done || !leases.length) return;
-    done = true;
-    try {
-      callSync('release', { leases });
-    } catch (error) {
-      if (error?.details?.outcome !== 'unknown' || error.details.admission === 'stopped') throw error;
-      process.stderr.write('[state] a workspace release outlasted the synchronous wait; it lands in its turn\n');
-    }
-  };
-}
-
-/**
- * The release of an asynchronous grant, requested at the call (so it lands
- * before any later request of this process). Settles once the removal was
- * attempted; rejects only when the admission thread stopped. Every call
- * returns the same promise, which never goes unhandled.
+ * The release of a grant, requested at the call (so it lands before any
+ * later request of this process). Settles once the removal was attempted
+ * (one that did not land is retried by the admission thread, as always);
+ * rejects only when the admission thread stopped. Every call returns the
+ * same promise, which never goes unhandled.
  */
 function asyncRelease(leases) {
   let released = null;
@@ -231,17 +190,12 @@ function readerArgs(sessionId, cwd, { pid = process.pid, kind = 'turn' } = {}) {
  * outside that checkout, but refused by a management lease inside it. Throws
  * `workspace-admission-unreadable` when the ledger cannot be read, was
  * written by a newer build, or the grant could not be made durable in both
- * copies: no work may run unrecorded. Blocks until answered;
- * tryAdmitWorkspaceActivityAsync does not.
+ * copies: no work may run unrecorded. `bounded`: the unknown outcome once
+ * the admission bound passes unanswered (request). Its release settles once
+ * the removal was attempted.
  */
-export function tryAdmitWorkspaceActivity(sessionId, cwd, options) {
-  const granted = callSync('admit', readerArgs(sessionId, cwd, options));
-  return granted && syncRelease(granted.leases);
-}
-
-/** tryAdmitWorkspaceActivity without blocking; its release settles once the removal was attempted. */
-export async function tryAdmitWorkspaceActivityAsync(sessionId, cwd, options) {
-  const granted = await request('admit', readerArgs(sessionId, cwd, options));
+export async function tryAdmitWorkspaceActivityAsync(sessionId, cwd, { bounded = false, ...options } = {}) {
+  const granted = await request('admit', readerArgs(sessionId, cwd, options), { bounded });
   return granted && asyncRelease(granted.leases);
 }
 
@@ -269,23 +223,22 @@ export async function admitWorkspaceActivity(sessionId, cwd, signal, options) {
  * exclude later readers until the returned release is called. External
  * checkouts are only checked, never held. `sessionId`: the acting session,
  * whose own readers in this process do not count (its idleness is the
- * caller's check). Blocks until answered; holdWorkspaceActivityAsync does not.
+ * caller's check). `bounded` as for tryAdmitWorkspaceActivityAsync. Its
+ * release settles once every removal was attempted.
  */
-export function holdWorkspaceActivity(folders, { sessionId = null } = {}) {
-  return syncRelease(callSync('hold', { folders: [...folders], sessionId }).leases);
+export async function holdWorkspaceActivityAsync(folders, { sessionId = null, bounded = false } = {}) {
+  return asyncRelease((await request('hold', { folders: [...folders], sessionId }, { bounded })).leases);
 }
 
-/** holdWorkspaceActivity without blocking; its release settles once every removal was attempted. */
-export async function holdWorkspaceActivityAsync(folders, { sessionId = null } = {}) {
-  return asyncRelease((await request('hold', { folders: [...folders], sessionId })).leases);
-}
-
-/** Runs every release in reverse order even when one throws; the first failure is rethrown after all ran. */
-export function releaseAll(releases) {
+/**
+ * Runs every release in reverse order, each settled before the next, even
+ * when one fails; the first failure is rethrown after all ran.
+ */
+export async function releaseAll(releases) {
   let failure = null;
   for (const done of [...releases].reverse()) {
     try {
-      done();
+      await done();
     } catch (error) {
       failure ??= error;
     }

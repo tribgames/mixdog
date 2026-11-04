@@ -8,16 +8,11 @@ import { existsSync, readFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import {
-  admitWorkspaceActivity,
-  holdWorkspaceActivity,
-  holdWorkspaceActivityAsync,
-  tryAdmitWorkspaceActivity,
-  tryAdmitWorkspaceActivityAsync,
-} from './activity-gate.mjs';
+import { admitWorkspaceActivity, holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from './activity-gate.mjs';
 import { setAdmissionFaults } from './activity-gate-faults.test-hook.mjs';
 import { withFileLock, withFileLockSync } from '../file-lock.mjs';
-import { admitTurn } from '../../../session-runtime/workspace/admission-gate.mjs';
+import { admitTurn, retainAdmittedTurnWorkspace } from '../../../session-runtime/workspace/admission-gate.mjs';
+import { createActivityGuards } from '../../../session-runtime/workspace/activity-guards.mjs';
 import { cleanupTempDirs, makeRepo, tempDir, useTempDataDir } from './test-support.mjs';
 
 const moduleUrl = new URL('./activity-gate.mjs', import.meta.url).href;
@@ -77,9 +72,9 @@ async function runScript(script, args, env = {}) {
 async function independentManagement(repo) {
   const result = await runScript(
     `
-      import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+      import { holdWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
       try {
-        holdWorkspaceActivity([process.argv[1]])();
+        await (await holdWorkspaceActivityAsync([process.argv[1]]))();
         console.log('held');
       } catch (error) {
         console.log(error.details?.reason ?? error.message);
@@ -143,13 +138,79 @@ test('a turn admitted while the disk is slow leaves the event loop running, and 
   assert.deepEqual(copySessions(repo), [[], []], 'the grant that landed after the abort was given back');
 });
 
+/**
+ * Runs `work` while this thread holds `repo`'s ledger lock, let go by a timer
+ * after `holdMs`: the admission thread waits on the lock meanwhile. Reports
+ * when (ms from the start) a timer due at 100 ms fired, when the lock was let
+ * go, and what `work` resolved to.
+ */
+async function behindHeldLedgerLock(repo, work, holdMs = 800) {
+  let letGo;
+  const holding = withFileLock(lockPath(repo), () => new Promise((resolve) => (letGo = resolve)), {
+    strictOwner: true,
+  });
+  await until(() => existsSync(lockPath(repo)) && letGo);
+  const startedAt = Date.now();
+  const since = () => Date.now() - startedAt;
+  const marks = { timerAt: null, releasedAt: null };
+  setTimeout(() => (marks.timerAt = since()), 100);
+  setTimeout(() => {
+    marks.releasedAt = since();
+    letGo();
+  }, holdMs);
+  const value = await work(since);
+  await holding;
+  return { ...marks, value };
+}
+
+function onTime({ timerAt, releasedAt }) {
+  assert.ok(timerAt !== null && timerAt < 300, `the 100 ms timer fired at ${timerAt} ms`);
+  assert.ok(releasedAt !== null && timerAt < releasedAt, 'the timer fired while the request waited on the lock');
+}
+
+test('a merge or worktree cleanup waiting behind a held ledger lock keeps the event loop responsive', async () => {
+  const repo = makeRepo();
+  const { withManagementFolders } = createActivityGuards({
+    getActiveTurnCount: () => 0,
+    agentStatusState: () => ({}),
+    countOwnShellJobs: async () => 0,
+    listLiveSessions: () => [],
+    sessionManager: null,
+    listWorkspaceConsumers: async () => [],
+    listWorkspaceJobs: async () => [],
+  });
+  const result = await behindHeldLedgerLock(repo, (since) =>
+    withManagementFolders([repo], true, async () => ({ ranAt: since(), copies: copySessions(repo) }))
+  );
+  onTime(result);
+  assert.ok(result.value.ranAt >= result.releasedAt, 'the cleanup ran only once its hold was granted');
+  assert.deepEqual(result.value.copies, [['management'], ['management']], 'the hold was written before the work');
+  assert.deepEqual(copySessions(repo), [[], []], 'released once the cleanup settled');
+});
+
+test('a mid-turn cwd move waiting behind a held ledger lock keeps the event loop responsive', async () => {
+  const repo = makeRepo();
+  const target = makeRepo();
+  const cwd = repo;
+  const leave = await admitTurn({ sessionId: 'mover', cwd: () => cwd });
+  const result = await behindHeldLedgerLock(target, async (since) => {
+    await retainAdmittedTurnWorkspace('mover', target);
+    return since();
+  });
+  onTime(result);
+  assert.ok(result.value >= result.releasedAt, 'retained only once the destination was granted');
+  assert.deepEqual(copySessions(target), [['mover'], ['mover']]);
+  await leave();
+  assert.deepEqual([...copySessions(repo), ...copySessions(target)], [[], [], [], []]);
+});
+
 test('a lease acknowledged while an older publication is in flight survives its writes and a forced kill', async (t) => {
   const repo = makeRepo();
   const command = liveProcess(t);
   const probe = await runScript(
     `
       import { writeSync } from 'node:fs';
-      import { tryAdmitWorkspaceActivity, tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
+      import { tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
       import { setAdmissionFaults } from ${JSON.stringify(faultsUrl)};
       const [cwd, command] = process.argv.slice(1);
       setAdmissionFaults(
@@ -161,7 +222,7 @@ test('a lease acknowledged while an older publication is in flight survives its 
       // A lease of this process (which dies below), then one of a live command.
       const older = tryAdmitWorkspaceActivityAsync('older', cwd, { kind: 'command' });
       await new Promise((resolve) => setTimeout(resolve, 200));
-      const newer = tryAdmitWorkspaceActivity('newer', cwd, { kind: 'command', pid: Number(command) });
+      const newer = await tryAdmitWorkspaceActivityAsync('newer', cwd, { kind: 'command', pid: Number(command) });
       writeSync(1, newer ? 'acknowledged\\n' : 'refused\\n');
       await older;
       // Forced termination: no exit handler runs.
@@ -184,7 +245,7 @@ test('a failed write of either copy never acknowledges a grant and never drops a
     for (let index = 0; index < 6; index += 1) {
       const repo = makeRepo();
       const where = `${file} write #${index}`;
-      const before = tryAdmitWorkspaceActivity('prior', repo, { kind: 'command', pid: prior });
+      const before = await tryAdmitWorkspaceActivityAsync('prior', repo, { kind: 'command', pid: prior });
       const hits = Array.from({ length: index + 1 }, (_, at) => at === index);
       setAdmissionFaults(
         { op: 'rename', file: FILE, hits: [true], action: 'delay', ms: 150 },
@@ -195,12 +256,10 @@ test('a failed write of either copy never acknowledges a grant and never drops a
         (error) => ({ error })
       );
       await sleep(50);
-      let newer;
-      try {
-        newer = { leave: tryAdmitWorkspaceActivity('newer', repo, { kind: 'command', pid: command }) };
-      } catch (error) {
-        newer = { error };
-      }
+      const newer = await tryAdmitWorkspaceActivityAsync('newer', repo, { kind: 'command', pid: command }).then(
+        (leave) => ({ leave }),
+        (error) => ({ error })
+      );
       const olderOutcome = await older;
       setAdmissionFaults();
       for (const outcome of [olderOutcome, newer]) {
@@ -216,15 +275,15 @@ test('a failed write of either copy never acknowledges a grant and never drops a
           assert.ok(sessions.includes('newer'), `${where}: acknowledged 'newer' is missing (${sessions})`);
       }
       await olderOutcome.leave?.();
-      newer.leave?.();
-      before();
+      await newer.leave?.();
+      await before();
     }
   }
 });
 
 test('the admission thread and this thread exclude each other on the ledger lock without stealing it', async (t) => {
   const repo = makeRepo();
-  holdWorkspaceActivity([repo])();
+  await (await holdWorkspaceActivityAsync([repo]))();
   t.after(() => setAdmissionFaults());
 
   // This thread holds the lock (same pid, its own token), aged past every stale window.
@@ -260,15 +319,6 @@ test('the admission thread and this thread exclude each other on the ledger lock
   letGoLater();
   await holdingLonger;
   assert.equal(existsSync(lockPath(repo)), false);
-
-  // Blocked on a lock this thread holds, a synchronous request ends with the lock timeout: no deadlock.
-  const startedAt = Date.now();
-  withFileLockSync(
-    lockPath(repo),
-    () => assert.throws(() => tryAdmitWorkspaceActivity('blocked', repo), { code: 'ELOCKTIMEOUT' }),
-    { strictOwner: true }
-  );
-  assert.ok(Date.now() - startedAt < 10_000);
 
   // The other way round: the admission thread's lock is never taken by this thread, however old.
   setAdmissionFaults({ op: 'rename', file: FILE, hits: [true], action: 'delay', ms: 800 });
@@ -368,7 +418,7 @@ test('a removal that did not land is retried by the heal tick and never comes ba
   await keep();
 });
 
-test('a synchronous request that outlasts its wait reports an unknown outcome and its grant is withdrawn', async (t) => {
+test('a bounded request that outlasts its bound reports an unknown outcome and its grant is withdrawn', async (t) => {
   const repo = makeRepo();
   t.after(() => {
     setAdmissionFaults();
@@ -377,7 +427,7 @@ test('a synchronous request that outlasts its wait reports an unknown outcome an
   setAdmissionFaults({ op: 'rename', file: FILE, hits: [true], action: 'delay', ms: 1200 });
   process.env.MIXDOG_ADMISSION_SYNC_TIMEOUT_MS = '300';
   const startedAt = Date.now();
-  assert.throws(() => tryAdmitWorkspaceActivity('abandoned', repo), {
+  await assert.rejects(tryAdmitWorkspaceActivityAsync('abandoned', repo, { bounded: true }), {
     ...UNVERIFIED,
     details: { reason: 'workspace-admission-unreadable', outcome: 'unknown' },
   });
@@ -404,16 +454,13 @@ test('a reader cancelled while its grant is written registers nothing', async (t
   await release();
 });
 
-for (const [article, mode] of [
-  ['a', 'synchronous'],
-  ['an', 'asynchronous'],
-]) {
-  test(`an admission thread that dies under ${article} ${mode} request fails closed and is not restarted`, async () => {
+for (const mode of ['bounded', 'unbounded']) {
+  test(`an admission thread that dies under an ${mode} request fails closed and is not restarted`, async () => {
     const repo = makeRepo();
     const result = await runScript(
       `
         import { existsSync, readFileSync } from 'node:fs';
-        import { tryAdmitWorkspaceActivity, tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
+        import { tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
         import { setAdmissionFaults } from ${JSON.stringify(faultsUrl)};
         const [cwd, lock] = process.argv.slice(1);
         const outcome = (error) => [error.details?.reason, error.details?.admission, error.details?.outcome ?? 'none'].join('/');
@@ -421,19 +468,14 @@ for (const [article, mode] of [
         setAdmissionFaults({ op: 'rename', file: ${JSON.stringify(MIRROR)}, action: 'exit-thread' });
         const report = {};
         try {
-          ${mode === 'synchronous' ? "tryAdmitWorkspaceActivity('dying', cwd)" : "await tryAdmitWorkspaceActivityAsync('dying', cwd)"};
+          await tryAdmitWorkspaceActivityAsync('dying', cwd, { bounded: ${mode === 'bounded'} });
           report.dying = 'granted';
         } catch (error) {
           report.dying = outcome(error);
         }
         setAdmissionFaults();
         await new Promise((resolve) => setTimeout(resolve, 100));
-        try {
-          tryAdmitWorkspaceActivity('later', cwd);
-          report.laterSync = 'granted';
-        } catch (error) {
-          report.laterSync = outcome(error);
-        }
+        report.laterBounded = await tryAdmitWorkspaceActivityAsync('later', cwd, { bounded: true }).then(() => 'granted', outcome);
         report.laterAsync = await tryAdmitWorkspaceActivityAsync('later', cwd).then(() => 'granted', outcome);
         report.lockOwner = existsSync(lock) ? Number(readFileSync(lock, 'utf8').split(' ')[0]) : null;
         report.pid = process.pid;
@@ -444,7 +486,7 @@ for (const [article, mode] of [
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
     assert.equal(report.dying, 'workspace-admission-unreadable/stopped/unknown');
-    assert.equal(report.laterSync, 'workspace-admission-unreadable/stopped/none');
+    assert.equal(report.laterBounded, 'workspace-admission-unreadable/stopped/none');
     assert.equal(report.laterAsync, 'workspace-admission-unreadable/stopped/none');
     assert.ok([null, report.pid].includes(report.lockOwner), 'a lock the thread held was not taken over');
     assert.match(result.stderr, /workspace admission thread stopped/);
@@ -459,8 +501,8 @@ test('no module named by the environment is ever loaded into the admission threa
   const foreign = `data:text/javascript,process.env.${marker}='1'`;
   const result = await runScript(
     `
-      import { tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-      tryAdmitWorkspaceActivity('isolated', process.argv[1])();
+      import { tryAdmitWorkspaceActivityAsync } from ${JSON.stringify(moduleUrl)};
+      await (await tryAdmitWorkspaceActivityAsync('isolated', process.argv[1]))();
       console.log(process.env.${marker} ?? 'not loaded');
     `,
     [repo],

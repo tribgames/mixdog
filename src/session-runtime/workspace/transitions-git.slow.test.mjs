@@ -21,7 +21,7 @@ import {
 } from '../../runtime/shared/worktrees/test-support.mjs';
 import { createWorkspaceTransitions } from './transitions.mjs';
 import { workspaceCwdLock } from './admission-gate.mjs';
-import { tryAdmitWorkspaceActivity } from '../../runtime/shared/worktrees/activity-gate.mjs';
+import { tryAdmitWorkspaceActivityAsync } from '../../runtime/shared/worktrees/activity-gate.mjs';
 
 after(() => cleanupTempDirs());
 
@@ -308,14 +308,14 @@ test('a turn snapshot a background worker still runs in outlives the turn until 
     const leaveFirst = await api.admitTurnWorkspace({});
     const kept = await api.createSnapshot({ txId: 'snap-turn-1' });
     // The background worker the Lead started there holds its turn lease (ask-session).
-    const leaveWorker = tryAdmitWorkspaceActivity('sess_worker_bg', kept.path, { kind: 'turn' });
+    const leaveWorker = await tryAdmitWorkspaceActivityAsync('sess_worker_bg', kept.path, { kind: 'turn' });
     leaveFirst();
     const leaveSecond = await api.admitTurnWorkspace({});
     const next = await api.createSnapshot({ txId: 'snap-turn-2' });
     await new Promise((done) => setTimeout(done, 200));
     assert.ok(existsSync(kept.path), 'kept while the worker runs there');
     assert.ok(existsSync(next.path), "turn 1's cleanup never names turn 2's snapshot");
-    leaveWorker();
+    await leaveWorker();
     await until(() => !existsSync(kept.path));
     assert.ok(existsSync(next.path), 'turn 2 is still running');
     leaveSecond();

@@ -6,7 +6,7 @@ import '../lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
-import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { holdWorkspaceActivityAsync, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
 import { waitUntil } from '../lib/wait-until-fixture.mjs';
@@ -55,9 +55,9 @@ after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const until = (read) => waitUntil(read);
-const isHeld = (repo) => {
+const isHeld = async (repo) => {
   try {
-    holdWorkspaceActivity([repo])();
+    await (await holdWorkspaceActivityAsync([repo]))();
     return false;
   } catch (error) {
     assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -69,9 +69,9 @@ const killsOf = (pid) => tree.state.kills.filter((killed) => killed === pid).len
 // The state a foreground command leaves when its root exited normally with a
 // live descendant: folder admission adopted under the job id, survivors task
 // registered.
-function finishedCommandWithSurvivor({ jobId, owner, pid, reachable = true }) {
+async function finishedCommandWithSurvivor({ jobId, owner, pid, reachable = true }) {
   const repo = makeRepo();
-  adoptShellWorkspaceAdmission(jobId, tryAdmitWorkspaceActivity(owner, repo, { kind: 'command' }));
+  adoptShellWorkspaceAdmission(jobId, await tryAdmitWorkspaceActivityAsync(owner, repo, { kind: 'command' }));
   tree.state.next = () => processTable([{ pid, ppid: 1, token: 'survivor' }]);
   renderCompletedResult({
     result: {
@@ -104,15 +104,15 @@ test('closing the owner session kills what its finished command left running and
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const owner = 'sess_close_survivor';
   const jobId = 'job_close_survivor';
-  const repo = finishedCommandWithSurvivor({ jobId, owner, pid: 7301 });
+  const repo = await finishedCommandWithSurvivor({ jobId, owner, pid: 7301 });
   await flush();
-  assert.equal(isHeld(repo), true);
-  assert.equal(closeSession(owner, 'agent-close'), true);
+  assert.equal(await isHeld(repo), true);
+  assert.equal(await closeSession(owner, 'agent-close'), true);
   await until(() => killsOf(7301) > 0);
   assert.equal(getBackgroundTask(jobId).status, 'cancelled');
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });
 
 test('task cancel of survivors that ignore the kill is pending, and the watch keeps terminating them', async (t) => {
@@ -122,16 +122,16 @@ test('task cancel of survivors that ignore the kill is pending, and the watch ke
   const ctx = { callerSessionId: owner, sessionId: owner, clientHostPid: process.pid };
   // The finished command's native entry is still cached.
   tasks.set(jobId, { jobId, status: 'completed', ownerSessionId: owner, exitCode: 0 });
-  const repo = finishedCommandWithSurvivor({ jobId, owner, pid: 7401, reachable: false });
+  const repo = await finishedCommandWithSurvivor({ jobId, owner, pid: 7401, reachable: false });
   await flush();
   const text = String(await executeTaskTool({ action: 'cancel', task_id: jobId }, ctx));
   assert.match(text, /cancel-pending/);
-  assert.equal(isHeld(repo), true, 'the survivor still runs and holds the folder');
+  assert.equal(await isHeld(repo), true, 'the survivor still runs and holds the folder');
   const sent = killsOf(7401);
   assert.ok(sent > 0, 'the cancel sent a kill');
   t.mock.timers.tick(5_000);
   await until(() => killsOf(7401) > sent);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
-  await until(() => !isHeld(repo));
+  await until(async () => !(await isHeld(repo)));
 });

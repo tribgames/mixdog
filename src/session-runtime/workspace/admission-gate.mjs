@@ -16,10 +16,7 @@
 import { worktreeError, worktreeRefusal } from '../../runtime/shared/worktrees/contract.mjs';
 import { throwIfAborted } from '../../runtime/shared/worktrees/git.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
-import {
-  tryAdmitWorkspaceActivity,
-  tryAdmitWorkspaceActivityAsync,
-} from '../../runtime/shared/worktrees/activity-gate.mjs';
+import { tryAdmitWorkspaceActivityAsync } from '../../runtime/shared/worktrees/activity-gate.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 /** @type {Map<string, { txId: string, settled: Promise<void> }>} Lead session id → in-flight transition. */
@@ -192,13 +189,19 @@ export async function admitTurn({ sessionId, cwd, signal }) {
   }
 }
 
-/** Keep the old root protected and acquire the destination before an admitted turn moves. */
-export function retainAdmittedTurnWorkspace(sessionId, cwd) {
-  for (const turn of turns.values()) {
+/**
+ * Keep the old root protected and acquire the destination before an admitted
+ * turn moves. The grant is awaited, never blocked on; a turn admitted while
+ * it is written is visited too (live iteration), and a turn that settled
+ * meanwhile gives its late grant straight back.
+ */
+export async function retainAdmittedTurnWorkspace(sessionId, cwd) {
+  for (const [token, turn] of turns) {
     if (turn.sessionId !== key(sessionId) || turn.cwd() === cwd) continue;
-    const leave = tryAdmitWorkspaceActivity(sessionId, cwd);
+    const leave = await tryAdmitWorkspaceActivityAsync(sessionId, cwd, { bounded: true });
     if (!leave) throw worktreeRefusal('folder-in-use');
-    turn.leases.push(leave);
+    if (turns.has(token)) turn.leases.push(leave);
+    else await leave();
   }
 }
 
