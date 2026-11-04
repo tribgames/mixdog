@@ -168,7 +168,7 @@ test('this process’s OAuth token save and forget are visible to the very next 
   assert.equal(full().providers['openai-oauth'].enabled, true);
   assert.deepEqual(full(), cfg.loadConfig());
 
-  forgetOpenAIOAuthCredentials();
+  await forgetOpenAIOAuthCredentials();
   assert.equal(existsSync(openaiCredentials(dir)), false);
   assert.equal(full().providers['openai-oauth'].enabled, false);
   assert.deepEqual(full(), cfg.loadConfig());

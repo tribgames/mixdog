@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
+import { replaceStoredTokens, withTokenStoreLock } from './lib/oauth-token-store.mjs';
 // Every credential write bumps it: the agent config snapshot probes this file.
 import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
@@ -290,12 +291,16 @@ export function describeAntigravityOAuthCredentials() {
 
 export async function forgetAntigravityOAuthCredentials() {
   const path = getOwnTokenPath();
-  if (!existsSync(path)) return false;
   try {
-    // Overwrite before unlink so the secret does not survive in a freed block.
-    await writeJsonAtomicAsync(path, {}, TOKEN_WRITE_OPTS);
-    bumpConfigInputEpoch();
-    return true;
+    // Existence is read under the store's write lock, queued behind any save
+    // already in flight, so that save cannot restore the sign-in afterwards.
+    return await withTokenStoreLock(path, async () => {
+      if (!existsSync(path)) return false;
+      // Overwrite before unlink so the secret does not survive in a freed block.
+      await writeJsonAtomicAsync(path, {}, TOKEN_WRITE_OPTS);
+      bumpConfigInputEpoch();
+      return true;
+    });
   } catch {
     return false;
   }
@@ -353,8 +358,18 @@ export function refreshTokens({ fetchFn = fetch } = {}) {
       email: current.email,
       user_id: current.user_id,
     };
-    await saveTokens(next);
-    return next;
+    // Only over the credential this exchange spent: a sign-out or a new
+    // sign-in that landed while the request was in flight wins.
+    if (await replaceStoredTokens(path, current, tokenDocument(next))) {
+      bumpConfigInputEpoch();
+      return next;
+    }
+    const stored = loadTokens();
+    if (stored) return stored;
+    throw Object.assign(new Error('[antigravity-oauth] credentials were removed during token refresh — run /login'), {
+      reauthRequired: true,
+      status: 401,
+    });
   })().finally(() => {
     _refreshesInFlight.delete(path);
   });

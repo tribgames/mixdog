@@ -2,7 +2,7 @@
 // lock must wait for it: a synchronous writer against the asynchronous holder
 // fails with ELOCKCONTENDED instead of saving the new login.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -42,6 +42,112 @@ test('antigravity sign-in and sign-out wait for a refresh holding the token lock
   await whileLockHeld(path, () => antigravity.saveTokens({ access_token: 'at-new', refresh_token: 'rt-new' }));
   assert.equal(JSON.parse(readFileSync(path, 'utf8')).access_token, 'at-new');
   assert.equal(await whileLockHeld(path, () => antigravity.forgetAntigravityOAuthCredentials()), true);
+});
+
+// A token endpoint whose reply is held until `release()`; `started` settles
+// once the exchange is in flight.
+function heldExchange(reply) {
+  const gate = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  return {
+    started: started.promise,
+    release: () => gate.resolve(),
+    fetch: async () => {
+      started.resolve();
+      await gate.promise;
+      return new Response(JSON.stringify(reply), { status: 200 });
+    },
+  };
+}
+
+const grant = { access_token: 'at-refreshed', refresh_token: 'rt-refreshed', expires_in: 3600 };
+
+test('openai sign-out after an in-flight save leaves the credentials gone', async () => {
+  const path = openai.getOwnTokenPath();
+  await openai.saveTokens({ access_token: 'at-old', refresh_token: 'rt-old' });
+  const saving = openai.saveTokens({ access_token: 'at-late', refresh_token: 'rt-late' });
+  const forgotten = openai.forgetOpenAIOAuthCredentials();
+  await saving;
+  assert.deepEqual(await forgotten, { removed: true });
+  assert.equal(existsSync(path), false);
+});
+
+test('openai sign-out during a refresh exchange is not undone by the refresh', async (t) => {
+  const path = openai.getOwnTokenPath();
+  await openai.saveTokens({ access_token: 'at-old', refresh_token: 'rt-old', expires_at: Date.now() - 1000 });
+  const exchange = heldExchange(grant);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = exchange.fetch;
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  const refreshing = openai.refreshStoredTokens({ current: openai.loadTokens(), force: true });
+  refreshing.catch(() => {});
+  await exchange.started;
+  await openai.forgetOpenAIOAuthCredentials();
+  exchange.release();
+  await assert.rejects(refreshing, (err) => err.reauthRequired === true);
+  assert.equal(existsSync(path), false);
+});
+
+test('openai sign-in during a refresh exchange is not overwritten by the refresh', async (t) => {
+  const path = openai.getOwnTokenPath();
+  await openai.saveTokens({ access_token: 'at-old', refresh_token: 'rt-old', expires_at: Date.now() - 1000 });
+  const exchange = heldExchange(grant);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = exchange.fetch;
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  const refreshing = openai.refreshStoredTokens({ current: openai.loadTokens(), force: true });
+  await exchange.started;
+  await openai.saveTokens({ access_token: 'at-login', refresh_token: 'rt-login', expires_at: Date.now() + 3_600_000 });
+  exchange.release();
+  assert.equal((await refreshing).tokens.access_token, 'at-login');
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).access_token, 'at-login');
+  await openai.forgetOpenAIOAuthCredentials();
+});
+
+test('antigravity sign-out after an in-flight first sign-in leaves the credentials gone', async () => {
+  rmSync(antigravity.getOwnTokenPath(), { force: true });
+  const saving = antigravity.saveTokens({ access_token: 'at-late', refresh_token: 'rt-late' });
+  const forgotten = antigravity.forgetAntigravityOAuthCredentials();
+  await saving;
+  assert.equal(await forgotten, true);
+  assert.equal(antigravity.loadTokens(), null);
+});
+
+test('antigravity sign-out during a refresh exchange is not undone by the refresh', async () => {
+  await antigravity.saveTokens({ access_token: 'at-old', refresh_token: 'rt-old', expires_at: 1 });
+  const exchange = heldExchange(grant);
+  const refreshing = antigravity.refreshTokens({ fetchFn: exchange.fetch });
+  refreshing.catch(() => {});
+  await exchange.started;
+  assert.equal(await antigravity.forgetAntigravityOAuthCredentials(), true);
+  exchange.release();
+  await assert.rejects(refreshing, (err) => err.reauthRequired === true);
+  assert.equal(antigravity.loadTokens(), null);
+});
+
+test('anthropic sign-out during a refresh exchange is not undone by the refresh', async (t) => {
+  const path = process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH;
+  writeFileSync(
+    path,
+    JSON.stringify({ claudeAiOauth: { accessToken: 'a', refreshToken: 'r', expiresAt: 1, scopes: ['user:inference'] } })
+  );
+  const exchange = heldExchange(grant);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = exchange.fetch;
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  const refreshing = anthropic.refreshOAuthCredentials(anthropic.loadCredentials());
+  refreshing.catch(() => {});
+  await exchange.started;
+  assert.deepEqual(await anthropic.forgetAnthropicOAuthCredentials(), { removed: true });
+  exchange.release();
+  await assert.rejects(refreshing, (err) => err.reauthRequired === true);
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).claudeAiOauth, undefined);
 });
 
 test('anthropic sign-out waits for a refresh holding the credentials lock', async () => {

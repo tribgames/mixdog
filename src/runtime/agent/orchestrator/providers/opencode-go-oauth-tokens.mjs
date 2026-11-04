@@ -5,10 +5,10 @@
 // URL, the request headers and the model catalog, and the Go usage meters
 // (`/api/go/status`). Stored in Mixdog's own opencode-go-oauth.json, one file
 // per connected account.
-import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import { updateJsonAtomic, writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 // Every credential write bumps it: the agent config snapshot probes this file.
 import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
@@ -20,6 +20,7 @@ import {
   oauthCredentialStatus,
   scrubOAuthSecrets,
 } from './lib/oauth-token-utils.mjs';
+import { removeStoredTokens, replaceStoredTokens } from './lib/oauth-token-store.mjs';
 
 export const PROVIDER_ID = 'opencode-go-oauth';
 export const SERVER = 'https://opencode.ai/console';
@@ -111,19 +112,7 @@ export async function saveTokens(tokens) {
 async function replaceTokens(previous, tokens) {
   const path = getOwnTokenPath();
   const doc = tokenDocument(tokens);
-  let replaced = false;
-  await updateJsonAtomic(
-    path,
-    (current) => {
-      if (current?.access_token !== previous.access_token || current?.refresh_token !== previous.refresh_token) {
-        return undefined;
-      }
-      replaced = true;
-      return doc;
-    },
-    { fsyncDir: true, mode: 0o600, secret: true }
-  );
-  if (replaced) {
+  if (await replaceStoredTokens(path, previous, doc)) {
     bumpConfigInputEpoch();
     return { ...doc, mtimeMs: fileMtimeMs(path) };
   }
@@ -176,19 +165,11 @@ export function describeOpenCodeGoOAuthCredentials() {
   }
 }
 
-export function forgetOpenCodeGoOAuthCredentials() {
-  const path = getOwnTokenPath();
-  // Under the store's write lock, so a refresh finishing now cannot restore it.
-  return withFileLock(
-    `${path}.lock`,
-    () => {
-      if (!existsSync(path)) return { removed: false };
-      unlinkSync(path);
-      bumpConfigInputEpoch();
-      return { removed: true };
-    },
-    { secret: true }
-  );
+// Under the store's write lock, so a save or refresh finishing now cannot restore it.
+export async function forgetOpenCodeGoOAuthCredentials() {
+  const removed = await removeStoredTokens(getOwnTokenPath());
+  if (removed) bumpConfigInputEpoch();
+  return { removed };
 }
 
 /** Console bearer headers: the access token plus the organization it acts for. */
