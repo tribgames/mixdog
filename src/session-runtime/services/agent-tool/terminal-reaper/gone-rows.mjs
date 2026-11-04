@@ -83,7 +83,7 @@ function createFence() {
       return true;
     },
     release() {
-      for (const hold of holds.splice(0)) hold.release({ retire: true });
+      for (const hold of holds.splice(0)) hold.release();
     },
     close() {
       this.closed = true;
