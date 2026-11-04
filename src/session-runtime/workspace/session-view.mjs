@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   branchMenuEntries,
   isWorktreeBound,
+  isWorktreeError,
   normalizeSessionWorkspace,
   worktreeError,
 } from '../../runtime/shared/worktrees/contract.mjs';
@@ -121,10 +122,25 @@ export function createSessionWorkspaceView({
     const workspace = session?.id
       ? currentWorkspace(session)
       : normalizeSessionWorkspace({ projectPath: projectPathOf(null), cwd: getCurrentCwd(), revision: 0 });
-    const menu = await (await backend()).listBranchOccupancy({
-      projectPath: workspace.projectPath,
-      sessionId: session?.id || null,
-    });
+    let menu;
+    try {
+      menu = await (await backend()).listBranchOccupancy({
+        projectPath: workspace.projectPath,
+        sessionId: session?.id || null,
+      });
+    } catch (error) {
+      if (!isWorktreeError(error, 'WORKTREE_UNSUPPORTED_REPO')) throw error;
+      // A Project with no usable repository has no branches: an answer, not a
+      // failure the menu would retry (no repoCommonDir reads as not git).
+      return {
+        workspace: { ...workspace, repoCommonDir: null, branch: null },
+        pendingWorktree: pendingWorktree(),
+        branches: [],
+        occupancy: [],
+        retainedWorktree: null,
+        warnings: [],
+      };
+    }
     const selectedEntry = workspace.worktreeId ? await (await backend()).findWorktreeContaining(workspace.cwd) : null;
     // A session outside a managed worktree (the project folder — never moved,
     // or back from a worktree — or a linked checkout of the selected branch)
