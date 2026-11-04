@@ -182,6 +182,10 @@ test('an agent session is listed and can be deleted directly like an ordinary se
 test('deleting a session that is not current leaves linked child sessions untouched', async () => {
   const { api, calls } = fixture({ current: { id: 'other' }, rows: [leadRow('parent')] });
   assert.equal(await api.deleteSession('parent'), true);
+  // The close asks, per attempt, whether the session became current.
+  const { isSessionLive, ...closeOptions } = calls[0][3];
+  assert.equal(isSessionLive(), false);
+  calls[0][3] = closeOptions;
   assert.deepEqual(calls, [
     ['close', 'parent', 'desktop-session-delete', { tombstone: false }],
     ['cancelTasks', { reason: 'desktop-session-delete', notify: false, executionSessionId: 'parent' }],

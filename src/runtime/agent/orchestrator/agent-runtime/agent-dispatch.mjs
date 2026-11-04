@@ -212,7 +212,7 @@ async function dispatchAdmitted(agent, opts, callArgs, { prepare, ask, updateSta
     // rejected. Publish the terminal projection before closing so
     // live Agent panes cannot retain their preceding busy:true state.
     try {
-      close(session.id, closeReason);
+      await close(session.id, closeReason);
     } catch {
       /* ignore */
     }

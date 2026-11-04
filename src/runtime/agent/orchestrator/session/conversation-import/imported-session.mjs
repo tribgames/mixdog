@@ -120,7 +120,7 @@ export async function createImportedSession({
     await saveSessionAsync(session);
   } catch (error) {
     try {
-      deleteSession(session.id);
+      await deleteSession(session.id);
     } catch (cleanupError) {
       writeStderrBestEffort(
         `[conversation-import] cleanup of ${session.id} failed: ${cleanupError?.message || cleanupError}\n`

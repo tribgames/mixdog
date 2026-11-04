@@ -100,7 +100,13 @@ async function recreateEmptySession(deps, lease) {
       const emptySession = getSession();
       if (!emptySession?.id || sessionHasRouteHistory(emptySession)) return false;
       statusRoutes?.clearGatewaySessionRoute?.(emptySession.id);
-      mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', { tombstone: true });
+      // Not awaited: the lease's stretch stays synchronous, and the empty
+      // session is replaced whether or not its tombstone lands. A retry
+      // after a wait asks again whether it is still empty.
+      const closeOptions = { tombstone: true, isSessionLive: () => sessionHasRouteHistory(emptySession) };
+      void Promise.resolve(mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', closeOptions)).catch(
+        () => {}
+      );
       setSession(null);
       invalidatePreSessionToolSurface?.();
       return true;

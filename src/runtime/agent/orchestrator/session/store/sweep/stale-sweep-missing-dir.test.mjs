@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { sweepStaleSessions } from './stale-sweep.mjs';
 
-test('sweeping a store whose dir is missing returns the full result shape', (t) => {
+test('sweeping a store whose dir is missing returns the full result shape', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-sweep-missing-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -15,7 +15,7 @@ test('sweeping a store whose dir is missing returns the full result shape', (t) 
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   });
-  const result = sweepStaleSessions(60_000);
+  const result = await sweepStaleSessions(60_000);
   assert.equal(result.cleaned, 0);
   assert.equal(result.openPruned, 0);
   assert.deepEqual(result.openPrunedDetails, []);

@@ -70,7 +70,7 @@ test('unloading an agent session keeps its background shell job running; explici
   assert.equal(getNativeTask(agentJob)?.status, 'running', 'unload leaves the agent job running');
   assert.equal(getNativeTask(otherJob)?.status, 'running');
 
-  assert.equal(closeSession(AGENT, 'agent-close'), true);
+  assert.equal(await closeSession(AGENT, 'agent-close'), true);
   const deadline = Date.now() + 20_000;
   while (getNativeTask(agentJob)?.status === 'running' && Date.now() < deadline) await delay(50);
   assert.notEqual(getNativeTask(agentJob)?.status, 'running', 'explicit close stops the agent job');

@@ -41,14 +41,14 @@ test('a session whose file changed between sweeps is judged from its new content
     const options = { sweepIdle: false, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false };
 
     // First pass: open record, nothing to reap; its verdict is now cached.
-    let result = sweepStaleSessions(options);
+    let result = await sweepStaleSessions(options);
     assert.equal(result.tombstonesCleaned, 0);
     assert.equal(existsSync(path), true);
 
     // The file becomes a mature tombstone (new size and mtime): the second
     // pass must see the change instead of the cached open verdict.
     writeSession(sessionsDir, { ...open, closed: true, status: 'closed', updatedAt: old, messages: [] }, old + 1_000);
-    result = sweepStaleSessions(options);
+    result = await sweepStaleSessions(options);
     assert.equal(result.tombstonesCleaned, 1);
     assert.equal(existsSync(path), false);
   } finally {
@@ -87,11 +87,11 @@ test('a restarted process reuses the persisted verdicts of unchanged sessions', 
     };
     const path = writeSession(sessionsDir, open, old);
     const options = { sweepIdle: false, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false };
-    sweepStaleSessions(options);
+    await sweepStaleSessions(options);
     const parsed = sweepRecordCacheStats().parses;
 
     restart();
-    let result = sweepStaleSessions(options);
+    let result = await sweepStaleSessions(options);
     assert.equal(sweepRecordCacheStats().parses, parsed, 'an unchanged session is not parsed again');
     assert.equal(result.tombstonesCleaned, 0);
     assert.equal(existsSync(path), true);
@@ -99,7 +99,7 @@ test('a restarted process reuses the persisted verdicts of unchanged sessions', 
     // Changed while no process was running: judged from its new contents.
     writeSession(sessionsDir, { ...open, closed: true, status: 'closed', messages: [] }, old + 1_000);
     restart();
-    result = sweepStaleSessions(options);
+    result = await sweepStaleSessions(options);
     assert.equal(result.tombstonesCleaned, 1);
     assert.equal(existsSync(path), false);
   } finally {

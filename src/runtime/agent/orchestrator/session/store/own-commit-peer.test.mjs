@@ -128,7 +128,7 @@ test('a lifecycle barrier rewrite after worker saves is read strictly in both re
   const path = sessionFile(id);
   const session = makeSession(id);
   await saveSessionAsync(session, { expectedGeneration: 1 });
-  assert.equal(bumpSessionGeneration(id), 2);
+  assert.equal(await bumpSessionGeneration(id), 2);
   const reads = countReads(t, path);
   assert.equal(_shouldDrop(id, { expectedGeneration: 1 }), true);
   assert.ok(reads.count >= 1, 'the barrier rewrite was read strictly');

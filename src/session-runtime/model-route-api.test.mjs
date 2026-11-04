@@ -96,6 +96,10 @@ test('setRoute on an empty session without an explicit address recreates the ses
   const { api, state, calls } = fixture();
   const route = await api.setRoute({ provider: 'anthropic', model: 'claude-x' });
   assert.equal(route.model, 'claude-x');
+  // A close retried after a wait asks again whether the session is empty.
+  const { isSessionLive, ...closeOptions } = calls[2][3];
+  assert.equal(isSessionLive(), false);
+  calls[2][3] = closeOptions;
   assert.deepEqual(calls, [
     ['createCurrentSession', 'model-switch-empty-drain'],
     ['clearGatewaySessionRoute', 'empty-1'],

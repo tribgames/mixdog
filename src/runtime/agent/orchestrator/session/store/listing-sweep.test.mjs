@@ -69,7 +69,7 @@ test('tombstone pass: mature closed sessions are deleted, young ones kept, open 
     write({ id: 'old-tomb', owner: 'agent', closed: true, status: 'closed', updatedAt: now - 3 * HOUR });
     write({ id: 'young-tomb', owner: 'agent', closed: true, status: 'closed', updatedAt: now - 10 * MINUTE });
     write({ id: 'open-idle', owner: 'agent', status: 'idle', updatedAt: now - 3 * HOUR });
-    const result = sweepStaleSessions({ sweepIdle: false, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
+    const result = await sweepStaleSessions({ sweepIdle: false, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
     assert.equal(result.tombstonesCleaned, 1);
     assert.deepEqual(
       result.tombstoneDetails.map((d) => d.id),
@@ -104,7 +104,7 @@ test('historical automatic closures are protected identically for every session 
       closedReason: 'idle-sweep',
       updatedAt: now - 3 * DAY,
     });
-    const result = sweepStaleSessions({ tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
+    const result = await sweepStaleSessions({ tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
     for (const owner of ['user', 'agent']) {
       assert.equal(exists(`${owner}-idle-sweep`), true);
       assert.equal(exists(`${owner}-terminal-reap`), true);
@@ -121,7 +121,7 @@ test('idle pass preserves agent conversations regardless of their age or stale r
     write({ id: 'fresh-agent', owner: 'agent', status: 'idle', updatedAt: now - MINUTE });
     write({ id: 'running-agent', owner: 'agent', status: 'running', updatedAt: now - 8 * MINUTE });
     write({ id: 'zombie-agent', owner: 'agent', status: 'running', updatedAt: now - 20 * MINUTE });
-    const result = sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
+    const result = await sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
     assert.equal(result.cleaned, 0);
     assert.deepEqual(result.details, []);
     assert.equal(result.remaining, 4);
@@ -137,7 +137,7 @@ test('user-owned conversations are never closed; a cold blank scratch is reaped 
     write({ id: 'user-chat', owner: 'user', status: 'idle', updatedAt: now - 3 * DAY });
     write({ id: 'blank-cold', owner: 'user', status: 'idle', updatedAt: now - 2 * HOUR, messages: [] });
     write({ id: 'blank-warm', owner: 'user', status: 'idle', updatedAt: now - 10 * MINUTE, messages: [] });
-    const result = sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
+    const result = await sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
     assert.equal(result.cleaned, 0);
     assert.equal(result.openPruned, 1);
     assert.deepEqual(
@@ -155,7 +155,7 @@ test('an agent home thread is exempt from reaping, blank or legacy-shaped alike'
     write({ id: 'sess_home_watcher', owner: 'cli', status: 'idle', updatedAt: now - 30 * DAY, messages: [] });
     write({ id: 'sess_home_lead', status: 'idle', updatedAt: now - 30 * DAY });
     write({ id: 'blank-cold', owner: 'user', status: 'idle', updatedAt: now - 2 * HOUR, messages: [] });
-    const result = sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false, openMaxCount: 0 });
+    const result = await sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false, openMaxCount: 0 });
     assert.deepEqual(
       result.openPrunedDetails.map((d) => d.id),
       ['blank-cold']
@@ -171,7 +171,7 @@ test('a live session is protected from close, prune and tombstone deletion', asy
   await withStore(t, async ({ now, write, read, exists }) => {
     write({ id: 'live-agent', owner: 'agent', status: 'idle', updatedAt: now - 3 * HOUR });
     write({ id: 'live-tomb', owner: 'agent', closed: true, status: 'closed', updatedAt: now - 3 * HOUR });
-    const result = sweepStaleSessions({ ttlMs: 5 * MINUTE, tombstoneMaxAgeMs: HOUR, isSessionLive: () => true });
+    const result = await sweepStaleSessions({ ttlMs: 5 * MINUTE, tombstoneMaxAgeMs: HOUR, isSessionLive: () => true });
     assert.equal(result.cleaned, 0);
     assert.equal(result.tombstonesCleaned, 0);
     assert.equal(result.remaining, 2);
@@ -193,7 +193,7 @@ test('retention cap applies to ownerless legacy records, never agent or user con
       status: 'error',
       updatedAt: now - 30 * DAY,
     });
-    const result = sweepStaleSessions(HOUR, { isSessionLive: () => false, openMaxCount: 2, openMaxAgeMs: 20 * DAY });
+    const result = await sweepStaleSessions(HOUR, { isSessionLive: () => false, openMaxCount: 2, openMaxAgeMs: 20 * DAY });
     assert.equal(result.openPruned, 3);
     assert.deepEqual(
       result.openPrunedDetails.map((d) => d.id),
@@ -224,7 +224,7 @@ test('legacy heartbeat and presence sidecars are removed only once their owner i
       sidecar('live.own', now - MINUTE, livePid),
       sidecar('starting.hb', now - MINUTE),
     ];
-    const result = sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
+    const result = await sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
     assert.equal(result.cleaned, removed.length);
     for (const file of removed) assert.equal(existsSync(file), false, file);
     for (const file of kept) assert.equal(existsSync(file), true, file);
@@ -252,7 +252,7 @@ test('a session a live older process owns is not swept and keeps its markers; a 
       sidecar('dead-owner.hb', now - MINUTE / 2, deadPid),
       sidecar('stale-owner.own', now - HOUR, livePid),
     ];
-    sweepStaleSessions({ ttlMs: 5 * MINUTE, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
+    await sweepStaleSessions({ ttlMs: 5 * MINUTE, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
     for (const id of ['foreign-hb', 'foreign-own', 'foreign-legacy', 'foreign-tomb'])
       assert.equal(exists(id), true, id);
     assert.equal(read('foreign-legacy').closed, undefined, 'a live foreign owner vetoes the idle close');
@@ -273,7 +273,7 @@ test('a record naming a different id, or a child of a present parent, is left ex
     utimesSync(foreign, (now - 3 * HOUR) / 1000, (now - 3 * HOUR) / 1000);
     write({ id: 'parent', owner: 'user', status: 'idle', updatedAt: now - 3 * DAY });
     write({ id: 'child', owner: 'agent', ownerSessionId: 'parent', status: 'idle', updatedAt: now - 3 * DAY });
-    const result = sweepStaleSessions({ ttlMs: 5 * MINUTE, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
+    const result = await sweepStaleSessions({ ttlMs: 5 * MINUTE, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
     assert.equal(result.tombstonesCleaned, 0);
     assert.equal(result.cleaned, 0);
     assert.equal(existsSync(foreign), true);
@@ -294,7 +294,7 @@ test('a NUL-filled session file is set aside by the sweep; a torn one and a live
     plant('nul-live', '\0'.repeat(256));
     plant('torn', '{"id":"torn","messages":[');
     write({ id: 'healthy', owner: 'agent', status: 'idle', updatedAt: now - MINUTE });
-    const result = sweepStaleSessions({
+    const result = await sweepStaleSessions({
       ttlMs: 5 * MINUTE,
       isSessionLive: (id) => id === 'nul-live',
     });
@@ -338,7 +338,7 @@ test('a NUL verdict is re-checked under the delete lock: a record repaired in be
       messages: CONVERSATION,
     });
     let republished = false;
-    const result = sweepStaleSessions({
+    const result = await sweepStaleSessions({
       ttlMs: 5 * MINUTE,
       // Runs after the sweep's no-data verdict and before the delete's lock.
       isSessionLive: () => {

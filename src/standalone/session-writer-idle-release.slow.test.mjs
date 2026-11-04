@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 process.env.MIXDOG_SESSION_WRITER_IDLE_RELEASE_MS = '300';
 const IDLE_MS = 300;
 
-const { drainSessionStore, saveSession } = await import('../runtime/agent/orchestrator/session/store.mjs');
+const { drainSessionStore, saveSessionDurably } = await import('../runtime/agent/orchestrator/session/store.mjs');
 const { onSessionWriterHeldChange, sessionWriterHeldHere } = await import(
   '../runtime/agent/orchestrator/session/store/session-writer-claim.mjs'
 );
@@ -126,7 +126,7 @@ test('a session the daemon left idle and unwatched opens in another process afte
   const startedAt = Date.now();
   const letGo = released(f.id, 20 * IDLE_MS);
   // A daemon-side save (a rename, a delivery) makes this process the writer.
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   assert.equal(sessionWriterHeldHere(f.id), true);
   assert.equal(await letGo, true, 'the idle unwatched session kept its writer lock');
   assert.ok(Date.now() - startedAt >= IDLE_MS - 20, 'let go before the idle delay');
@@ -142,7 +142,7 @@ test('a view or a running turn keeps the writer lock; the delay counts from when
   const f = fixture(t);
   const viewer = { clientToken: 'desktop' };
   await f.service.subscribeSession({ sessionId: f.id }, viewer);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   await delay(3 * IDLE_MS);
   assert.equal(sessionWriterHeldHere(f.id), true, 'let go while a view was open');
   const peer = startPeer(t, f.root);
@@ -170,7 +170,7 @@ test('a view or a running turn keeps the writer lock; the delay counts from when
 
 test('the delay starts when a finished turn lets its controller go', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   // An unhosted worker's turn, as askSession runs it: the terminal stage is
   // announced while the turn's controller is still live.
   const runtime = _touchRuntime(f.id);
@@ -188,7 +188,7 @@ test('the delay starts when a finished turn lets its controller go', async (t) =
 
 test('queued input keeps the writer lock until it is taken', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   assert.ok(enqueuePendingMessage(f.id, { message: 'queued prompt' }) > 0);
   await delay(3 * IDLE_MS);
   assert.equal(sessionWriterHeldHere(f.id), true, 'let go while a prompt was queued');
@@ -203,7 +203,7 @@ test("an open view of an agent's projection keeps the writer lock", async (t) =>
   const viewer = { clientToken: 'agents-pane' };
   const subscribed = await f.service.subscribeSession({ sessionId: f.id }, viewer);
   assert.equal(subscribed.subscribed, true);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   await delay(3 * IDLE_MS);
   assert.equal(sessionWriterHeldHere(f.id), true, 'let go while the agent view was open');
 
@@ -214,7 +214,7 @@ test("an open view of an agent's projection keeps the writer lock", async (t) =>
 
 test('a writer lock taken before the service started is on its clock', async (t) => {
   const f = fixture(t, { deferService: true });
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const letGo = released(f.id, 20 * IDLE_MS);
   f.startService();
   assert.equal(await letGo, true, 'the earlier claim was never let go');

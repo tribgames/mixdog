@@ -11,7 +11,7 @@ import {
   STORED_SESSION_UNREADABLE,
   _storedSessionFromFile,
 } from '../../../runtime/agent/orchestrator/session/store/serialize.mjs';
-import { SESSION_ID_PATTERN, closeManagedSession } from '../shared.mjs';
+import { SESSION_ID_PATTERN } from '../shared.mjs';
 import { replacementSessionCwd } from '../../workspace/workspace-state.mjs';
 import { isHistoricalAutomaticClosure } from '../../../runtime/agent/orchestrator/session/historical-session-closure.mjs';
 import { readSessionSidebarState } from '../../../runtime/shared/session-sidebar-host.mjs';
@@ -66,10 +66,14 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
       // Stop its runtime first (controller abort, shells, generation bump) and
       // release its worker row and its own background tasks, so nothing can
       // write it back. Sessions it delegated to are independent and keep running.
-      if ((await closeManagedSession(mgr, sessionId, cleanupReason, { tombstone: false })) !== true) return false;
+      // Either may wait on another thread's commit: one the user made current
+      // meanwhile is neither detached nor deleted (asked in each attempt).
+      const isSessionLive = () => getSession()?.id === sessionId;
+      const closeOptions = { tombstone: false, isSessionLive };
+      if ((await mgr.closeSession(sessionId, cleanupReason, closeOptions)) !== true) return false;
       agentTool?.forgetLeadSession?.(sessionId);
       releaseSessionWork(sessionId, cleanupReason);
-      const deleted = mgr.deleteSession(sessionId, { fenceWrites: true }) === true;
+      const deleted = (await mgr.deleteSession(sessionId, { fenceWrites: true, isSessionLive })) === true;
       if (!deleted) return false;
       void forgetSessionSearch(sessionId);
       void releaseDeletedWorktree(sessionId);
@@ -82,12 +86,18 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     // Active sessions retain a tombstone until the normal sweep. Unlinking
     // immediately would let a late provider/save continuation resurrect the
     // deleted conversation after the user has moved to its replacement.
-    if ((await closeManagedSession(mgr, sessionId, cleanupReason, { tombstone: true })) !== true) return false;
+    if ((await mgr.closeSession(sessionId, cleanupReason, { tombstone: true })) !== true) return false;
     // The unwinding turn's late saves and its idle lead-row upsert must not
     // touch the deleted conversation (an unguarded save would pass the tombstone).
     mgr.fenceSessionWrites?.(sessionId);
     agentTool?.forgetLeadSession?.(sessionId);
     void forgetSessionSearch(sessionId);
+    // The close may have waited on another thread's commit: a session the
+    // user switched to meanwhile stays current, with its own folder.
+    if (getSession()?.id !== sessionId) {
+      void releaseDeletedWorktree(sessionId);
+      return true;
+    }
     setSession(null);
     if (projectFolder) await deps.applyResolvedCwd?.(projectFolder);
     invalidateContextStatusCache();
@@ -109,10 +119,17 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
    * archived, not a favorite, idle (no turn running, waiting for its ask lock
    * or queued) and unchanged since the caller looked (`expected.lastUsedAt`,
    * which every turn moves). It holds the session's ask lock, which every
-   * turn takes, and runs its last checks, the close and the delete in one
-   * synchronous stretch, so no turn can start in between. A refusal closes
-   * and deletes nothing: `{ deleted: false, reason }`. `isHostedBusy` (the
-   * session service) reports queued input in a runtime hosting the session.
+   * turn takes, across its checks, the close and the delete, so no turn can
+   * start in between. Holding it does not keep a turn from queueing behind
+   * it, and the close and the delete may each wait for a commit of the
+   * session still landing on another thread: every check runs again right
+   * before the close's barrier and again right before the unlink, in the same
+   * synchronous stretch as each, along with the record's generation (the one
+   * read first, then the one the close's detach bumped it to). A refusal
+   * deletes nothing — one after the close leaves the session detached and
+   * resumable, for the turn that arrived — and resolves
+   * `{ deleted: false, reason }`. `isHostedBusy` (the session service)
+   * reports queued input in a runtime hosting the session.
    */
   async function deleteSessionIfIdle(id, expected = {}, { isHostedBusy = null } = {}) {
     const sessionId = clean(id);
@@ -127,27 +144,49 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
       const sidebar = await readSessionSidebarState();
       if (!sidebar || !Object.hasOwn(sidebar.archived ?? {}, sessionId)) return refuse('not-archived');
       if (Object.hasOwn(sidebar.favorites ?? {}, sessionId)) return refuse('favorite');
-      // From here to the delete: synchronous.
-      if (mgr.sessionLockContended(sessionId)) return refuse('turn-waiting');
-      if (mgr.isSessionTurnInFlight(sessionId) || mgr.hasUnsettledTurn(sessionId)) return refuse('busy');
-      if (mgr.hasPendingMessages(sessionId) || isHostedBusy(sessionId)) return refuse('queued');
-      const stored = availableRecord(sessionId);
-      if (!stored) return refuse('missing');
-      if ((Number(stored.lastUsedAt) || 0) !== (Number(expected?.lastUsedAt) || 0)) return refuse('changed');
+      // Why the session is not (or no longer) deletable as idle, or null.
+      let refusal = null;
+      let generation = null;
+      const ineligible = () => {
+        refusal = idleRefusal(sessionId, expected, generation, isHostedBusy);
+        return refusal !== null;
+      };
+      if (ineligible()) return refuse(refusal);
+      generation = Number(availableRecord(sessionId).generation) || 0;
       const reason = 'desktop-auto-delete';
-      // The blocking close: its barrier lands before this stretch yields.
-      if (closeManagedSession(mgr, sessionId, reason, { tombstone: false }, false) !== true) {
-        return refuse('close-failed');
+      const closeOptions = { tombstone: false, isSessionLive: ineligible };
+      if ((await mgr.closeSession(sessionId, reason, closeOptions)) !== true) {
+        return refuse(refusal ?? 'close-failed');
+      }
+      generation += 1;
+      if ((await mgr.deleteSession(sessionId, { fenceWrites: true, isSessionLive: ineligible })) !== true) {
+        return refuse(refusal ?? 'delete-failed');
       }
       agentTool?.forgetLeadSession?.(sessionId);
       releaseSessionWork(sessionId, reason);
-      if (mgr.deleteSession(sessionId, { fenceWrites: true }) !== true) return refuse('delete-failed');
       void forgetSessionSearch(sessionId);
       void releaseDeletedWorktree(sessionId);
       return { deleted: true };
     } finally {
       unlock();
     }
+  }
+
+  // The idle delete's eligibility, read now (synchronously): the session the
+  // user has current, a turn waiting for the ask lock, running, unsettled or
+  // queued, or a record that is gone,
+  // moved since the caller looked, or at another generation than `generation`
+  // (when one is expected).
+  function idleRefusal(sessionId, expected, generation, isHostedBusy) {
+    if (getSession()?.id === sessionId) return 'current';
+    if (mgr.sessionLockContended(sessionId)) return 'turn-waiting';
+    if (mgr.isSessionTurnInFlight(sessionId) || mgr.hasUnsettledTurn(sessionId)) return 'busy';
+    if (mgr.hasPendingMessages(sessionId) || isHostedBusy(sessionId)) return 'queued';
+    const stored = availableRecord(sessionId);
+    if (!stored) return 'missing';
+    if ((Number(stored.lastUsedAt) || 0) !== (Number(expected?.lastUsedAt) || 0)) return 'changed';
+    if (generation !== null && (Number(stored.generation) || 0) !== generation) return 'changed';
+    return null;
   }
 
   return { releaseSessionWork, deleteSession, deleteSessionIfIdle };

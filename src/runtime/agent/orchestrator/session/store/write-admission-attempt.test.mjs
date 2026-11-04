@@ -14,7 +14,7 @@ const root = mkdtempSync(join(tmpdir(), 'mixdog-write-admission-attempt-'));
 process.env.MIXDOG_DATA_DIR = root;
 mkdirSync(join(root, 'sessions'));
 
-const { saveSession, drainSessionStore } = await import('../store.mjs');
+const { saveSessionDurably, drainSessionStore } = await import('../store.mjs');
 const { _shouldDrop } = await import('./write-admission.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
 
@@ -54,18 +54,18 @@ function countReads(t, path) {
   return () => count;
 }
 
-test('a save over a foreign-but-unchanged file reads it strictly exactly once', (t) => {
+test('a save over a foreign-but-unchanged file reads it strictly exactly once', async (t) => {
   const id = 'sess_attempt_once';
   replace(id, record(id));
   const session = JSON.parse(record(id));
   session.messages.push({ role: 'assistant', content: 'reply' });
   const reads = countReads(t, fileOf(id));
-  saveSession(session, { sync: true, expectedGeneration: 1 });
+  await saveSessionDurably(session, { expectedGeneration: 1 });
   assert.equal(reads(), 1, 'pre-admission and three checks, one strict read');
   assert.equal(JSON.parse(readFileSync(fileOf(id), 'utf8')).messages.length, 2);
 });
 
-test('a replacement between the checks of one save is read strictly and refused', (t) => {
+test('a replacement between the checks of one save is read strictly and refused', async (t) => {
   const id = 'sess_attempt_replaced';
   replace(id, record(id));
   const reads = countReads(t, fileOf(id));
@@ -83,7 +83,7 @@ test('a replacement between the checks of one save is read strictly and refused'
   assert.equal(reads(), 3);
 });
 
-test('no verdict is reused across saves', (t) => {
+test('no verdict is reused across saves', async (t) => {
   const id = 'sess_attempt_separate';
   replace(id, record(id));
   const reads = countReads(t, fileOf(id));

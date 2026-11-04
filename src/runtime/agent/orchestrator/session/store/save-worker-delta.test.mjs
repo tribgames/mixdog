@@ -218,7 +218,7 @@ test('closing a session or unloading a finished one frees its save baselines', a
   const closedId = 'sess_delta_closed';
   await saveSessionAsync(makeSession(closedId, 3));
   assert.equal(_hasSessionSaveBaseline(closedId), true);
-  assert.equal(closeSession(closedId, 'test-close', { tombstone: true }), true);
+  assert.equal(await closeSession(closedId, 'test-close', { tombstone: true }), true);
   assert.equal(_hasSessionSaveBaseline(closedId), false, 'the parent baseline is gone after close');
   assert.equal(await _probeWorkerDeltaBaseForTest(closedId), false, 'and so is the worker base');
   // The close metric is queued off the close path and lands after a flush.

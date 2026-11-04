@@ -14,8 +14,8 @@ test('headless session creation does not mention unregistered Skill or Goal tool
   const { _withRegisteredProviderForTest } = await import('../../providers/registry.mjs');
   const { modelToolSchemaAllowlist } = await import('../../runtime-core/tool-profile.mjs');
   let session;
-  t.after(() => {
-    if (session) assert.equal(deleteSession(session.id, { deferSummaryUpdate: true }), true);
+  t.after(async () => {
+    if (session) assert.equal(await deleteSession(session.id, { deferSummaryUpdate: true }), true);
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     rmSync(root, { recursive: true, force: true });
@@ -58,8 +58,8 @@ test('a hidden role keeps the schema profile it declares; a worker ignores a cal
   const { _withRegisteredProviderForTest } = await import('../../providers/registry.mjs');
   const { preDispatchDenyForSession } = await import('../loop/pre-dispatch-deny.mjs');
   const sessions = [];
-  t.after(() => {
-    for (const session of sessions) assert.equal(deleteSession(session.id, { deferSummaryUpdate: true }), true);
+  t.after(async () => {
+    for (const session of sessions) assert.equal(await deleteSession(session.id, { deferSummaryUpdate: true }), true);
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     rmSync(root, { recursive: true, force: true });

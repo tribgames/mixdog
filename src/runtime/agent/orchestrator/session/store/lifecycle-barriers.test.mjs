@@ -65,9 +65,9 @@ test('a detach bump over our own commit skips the full read and writes the same 
   t.mock.method(Date, 'now', () => 1_800_000_000_000);
   const ownReads = countReads(t, sessionFile(ownId));
   const coldReads = countReads(t, sessionFile(coldId));
-  assert.equal(bumpSessionGeneration(ownId), 2);
+  assert.equal(await bumpSessionGeneration(ownId), 2);
   assert.equal(ownReads.count, 0, 'own-commit bytes are not re-read');
-  assert.equal(bumpSessionGeneration(coldId), 2);
+  assert.equal(await bumpSessionGeneration(coldId), 2);
   assert.ok(coldReads.count >= 1, 'bytes of unknown origin are read strictly');
   assert.equal(
     readFileSync(sessionFile(ownId), 'utf8').replace(JSON.stringify(ownId), JSON.stringify(coldId)),
@@ -82,7 +82,7 @@ test('a foreign replacement of our own commit is read strictly and the detach bu
   await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
   const foreign = readFileSync(path, 'utf8').replace(JSON.stringify(id), JSON.stringify('sess_barrier_foreign_b'));
   replaceWith(path, foreign);
-  assert.equal(bumpSessionGeneration(id), null);
+  assert.equal(await bumpSessionGeneration(id), null);
   assert.equal(getSessionLifecycleCommitError(id)?.code, 'ELIFECYCLEUNREADABLE');
   assert.equal(readFileSync(path, 'utf8'), foreign, 'the foreign record is untouched');
 });
@@ -93,7 +93,7 @@ test('an ambiguous (duplicate-key) replacement of our own commit refuses the det
   await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
   const ambiguous = `{"generation":9,${readFileSync(path, 'utf8').slice(1)}`;
   replaceWith(path, ambiguous);
-  assert.equal(bumpSessionGeneration(id), null);
+  assert.equal(await bumpSessionGeneration(id), null);
   assert.equal(getSessionLifecycleCommitError(id)?.code, 'ELIFECYCLEUNREADABLE');
   assert.equal(readFileSync(path, 'utf8'), ambiguous);
 });
@@ -104,7 +104,7 @@ test('read-only lifecycle checks after a barrier reuse what it wrote; a foreign 
   const id = 'sess_barrier_lifecycle_reads';
   const path = sessionFile(id);
   await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
-  assert.equal(bumpSessionGeneration(id), 2);
+  assert.equal(await bumpSessionGeneration(id), 2);
   const reads = countReads(t, path);
   for (let round = 0; round < 3; round++) {
     assert.deepEqual(readSessionLifecycleStateFromDisk(id), { state: 'open', generation: 2 });
@@ -129,7 +129,7 @@ test('a save in flight when the detach bump lands is never written after it and 
     const landing = saveSessionAsync(session, { expectedGeneration: 1 });
     // Land the barrier at different points of the worker's write/rename.
     if (round > 0) sleepSync(round * 3);
-    assert.equal(bumpSessionGeneration(id), 2);
+    assert.equal(await bumpSessionGeneration(id), 2);
     await Promise.allSettled([landing]);
     await new Promise((resolve) => setTimeout(resolve, 50));
     const disk = JSON.parse(readFileSync(path, 'utf8'));

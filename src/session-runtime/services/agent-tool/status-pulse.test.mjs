@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 
 const mgr = await import('../../../runtime/agent/orchestrator/session/manager.mjs');
-const { saveSession } = await import('../../../runtime/agent/orchestrator/session/store.mjs');
+const { saveSessionDurably } = await import('../../../runtime/agent/orchestrator/session/store.mjs');
 const { cleanupBackgroundTasks, completeBackgroundTask, registerBackgroundTask } = await import(
   '../../../runtime/shared/background-tasks.mjs'
 );
@@ -78,8 +78,7 @@ function workerRow(lead, id, tag, status, ageMs, now) {
 
 // The worker's session record, saved (and so live) in this process.
 function saveWorkerSession(row) {
-  saveSession(
-    {
+  return saveSessionDurably({
       id: row.sessionId,
       owner: 'agent',
       agent: row.agent,
@@ -93,9 +92,7 @@ function saveWorkerSession(row) {
       messages: [],
       createdAt: Date.parse(row.createdAt),
       updatedAt: Date.parse(row.updatedAt),
-    },
-    { sync: true }
-  );
+  });
 }
 
 // Another agent tool of this process (the daemon's canonical one) writing the
@@ -121,7 +118,7 @@ const ghostRow = (lead, name) => workerRow(lead, `${lead}_${name}`, `${name}-w`,
 // worker with a running job, an idle one and long-finished ones.
 // `sharedTool`: one agent tool serves every Lead's status reads instead.
 // `sessionManager`: the manager the tools are built with. `role`: the workers' agent.
-function scenario(t, { leads = 4, sharedTool = false, sessionManager = mgr, role = 'worker' } = {}) {
+async function scenario(t, { leads = 4, sharedTool = false, sessionManager = mgr, role = 'worker' } = {}) {
   const tag = `c${++caseSeq}`;
   const dataDir = join(process.env.MIXDOG_DATA_DIR, `pulse-${tag}`);
   mkdirSync(dataDir, { recursive: true });
@@ -138,7 +135,7 @@ function scenario(t, { leads = 4, sharedTool = false, sessionManager = mgr, role
     ]) {
       const id = `${lead}_${status}`;
       const row = { ...workerRow(lead, id, `${status}-w`, status, ageMs, now), agent: role };
-      saveWorkerSession(row);
+      await saveWorkerSession(row);
       workers[id] = row;
       if (status === 'running') running.set(lead, id);
     }
@@ -231,7 +228,7 @@ function rewriteRecord(sessionId, patch) {
 }
 
 test('a status pulse over every Lead reads no file in steady state, with the same contents', async (t) => {
-  const ctx = scenario(t);
+  const ctx = await scenario(t);
   const first = ctx.shown(ctx.pulse());
   assert.deepEqual(
     first,
@@ -251,13 +248,13 @@ test('a status pulse over every Lead reads no file in steady state, with the sam
 });
 
 test("the pulse sees this process's index writes at once and another process's once it lands", async (t) => {
-  const ctx = scenario(t, { leads: 2 });
+  const ctx = await scenario(t, { leads: 2 });
   const [lead] = ctx.leadIds;
   ctx.pulse();
   const writer = indexWriter(t, ctx);
   const added = workerRow(lead, `${lead}_added`, 'added-w', 'running', 0, Date.now());
   // Its spawn created the session: live in this process.
-  saveWorkerSession(added);
+  await saveWorkerSession(added);
   writer.writeWorkerRows((byKey) => byKey.set(added.sessionId, added));
   let states = null;
   assert.deepEqual(
@@ -300,7 +297,7 @@ test("the pulse sees this process's index writes at once and another process's o
 
 test('a stale row is reaped on the index event that brings it, never by a status read', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const ctx = scenario(t, { leads: 2 });
+  const ctx = await scenario(t, { leads: 2 });
   const [lead] = ctx.leadIds;
   // The first reads register their scopes and ask for one pass.
   ctx.pulse();
@@ -322,7 +319,7 @@ test('a stale row is reaped on the index event that brings it, never by a status
 
 test('a row coming due later is reaped by one timer at its exact deadline', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.now() });
-  const ctx = scenario(t, { leads: 1 });
+  const ctx = await scenario(t, { leads: 1 });
   const [lead] = ctx.leadIds;
   ctx.pulse();
   t.mock.timers.tick(MAINTENANCE_EVENT_DELAY_MS);
@@ -347,7 +344,7 @@ test('a row coming due later is reaped by one timer at its exact deadline', asyn
 
 test('a due row kept for its live work is reaped when that work ends', async (t) => {
   const busy = new Set();
-  const ctx = scenario(t, { leads: 1, sessionManager: { ...mgr, isSessionTurnInFlight: (id) => busy.has(id) } });
+  const ctx = await scenario(t, { leads: 1, sessionManager: { ...mgr, isSessionTurnInFlight: (id) => busy.has(id) } });
   const kept = `${ctx.leadIds[0]}_error`;
   busy.add(kept);
   const indexed = async () => {
@@ -368,14 +365,14 @@ test('a due row kept for its live work is reaped when that work ends', async (t)
 });
 
 test('memory-only status reports what the session record says when no live copy exists', async (t) => {
-  const ctx = scenario(t, { leads: 1 });
+  const ctx = await scenario(t, { leads: 1 });
   const [lead] = ctx.leadIds;
   const sessionId = ctx.running.get(lead);
   await settleBookkeeping(ctx);
   // The record settled (this process evicted it, or another process wrote it)
   // while the index row still says running.
-  saveSession({ ...mgr.getSession(sessionId), status: 'completed' }, { sync: true });
   _liveSessions.delete(sessionId);
+  rewriteRecord(sessionId, { status: 'completed' });
   const recordStatus = () => mgr.getSession(sessionId).status;
   assert.equal(recordStatus(), 'completed');
   let changes = 0;
@@ -407,7 +404,7 @@ test('memory-only status reports what the session record says when no live copy 
 });
 
 test("memory-only status follows loadSession's precedence between a live copy and its record", async (t) => {
-  const ctx = scenario(t, { leads: 1 });
+  const ctx = await scenario(t, { leads: 1 });
   const [lead] = ctx.leadIds;
   const sessionId = ctx.running.get(lead);
   await settleBookkeeping(ctx);
@@ -426,7 +423,7 @@ test("memory-only status follows loadSession's precedence between a live copy an
   assert.equal(mgr.getSession(sessionId)?.status, 'error', 'getSession answers with the record');
 
   // A record that cannot be read owns the id over any live copy.
-  saveWorkerSession({ ...ctx.workers[sessionId], status: 'running' });
+  await saveWorkerSession({ ...ctx.workers[sessionId], status: 'running' });
   await pulseUntil(pulseLead, (state) => jobStatus(state) === 'running');
   writeFileSync(sessionPath(sessionId), '{"id": "not-this-one"');
   const unreadable = await pulseUntil(pulseLead, (state) => jobStatus(state) === undefined);
@@ -440,15 +437,15 @@ test('session-record watches end with the Lead that read them and are released o
   const watched = () => watching().includes(sessionsDir);
 
   // A manager of its own: records are shared per manager.
-  const ending = scenario(t, { leads: 1, sessionManager: { ...mgr } });
+  const ending = await scenario(t, { leads: 1, sessionManager: { ...mgr } });
   const [lead] = ending.leadIds;
   _liveSessions.delete(ending.running.get(lead));
   await pulseUntil(ending.pulse, () => watched());
   // The Lead session closes: its status scope ends, and nothing reads its records.
-  saveSession({ id: lead, owner: 'user', closed: true, messages: [], createdAt: Date.now() }, { sync: true });
+  await saveSessionDurably({ id: lead, owner: 'user', closed: true, messages: [], createdAt: Date.now() });
   await eventually(() => !watched());
 
-  const disposing = scenario(t, { leads: 1, sessionManager: { ...mgr } });
+  const disposing = await scenario(t, { leads: 1, sessionManager: { ...mgr } });
   _liveSessions.delete(disposing.running.get(disposing.leadIds[0]));
   await pulseUntil(disposing.pulse, () => watched());
   disposing.dispose();
@@ -456,7 +453,7 @@ test('session-record watches end with the Lead that read them and are released o
 });
 
 test('onStatusChange fires for every change in what getStatus answers, and only then', async (t) => {
-  const ctx = scenario(t, { leads: 1 });
+  const ctx = await scenario(t, { leads: 1 });
   const [lead] = ctx.leadIds;
   const [agent] = ctx.agents;
   let changes = 0;
@@ -485,7 +482,7 @@ test('onStatusChange fires for every change in what getStatus answers, and only 
   // A worker-index write in this process.
   const writer = indexWriter(t, ctx);
   const added = workerRow(lead, `${lead}_added`, 'added-w', 'running', 0, Date.now());
-  saveWorkerSession(added);
+  await saveWorkerSession(added);
   await changedBy('an index write', () => {
     writer.writeWorkerRows((byKey) => byKey.set(added.sessionId, added));
   });
@@ -512,7 +509,7 @@ test('onStatusChange fires for every change in what getStatus answers, and only 
 });
 
 test("onStatusChange fires as a worker's turn moves through its stages", async (t) => {
-  const ctx = scenario(t, { leads: 1 });
+  const ctx = await scenario(t, { leads: 1 });
   const [lead] = ctx.leadIds;
   const [agent] = ctx.agents;
   const sessionId = ctx.running.get(lead);
@@ -570,7 +567,7 @@ test('onStatusChange fires when keychain prewarm finishes', async (t) => {
 });
 
 test('round-robin status reads over many scopes of one tool read no file in steady state', async (t) => {
-  const ctx = scenario(t, { leads: 20, sharedTool: true });
+  const ctx = await scenario(t, { leads: 20, sharedTool: true });
   const first = ctx.shown(ctx.pulse());
   ctx.pulse();
   let states = null;
@@ -593,7 +590,7 @@ test('the maintenance pass yields between scopes and one failing scope skips no 
       return mgr.getSession(id);
     },
   };
-  const ctx = scenario(t, { leads: 3, sharedTool: true, sessionManager: watchedMgr });
+  const ctx = await scenario(t, { leads: 3, sharedTool: true, sessionManager: watchedMgr });
   ctx.pulse();
   await runAgentMaintenancePass();
   const [failing, , reaped] = ctx.leadIds;
@@ -632,7 +629,7 @@ test('the maintenance pass yields between scopes and one failing scope skips no 
 
 test("a cold scope's disk-only worker is populated and announced with no further pulse", async (t) => {
   const role = `role-c${caseSeq + 1}`;
-  const ctx = scenario(t, { leads: 1, role, sessionManager: { ...mgr } });
+  const ctx = await scenario(t, { leads: 1, role, sessionManager: { ...mgr } });
   const [lead] = ctx.leadIds;
   const [agent] = ctx.agents;
   const sessionId = ctx.running.get(lead);
@@ -693,7 +690,7 @@ function silentSessionWatches(t) {
 
 // A running worker whose record does not exist yet, read as absent.
 async function absentRecordWorker(t, watches) {
-  const ctx = scenario(t, { leads: 1, sessionManager: { ...mgr } });
+  const ctx = await scenario(t, { leads: 1, sessionManager: { ...mgr } });
   const sessionId = ctx.running.get(ctx.leadIds[0]);
   _liveSessions.delete(sessionId);
   fs.rmSync(sessionPath(sessionId));
@@ -704,7 +701,7 @@ async function absentRecordWorker(t, watches) {
   await eventually(() => watches.opened() > opened);
   await new Promise((resolve) => setTimeout(resolve, 100));
   // The record appears; no watch event says so.
-  saveWorkerSession(ctx.workers[sessionId]);
+  await saveWorkerSession(ctx.workers[sessionId]);
   _liveSessions.delete(sessionId);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(workerStatus(), undefined, 'nothing reported the new record yet');
@@ -712,7 +709,7 @@ async function absentRecordWorker(t, watches) {
 }
 
 test("a legacy tombstone's owner is resolved off the status read and announced when it lands", async (t) => {
-  const ctx = scenario(t, { leads: 2 });
+  const ctx = await scenario(t, { leads: 2 });
   const [reapedLead, siblingLead] = ctx.leadIds;
   const writer = indexWriter(t, ctx);
   await settleBookkeeping(ctx);
@@ -766,7 +763,7 @@ function countRecordReads(t, sessionId) {
 }
 
 test('a live copy answers until its record is read, and the record stands once the copy goes', async (t) => {
-  const ctx = scenario(t, { leads: 1 });
+  const ctx = await scenario(t, { leads: 1 });
   const sessionId = ctx.running.get(ctx.leadIds[0]);
   const recordReads = countRecordReads(t, sessionId);
   const workerStatus = () => ctx.pulse()[0].agentJobs.find((row) => row.sessionId === sessionId)?.workerStatus;
@@ -791,7 +788,7 @@ test('while the sessions folder is watched, nothing re-checks records on a clock
 });
 
 test('a sessions folder created after the first read is watched from its parent, and its records are seen', async (t) => {
-  const ctx = scenario(t, { leads: 1, sessionManager: { ...mgr } });
+  const ctx = await scenario(t, { leads: 1, sessionManager: { ...mgr } });
   const sessionId = ctx.running.get(ctx.leadIds[0]);
   const sessionsDir = dirname(sessionPath(sessionId));
   // Nothing of the folder is left; its sessions are in no process's memory.

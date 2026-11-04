@@ -20,7 +20,7 @@ mock.module('../../../runtime/session-search/session-search-ingest.mjs', {
 
 const { createSessionSwitching } = await import('../session-switch.mjs');
 const mgr = await import('../../../runtime/agent/orchestrator/session/manager.mjs');
-const { saveSession, saveSessionAsync } = await import('../../../runtime/agent/orchestrator/session/store.mjs');
+const { saveSessionDurably, saveSessionAsync } = await import('../../../runtime/agent/orchestrator/session/store.mjs');
 const { _sessionSummary, _writeSummaryIndex, settleSummaryIndexWrites } = await import(
   '../../../runtime/agent/orchestrator/session/store-summary-index.mjs'
 );
@@ -78,10 +78,10 @@ async function seed(root, records, indexed = records) {
   await _writeSummaryIndex(indexed.map(_sessionSummary).filter(Boolean));
 }
 
-function makeApi({ currentId = 'someone_else', agentTool = {} } = {}) {
+function makeApi({ currentId = 'someone_else', agentTool = {}, getSession = null } = {}) {
   return createSessionSwitching(
     {
-      getSession: () => ({ id: currentId, messages: [] }),
+      getSession: getSession ?? (() => ({ id: currentId, messages: [] })),
       setSession: () => {},
       getAddressedSessionId: () => currentId,
       markAddressTerminal: () => {},
@@ -350,6 +350,65 @@ test('the idle-only delete refuses, closing and deleting nothing, when a turn st
   assert.equal(existsSync(fileOf(root, record.id)), false);
 });
 
+test('the idle-only delete backs out when a turn queues while its close waits on another thread', async (t) => {
+  const { registerSessionSidebarHost } = await import('../../../runtime/shared/session-sidebar-host.mjs');
+  const { acquireSessionLock } = await import('../../../runtime/agent/orchestrator/session/manager/session-lock.mjs');
+  const { underHeldCommit } = await import(
+    '../../../runtime/agent/orchestrator/session/store/commit-lock-holder.fixture.mjs'
+  );
+  const root = isolateDataDir();
+  const record = { ...lead('lead_auto_waiting'), lastUsedAt: 50 };
+  await seed(root, [record]);
+  const unregister = registerSessionSidebarHost(async () => {}, {
+    state: async () => ({ archived: { [record.id]: 1 }, favorites: {} }),
+  });
+  t.after(unregister);
+  const api = makeApi();
+  let turn = null;
+  const result = await underHeldCommit(record.id, () => {
+    const deleting = api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, { isHostedBusy: () => false });
+    // A bot send reaches the session's ask lock while the close waits.
+    setTimeout(() => {
+      turn = acquireSessionLock(record.id);
+    }, 50);
+    return deleting;
+  });
+  assert.deepEqual(result, { deleted: false, reason: 'turn-waiting' });
+  const stored = JSON.parse(readFileSync(fileOf(root, record.id), 'utf8'));
+  assert.equal(stored.closed, false);
+  assert.equal(stored.generation, record.generation, 'nothing landed: the close backed out');
+  // The queued turn gets the lock and its session.
+  (await turn)();
+});
+
+test('the idle-only delete backs out when the user makes the session current while its close waits', async (t) => {
+  const { registerSessionSidebarHost } = await import('../../../runtime/shared/session-sidebar-host.mjs');
+  const { underHeldCommit } = await import(
+    '../../../runtime/agent/orchestrator/session/store/commit-lock-holder.fixture.mjs'
+  );
+  const root = isolateDataDir();
+  const record = { ...lead('lead_auto_opened'), lastUsedAt: 50 };
+  await seed(root, [record]);
+  const unregister = registerSessionSidebarHost(async () => {}, {
+    state: async () => ({ archived: { [record.id]: 1 }, favorites: {} }),
+  });
+  t.after(unregister);
+  let current = { id: 'someone_else', messages: [] };
+  const api = makeApi({ getSession: () => current });
+  const result = await underHeldCommit(record.id, () => {
+    const deleting = api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, { isHostedBusy: () => false });
+    // The user opens the archived session while the close waits.
+    setTimeout(() => {
+      current = { id: record.id, messages: record.messages };
+    }, 50);
+    return deleting;
+  });
+  assert.deepEqual(result, { deleted: false, reason: 'current' });
+  const stored = JSON.parse(readFileSync(fileOf(root, record.id), 'utf8'));
+  assert.equal(stored.closed, false);
+  assert.equal(stored.generation, record.generation, 'nothing landed: the close backed out');
+});
+
 test('a deleted session whose turn is still running is not recreated when the turn settles', async () => {
   const root = isolateDataDir();
   const live = lead('lead_running');
@@ -371,7 +430,7 @@ test('a deleted session whose turn is still running is not recreated when the tu
     const turn = new Promise((resolve) => {
       finishTurn = resolve;
     }).then(async () => {
-      saveSession(live, { sync: true });
+      await saveSessionDurably(live);
       // A refused async save is how a late write learns its session is gone.
       await saveSessionAsync(live, {}).catch((error) => assert.equal(error.sessionAuthorityRefusal, 'deleted'));
       leadIndex.upsertLeadSession(live, { status: 'idle', stage: 'idle' });

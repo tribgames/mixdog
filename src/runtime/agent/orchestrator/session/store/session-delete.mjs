@@ -19,8 +19,10 @@ import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import {
   guardedSaveOptions as _guardedSaveOptions,
   cancelSessionWrites as _cancelSessionWrites,
-  acquireWriteCommit as _acquireWriteCommit,
+  tryAcquireWriteCommit as _tryAcquireWriteCommit,
   releaseWriteCommit as _releaseWriteCommit,
+  writeCommitSettled as _writeCommitSettled,
+  WRITE_COMMIT_BUSY as _WRITE_COMMIT_BUSY,
 } from './write-guards.mjs';
 import {
   _clearLiveSession,
@@ -84,7 +86,24 @@ function knownSessionCwds(id) {
   return [...new Set(cwds.filter((cwd) => typeof cwd === 'string' && cwd))];
 }
 
-export function deleteSession(id, options = {}) {
+/**
+ * Hard-delete `id`; resolves true once the session is gone. Never waits on
+ * the thread: an attempt that finds another thread's commit of the id holding
+ * the commit lock took and changed nothing, and runs again — vetoes included
+ * — once that commit's release notifies. `options.singleAttempt` (a caller
+ * that decided on what it read in the first attempt's stretch, which the wait
+ * would make stale) resolves false instead of waiting.
+ */
+export async function deleteSession(id, options = {}) {
+  for (;;) {
+    const deleted = _deleteSessionAttempt(id, options);
+    if (deleted !== _WRITE_COMMIT_BUSY) return deleted;
+    if (options.singleAttempt === true) return false;
+    await _writeCommitSettled(id);
+  }
+}
+
+function _deleteSessionAttempt(id, options) {
   // Keep caller probes and all vetoes ahead of the non-reentrant lock and
   // ahead of pending-save disruption, matching markSessionClosed().
   if (_runtimeLivenessVeto(id, options)) return false;
@@ -105,14 +124,15 @@ export function deleteSession(id, options = {}) {
     return false;
   }
   const deleted = _deleteSession(id, options);
-  if (deleted) void forgetSessionWriter(id);
+  if (deleted === true) void forgetSessionWriter(id);
   else if (claim.fresh) void releaseSessionWriter(id);
   return deleted;
 }
 
 function _deleteSession(id, options) {
   const deleteGuard = _guardedSaveOptions(id);
-  const commitControl = _acquireWriteCommit(deleteGuard);
+  const commitControl = _tryAcquireWriteCommit(deleteGuard);
+  if (commitControl === _WRITE_COMMIT_BUSY) return _WRITE_COMMIT_BUSY;
   if (commitControl === false) return false;
   try {
     // ── 1. unlink FIRST, still holding the commit lock ─────────────────────
@@ -129,8 +149,8 @@ function _deleteSession(id, options) {
     // delete — the session does not exist once this call returns, so the id's
     // local state is purged and `true` is reported. `false` is reserved for
     // "nothing was deleted AND nothing was mutated": a liveness veto, a
-    // contended commit lock, an unreadable probe, ambiguous/foreign bytes, or
-    // a failed unlink.
+    // cancelled guard, an unreadable probe, ambiguous/foreign bytes, or a
+    // failed unlink.
     if (probe.state === PROBE_PRESENT) {
       // STRICT OWNERSHIP AT THE COMMIT EDGE. The bytes are re-read here,
       // under the same commit lock, immediately before the unlink — not

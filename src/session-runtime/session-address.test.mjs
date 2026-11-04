@@ -32,7 +32,7 @@ test('the address binds once, is idempotent for the same id and refuses a re-key
   assert.equal(rt.addressedSessionId, 'sess_a');
 });
 
-test('closeCanonicalSession fences before the manager close and goes terminal only after a durable close', () => {
+test('closeCanonicalSession fences before the manager close and goes terminal only after a durable close', async () => {
   const rt = makeRt();
   const observed = [];
   const session = { id: 'sess_a' };
@@ -53,16 +53,16 @@ test('closeCanonicalSession fences before the manager close and goes terminal on
     finishCanonicalClose: (previous, ok) => finishCanonicalClose(rt, previous, ok),
     isCanonicallyClosed: () => rt.admission === 'terminal',
   };
-  assert.equal(closeCanonicalSession(deps), true);
+  assert.equal(await closeCanonicalSession(deps), true);
   assert.deepEqual(observed, ['closing'], 'admission was fenced while the manager close ran');
   assert.equal(rt.admission, 'terminal');
   assert.equal(rt.addressedSessionId, 'sess_a', 'the address survives the close');
   assert.equal(rt.lifecycleGeneration, 1);
   assert.equal(current, null);
-  assert.equal(closeCanonicalSession(deps), true, 'closing a terminal runtime is idempotent');
+  assert.equal(await closeCanonicalSession(deps), true, 'closing a terminal runtime is idempotent');
 });
 
-test('a failed durable close restores admission and keeps the session', () => {
+test('a failed durable close restores admission and keeps the session', async () => {
   const rt = makeRt();
   let current = { id: 'sess_a' };
   const deps = {
@@ -74,14 +74,14 @@ test('a failed durable close restores admission and keeps the session', () => {
     beginCanonicalClose: (id) => beginCanonicalClose(rt, id),
     finishCanonicalClose: (previous, ok) => finishCanonicalClose(rt, previous, ok),
   };
-  assert.equal(closeCanonicalSession(deps), false);
+  assert.equal(await closeCanonicalSession(deps), false);
   assert.equal(rt.admission, 'open');
   assert.equal(rt.lifecycleGeneration, 0);
   assert.equal(current.id, 'sess_a');
   deps.mgr.closeSession = () => {
     throw new Error('boom');
   };
-  assert.throws(() => closeCanonicalSession(deps), /boom/);
+  await assert.rejects(closeCanonicalSession(deps), /boom/);
   assert.equal(rt.admission, 'open');
 });
 

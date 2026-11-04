@@ -248,7 +248,7 @@ test('lifecycle listSessions preserves child classification without hiding their
   }
 });
 
-test('canonical child close uses the ordinary durable tombstone barrier', () => {
+test('canonical child close uses the ordinary durable tombstone barrier', async () => {
   const calls = [];
   let current = { id: 'sess_agent_child' };
   let invalidations = 0;
@@ -268,7 +268,7 @@ test('canonical child close uses the ordinary durable tombstone barrier', () => 
     },
   });
 
-  assert.equal(api.closeCanonicalSession('cli-agent-close'), true);
+  assert.equal(await api.closeCanonicalSession('cli-agent-close'), true);
   assert.deepEqual(calls, [['sess_agent_child', 'cli-agent-close', { tombstone: true }]]);
   assert.equal(current, null);
   assert.equal(invalidations, 1);

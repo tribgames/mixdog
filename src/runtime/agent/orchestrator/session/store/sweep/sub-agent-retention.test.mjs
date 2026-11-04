@@ -58,7 +58,7 @@ async function withStore(t, run) {
     const mtime = Math.max(at, Number(doc.updatedAt) || 0) / 1000;
     utimesSync(path, mtime, mtime);
   };
-  const members = () => sweepStaleSessions({ retainSubAgents: true, isSessionLive: () => false }).subAgents;
+  const members = async () => (await sweepStaleSessions({ retainSubAgents: true, isSessionLive: () => false })).subAgents;
   const flags = {};
   const calls = [];
   const apply = (list, options = {}) =>
@@ -87,13 +87,13 @@ test('the idle sweep names every sub-agent record with its stored activity, and 
     write('sess_room_abc', 40 * DAY);
     write('sess_rmem_abc_mailer', 40 * DAY);
     write('sess_user_chat', 40 * DAY, { owner: 'user' });
-    const byId = Object.fromEntries(members().map((member) => [member.id, member]));
+    const byId = Object.fromEntries((await members()).map((member) => [member.id, member]));
     assert.deepEqual(Object.keys(byId).sort(), ['sess_bumped', 'sess_fresh', 'sess_old']);
     assert.equal(byId.sess_bumped.lastActive, now - 31 * DAY, 'lastUsedAt, not a bookkeeping updatedAt');
     assert.deepEqual(byId.sess_old.parentIds, ['sess_lead']);
     // Only a caller that applies them gets them; never on a tombstone-only pass.
-    assert.equal('subAgents' in sweepStaleSessions({ isSessionLive: () => false }), false);
-    assert.equal('subAgents' in sweepStaleSessions({ sweepIdle: false, retainSubAgents: true }), false);
+    assert.equal('subAgents' in (await sweepStaleSessions({ isSessionLive: () => false })), false);
+    assert.equal('subAgents' in (await sweepStaleSessions({ sweepIdle: false, retainSubAgents: true })), false);
   });
 });
 
@@ -107,7 +107,7 @@ test('an all-idle tree is archived together; one recently active or running memb
     write('sess_b_child', HOUR, sub('sess_b'));
     write('sess_c', 5 * DAY);
     write('sess_c_child', 5 * DAY, sub('sess_c'));
-    const applied = await apply(members(), { isSessionLive: (id) => id === 'sess_c_child' });
+    const applied = await apply(await members(), { isSessionLive: (id) => id === 'sess_c_child' });
     assert.deepEqual(applied, { archived: ['sess_a', 'sess_a_child'], deleted: [] });
     // Exactly these members, never a cascade past them.
     assert.deepEqual(calls, [
@@ -125,7 +125,7 @@ test('an all-expired tree is deleted together; one member under 30 days makes it
     flags.sess_d_child = 1;
     write('sess_e', 40 * DAY);
     write('sess_e_child', 10 * DAY, sub('sess_e'));
-    const applied = await apply(members());
+    const applied = await apply(await members());
     assert.deepEqual(applied.deleted.sort(), ['sess_d', 'sess_d_child']);
     assert.deepEqual(applied.archived, ['sess_e', 'sess_e_child']);
     assert.equal(exists('sess_d') || exists('sess_d_child'), false);
@@ -145,7 +145,7 @@ test('a closed sub-agent record is a member: its tree is archived and deleted to
     write('sess_p_child', 5 * DAY, sub('sess_p', closed));
     write('sess_q', 40 * DAY);
     write('sess_q_child', 40 * DAY, sub('sess_q', closed));
-    const named = members();
+    const named = await members();
     assert.deepEqual(named.map((member) => member.id).sort(), ['sess_p', 'sess_p_child', 'sess_q', 'sess_q_child']);
     const applied = await apply(named);
     // 5 idle days: archived (not deleted) as one tree, closed child included.
@@ -164,11 +164,13 @@ test('a closed record the sweep itself deleted as a mature tombstone is not name
   await withStore(t, async ({ write, exists }) => {
     write('sess_r', 5 * DAY);
     write('sess_r_child', 5 * DAY, sub('sess_r', { closed: true, status: 'closed', generation: 1 }));
-    const named = sweepStaleSessions({
-      retainSubAgents: true,
-      tombstoneMaxAgeMs: HOUR,
-      isSessionLive: () => false,
-    }).subAgents;
+    const named = (
+      await sweepStaleSessions({
+        retainSubAgents: true,
+        tombstoneMaxAgeMs: HOUR,
+        isSessionLive: () => false,
+      })
+    ).subAgents;
     assert.equal(exists('sess_r_child'), false);
     assert.deepEqual(
       named.map((member) => member.id),
@@ -198,7 +200,7 @@ test('a member with a missing or invalid stored timestamp keeps its whole tree',
     write('sess_n', 40 * DAY);
     write('sess_n_child', 40 * DAY, sub('sess_n', { createdAt: null, updatedAt: -5, lastUsedAt: 'soon' }));
     write('sess_o', 5 * DAY, sub('sess_lead', unknown));
-    const named = members();
+    const named = await members();
     assert.equal(named.find((member) => member.id === 'sess_m_child').lastActive, 0);
     assert.deepEqual(await apply(named), { archived: [], deleted: [] });
     assert.deepEqual(await apply([{ id: 'sess_m', parentIds: ['sess_lead'], lastActive: Number.NaN }]), {
@@ -216,7 +218,7 @@ test('a member active between the sweep and the action keeps its tree; without a
     write('sess_f_child', 40 * DAY, sub('sess_f'));
     write('sess_g', 5 * DAY);
     write('sess_h', 40 * DAY);
-    const named = members();
+    const named = await members();
     write('sess_f_child', 0, sub('sess_f')); // a turn ran after the sweep read it
     const applied = await apply(named, { isArchived: null });
     assert.deepEqual(applied, { archived: [], deleted: ['sess_h'] });

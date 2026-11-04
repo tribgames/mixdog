@@ -137,7 +137,7 @@ export function _sessionWriteAuthorityRefusal(id, attempt = null) {
   if (isSessionWriteFenced(id)) return 'deleted';
   let authority;
   try {
-    // A synchronous save passes its `attempt`: its pre-admission is then the
+    // A durable save passes its `attempt`: its pre-admission is then the
     // first strict write-authority read of that same save (see _shouldDrop).
     authority = attempt ? _writeAuthorityRecord(sessionPath(id), attempt) : _readCanonicalRecord(sessionPath(id), true);
   } catch {

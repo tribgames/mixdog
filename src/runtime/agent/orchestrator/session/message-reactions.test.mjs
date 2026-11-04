@@ -493,7 +493,7 @@ test('a reaction survives a reload of the session from disk', () => {
   };
   try {
     run(`
-      import { saveSession, drainSessionStore } from './src/runtime/agent/orchestrator/session/store.mjs';
+      import { saveSessionDurably, drainSessionStore } from './src/runtime/agent/orchestrator/session/store.mjs';
       import { reactInSession } from './src/runtime/agent/orchestrator/session/message-reactions.mjs';
       const session = {
         id: 'sess_home_reviewer',
@@ -505,9 +505,9 @@ test('a reaction survives a reload of the session from disk', () => {
           { role: 'assistant', content: '', emptyFinal: true },
         ],
       };
-      saveSession(session, { sync: true });
+      await saveSessionDurably(session);
       reactInSession(session, { agentId: 'reviewer', emoji: '😆', at: 2 });
-      saveSession(session, { sync: true });
+      await saveSessionDurably(session);
       drainSessionStore?.();
     `);
     const out = run(`

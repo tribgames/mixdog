@@ -27,7 +27,7 @@ export function createAgentTree({
   // Sessions run inline in this daemon, so its own store records the owner
   // close; loaded on first use only.
   markOwnerClosed = async (...args) =>
-    (await import('../../runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs')).markSessionOwnerClosedAsync(
+    (await import('../../runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs')).markSessionOwnerClosed(
       ...args
     ),
 } = {}) {

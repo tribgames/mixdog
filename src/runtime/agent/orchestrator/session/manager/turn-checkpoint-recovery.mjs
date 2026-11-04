@@ -5,7 +5,7 @@
 // live process owns the daemon; reads never recover a live turn.
 import { join } from 'node:path';
 import { readSingletonOwner } from '../../../../shared/singleton-owner.mjs';
-import { loadSession, saveSession } from '../store.mjs';
+import { loadSession, saveSessionDurably } from '../store.mjs';
 import { dataDir } from '../store-summary-locations.mjs';
 import { runtimeState, isTurnInFlight } from './runtime-state.mjs';
 import {
@@ -102,8 +102,9 @@ export function isSessionTurnLive(sessionId) {
 }
 
 /** `durable`: the canonical record as just read from disk, when the caller
- *  holds it; otherwise it is read here. */
-export function _recoverTurnCheckpointDurably(session, sessionId, durable = undefined) {
+ *  holds it; otherwise it is read here. Resolves the recovery once a changed
+ *  session is on disk; rejects when that save failed. */
+export async function _recoverTurnCheckpointDurably(session, sessionId, durable = undefined) {
   // A turn this process finished but has not saved yet is in memory, not
   // lost: its own save gate settles it.
   if (hasUnsettledTurn(sessionId)) return { changed: false, recovered: false, turnToken: null };
@@ -123,11 +124,9 @@ export function _recoverTurnCheckpointDurably(session, sessionId, durable = unde
   // Recovery is a durable reconnect boundary, not a renderer-only view.
   // Persist (with the turn's coverage) before removing the checkpoint so a
   // second crash leaves at least one complete copy of the interrupted turn
-  // and never replays it twice.
-  saveSession(session, {
-    sync: true,
-    expectedGeneration: session.generation,
-  });
+  // and never replays it twice. The commit lock is awaited, never waited for
+  // on the thread.
+  await saveSessionDurably(session, { expectedGeneration: session.generation });
   if (recovery.turnToken && turnCoveredOnDisk(session, recovery.turnToken)) {
     clearTurnCheckpoint(sessionId, recovery.turnToken);
   }
@@ -161,9 +160,9 @@ export async function sweepOrphanTurnJournals() {
 // Reconnect-safe historical read used by desktop pane peeks. Unlike a normal
 // read-only load, it resolves a dead owner's durable turn checkpoint before
 // returning the transcript; a live turn is returned untouched.
-export function recoverSessionAfterProcessRestart(sessionId, durable = undefined) {
+export async function recoverSessionAfterProcessRestart(sessionId, durable = undefined) {
   const session = loadSession(sessionId);
   if (!session || session.closed === true || isSessionTurnLive(sessionId)) return session || null;
-  _recoverTurnCheckpointDurably(session, sessionId, durable);
+  await _recoverTurnCheckpointDurably(session, sessionId, durable);
   return session;
 }

@@ -91,7 +91,7 @@ parentPort.on('message', (message) => {
   } catch (err) {
     // Preserve the original failure identity across the thread boundary:
     // the parent rebuilds an Error carrying the same code/injection marker
-    // so callers can branch on it exactly as in the sync path.
+    // so callers can branch on it exactly as in an in-realm save.
     const failure = {
       ok: false,
       error: err?.message ?? String(err),

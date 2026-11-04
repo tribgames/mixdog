@@ -189,7 +189,7 @@ export async function persistColdHeir(heir) {
     await saveSessionAsync(heir);
   } catch (error) {
     try {
-      deleteSession(heir.id);
+      await deleteSession(heir.id);
     } catch (cleanupError) {
       writeStderrBestEffort(`[inherit] cleanup of ${heir.id} failed: ${cleanupError?.message || cleanupError}\n`);
     }

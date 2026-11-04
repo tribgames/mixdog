@@ -65,7 +65,7 @@ export function closeOwnSession(deps, closeSurfaceSession, reason) {
 
 /** Fence a canonical runtime without deleting its conversation.
  *  Explicit deletion may request a tombstone; blank scratch follows ordinary policy. */
-export function closeCanonicalSession(deps, reason = 'canonical-session-close', options = {}) {
+export async function closeCanonicalSession(deps, reason = 'canonical-session-close', options = {}) {
   const { getSession, setSession, mgr, invalidateContextStatusCache, beginCanonicalClose, finishCanonicalClose } = deps;
   // Already terminal: closing is idempotent and keeps the address.
   if (deps.isCanonicallyClosed?.() === true) return true;
@@ -78,13 +78,16 @@ export function closeCanonicalSession(deps, reason = 'canonical-session-close', 
   let closed = false;
   try {
     closed =
-      mgr.closeSession(session.id, reason, { tombstone: options.tombstone ?? isScratchSession(session) }) === true;
+      (await mgr.closeSession(session.id, reason, { tombstone: options.tombstone ?? isScratchSession(session) })) ===
+      true;
   } finally {
     // Terminal after a durable close; admission restored when it failed.
     finishCanonicalClose?.(fence, closed);
   }
   if (!closed) return false;
-  setSession?.(null);
+  // The close may have waited on another thread's commit: only the session
+  // it closed is dropped.
+  if (getSession?.()?.id === session.id) setSession?.(null);
   invalidateContextStatusCache?.();
   return true;
 }

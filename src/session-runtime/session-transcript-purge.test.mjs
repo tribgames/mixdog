@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const { deleteSession, saveSession } = await import('../runtime/agent/orchestrator/session/store.mjs');
+const { deleteSession, saveSessionDurably } = await import('../runtime/agent/orchestrator/session/store.mjs');
 const mgr = await import('../runtime/agent/orchestrator/session/manager.mjs');
 const { _sessionSummary, _writeSummaryIndex, settleSummaryIndexWrites } = await import(
   '../runtime/agent/orchestrator/session/store-summary-index.mjs'
@@ -78,10 +78,10 @@ test('deleting a session removes its transcript and ingest offsets, and only its
     writeFileSync(`${doomed.transcriptPath}.1`, 'rotated generation\n');
     const sibling = writeTranscript(home, cwd, 'sess_sibling');
     const otherProject = writeTranscript(home, join(home, 'elsewhere'), 'sess_doomed_other');
-    saveSession(record('sess_doomed', cwd), { sync: true });
-    saveSession(record('sess_sibling', cwd), { sync: true });
+    await saveSessionDurably(record('sess_doomed', cwd));
+    await saveSessionDurably(record('sess_sibling', cwd));
 
-    assert.equal(deleteSession('sess_doomed'), true);
+    assert.equal(await deleteSession('sess_doomed'), true);
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(existsSync(doomed.transcriptPath), false, 'the transcript is gone');
@@ -120,7 +120,7 @@ test("a transcript this process never wrote is found through the session's recor
     await _writeSummaryIndex(records.map(_sessionSummary).filter(Boolean));
     mgr.listSessions();
 
-    assert.equal(deleteSession('sess_old'), true);
+    assert.equal(await deleteSession('sess_old'), true);
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(existsSync(path), false);
@@ -140,11 +140,11 @@ test('an unremovable transcript or a failing offsets request never breaks the de
     },
   });
   try {
-    saveSession(record('sess_unlucky', cwd), { sync: true });
+    await saveSessionDurably(record('sess_unlucky', cwd));
     // A directory where the transcript file should be: unlink fails.
     mkdirSync(transcriptOf(home, cwd, 'sess_unlucky'), { recursive: true });
 
-    assert.equal(deleteSession('sess_unlucky'), true);
+    assert.equal(await deleteSession('sess_unlucky'), true);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(existsSync(join(home, 'data', 'sessions', 'sess_unlucky.json')), false);
   } finally {

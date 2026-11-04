@@ -8,7 +8,6 @@ import { recordAgentTaskStart } from '../../../../runtime/shared/agent-task-star
 import { resourceAdmission } from '../../../../runtime/shared/resource-admission.mjs';
 import { clean, terminalPidForContext } from '../helpers.mjs';
 import { renderResult } from '../render.mjs';
-import { closeManagedSession } from '../../../lifecycle/shared.mjs';
 import { hopOf } from '../../../../runtime/shared/bot-hops.mjs';
 import { notDoneReport } from '../../../../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
 
@@ -59,9 +58,9 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
         const currentMeta = task?.meta || jobMeta;
         if (currentMeta?.sessionId) {
           try {
-            Promise.resolve(
-              closeManagedSession(mgr, currentMeta.sessionId, 'agent-task-cancel', { tombstone: false })
-            ).catch(() => {});
+            Promise.resolve(mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel', { tombstone: false })).catch(
+              () => {}
+            );
           } catch {}
         }
         setImmediate(notifyStatusChange);

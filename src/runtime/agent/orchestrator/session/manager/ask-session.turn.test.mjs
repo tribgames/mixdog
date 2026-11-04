@@ -120,7 +120,7 @@ test('an owner close is lifted by a completed turn, never by a rewind', async (t
     await askSession(session.id, 'second', null, null, null, null, {});
     assert.equal(resumableAfterReap(loadSession(session.id)), true);
     await tick();
-    assert.equal(closeSession(session.id, 'cli-agent-close', { tombstone: false, ownerClose: true }), true);
+    assert.equal(await closeSession(session.id, 'cli-agent-close', { tombstone: false, ownerClose: true }), true);
     assert.equal(resumableAfterReap(loadSession(session.id)), false, 'owner-closed');
     await tick();
     assert.ok(await rewindSessionMessagesTo(session.id, { text: 'second' }));
@@ -629,7 +629,7 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
       const stderrWrite = process.stderr.write;
       process.stderr.write = () => true;
       try {
-        refused = closeSession(session.id, 'cli-agent-close');
+        refused = await closeSession(session.id, 'cli-agent-close');
       } finally {
         process.stderr.write = stderrWrite;
         if (original) writeFileSync(path, original);

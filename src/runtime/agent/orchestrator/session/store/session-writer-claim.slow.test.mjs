@@ -18,7 +18,7 @@ import {
   loadSession,
   parkSessionSnapshotForDrain,
   releaseIdleSessionWriter,
-  saveSession,
+  saveSessionDurably,
   saveSessionAsync,
   setSessionSaveFault,
 } from '../store.mjs';
@@ -95,12 +95,12 @@ function startPeer(t, root) {
 
 test('a second process cannot overwrite a session another live process holds', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const peer = startPeer(t, f.root);
   await peer.send({ op: 'load', id: f.id });
   const peerSave = await peer.send({ op: 'append', id: f.id, text: 'peer-1' });
   f.session.messages.push({ role: 'assistant', content: 'parent-2' });
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
 
   const onDisk = f.onDisk();
   assert.ok(!peerSave.saved || onDisk.includes('peer-1'), `the peer's landed save was lost: ${JSON.stringify(onDisk)}`);
@@ -117,13 +117,13 @@ test('a second process cannot overwrite a session another live process holds', a
 
 test('a copy loaded before another process wrote is refused after that writer lets go', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const peer = startPeer(t, f.root);
   await peer.send({ op: 'load', id: f.id });
   f.session.messages.push({ role: 'assistant', content: 'parent-2' });
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   // Detach: this process stops writing the session and lets go of it.
-  assert.equal(typeof bumpSessionGeneration(f.id, 'detach'), 'number');
+  assert.equal(typeof (await bumpSessionGeneration(f.id, 'detach')), 'number');
 
   const stale = await peer.send({ op: 'append', id: f.id, text: 'peer-stale' });
   assert.ok(f.onDisk().includes('parent-2'), `the parent's landed save was lost: ${JSON.stringify(f.onDisk())}`);
@@ -158,9 +158,9 @@ test('an exit-drain snapshot is written only as the session writer', async (t) =
 
 test('a late save of a copy this process let go writes nothing, not even through the save worker', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const old = loadSession(f.id);
-  assert.equal(bumpSessionGeneration(f.id, 'detach'), 1);
+  assert.equal(await bumpSessionGeneration(f.id, 'detach'), 1);
   old.messages.push({ role: 'assistant', content: 'late' });
   const late = saveSessionAsync(old);
   // Another holder takes the session the moment this process let it go.
@@ -195,7 +195,7 @@ test('a turn that fails to open gives back the claim it took', async (t) => {
 
 test('an idle session lets its writer lock go and takes it again', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   const pending = saveSessionAsync(f.session);
   assert.equal(await releaseIdleSessionWriter(f.id), false, 'released with a write outstanding');
   await pending;
@@ -207,13 +207,13 @@ test('an idle session lets its writer lock go and takes it again', async (t) => 
   await peer.exit();
   // The copy still kept here is behind the record now: refused, not written over it.
   f.session.messages.push({ role: 'assistant', content: 'parent-stale' });
-  assert.throws(() => saveSession(f.session, { sync: true }), { code: 'ESESSIONCHANGED' });
+  await assert.rejects(saveSessionDurably(f.session), { code: 'ESESSIONCHANGED' });
   assert.deepEqual(f.onDisk(), ['parent-1', 'peer-1']);
 
   // Opened again here, it reads what the peer wrote and writes as before.
   const session = loadSession(f.id);
   session.messages.push({ role: 'assistant', content: 'parent-2' });
-  saveSession(session, { sync: true });
+  await saveSessionDurably(session);
   assert.deepEqual(f.onDisk(), ['parent-1', 'peer-1', 'parent-2']);
 });
 
@@ -237,7 +237,7 @@ test('a turn whose runtime claim fails after its base settled gives back the wri
 
 test('letting a writer lock go never blocks the thread while a rename is in flight', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   // A rename holds the session's commit lock, as the save worker's does mid-commit.
   const rename = acquireWriteCommit(guardedSaveOptions(f.id));
   assert.ok(rename);
@@ -263,7 +263,7 @@ test('letting a writer lock go never blocks the thread while a rename is in flig
 
 test('a released tenure is remembered however many sessions were let go since', async (t) => {
   const f = fixture(t);
-  saveSession(f.session, { sync: true });
+  await saveSessionDurably(f.session);
   assert.equal(await releaseIdleSessionWriter(f.id), true);
   // More released tenures than any cap on remembering them would keep.
   for (let i = 0; i < 4200; i++) {
@@ -278,7 +278,7 @@ test('a released tenure is remembered however many sessions were let go since', 
   await peer.exit();
   // The copy kept here (built in memory, never parsed from a record) is behind it.
   f.session.messages.push({ role: 'assistant', content: 'parent-stale' });
-  assert.throws(() => saveSession(f.session, { sync: true }), { code: 'ESESSIONCHANGED' });
+  await assert.rejects(saveSessionDurably(f.session), { code: 'ESESSIONCHANGED' });
   assert.deepEqual(f.onDisk(), ['parent-1', 'peer-1']);
 });
 
@@ -288,12 +288,12 @@ test('a holder killed outright frees its session at once', async (t) => {
   assert.deepEqual(await peer.send({ op: 'create', id: f.id, text: 'peer-1' }), { saved: true });
   const loaded = loadSession(f.id);
   const refused = { ...loaded, messages: [...loaded.messages, { role: 'assistant', content: 'refused' }] };
-  assert.throws(() => saveSession(refused, { sync: true }), { code: 'ESESSIONCLAIMED' });
+  await assert.rejects(saveSessionDurably(refused), { code: 'ESESSIONCLAIMED' });
 
   // SIGKILL / TerminateProcess: no exit handler runs, the kernel drops the lock.
   await peer.kill();
   const session = loadSession(f.id);
   session.messages.push({ role: 'assistant', content: 'parent-2' });
-  saveSession(session, { sync: true });
+  await saveSessionDurably(session);
   assert.deepEqual(f.onDisk(), ['peer-1', 'parent-2']);
 });

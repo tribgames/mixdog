@@ -130,5 +130,5 @@ export { deleteSession, listOwnedAgentSessionIds, fenceSessionWrites } from './s
 // Read-only parsed-session access (desktop pane peek): no resume, no
 // ownership, no liveness side effects.
 export { loadSession, loadSessionStatus } from './store.mjs';
-export { closeSession, closeSessionAsync, abortSessionTurn, unloadSessionRuntime } from './manager/session-close.mjs';
+export { closeSession, abortSessionTurn, unloadSessionRuntime } from './manager/session-close.mjs';
 export { sweepTombstones, startIdleCleanup, stopIdleCleanup } from './manager/idle-cleanup.mjs';

@@ -31,14 +31,14 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
   // work for a conversation that is being closed. A durable close that fails
   // restores admission with every accepted input intact; one that succeeds
   // leaves the session terminal and settles queued submissions explicitly.
-  function closeCanonical(reason, options) {
+  async function closeCanonical(reason, options) {
     const flags = bag.flags || {};
     const previous = flags.admission || 'open';
-    if (previous === 'terminal') return runtime.closeCanonicalSession?.(reason, options) === true;
+    if (previous === 'terminal') return (await runtime.closeCanonicalSession?.(reason, options)) === true;
     flags.admission = 'closing';
     let closed = false;
     try {
-      closed = runtime.closeCanonicalSession?.(reason, options) === true;
+      closed = (await runtime.closeCanonicalSession?.(reason, options)) === true;
     } catch (error) {
       flags.admission = previous;
       restoreAdmission();

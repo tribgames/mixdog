@@ -43,7 +43,7 @@ export async function prepareStoredTranscriptBase(sessionId, doc, options) {
     else {
       // `doc` is the record exactly as this read parsed it from disk: the
       // durable evidence recovery decides on.
-      session = recoverSessionAfterProcessRestart(sessionId, doc) || session;
+      session = (await recoverSessionAfterProcessRestart(sessionId, doc)) || session;
       // A closed session keeps its marker unrecovered.
       if (session?.activeTurnCheckpoint) projectCheckpoint();
     }

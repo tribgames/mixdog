@@ -712,7 +712,7 @@ test('deleting a session removes its archive; the sweep reaps an orphaned one', 
   const deletedPath = compactionArchivePath(sessionsDir, deleted.id);
   assert.equal(existsSync(deletedPath), true);
   rmSync(join(sessionsDir, `${deleted.id}.json`));
-  assert.equal(deleteSession(deleted.id), true);
+  assert.equal(await deleteSession(deleted.id), true);
   assert.equal(existsSync(deletedPath), false);
 
   const orphan = storedSession('orphan');
@@ -737,7 +737,7 @@ test('a delete that lands while a segment is being published wins, and leaves no
     // The temp file is complete; the session is deleted before it publishes.
     assert.equal(existsSync(tmp), true);
     rmSync(join(sessionsDir, `${session.id}.json`));
-    assert.equal(deleteSession(session.id), true);
+    assert.equal(await deleteSession(session.id), true);
   });
   t.after(() => _setCompactionArchivePublishHook(null));
   scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
@@ -925,7 +925,7 @@ test('a publication refused while the session is live waits for its save to land
 
 test('a delete wakes the parked write: final skip, no segment, number given back', async (t) => {
   const { session, scheduled, log } = await parkedSession(t, 'parked-delete');
-  assert.equal(deleteSession(session.id), true);
+  assert.equal(await deleteSession(session.id), true);
   assert.equal(await scheduled.written, null);
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
   assert.equal(session.compaction.archive.nextSeq, 1);
@@ -1051,7 +1051,7 @@ async function coldSidecar(t, tag) {
 test('a delete removes a cold pending sidecar, so a recreated id imports no deleted history', async (t) => {
   const { session, pending } = await coldSidecar(t, 'cold-delete');
   rmSync(join(sessionsDir, `${session.id}.json`));
-  assert.equal(deleteSession(session.id), true);
+  assert.equal(await deleteSession(session.id), true);
   assert.equal(existsSync(pending), false);
   writeFileSync(join(sessionsDir, `${session.id}.json`), JSON.stringify({ id: session.id }));
   publishSessionPersistence(session.id, 'landed');
@@ -1102,7 +1102,7 @@ test('a session deleted before its segment is written leaves no segment and no g
   const session = storedSession('deleted-gap');
   _setCompactionArchivePublishHook(async () => {
     rmSync(join(sessionsDir, `${session.id}.json`));
-    assert.equal(deleteSession(session.id), true);
+    assert.equal(await deleteSession(session.id), true);
   });
   t.after(() => _setCompactionArchivePublishHook(null));
   const log = await captureStderr(async () => {

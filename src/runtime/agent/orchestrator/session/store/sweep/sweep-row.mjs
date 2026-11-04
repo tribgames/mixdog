@@ -39,7 +39,7 @@ function noteSubAgent(ctx, id, doc) {
 
 /** A closed record: a mature tombstone is deleted; otherwise a stale summary
  *  row that still claims the session open is repaired and the row is kept. */
-function sweepClosedRecord(ctx, row, actual, jsonPath) {
+async function sweepClosedRecord(ctx, row, actual, jsonPath) {
   const { plan, now, tally } = ctx;
   // A shared store can be tombstoned by another process while this process
   // still owns an in-flight controller for the same id. Exclude it before
@@ -59,7 +59,7 @@ function sweepClosedRecord(ctx, row, actual, jsonPath) {
   const age = now - closedAt;
   if (plan.sweepTombstones && Number.isFinite(closedAt) && age >= plan.tombstoneMaxAgeMs) {
     try {
-      if (deleteSession(row.id, { deferSummaryUpdate: true, legacyOwnerVeto: true })) {
+      if (await deleteSession(row.id, { deferSummaryUpdate: true, legacyOwnerVeto: true, singleAttempt: true })) {
         tally.tombstonesCleaned++;
         tally.tombstoneDetails.push({ id: row.id, ageSeconds: Math.floor(age / 1000) });
         return;
@@ -94,7 +94,7 @@ function sweepClosedRecord(ctx, row, actual, jsonPath) {
  *  that no sweep may touch. Reap once cold; the liveness veto inside
  *  deleteSession still protects an in-flight boot, local or in a live older
  *  process. */
-function sweepUserOwnedRecord(ctx, row, record, eff) {
+async function sweepUserOwnedRecord(ctx, row, record, eff) {
   const { plan, now, tally } = ctx;
   const conversationCount = Number.isFinite(record.conversationCount)
     ? record.conversationCount
@@ -108,10 +108,11 @@ function sweepUserOwnedRecord(ctx, row, record, eff) {
   ) {
     try {
       if (
-        deleteSession(row.id, {
+        await deleteSession(row.id, {
           deferSummaryUpdate: true,
           isSessionLive: plan.isSessionLive,
           legacyOwnerVeto: true,
+          singleAttempt: true,
         })
       ) {
         tally.openPruned++;
@@ -127,7 +128,7 @@ function sweepUserOwnedRecord(ctx, row, record, eff) {
 
 /** Closes an idle session. Close is destructive, so the in-memory runtime
  *  ownership is re-checked at the commit edge. */
-function closeIdleRecord(ctx, row, eff, { lastActive }) {
+async function closeIdleRecord(ctx, row, eff, { lastActive }) {
   const { plan, now, tally } = ctx;
   if (plan.isSessionLive?.(row.id)) {
     tally.remaining++;
@@ -135,7 +136,11 @@ function closeIdleRecord(ctx, row, eff, { lastActive }) {
   }
   let closeResult = null;
   try {
-    closeResult = markSessionClosed(row.id, 'idle-sweep', { isSessionLive: plan.isSessionLive, legacyOwnerVeto: true });
+    closeResult = await markSessionClosed(row.id, 'idle-sweep', {
+      isSessionLive: plan.isSessionLive,
+      legacyOwnerVeto: true,
+      singleAttempt: true,
+    });
   } catch (err) {
     process.stderr.write(`[session-store] idle-sweep close failed for ${row.id}: ${err?.message}\n`);
     return;
@@ -154,7 +159,7 @@ function closeIdleRecord(ctx, row, eff, { lastActive }) {
 
 /** An open record: the freshness gate, then user permanence, the running
  *  backstop, the idle close, or a retention-cap candidacy. */
-function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
+async function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   const { plan, now, tally } = ctx;
   // An agent's home thread is permanent, blank or not: no idle close, no
   // blank-scratch prune, no retention cap. So are a group room's sessions.
@@ -183,7 +188,7 @@ function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   // Every explicitly owned conversation has the same retention policy.
   // Only ownerless legacy records enter idle closure and the retention cap.
   if (ownerNamed) {
-    sweepUserOwnedRecord(ctx, row, record, eff);
+    await sweepUserOwnedRecord(ctx, row, record, eff);
     return;
   }
   if (!plan.sweepIdle) {
@@ -207,7 +212,7 @@ function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
     return;
   }
   if (now - lastActive > plan.maxAge) {
-    closeIdleRecord(ctx, row, eff, { lastActive });
+    await closeIdleRecord(ctx, row, eff, { lastActive });
     return;
   }
   if (plan.retainOpen) tally.openCandidates.push({ id: row.id, lastActive });
@@ -218,7 +223,7 @@ function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
  *  would otherwise be reported forever as an unreadable session: its bytes are
  *  kept aside as `<id>.json.corrupt-<ts>` (deleteSession, under the commit
  *  lock and its liveness vetoes) and the session's row is retired with it. */
-function sweepNoDataRecord(ctx, row) {
+async function sweepNoDataRecord(ctx, row) {
   const { plan, tally } = ctx;
   if (plan.isSessionLive?.(row.id)) {
     tally.remaining++;
@@ -226,10 +231,11 @@ function sweepNoDataRecord(ctx, row) {
   }
   try {
     if (
-      deleteSession(row.id, {
+      await deleteSession(row.id, {
         deferSummaryUpdate: true,
         isSessionLive: plan.isSessionLive,
         legacyOwnerVeto: true,
+        singleAttempt: true,
         // The no-data verdict predates the commit lock: a record repaired or
         // republished since is valid content and must survive.
         damagedOnly: true,
@@ -245,7 +251,11 @@ function sweepNoDataRecord(ctx, row) {
   tally.remaining++;
 }
 
-export function sweepRow(ctx, row) {
+/** Resolves once the row's verdict is applied. The verdict holds only for the
+ *  record read in this stretch: a close or delete that finds a commit of the
+ *  session still landing lands nothing (`singleAttempt`), and the row is
+ *  kept for the next pass to decide again. */
+export async function sweepRow(ctx, row) {
   if (!row?.id) return;
   const { tally } = ctx;
   const jsonPath = sessionPath(row.id);
@@ -272,7 +282,7 @@ export function sweepRow(ctx, row) {
   // TOMBSTONE that would look perfectly mature) is preserved untouched.
   const record = readSweepRecord(row.id, jsonPath, jsonProbe);
   if (record === SWEEP_RECORD_NO_DATA) {
-    sweepNoDataRecord(ctx, row);
+    await sweepNoDataRecord(ctx, row);
     return;
   }
   if (record === null || isLifecycleUnreadable(record) || record.id !== row.id) {
@@ -288,10 +298,10 @@ export function sweepRow(ctx, row) {
   }
   if (record.closed === true || actual.status === 'closed') {
     const cleanedBefore = ctx.tally.tombstonesCleaned;
-    sweepClosedRecord(ctx, row, actual, jsonPath);
+    await sweepClosedRecord(ctx, row, actual, jsonPath);
     // A tombstone this sweep just deleted is gone, not a member.
     if (ctx.tally.tombstonesCleaned === cleanedBefore) noteSubAgent(ctx, row.id, actual);
     return;
   }
-  sweepOpenRecord(ctx, row, record, { jsonMtime: jsonProbe.mtimeMs || 0 });
+  await sweepOpenRecord(ctx, row, record, { jsonMtime: jsonProbe.mtimeMs || 0 });
 }

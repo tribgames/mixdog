@@ -104,7 +104,7 @@ export function publishLandedWriteEpoch(opts, epoch) {
  * True when a STRICTLY NEWER save already landed on disk for this id, i.e.
  * committing this snapshot would revert durable history. Covers the exit
  * drain of an outstanding older payload and an older worker write finishing
- * after a newer sync/async write (the commit lock serialises renames, it does
+ * after a newer write (the commit lock serialises renames, it does
  * not order them by content age).
  */
 export function isStaleWriteEpoch(opts) {
@@ -141,15 +141,25 @@ function _waitLockSlice(control, deadline) {
   Atomics.wait(control, 1, 1, slice);
 }
 
-export function acquireWriteCommit(opts, options = {}) {
-  const guard = opts?._sessionWriteGuard;
-  if (!guard?.buffer) return null;
-  const control = new Int32Array(guard.buffer);
-  const deadline = _lockDeadline(options.timeoutMs);
-  while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
-    if (Date.now() >= deadline) return WRITE_COMMIT_TIMEOUT;
-    _waitLockSlice(control, deadline);
+/**
+ * Sentinel returned by tryAcquireWriteCommit while another commit holds the
+ * id's lock. Nothing was taken: the caller waits for that commit's release
+ * (writeCommitSettled) and runs its whole attempt again.
+ */
+export const WRITE_COMMIT_BUSY = Symbol('session-write-commit-busy');
+
+// Resolves once the lock slot reads free; the release's Atomics.notify wakes
+// it, and a release that already happened is seen by the load.
+async function _untilCommitReleased(control) {
+  while (Atomics.load(control, 1) !== 0) {
+    const waiting = Atomics.waitAsync(control, 1, 1);
+    if (waiting.async) await waiting.value;
   }
+}
+
+// The lock was just taken: refuse a cancelled write and one a newer landed
+// write made stale while it waited, both checked UNDER the lock.
+function _heldWriteCommit(opts, control) {
   if (isCancelledWrite(opts)) {
     releaseWriteCommit(control);
     return false;
@@ -161,6 +171,43 @@ export function acquireWriteCommit(opts, options = {}) {
     return WRITE_COMMIT_STALE;
   }
   return control;
+}
+
+/**
+ * Blocking acquisition, for a realm that may wait on its thread: the save
+ * worker, and the exit drain with its bounded `timeoutMs`. The main thread
+ * takes the lock with tryAcquireWriteCommit / acquireWriteCommitAsync.
+ */
+export function acquireWriteCommit(opts, options = {}) {
+  const guard = opts?._sessionWriteGuard;
+  if (!guard?.buffer) return null;
+  const control = new Int32Array(guard.buffer);
+  const deadline = _lockDeadline(options.timeoutMs);
+  while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
+    if (Date.now() >= deadline) return WRITE_COMMIT_TIMEOUT;
+    _waitLockSlice(control, deadline);
+  }
+  return _heldWriteCommit(opts, control);
+}
+
+/** One compare-exchange, never a wait: WRITE_COMMIT_BUSY while another commit
+ *  holds the lock, else exactly what acquireWriteCommit returns. */
+export function tryAcquireWriteCommit(opts) {
+  const guard = opts?._sessionWriteGuard;
+  if (!guard?.buffer) return null;
+  const control = new Int32Array(guard.buffer);
+  if (Atomics.compareExchange(control, 1, 0, 1) !== 0) return WRITE_COMMIT_BUSY;
+  return _heldWriteCommit(opts, control);
+}
+
+/** acquireWriteCommit without blocking the thread: each refused attempt
+ *  awaits the holder's release, then takes the lock with a compare-exchange. */
+export async function acquireWriteCommitAsync(opts) {
+  for (;;) {
+    const held = tryAcquireWriteCommit(opts);
+    if (held !== WRITE_COMMIT_BUSY) return held;
+    await _untilCommitReleased(new Int32Array(opts._sessionWriteGuard.buffer));
+  }
 }
 
 export function releaseWriteCommit(control) {
@@ -177,12 +224,7 @@ export function releaseWriteCommit(control) {
 export function writeCommitSettled(id) {
   const control = _writeControls.get(id);
   if (!control || Atomics.load(control, 1) === 0) return null;
-  return (async () => {
-    while (Atomics.load(control, 1) !== 0) {
-      const waiting = Atomics.waitAsync(control, 1, 1);
-      if (waiting.async) await waiting.value;
-    }
-  })();
+  return _untilCommitReleased(control);
 }
 
 /**

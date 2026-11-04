@@ -5,14 +5,12 @@
 // abortSessionTurn cancels the current turn without tombstoning.
 import {
   markSessionClosed,
-  markSessionClosedAsync,
   markSessionClosedAttempt,
-  bumpSessionGeneration,
   bumpSessionGenerationAttempt,
   isLifecycleRetry,
+  waitForLifecycleRetry,
   getSessionLifecycleCommitError,
 } from '../store.mjs';
-import { sleep } from '../../../../shared/sleep.mjs';
 import { clearReadDedupSession } from '../read-dedup.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { _dropPendingMessageState } from './pending-messages.mjs';
@@ -49,34 +47,29 @@ import { registerSessionPurgeHook } from '../store/session-observers.mjs';
  *
  * Long-term cleanup: `sweepTombstones()` (idle-cleanup.mjs) unlinks tombstones older than
  * TOMBSTONE_MAX_AGE_MS (1h — vastly longer than the microsecond in-flight race).
- */
-export function closeSession(id, reason = 'manual', opts = {}) {
-  if (!id) return false;
-  const tombstone = opts.tombstone !== false;
-  const entry = _getRuntimeEntry(id);
-  const closeSnapshot = stageCloseSnapshot(entry, reason);
-  const outcome = { absent: false };
-  const newGen = tombstone
-    ? markSessionClosed(id, reason, { outcome })
-    : bumpSessionGeneration(id, reason, { outcome, ownerClose: opts.ownerClose === true });
-  return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
-}
-
-/**
- * closeSession that never blocks the event loop. Each barrier attempt runs
- * synchronously exactly as closeSession's barrier does (the first one before
- * this function first yields), but a rename the OS refuses with retries left
- * is waited out with a timer instead of sleepSync. Between attempts the staged
- * close snapshot is rolled back, so the turn keeps running untouched, and it
- * is re-staged from the then-current turn right before the next attempt: the
+ *
+ * Resolves whether the close landed, and never blocks the event loop. Each
+ * barrier attempt stages the close snapshot and runs the barrier in one
+ * synchronous stretch (the first one before this function first yields). An
+ * attempt that finds another thread's commit of the session holding the
+ * commit lock runs again once that commit lands, and a rename the OS refuses
+ * with retries left is waited out with a timer. Between attempts the staged
+ * snapshot is rolled back, so the turn keeps running untouched, and it is
+ * re-staged from the then-current turn right before the next attempt: the
  * barrier that lands always carries the latest transcript. The session is
  * torn down — and reported closed — only after its barrier is on disk.
+ * Nothing read before a wait is trusted after it: every attempt resolves the
+ * runtime entry anew (a turn may have registered meanwhile) and asks
+ * `opts.isSessionLive(id)` first; a session that turned live backs the close
+ * out, changing nothing, and it resolves false.
  */
-export async function closeSessionAsync(id, reason = 'manual', opts = {}) {
+export async function closeSession(id, reason = 'manual', opts = {}) {
   if (!id) return false;
   const tombstone = opts.tombstone !== false;
-  const entry = _getRuntimeEntry(id);
-  for (let attempt = 0; ; attempt++) {
+  let attempt = 0;
+  for (;;) {
+    if (typeof opts.isSessionLive === 'function' && opts.isSessionLive(id)) return false;
+    const entry = _getRuntimeEntry(id);
     const closeSnapshot = stageCloseSnapshot(entry, reason);
     const outcome = { absent: false };
     const newGen = tombstone
@@ -86,7 +79,7 @@ export async function closeSessionAsync(id, reason = 'manual', opts = {}) {
       return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
     }
     closeSnapshot?.rollback();
-    await sleep(newGen.retryInMs);
+    attempt = await waitForLifecycleRetry(id, newGen, attempt);
   }
 }
 
@@ -125,8 +118,8 @@ function stageCloseSnapshot(entry, reason) {
 // burned-session late-save clobber).
 function finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome }) {
   // Durable lifecycle barrier check. ANY nonnumeric result means the barrier
-  // is not on disk — a write failure, a liveness/ownership veto, a contended
-  // commit lock, or a missing record. Only a failed write publishes a
+  // is not on disk — a write failure, a liveness/ownership veto, a cancelled
+  // guard, or a missing record. Only a failed write publishes a
   // lifecycle commit error, so a detail-less null is not evidence of success.
   // Without the barrier there is no tombstone and no generation bump fencing
   // a late save: tearing down here would abort the provider and clear the
@@ -164,7 +157,7 @@ function finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outc
  */
 function reportCloseBarrierFailure({ id, reason, tombstone, entry }) {
   const commitError = getSessionLifecycleCommitError(id);
-  let detail = 'no durable barrier written (veto or contended commit)';
+  let detail = 'no durable barrier written (veto or cancelled guard)';
   if (commitError) {
     const code = commitError.code ? ` (${commitError.code})` : '';
     detail = `${commitError.message}${code}`;
@@ -208,7 +201,7 @@ function cancelOwnedShellProcesses({ id, reason, tombstone }) {
   const record = (result) => {
     // Off the event loop's critical path: a refused rename retries on timers.
     if (tombstone && result?.confirmed === false) {
-      markSessionClosedAsync(id, reason, { cancelStatus: 'cancel-unconfirmed' }).catch(() => {});
+      markSessionClosed(id, reason, { cancelStatus: 'cancel-unconfirmed' }).catch(() => {});
     }
   };
   // A cancel that threw proved nothing either.

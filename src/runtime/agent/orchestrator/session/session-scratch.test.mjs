@@ -47,23 +47,23 @@ test('a desktop session scratch directory stays short whatever the id length', (
 // Earlier versions named the folder after the id, and a delete still removes
 // that legacy folder: an id spelled like another session's folder name must
 // never take that session's scratch with it.
-test('deleting a session whose id spells another session folder name leaves that scratch alone', () => {
+test('deleting a session whose id spells another session folder name leaves that scratch alone', async () => {
   const victim = ensureSessionScratchDir('sess_review_victim');
   writeFileSync(join(victim, 'note.txt'), 'x');
   const lookalike = relative(join(resolvePluginData(), 'scratch'), victim).replace(/^s\./, '');
   for (const id of [lookalike, `s${lookalike}`]) {
     ensureSessionScratchDir(id);
-    deleteSession(id);
+    await deleteSession(id);
   }
   assert.equal(existsSync(join(victim, 'note.txt')), true);
 });
 
-test('deleting a session removes its scratch directory', () => {
+test('deleting a session removes its scratch directory', async () => {
   const id = 'sess_scratch_delete';
   const dir = ensureSessionScratchDir(id);
   const other = ensureSessionScratchDir('sess_scratch_keep');
   writeFileSync(join(dir, 'note.txt'), 'x');
-  assert.equal(deleteSession(id), true);
+  assert.equal(await deleteSession(id), true);
   assert.equal(existsSync(dir), false);
   assert.equal(existsSync(other), true);
 });

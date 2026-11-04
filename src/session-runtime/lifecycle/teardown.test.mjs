@@ -632,9 +632,9 @@ test('a scratch session is tombstoned and an empty runtime closes without a sess
   empty.cleanup();
 });
 
-test('closeCanonicalSession fences execution without tombstoning a conversation', () => {
+test('closeCanonicalSession fences execution without tombstoning a conversation', async () => {
   const f = fixture();
-  assert.equal(f.teardown.closeCanonicalSession(), true);
+  assert.equal(await f.teardown.closeCanonicalSession(), true);
   assert.deepEqual(f.named('mgr.closeSession'), [
     ['mgr.closeSession', 's1', 'canonical-session-close', { tombstone: false }],
   ]);

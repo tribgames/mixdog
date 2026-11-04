@@ -138,7 +138,7 @@ test('evidence of a dead worker is rebuilt only while it provably matches what w
     await saveSessionAsync(session, { expectedGeneration: 1 });
     // The posted write is refused before the commit lock, so terminating
     // the detached instance cannot strand that lock.
-    assert.equal(bumpSessionGeneration(id, 'evidence-test'), 2);
+    assert.equal(await bumpSessionGeneration(id, 'evidence-test'), 2);
     // Opened here again (as a turn does): the old-generation save is posted.
     claimSessionWriter(id);
     session.messages = [...session.messages, { role: 'assistant', content: 'attempted' }];

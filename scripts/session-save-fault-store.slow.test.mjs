@@ -53,7 +53,7 @@
  *      than a save that already succeeded is refused before it touches
  *      canonical bytes, so durable history is never reverted.
  *   C21 the same fence at the worker boundary — an older worker write that
- *      finishes after a newer sync write cannot rename over it.
+ *      finishes after a newer durable write cannot rename over it.
  *   C22 a stale-epoch refusal is NOT an ownership drop: canonical bytes are
  *      unchanged, no drop marker, no save error, and the live snapshot stays
  *      immediately evictable.
@@ -129,6 +129,7 @@ const {
   _detachSaveWorkerForTest,
   _evictWorkerDeltaBaseForTest,
   _probeWorkerDeltaBaseForTest,
+  _saveWorkerForTest,
   _saveAsyncInflight,
   _saveAsyncQueued,
   _saveWorkerPending,
@@ -150,6 +151,7 @@ const { listStoredSessionSummariesAsync } = await import(
 );
 const {
   saveSession,
+  saveSessionDurably,
   saveSessionAsync,
   saveSessionAsyncDeferred,
   loadSession,
@@ -179,7 +181,59 @@ const makeSession = (overrides = {}) => ({
   ...overrides,
 });
 
-test('sync save failure: a failed atomic save surfaces, preserves disk + live state, and leaks no scratch file', async (t) => {
+/**
+ * Park `session` for the exit drain as a deferred snapshot issued at the
+ * earlier `epoch`, exactly as saveSessionAsyncDeferred registers one. Every
+ * save awaits its I/O, and a real deferred snapshot is promoted to the
+ * worker one check phase after it is issued, so one issued before a newer
+ * save that has settled is parked here directly. Settles with the drain.
+ */
+/**
+ * Hold the save worker's reply to the write of `id` now in flight — the
+ * settlement every callback of that write waits for — until `release()`.
+ * Other replies pass through as they arrive. `release()` hands over a reply
+ * that already came and lets one still to come through; the worker answers
+ * in order, so a write posted in the release's own tick settles after it.
+ */
+function holdWorkerReply(id) {
+  const reqId = _saveAsyncInflight.get(id);
+  const worker = _saveWorkerForTest();
+  assert.ok(worker && Number.isFinite(reqId), `a worker write of ${id} is in flight`);
+  const listeners = worker.listeners('message');
+  let held = null;
+  const deliver = (message) => {
+    for (const listener of listeners) listener.call(worker, message);
+  };
+  const route = (message) => {
+    if (held === null && message?.reqId === reqId) held = message;
+    else deliver(message);
+  };
+  worker.removeAllListeners('message');
+  worker.on('message', route);
+  return {
+    release() {
+      worker.off('message', route);
+      for (const listener of listeners) worker.on('message', listener);
+      if (held !== null) deliver(held);
+    },
+  };
+}
+
+function parkDeferredSnapshot(session, epoch) {
+  return new Promise((resolve, reject) => {
+    _deferredSessionSaves.set(Symbol('parked'), {
+      session,
+      opts: guardedSaveOptions(session.id, null, epoch),
+      epoch,
+      revision: 0,
+      incarnation: _acquireSessionIncarnation(session.id),
+      resolve,
+      reject,
+    });
+  });
+}
+
+test('durable save failure: a failed atomic save surfaces, preserves disk + live state, and leaks no scratch file', async (t) => {
   t.after(() => setSessionSaveFault(null));
   const id = 'sess_save_fault_commit';
   const diskPath = join(sessionsDir, `${id}.json`);
@@ -196,7 +250,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
   };
 
   // Baseline: one landed save is the last-good canonical JSON.
-  saveSession(session, { sync: true });
+  await saveSessionDurably(session);
   const canonical = readFileSync(diskPath, 'utf8');
   assert.equal(JSON.parse(canonical).messages.length, 2);
   const baselineRow = (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).find((row) => row.id === id);
@@ -207,9 +261,9 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
   session.updatedAt = Date.now();
   setSessionSaveFault({ ids: id, count: 1 });
 
-  await t.test('C1 the failure surfaces and the canonical file is untouched', () => {
-    assert.throws(
-      () => saveSession(session, { sync: true }),
+  await t.test('C1 the failure surfaces and the canonical file is untouched', async () => {
+    await assert.rejects(
+      saveSessionDurably(session),
       /injected save commit fault/,
       'an impossible save must surface, not silently succeed'
     );
@@ -217,19 +271,19 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     assert.equal(JSON.parse(readFileSync(diskPath, 'utf8')).messages.length, 2);
     assert.ok(getSessionSaveError(id), 'save error recorded for the id');
   });
-  await t.test('C7 the failed save leaves no scratch orphan', () => {
+  await t.test('C7 the failed save leaves no scratch orphan', async () => {
     assert.deepEqual(listTmp(sessionsDir), [], 'no sessions/<id>.json.*.tmp survives the failure');
   });
-  await t.test('C2 the newest live snapshot stays readable after the failure', () => {
+  await t.test('C2 the newest live snapshot stays readable after the failure', async () => {
     assert.equal(loadSession(id).messages.length, 4);
     assert.equal(loadSession(id).messages.at(-1).content, 'newest turn');
   });
-  await t.test('C3 idle eviction cannot drop the only-good in-memory state', () => {
+  await t.test('C3 idle eviction cannot drop the only-good in-memory state', async () => {
     evictIdleLiveSessions({ isSessionLive: () => false });
     evictIdleLiveSessions({ isSessionLive: () => false });
     assert.equal(loadSession(id).messages.length, 4, 'live snapshot survives the idle sweep');
   });
-  await t.test('C5 a failed save owns neither generation nor summary row', () => {
+  await t.test('C5 a failed save owns neither generation nor summary row', async () => {
     const lifecycle = readSessionLifecycleFromDisk(id);
     assert.equal(lifecycle.generation, 0, 'no ownership/generation bump from a failed save');
     assert.equal(lifecycle.closed, false, 'no tombstone planted by a failed save');
@@ -237,7 +291,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     assert.equal(row.messageCount, baselineRow.messageCount, 'summary row still reflects durable state');
     assert.equal(row.generation, 0);
   });
-  await t.test('C2/C4 an unreadable file is masked ONLY by the snapshot whose own save failed', () => {
+  await t.test('C2/C4 an unreadable file is masked ONLY by the snapshot whose own save failed', async () => {
     // Torn/foreign bytes at the canonical path of the failed-save id:
     // the snapshot THIS process failed to write is the only good copy,
     // so readers must see it.
@@ -257,7 +311,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     const externalId = 'sess_external_corruption';
     const externalPath = join(sessionsDir, `${externalId}.json`);
     const external = makeSession({ id: externalId, messages: [{ role: 'user', content: 'external' }] });
-    saveSession(external, { sync: true });
+    await saveSessionDurably(external);
     assert.equal(getSessionSaveError(externalId), null);
     assert.equal(loadSession(externalId).messages.length, 1);
     writeFileSync(externalPath, 'not json at all', 'utf8');
@@ -276,7 +330,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     assert.equal(getSessionSaveError(liveOnlyId), null, 'no failed save was recorded for this id');
     assert.equal(loadSession(liveOnlyId), null, 'an ambiguous record is never masked by live state');
   });
-  await t.test('C30 the recovery snapshot is an immutable point-in-time copy, retired by a hard delete', () => {
+  await t.test('C30 the recovery snapshot is an immutable point-in-time copy, retired by a hard delete', async () => {
     // The canonical file is still the torn record written by C2/C4.
     // (a) MUTATION control: the live object keeps changing after the
     //     failure; the fallback must reproduce the payload that was
@@ -295,13 +349,13 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     const reuseId = 'sess_delete_snapshot_reuse';
     const reusePath = join(sessionsDir, `${reuseId}.json`);
     const reuseSession = makeSession({ id: reuseId, messages: [{ role: 'user', content: 'first incarnation' }] });
-    saveSession(reuseSession, { sync: true });
+    await saveSessionDurably(reuseSession);
     setSessionSaveFault({ ids: reuseId, count: 1 });
     reuseSession.messages.push({ role: 'assistant', content: 'never landed' });
-    assert.throws(() => saveSession(reuseSession, { sync: true }), /injected save commit fault/);
+    await assert.rejects(saveSessionDurably(reuseSession), /injected save commit fault/);
     setSessionSaveFault(null);
     assert.ok(getSessionSaveError(reuseId), 'the failed save recorded its snapshot');
-    assert.equal(deleteSession(reuseId), true, 'the record is hard-deleted');
+    assert.equal(await deleteSession(reuseId), true, 'the record is hard-deleted');
     assert.equal(getSessionSaveError(reuseId), null, 'the delete purged the failure evidence');
 
     const recreated = makeSession({
@@ -310,17 +364,17 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
       updatedAt: Date.now(),
       messages: [{ role: 'user', content: 'second incarnation' }],
     });
-    saveSession(recreated, { sync: true });
+    await saveSessionDurably(recreated);
     writeFileSync(reusePath, 'not json at all', 'utf8');
     assert.equal(loadSession(reuseId), null, 'a re-created id inherits no retired snapshot');
     rmSync(reusePath);
   });
-  await t.test('C6 a repaired canonical path lets the next save land and clears the error', () => {
+  await t.test('C6 a repaired canonical path lets the next save land and clears the error', async () => {
     // The record from C2/C4 is still unreadable, so ownership cannot be
     // established: an ordinary save must NOT rename over it, even
     // though the fault budget is spent and the write itself would work.
     const torn = readFileSync(diskPath, 'utf8');
-    saveSession(session, { sync: true });
+    await saveSessionDurably(session);
     assert.equal(readFileSync(diskPath, 'utf8'), torn, 'no save overwrites an unreadable record');
     assert.ok(getSessionSaveError(id), 'the failure marker survives a refused write');
     assert.equal(loadSession(id).messages.length, 4, 'and the only-good snapshot is still served');
@@ -328,7 +382,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     // Repair (operator/other writer removes the corrupt file): the
     // canonical path is now absent, so the same save creates it.
     rmSync(diskPath);
-    saveSession(session, { sync: true });
+    await saveSessionDurably(session);
     const stored = JSON.parse(readFileSync(diskPath, 'utf8'));
     assert.equal(stored.messages.length, 4);
     assert.equal(stored.messages.at(-1).content, 'newest turn');
@@ -337,7 +391,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     evictIdleLiveSessions({ isSessionLive: () => false });
     assert.equal(loadSession(id).messages.length, 4, 'durable disk copy serves reads after eviction');
   });
-  await t.test('C7 bounded scratch cleanup: registry-only, exact pattern, no scan', () => {
+  await t.test('C7 bounded scratch cleanup: registry-only, exact pattern, no scan', async () => {
     const registered = join(sessionsDir, `${id}.json.aaaaaaaaaaaa.tmp`);
     const foreignActive = join(sessionsDir, `${id}.json.bbbbbbbbbbbb.tmp`);
     const misnamed = join(sessionsDir, `${id}.json.notahexname.tmp`);
@@ -378,7 +432,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     for (const p of [foreignActive, misnamed, unrelated]) rmSync(p, { force: true });
     assert.deepEqual(listTmp(sessionsDir), []);
   });
-  await t.test('C17 exit cleanup drains the whole registry and keeps retry ownership', () => {
+  await t.test('C17 exit cleanup drains the whole registry and keeps retry ownership', async () => {
     // More than one chunk (64) of registered scratch files.
     const many = [];
     for (let i = 0; i < 80; i += 1) {
@@ -408,7 +462,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     const closeId = 'sess_save_fault_close';
     const closePath = join(sessionsDir, `${closeId}.json`);
     const closeTarget = makeSession({ id: closeId, messages: [{ role: 'user', content: 'c1' }] });
-    saveSession(closeTarget, { sync: true });
+    await saveSessionDurably(closeTarget);
     const goodBytes = readFileSync(closePath, 'utf8');
     const entry = _touchRuntime(closeId);
     const controller = new AbortController();
@@ -416,7 +470,7 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
     entry.session = closeTarget;
 
     setSessionSaveFault({ ids: closeId, count: 1 });
-    assert.equal(closeSession(closeId, 'fault-test'), false, 'a failed barrier is not a close');
+    assert.equal(await closeSession(closeId, 'fault-test'), false, 'a failed barrier is not a close');
     assert.equal(controller.signal.aborted, false, 'provider/controller not aborted');
     assert.notEqual(entry.closed, true, 'runtime not marked closed');
     const commitError = getSessionLifecycleCommitError(closeId);
@@ -430,12 +484,12 @@ test('sync save failure: a failed atomic save surfaces, preserves disk + live st
 
     // Detach barrier obeys the same contract.
     setSessionSaveFault({ ids: closeId, count: 1 });
-    assert.equal(bumpSessionGeneration(closeId, 'fault-detach'), null);
+    assert.equal(await bumpSessionGeneration(closeId, 'fault-detach'), null);
     assert.ok(getSessionLifecycleCommitError(closeId), 'detach failure surfaced');
     assert.equal(readSessionLifecycleFromDisk(closeId).generation, 0);
 
     // Fault budget spent: the close now lands and reports success.
-    assert.equal(closeSession(closeId, 'fault-test'), true);
+    assert.equal(await closeSession(closeId, 'fault-test'), true);
     assert.equal(readSessionLifecycleFromDisk(closeId).closed, true);
     assert.equal(getSessionLifecycleCommitError(closeId), null);
     assert.equal(entry.closed, true);
@@ -476,7 +530,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     const dropPath = join(sessionsDir, `${dropId}.json`);
     const dropSession = makeSession({ id: dropId, messages: [{ role: 'user', content: 'd1' }] });
     await saveSessionAsync(dropSession);
-    assert.equal(bumpSessionGeneration(dropId, 'test-detach'), 1);
+    assert.equal(await bumpSessionGeneration(dropId, 'test-detach'), 1);
     assert.equal(claimSessionWriter(dropId).held, true, 'opened here again as its writer');
     setLiveSession(dropSession);
     const afterBump = readFileSync(dropPath, 'utf8');
@@ -552,13 +606,16 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // Older payload: projected + posted NOW, still in the worker.
     raceSession.messages.push({ role: 'assistant', content: 'r2-worker' });
     const older = saveSessionAsync(raceSession);
+    // Its settlement is held until the newer failure below is recorded.
+    const olderSettlement = holdWorkerReply(raceId);
     // Newer turn, whose own commit fails while that write is in flight.
     raceSession.messages.push({ role: 'user', content: 'r3-live-only' });
     setSessionSaveFault({ ids: raceId, count: 1 });
-    assert.throws(() => saveSession(raceSession, { sync: true }), /injected save commit fault/);
+    await assert.rejects(saveSessionDurably(raceSession), /injected save commit fault/);
     assert.ok(getSessionSaveError(raceId), 'the newer failure is recorded');
 
-    await older; // the OLDER write lands afterwards
+    olderSettlement.release();
+    await older; // the OLDER write settles afterwards
     assert.equal(JSON.parse(readFileSync(racePath, 'utf8')).messages.length, 2, 'the older write did land');
     assert.ok(getSessionSaveError(raceId), 'an older landed write must not clear a newer failure');
     evictIdleLiveSessions({ isSessionLive: () => false });
@@ -613,7 +670,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // Ownership moves on first, so the in-flight write below can never
     // reach a rename (the worker drops it): terminating the detached
     // instance afterwards can never strand a commit lock.
-    assert.equal(bumpSessionGeneration(flightId, 'detach-test'), 1);
+    assert.equal(await bumpSessionGeneration(flightId, 'detach-test'), 1);
     assert.equal(claimSessionWriter(flightId).held, true, 'opened here again: the old-generation save is posted');
     const inFlight = saveSessionAsync(flightSession, { expectedGeneration: 0 }); // inside the worker
     const dead = _detachSaveWorkerForTest();
@@ -658,7 +715,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
   await t.test('A2 failure evidence is the attempted payload, not the later live session', async () => {
     const workerId = 'sess_attempt_snapshot_worker';
     const workerSession = makeSession({ id: workerId, messages: [{ role: 'user', content: 'w1' }] });
-    saveSession(workerSession, { sync: true });
+    await saveSessionDurably(workerSession);
     workerSession.messages.push({ role: 'assistant', content: 'attempted' });
     setSessionSaveFault({ ids: workerId, count: 1 });
     const pending = saveSessionAsync(workerSession);
@@ -671,7 +728,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
 
     const inProcId = 'sess_attempt_snapshot_inproc';
     const inProcSession = makeSession({ id: inProcId, messages: [{ role: 'user', content: 'p1' }] });
-    saveSession(inProcSession, { sync: true });
+    await saveSessionDurably(inProcSession);
     inProcSession.messages.push({ role: 'assistant', content: 'attempted' });
     setSessionSaveFault({ ids: inProcId, count: 1 });
     saveSession(inProcSession, { immediate: true });
@@ -717,7 +774,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // (a) projection SUCCEEDS, postMessage clone fails (unclonable opt).
     const postId = 'sess_post_clone_fail';
     const postSession = makeSession({ id: postId, messages: [{ role: 'user', content: 'q1' }] });
-    saveSession(postSession, { sync: true });
+    await saveSessionDurably(postSession);
     postSession.messages.push({ role: 'assistant', content: 'attempted' });
     await assert.rejects(saveSessionAsync(postSession, { probe: () => {} }));
     postSession.messages.push({ role: 'user', content: 'mutated-after-post' });
@@ -729,7 +786,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // (b) projection itself fails: nothing was attempted, so no evidence.
     const circId = 'sess_projection_fail';
     const circSession = makeSession({ id: circId, messages: [{ role: 'user', content: 'z1' }] });
-    saveSession(circSession, { sync: true });
+    await saveSessionDurably(circSession);
     circSession.messages.push({ role: 'assistant', content: 'z2' });
     circSession.messages.at(-1).selfRef = circSession.messages.at(-1);
     await assert.rejects(saveSessionAsync(circSession));
@@ -767,7 +824,7 @@ test('worker save failure: async, deferred and worker-realm faults keep identity
     // Ownership moves on first: the posted write is then refused by the
     // worker BEFORE it can take the commit lock, so terminating the
     // detached instance later can never strand that lock.
-    assert.equal(bumpSessionGeneration(queuedId, 'b1-detach'), 1);
+    assert.equal(await bumpSessionGeneration(queuedId, 'b1-detach'), 1);
     assert.equal(claimSessionWriter(queuedId).held, true, 'opened here again: both saves reach the worker');
     const good = readFileSync(queuedPath, 'utf8');
     queuedSession.messages.push({ role: 'assistant', content: 'attempted' });
@@ -964,11 +1021,11 @@ process.exit(0);
 
 test('epoch fence: the drain and landed-epoch fence never revert newer durable state', async (t) => {
   t.after(() => setSessionSaveFault(null));
-  await t.test('C12 the exit drain flushes the NEWEST queued snapshot', () => {
+  await t.test('C12 the exit drain flushes the NEWEST queued snapshot', async () => {
     const drainId = 'sess_save_fault_drain';
     const drainPath = join(sessionsDir, `${drainId}.json`);
     const base = makeSession({ id: drainId, messages: [{ role: 'user', content: 'older-payload' }] });
-    saveSession(base, { sync: true });
+    await saveSessionDurably(base);
     const older = { session: { ...base, messages: [...base.messages] }, opts: null, summaryVersion: null };
     const newer = {
       session: {
@@ -998,7 +1055,7 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const held = [];
     for (const lockId of lockIds) {
       const lockSession = makeSession({ id: lockId, messages: [{ role: 'user', content: `${lockId}-1` }] });
-      saveSession(lockSession, { sync: true });
+      await saveSessionDurably(lockSession);
       lastGood.set(lockId, readFileSync(join(sessionsDir, `${lockId}.json`), 'utf8'));
       lockSession.messages.push({ role: 'assistant', content: `${lockId}-2-live-only` });
       saveSession(lockSession); // debounced pending payload, real epoch
@@ -1033,7 +1090,7 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const orderId = 'sess_drain_epoch_order';
     const orderPath = join(sessionsDir, `${orderId}.json`);
     const orderSession = makeSession({ id: orderId, messages: [{ role: 'user', content: 'o1' }] });
-    saveSession(orderSession, { sync: true });
+    await saveSessionDurably(orderSession);
     // Deferred snapshot issued FIRST (older content), in the source the
     // old fixed-rank order always preferred.
     const deferredSnapshot = {
@@ -1059,12 +1116,12 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const failId = 'sess_drain_epoch_failure';
     const failPath = join(sessionsDir, `${failId}.json`);
     const failSession = makeSession({ id: failId, messages: [{ role: 'user', content: 'f1' }] });
-    saveSession(failSession, { sync: true });
+    await saveSessionDurably(failSession);
     const failOlder = {
       ...failSession,
       messages: [...failSession.messages, { role: 'assistant', content: 'f2-deferred' }],
     };
-    const deferredOlder = saveSessionAsyncDeferred(failOlder);
+    const olderEpoch = _nextSaveEpoch();
     // Newer turn, whose own commit fails AFTER the deferred snapshot
     // was issued. Nothing newer LANDS, so the fence (highest landed
     // epoch) still allows the older snapshot: it is strict progress
@@ -1072,8 +1129,9 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     // clearing the newer failure's markers.
     failSession.messages.push({ role: 'assistant', content: 'f2-deferred' }, { role: 'user', content: 'f3-live-only' });
     setSessionSaveFault({ ids: failId, count: 1 });
-    assert.throws(() => saveSession(failSession, { sync: true }), /injected save commit fault/);
+    await assert.rejects(saveSessionDurably(failSession), /injected save commit fault/);
     assert.ok(getSessionSaveError(failId), 'the newer failure is recorded');
+    const deferredOlder = parkDeferredSnapshot(failOlder, olderEpoch);
 
     drainSessionStore();
     assert.equal(
@@ -1091,21 +1149,22 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const landedId = 'sess_drain_epoch_landed';
     const landedPath = join(sessionsDir, `${landedId}.json`);
     const landedSession = makeSession({ id: landedId, messages: [{ role: 'user', content: 'L1' }] });
-    saveSession(landedSession, { sync: true });
+    await saveSessionDurably(landedSession);
     // Older snapshot, still outstanding when the drain runs.
     const olderSnapshot = {
       ...landedSession,
       messages: [...landedSession.messages, { role: 'assistant', content: 'L2-deferred' }],
     };
-    const deferredStale = saveSessionAsyncDeferred(olderSnapshot);
+    const olderEpoch = _nextSaveEpoch();
     // A strictly NEWER save SUCCEEDS for the same id.
     const newestLanded = {
       ...landedSession,
       updatedAt: Date.now(),
       messages: [...olderSnapshot.messages, { role: 'user', content: 'L3-newest' }],
     };
-    saveSession(newestLanded, { sync: true });
+    await saveSessionDurably(newestLanded);
     assert.equal(JSON.parse(readFileSync(landedPath, 'utf8')).messages.length, 3, 'the newer save landed');
+    const deferredStale = parkDeferredSnapshot(olderSnapshot, olderEpoch);
 
     drainSessionStore(); // only the OLDER deferred snapshot is outstanding
     const after = JSON.parse(readFileSync(landedPath, 'utf8'));
@@ -1114,7 +1173,7 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     assert.equal(getSessionSaveError(landedId), null, 'a refused stale write is not a failure');
     await deferredStale;
   });
-  await t.test('C21 an older worker write cannot land after a newer sync write', async () => {
+  await t.test('C21 an older worker write cannot land after a newer durable write', async () => {
     // Repeated: whichever side wins the commit lock in a given round,
     // the durable result must be the NEWER content. Only the
     // landed-epoch fence makes that true when the worker renames last.
@@ -1127,11 +1186,11 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
       // Older payload: projected and posted NOW, still inside the worker.
       raceSession.messages.push({ role: 'assistant', content: 'W2-worker' });
       const olderWorkerWrite = saveSessionAsync(raceSession);
-      // A newer sync write lands while that one is in flight. The
+      // A newer durable write lands while that one is in flight. The
       // commit lock serialises the two renames but does not order
       // them by content age — only the landed-epoch fence does.
       raceSession.messages.push({ role: 'user', content: 'W3-newest' });
-      saveSession(raceSession, { sync: true });
+      await saveSessionDurably(raceSession);
 
       await olderWorkerWrite;
       const after = JSON.parse(readFileSync(racePath, 'utf8'));
@@ -1152,7 +1211,7 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const staleId = 'sess_worker_stale_refusal';
     const stalePath = join(sessionsDir, `${staleId}.json`);
     const staleSession = makeSession({ id: staleId, messages: [{ role: 'user', content: 'S1' }] });
-    saveSession(staleSession, { sync: true });
+    await saveSessionDurably(staleSession);
     const canonical = readFileSync(stalePath, 'utf8');
 
     // Deterministic ordering: the test holds the id's commit lock, so
@@ -1236,15 +1295,19 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const staleId = 'sess_metrics_stale_park';
     const stalePath = join(sessionsDir, `${staleId}.json`);
     const staleSession = metricsSession(staleId);
-    saveSession(staleSession, { sync: true });
+    await saveSessionDurably(staleSession);
     await parkTwoDeltas(staleId, staleSession);
+    // The first delta's write stays unsettled, so the second stays parked
+    // behind it, until the drain has run.
+    const parkedWrite = holdWorkerReply(staleId);
     const newerLanded = {
       ...staleSession,
       updatedAt: Date.now(),
       messages: [...staleSession.messages, { role: 'assistant', content: 'newer-landed' }],
     };
-    saveSession(newerLanded, { sync: true });
+    await saveSessionDurably(newerLanded);
     drainSessionStore();
+    parkedWrite.release();
     const afterStale = JSON.parse(readFileSync(stalePath, 'utf8'));
     assert.equal(
       afterStale.messages.length,
@@ -1256,9 +1319,9 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     // (b) A lifecycle barrier planted while the snapshot is parked.
     const barrierId = 'sess_metrics_barrier_park';
     const barrierSession = metricsSession(barrierId);
-    saveSession(barrierSession, { sync: true });
+    await saveSessionDurably(barrierSession);
     await parkTwoDeltas(barrierId, barrierSession);
-    const closedGen = markSessionClosed(barrierId, 'metrics-barrier');
+    const closedGen = await markSessionClosed(barrierId, 'metrics-barrier');
     assert.equal(typeof closedGen, 'number', 'the tombstone landed');
     drainSessionStore();
     const lifecycle = readSessionLifecycleFromDisk(barrierId);
@@ -1270,7 +1333,7 @@ test('epoch fence: the drain and landed-epoch fence never revert newer durable s
     const newestId = 'sess_metrics_newest_park';
     const newestPath = join(sessionsDir, `${newestId}.json`);
     const newestSession = metricsSession(newestId);
-    saveSession(newestSession, { sync: true });
+    await saveSessionDurably(newestSession);
     await parkTwoDeltas(newestId, newestSession);
     assert.equal(newestSession.totalInputTokens, 17, 'both deltas applied in memory');
     drainSessionStore();
@@ -1297,13 +1360,13 @@ const metrics = await import(${JSON.stringify(metricsUrl)});
 const id = process.argv[2];
 const nowMs = Date.now();
 const session = { id, owner: 'user', status: 'idle', createdAt: nowMs, updatedAt: nowMs, messages: [{ role: 'user', content: 'e1' }] };
-store.saveSession(session, { sync: true });
+await store.saveSessionDurably(session);
 metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session }) });
 await metrics.persistIterationMetrics({ sessionId: id, iterationIndex: 1, deltaInput: 10, deltaOutput: 5 });
 await metrics.persistIterationMetrics({ sessionId: id, iterationIndex: 2, deltaInput: 7, deltaOutput: 3 });
 // A newer save LANDS for the same id while the metrics snapshot is parked.
 const newer = { ...session, updatedAt: Date.now(), messages: [...session.messages, { role: 'assistant', content: 'newer-landed' }] };
-store.saveSession(newer, { sync: true });
+await store.saveSessionDurably(newer);
 process.exit(0);
 `,
       'utf8'
@@ -1322,7 +1385,7 @@ process.exit(0);
     const rejId = 'sess_metrics_reject_identity';
     const rejPath = join(sessionsDir, `${rejId}.json`);
     const olderRef = makeSession({ id: rejId, messages: [{ role: 'user', content: 'r1' }] });
-    saveSession(olderRef, { sync: true });
+    await saveSessionDurably(olderRef);
 
     // The first metrics save fails at the commit edge...
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: olderRef }) });
@@ -1372,7 +1435,7 @@ process.exit(0);
     const overlapId = 'sess_metrics_drain_overlap';
     const overlapPath = join(sessionsDir, `${overlapId}.json`);
     const olderRef = makeSession({ id: overlapId, messages: [{ role: 'user', content: 'o1' }] });
-    saveSession(olderRef, { sync: true });
+    await saveSessionDurably(olderRef);
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: olderRef }) });
     // Posted to the worker under identity E, payload = olderRef.
     metrics.persistIterationMetrics({ sessionId: overlapId, iterationIndex: 1, deltaInput: 4, deltaOutput: 2 });
@@ -1395,15 +1458,21 @@ process.exit(0);
     assert.equal(drained.totalInputTokens, 7, 'both deltas are durable');
 
     // The drain settlement is a TERMINAL ownership transfer: a newer
-    // sync save made right after it (same tick, before any repark or
-    // retry could run) must survive every metrics settle path.
+    // durable save made right after it must survive every metrics settle
+    // path.
     const postDrain = {
       ...newerRef,
       updatedAt: Date.now(),
       messages: [...newerRef.messages, { role: 'user', content: 'post-drain-newest' }],
     };
-    saveSession(postDrain, { sync: true });
+    // Its epoch is taken in the drain's tick; its commit then awaits I/O,
+    // so it must still be the write that lands.
+    await saveSessionDurably(postDrain);
     const bytesAfterSync = readFileSync(overlapPath, 'utf8');
+    assert.ok(
+      JSON.parse(bytesAfterSync).messages.some((m) => m.content === 'post-drain-newest'),
+      'the save made after the drain landed'
+    );
     await sleep(750); // repark/retry + throttle timer window
     assert.equal(
       readFileSync(overlapPath, 'utf8'),
@@ -1430,7 +1499,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const delId = 'sess_metrics_hard_delete';
     const delPath = join(sessionsDir, `${delId}.json`);
     const delSession = makeSession({ id: delId, messages: [{ role: 'user', content: 'd1' }] });
-    saveSession(delSession, { sync: true });
+    await saveSessionDurably(delSession);
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: delSession }) });
     await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 1, deltaInput: 3, deltaOutput: 1 });
     // Let that save settle so the NEXT delta parks with a live
@@ -1442,7 +1511,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     assert.equal(_saveAsyncInflight.has(delId), false, 'the first metrics save settled');
     await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 2, deltaInput: 3, deltaOutput: 1 });
 
-    assert.equal(deleteSession(delId), true, 'the session file is unlinked');
+    assert.equal(await deleteSession(delId), true, 'the session file is unlinked');
     assert.equal(existsSync(delPath), false);
 
     drainSessionStore();
@@ -1457,17 +1526,19 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const delId = 'sess_metrics_hard_delete_inflight';
     const delPath = join(sessionsDir, `${delId}.json`);
     const delSession = makeSession({ id: delId, messages: [{ role: 'user', content: 'f1' }] });
-    saveSession(delSession, { sync: true });
+    await saveSessionDurably(delSession);
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: delSession }) });
-    // No macrotask between the post and the delete: the worker reply cannot
-    // have been dispatched, so the write is still in flight at the delete.
+    // The write stays in flight through the delete and the drain: its
+    // reply is held until both have run.
     await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 1, deltaInput: 2, deltaOutput: 1 });
     assert.equal(_saveAsyncInflight.has(delId), true, 'the metrics write is in flight');
+    const inFlightWrite = holdWorkerReply(delId);
     await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 2, deltaInput: 2, deltaOutput: 1 });
 
-    assert.equal(deleteSession(delId), true, 'the session file is unlinked');
+    assert.equal(await deleteSession(delId), true, 'the session file is unlinked');
     drainSessionStore();
     assert.equal(existsSync(delPath), false, 'the exit drain cannot write a deleted in-flight payload back');
+    inFlightWrite.release();
 
     await sleep(600); // the stale reply settles + past the throttle timer
     assert.equal(existsSync(delPath), false, 'the stale settlement cannot resurrect it either');
@@ -1477,7 +1548,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const raceId = 'sess_metrics_delete_race';
     const racePath = join(sessionsDir, `${raceId}.json`);
     const raceSession = makeSession({ id: raceId, messages: [{ role: 'user', content: 'x1' }] });
-    saveSession(raceSession, { sync: true });
+    await saveSessionDurably(raceSession);
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: raceSession }) });
     setSessionSaveFault({ ids: raceId, count: 1 }); // the in-flight metrics save WILL reject
     // Settle boundary, not a guard drop: block the main thread until
@@ -1500,7 +1571,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
       });
       const block = new Int32Array(new SharedArrayBuffer(4));
       Atomics.wait(block, 0, 0, 300); // worker runs + replies while we block
-      assert.equal(deleteSession(raceId), true, 'the hard delete lands before the failure settles');
+      assert.equal(await deleteSession(raceId), true, 'the hard delete lands before the failure settles');
       assert.equal(existsSync(racePath), false);
       await inFlight;
       await sleep(200); // dispatch the queued failure reply
@@ -1546,7 +1617,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const failId = 'sess_delete_unlink_fail';
     const failPath = join(sessionsDir, `${failId}.json`);
     const failSession = makeSession({ id: failId, messages: [{ role: 'user', content: 'u1' }] });
-    saveSession(failSession, { sync: true });
+    await saveSessionDurably(failSession);
     const canonical = readFileSync(failPath, 'utf8');
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: failSession }) });
     metrics.persistIterationMetrics({ sessionId: failId, iterationIndex: 1, deltaInput: 6, deltaOutput: 3 });
@@ -1556,7 +1627,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     // fail: a directory owns the canonical path.
     rmSync(failPath);
     mkdirSync(failPath);
-    assert.equal(deleteSession(failId), false, 'a failed unlink is not a delete');
+    assert.equal(await deleteSession(failId), false, 'a failed unlink is not a delete');
     assert.equal(existsSync(failPath), true, 'nothing was removed');
 
     // Restore the canonical file: the pending metrics identity must
@@ -1574,12 +1645,14 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const reuseId = 'sess_reuse_after_delete';
     const reusePath = join(sessionsDir, `${reuseId}.json`);
     const oldSession = makeSession({ id: reuseId, messages: [{ role: 'user', content: 'old-1' }] });
-    saveSession(oldSession, { sync: true });
+    await saveSessionDurably(oldSession);
     oldSession.messages.push({ role: 'assistant', content: 'old-2' });
     const firstWrite = saveSessionAsync(oldSession); // in flight
+    // ...until the re-created id has posted its own write.
+    const firstSettlement = holdWorkerReply(reuseId);
     oldSession.messages.push({ role: 'user', content: 'old-3' });
     const queuedWrite = saveSessionAsync(oldSession); // queued behind it
-    assert.equal(deleteSession(reuseId), true);
+    assert.equal(await deleteSession(reuseId), true);
 
     // The SAME id is re-created immediately: it must post its own
     // write instead of queueing behind the dead incarnation.
@@ -1590,6 +1663,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
       messages: [{ role: 'user', content: 'reborn-1' }],
     });
     const rebornWrite = saveSessionAsync(reborn);
+    firstSettlement.release();
     await Promise.all([firstWrite, queuedWrite, rebornWrite]); // each settles exactly once
 
     const persisted = JSON.parse(readFileSync(reusePath, 'utf8'));
@@ -1606,10 +1680,10 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const inProcId = 'sess_inprocess_after_delete';
     const inProcPath = join(sessionsDir, `${inProcId}.json`);
     const inProcSession = makeSession({ id: inProcId, messages: [{ role: 'user', content: 'p1' }] });
-    saveSession(inProcSession, { sync: true });
+    await saveSessionDurably(inProcSession);
     inProcSession.messages.push({ role: 'assistant', content: 'p2' });
     saveSession(inProcSession, { immediate: true }); // non-worker _doSave starts now
-    assert.equal(deleteSession(inProcId), true, 'the delete lands while that write awaits fs');
+    assert.equal(await deleteSession(inProcId), true, 'the delete lands while that write awaits fs');
     await sleep(250);
     assert.equal(existsSync(inProcPath), false, 'the in-process save cannot resurrect the file');
     assert.equal(getSessionSaveError(inProcId), null, 'no failure marker for a deleted id');
@@ -1620,10 +1694,12 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const detachId = 'sess_detach_after_delete';
     const detachPath = join(sessionsDir, `${detachId}.json`);
     const detachSession = makeSession({ id: detachId, messages: [{ role: 'user', content: 'd1' }] });
-    saveSession(detachSession, { sync: true });
+    await saveSessionDurably(detachSession);
     detachSession.messages.push({ role: 'assistant', content: 'd2' });
     const pending = saveSessionAsync(detachSession);
-    assert.equal(deleteSession(detachId), true);
+    // Its reply is held, never delivered: the worker is detached with it.
+    holdWorkerReply(detachId);
+    assert.equal(await deleteSession(detachId), true);
     const dead = _detachSaveWorkerForTest(); // settles pendings via the error path
     assert.ok(dead, 'the worker was detached with the stale write in flight');
     await assert.rejects(pending, /detached before this write settled/);
@@ -1646,25 +1722,26 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const preId = 'sess_pre_churn_stamp';
     const prePath = join(sessionsDir, `${preId}.json`);
     const preSession = makeSession({ id: preId, messages: [{ role: 'user', content: 'pre-1' }] });
-    saveSession(preSession, { sync: true });
+    await saveSessionDurably(preSession);
     preSession.messages.push({ role: 'assistant', content: 'pre-2' });
     // Stamped NOW — long before the churn and the reuse below.
     const staleWrite = saveSessionAsync(preSession);
-    assert.equal(deleteSession(preId), true);
-    // Everything below runs synchronously, so the stale completion can
-    // only settle AFTER the id has been re-created.
+    // Its completion is held until the id has been re-created below.
+    const staleCompletion = holdWorkerReply(preId);
+    assert.equal(await deleteSession(preId), true);
     for (let i = 0; i < 520; i += 1) {
       const churnId = `sess_stamp_churn_${i}`;
-      saveSession(makeSession({ id: churnId, messages: [{ role: 'user', content: 'c' }] }), { sync: true });
-      assert.equal(deleteSession(churnId), true);
+      await saveSessionDurably(makeSession({ id: churnId, messages: [{ role: 'user', content: 'c' }] }));
+      assert.equal(await deleteSession(churnId), true);
     }
     const reborn = makeSession({
       id: preId,
       updatedAt: Date.now(),
       messages: [{ role: 'user', content: 'reborn-after-churn' }],
     });
-    saveSession(reborn, { sync: true });
+    await saveSessionDurably(reborn);
 
+    staleCompletion.release();
     await staleWrite; // settles now, against a brand new incarnation
     const persisted = JSON.parse(readFileSync(prePath, 'utf8'));
     assert.equal(persisted.messages.length, 1, 'the stale completion never touched the re-created record');
@@ -1676,7 +1753,7 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
   await t.test('C35 every incarnation reference is released exactly once', async () => {
     const balId = 'sess_incarnation_balance';
     const balSession = makeSession({ id: balId, messages: [{ role: 'user', content: 'b1' }] });
-    saveSession(balSession, { sync: true });
+    await saveSessionDurably(balSession);
     // Coalesced payload replacement (debounce slot overwritten twice).
     saveSession(balSession);
     saveSession(balSession);
@@ -1701,12 +1778,12 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const queueId = 'sess_inprocess_queue_reuse';
     const queuePath = join(sessionsDir, `${queueId}.json`);
     const oldSession = makeSession({ id: queueId, messages: [{ role: 'user', content: 'old-1' }] });
-    saveSession(oldSession, { sync: true });
+    await saveSessionDurably(oldSession);
     oldSession.messages.push({ role: 'assistant', content: 'old-2' });
     saveSession(oldSession, { immediate: true }); // _doSave in flight (awaiting fs)
     oldSession.messages.push({ role: 'user', content: 'old-3' });
     saveSession(oldSession, { immediate: true }); // queued behind it
-    assert.equal(deleteSession(queueId), true);
+    assert.equal(await deleteSession(queueId), true);
 
     // The re-created id owns the pending bookkeeping from here on.
     const reborn = makeSession({
@@ -1727,27 +1804,30 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const reuseId = 'sess_metrics_map_reuse';
     const reusePath = join(sessionsDir, `${reuseId}.json`);
     const oldSession = makeSession({ id: reuseId, messages: [{ role: 'user', content: 'old' }] });
-    saveSession(oldSession, { sync: true });
+    await saveSessionDurably(oldSession);
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: oldSession }) });
-    // In-flight metrics save for the OLD incarnation...
+    // In-flight metrics save for the OLD incarnation, whose settlement (the
+    // old callback) is held until the re-created state below is parked...
     metrics.persistIterationMetrics({ sessionId: reuseId, iterationIndex: 1, deltaInput: 4, deltaOutput: 2 });
-    assert.equal(deleteSession(reuseId), true); // ...closed by the hard delete
+    const oldCallback = holdWorkerReply(reuseId);
+    assert.equal(await deleteSession(reuseId), true); // ...closed by the hard delete
 
-    // Re-create the id and give it its OWN metrics state + park, all in
-    // one synchronous run so the old callback can only settle after.
+    // Re-create the id and give it its OWN metrics state + park.
     const reborn = makeSession({ id: reuseId, updatedAt: Date.now(), messages: [{ role: 'user', content: 'reborn' }] });
-    saveSession(reborn, { sync: true });
+    await saveSessionDurably(reborn);
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: reborn }) });
     metrics.persistIterationMetrics({ sessionId: reuseId, iterationIndex: 1, deltaInput: 9, deltaOutput: 1 });
     metrics.persistIterationMetrics({ sessionId: reuseId, iterationIndex: 2, deltaInput: 5, deltaOutput: 1 });
-    // While the re-created snapshot is still parked (its first save is
-    // in flight), the OLD closed callback settles: it may not erase the
-    // map entry the new state owns.
     const parkedNow = [..._deferredSessionSaves.values()].filter((entry) => entry.session?.id === reuseId);
     assert.equal(parkedNow.length, 1, 'the re-created session owns exactly one parked snapshot');
     assert.equal(parkedNow[0].session, reborn, 'and it is the NEW snapshot, not the deleted one');
 
-    await sleep(300); // the OLD callback settles in this window
+    // While the re-created snapshot is still parked (its first save,
+    // posted in this tick, is answered after the held one), the OLD
+    // closed callback settles: it may not erase the map entry the new
+    // state owns.
+    oldCallback.release();
+    await sleep(300);
     drainSessionStore();
     const persisted = JSON.parse(readFileSync(reusePath, 'utf8'));
     assert.equal(persisted.messages[0].content, 'reborn');
@@ -1762,16 +1842,19 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     // an object identity, so there is nothing to wrap or reset.
     for (let i = 0; i < 520; i += 1) {
       const churnId = `sess_churn_${i}`;
-      saveSession(makeSession({ id: churnId, messages: [{ role: 'user', content: 'c' }] }), { sync: true });
-      assert.equal(deleteSession(churnId), true);
+      await saveSessionDurably(makeSession({ id: churnId, messages: [{ role: 'user', content: 'c' }] }));
+      assert.equal(await deleteSession(churnId), true);
     }
     const churnedId = 'sess_churn_target';
     const churnedPath = join(sessionsDir, `${churnedId}.json`);
     const churnedSession = makeSession({ id: churnedId, messages: [{ role: 'user', content: 's1' }] });
-    saveSession(churnedSession, { sync: true });
+    await saveSessionDurably(churnedSession);
     churnedSession.messages.push({ role: 'assistant', content: 's2' });
     const inFlight = saveSessionAsync(churnedSession);
-    assert.equal(deleteSession(churnedId), true);
+    // Its completion is held until the delete has landed.
+    const completion = holdWorkerReply(churnedId);
+    assert.equal(await deleteSession(churnedId), true);
+    completion.release();
     await inFlight; // settles inert
     assert.equal(existsSync(churnedPath), false, 'no resurrection after 520 deletes');
     assert.equal(getSessionSaveError(churnedId), null, 'no failure marker from pre-delete work');
@@ -1781,12 +1864,12 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     const circId = 'sess_circular_after_delete';
     const circPath = join(sessionsDir, `${circId}.json`);
     const circSession = makeSession({ id: circId, messages: [{ role: 'user', content: 'c1' }] });
-    saveSession(circSession, { sync: true });
+    await saveSessionDurably(circSession);
     circSession.selfRef = circSession; // JSON.stringify throws
     saveSession(circSession, { immediate: true });
-    assert.equal(deleteSession(circId), true, 'the delete lands while that save is in flight');
+    assert.equal(await deleteSession(circId), true, 'the delete lands while that save is in flight');
     const reborn = makeSession({ id: circId, updatedAt: Date.now(), messages: [{ role: 'user', content: 'reborn' }] });
-    saveSession(reborn, { sync: true });
+    await saveSessionDurably(reborn);
     await new Promise((resolve) => setTimeout(resolve, 250));
     assert.equal(getSessionSaveError(circId), null, 'no error marker on the re-created id');
     assert.equal(_droppedSaveIds.has(circId), false, 'no drop marker');
@@ -1805,15 +1888,15 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
     try {
       const branchId = 'sess_ref_branches';
       const branchSession = makeSession({ id: branchId, messages: [{ role: 'user', content: 'b1' }] });
-      saveSession(branchSession, { sync: true });
+      await saveSessionDurably(branchSession);
       assert.equal(_sessionIncarnationRefs(branchId), 0, 'saved branch released');
-      assert.equal(bumpSessionGeneration(branchId, 'ref-branch'), 1);
+      assert.equal(await bumpSessionGeneration(branchId, 'ref-branch'), 1);
       // Opened again, so the stale-generation save below is the ownership drop.
       assert.equal(claimSessionWriter(branchId).held, true);
-      saveSession(branchSession, { sync: true, expectedGeneration: 0 });
+      await saveSessionDurably(branchSession, { expectedGeneration: 0 });
       assert.equal(_sessionIncarnationRefs(branchId), 0, 'ownership-drop branch released');
       setSessionSaveFault({ ids: branchId, count: 1 });
-      assert.throws(() => saveSession(branchSession, { sync: true }));
+      await assert.rejects(saveSessionDurably(branchSession));
       assert.equal(_sessionIncarnationRefs(branchId), 0, 'failure branch released');
       setSessionSaveFault(null);
       await saveSessionAsync(branchSession);
@@ -1825,7 +1908,7 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
   });
   await t.test('A5 a present-but-unreadable summary sidecar fails closed', async () => {
     const keepId = 'sess_summary_read_fault';
-    saveSession(makeSession({ id: keepId, messages: [{ role: 'user', content: 'row' }] }), { sync: true });
+    await saveSessionDurably(makeSession({ id: keepId, messages: [{ role: 'user', content: 'row' }] }));
     assert.ok(
       (await listStoredSessionSummariesAsync({ refreshFromStorage: true })).some((row) => row.id === keepId),
       'the row is indexed'
@@ -1854,17 +1937,17 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
     mkdirSync(gatePath);
     const mine = makeSession({ id: gateId, messages: [{ role: 'user', content: 'mine' }] });
     try {
-      for (const opts of [{ sync: true }, { immediate: true }, undefined]) {
+      for (const [mode, save] of [
+        ['durable', () => saveSessionDurably(mine)],
+        ['immediate', () => saveSession(mine, { immediate: true })],
+        ['debounced', () => saveSession(mine)],
+      ]) {
         try {
-          saveSession(mine, opts);
+          await save();
         } catch {
           /* refusal surfaces or is dropped downstream */
         }
-        assert.equal(
-          _liveSessions.has(gateId),
-          false,
-          `no live publication for ${JSON.stringify(opts) || 'debounced'} mode`
-        );
+        assert.equal(_liveSessions.has(gateId), false, `no live publication for ${mode} mode`);
       }
       await assert.rejects(saveSessionAsync(mine), (err) => err.code === 'ESESSIONNOTOWNED');
       await assert.rejects(saveSessionAsyncDeferred(mine), (err) => err.code === 'ESESSIONNOTOWNED');
@@ -1879,20 +1962,20 @@ test('audit: pre-admission, sidecar and incarnation-registry fail-closed bookkee
       rmSync(gatePath, { recursive: true, force: true });
     }
     // True absence stays creatable.
-    saveSession(mine, { sync: true });
+    await saveSessionDurably(mine);
     assert.equal(JSON.parse(readFileSync(gatePath, 'utf8')).messages.length, 1);
   });
   await t.test('A7 incarnation registry stays capped with no release underflow', async () => {
     const before = _sessionIncarnationStats();
     const held = [];
     for (let i = 0; i < 4300; i += 1) held.push(_acquireSessionIncarnation(`sess_pressure_${i}`));
-    const staleId = 'sess_stale_sync_refusal';
+    const staleId = 'sess_stale_durable_refusal';
     const staleSession = makeSession({ id: staleId, messages: [{ role: 'user', content: 's1' }] });
-    saveSession(staleSession, { sync: true });
-    // Stale sync refusal branch (a newer epoch already landed).
+    await saveSessionDurably(staleSession);
+    // Stale refusal branch (a newer epoch already landed).
     const newerEpoch = _nextSaveEpoch();
     publishLandedWriteEpoch(guardedSaveOptions(staleId, null, newerEpoch), newerEpoch);
-    saveSession(staleSession, { sync: true }); // refused as stale
+    await saveSessionDurably(staleSession); // refused as stale
     // Worker post + reset + error/exit release branches.
     await saveSessionAsync(staleSession);
     saveSession(staleSession);
