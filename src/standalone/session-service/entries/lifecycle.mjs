@@ -22,7 +22,7 @@ export function createEntryLifecycle({
   releaseProjection,
   idleStateChanged,
 }) {
-  const { destroy } = createEntryDisposal({
+  const { destroy, release, settleTeardown } = createEntryDisposal({
     sessions,
     sessionsById,
     pendingDisposals,
@@ -39,6 +39,10 @@ export function createEntryLifecycle({
   }
 
   async function createEntry(params = {}, ctx = null) {
+    assertAvailable();
+    // Reopening an address whose previous runtime is still closing joins that
+    // teardown: two runtimes must never write one session at once.
+    await settleTeardown(params.sessionId);
     assertAvailable();
     const runtime = await createRuntime({
       sessionId: params.sessionId,
@@ -100,5 +104,5 @@ export function createEntryLifecycle({
     }
   }
 
-  return { assertAvailable, createEntry, destroy };
+  return { assertAvailable, createEntry, destroy, release, settleTeardown };
 }

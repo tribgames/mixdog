@@ -144,7 +144,7 @@ function createSessionUnsubscribe(ctx) {
   const { externalEntryForView, sessionOwner } = ctx.projection;
   const { subscriberToken, dropPendingViewer } = ctx.viewers;
   const { sessionBusy, releaseProjection } = ctx.retention;
-  const { destroy } = ctx.entries;
+  const { release } = ctx.entries;
   const { releaseStoredSession } = ctx.storedReader;
 
   async function unsubscribeSession({ sessionId } = {}, viewer = null) {
@@ -171,7 +171,12 @@ function createSessionUnsubscribe(ctx) {
     if ((entry.subscribers?.size || 0) === 0) {
       entry.transcriptView = null;
       if (entry.reservedOnly && !sessionBusy(entry)) {
-        await destroy(entry, 'unclaimed session reservation', {
+        // Detached now; the runtime closes in the background (release tracks
+        // it and logs its failure). A detach failure throws from here. A
+        // caller that must see it closed awaits settleSessionTeardown.
+        // Waiting here held every view-sync behind the process-wide
+        // serialized runtime close.
+        release(entry, 'unclaimed session reservation', {
           keepBackgroundWork: true,
         });
         return { sessionId: id, unsubscribed: true };

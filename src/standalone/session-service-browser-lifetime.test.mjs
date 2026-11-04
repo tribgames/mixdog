@@ -74,8 +74,9 @@ test('browser teardown follows idle runtime eviction, not view detach or live wo
     assert.equal(service.size, 2, 'watched and busy runtimes remain alive');
     // The old runtime is still disposing. A replacement must not receive a
     // second, late browser release after it resumes.
-    await service.createSession({ sessionId: 'alpha' }, viewer);
+    const reopened = service.createSession({ sessionId: 'alpha' }, viewer);
     finishDisposal();
+    await reopened;
     await Promise.resolve();
     await Promise.resolve();
     assert.equal(releases().length, 2);

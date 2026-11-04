@@ -93,5 +93,7 @@ export function createSessionEntries({
     entryForSession: loads.entryForSession,
     liveEntryForView: loads.liveEntryForView,
     destroy: lifecycle.destroy,
+    release: lifecycle.release,
+    settleTeardown: lifecycle.settleTeardown,
   };
 }
