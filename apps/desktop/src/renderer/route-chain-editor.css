@@ -53,8 +53,11 @@
   border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
 }
 /* The row's lane: its picker drops down at this width (RouteEditor dropdown);
-   the chip inside keeps its own width. */
-.route-chain-row > .route-editor {
+   the chip inside keeps its own width. The phone marker's label-hugging
+   `.route-editor` rule (shell-overrides.css) outranks the plain selector and
+   would shrink the lane — and the open menu — to the chip. */
+.route-chain-row > .route-editor,
+html[data-mixdog-mobile-tabs] .route-chain-row > .route-editor {
   min-width: 0;
   width: auto;
   flex: 1 1 auto;
