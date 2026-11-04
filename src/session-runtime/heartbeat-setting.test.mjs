@@ -177,7 +177,12 @@ test('the daemon timers run the check: first tick after a minute arms, a turn th
   import assert from 'node:assert/strict';
   import { existsSync, readFileSync } from 'node:fs';
   import { join } from 'node:path';
-  import { HEARTBEAT_LIMITS, noteUserTurn, startMixyHeartbeat } from './src/session-runtime/mixy-heartbeat.mjs';
+  import {
+    HEARTBEAT_LIMITS,
+    heartbeatStateSettled,
+    noteUserTurn,
+    startMixyHeartbeat,
+  } from './src/session-runtime/mixy-heartbeat.mjs';
 
   const T0 = ${T0};
   const MINUTE = ${MINUTE};
@@ -216,10 +221,18 @@ test('the daemon timers run the check: first tick after a minute arms, a turn th
   });
   const [[, firstMs, first], [, everyMs, every]] = timers.callbacks;
   assert.deepEqual([firstMs, everyMs], [HEARTBEAT_LIMITS.firstTickMs, HEARTBEAT_LIMITS.tickMs]);
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // A tick awaits its state writes (each lands off the main thread), so let
+  // the tick and the writes it queues one after another run out.
+  const settle = async () => {
+    for (let round = 0; round < 8; round += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+      await heartbeatStateSettled(path);
+    }
+  };
   assert.equal(existsSync(path), false);
   first();
   await settle();
+  await heartbeatStateSettled(path);
   assert.equal(JSON.parse(readFileSync(path, 'utf8')).lastBeatAt, T0, 'the first tick arms the clock');
   // Interval ticks before the interval is up do nothing; the user's turn then defers the due check.
   clock = T0 + 5 * MINUTE;

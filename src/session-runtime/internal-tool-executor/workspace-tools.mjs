@@ -250,7 +250,7 @@ export function createWorkspaceToolHandlers({
         throw new Error("session: suggest belongs to Mixy's chat");
       }
       const { recordSuggestion } = await import('../mixy-heartbeat.mjs');
-      const receipt = recordSuggestion({ key: args?.key, text: args?.title, dismissed: args?.value === false });
+      const receipt = await recordSuggestion({ key: args?.key, text: args?.title, dismissed: args?.value === false });
       return JSON.stringify({ action, ...receipt }, null, 2);
     }
     if (target && target !== assertLead(action, callerCtx)) {
