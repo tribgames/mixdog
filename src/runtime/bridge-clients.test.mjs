@@ -37,6 +37,7 @@ import {
   validateComputerToolArgs,
 } from './computer-bridge/action-schema.mjs';
 import { COMPUTER_DEFAULT_DELIVERY } from './computer-bridge/core-actions.mjs';
+import { nextBridgeDiscoveryChange } from './bridge-discovery.test-support.mjs';
 import { waitUntil } from './shared/wait-until.test-support.mjs';
 import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from './computer-bridge/tool-defs.mjs';
 import { actionInputUnionFor } from './agent/orchestrator/providers/lib/action-input-contract.mjs';
@@ -1934,27 +1935,41 @@ test('bridge clients only surface fresh, compatible discovery records', async ()
   try {
     for (const client of CLIENTS) {
       const path = join(directory, client.file);
+      const valid = '{"version":1,"port":1234,"token":"secret"}\n';
+      // The gate answers from a watched copy of the file, which learns a write
+      // through its watch: each step awaits that change, then asks the gate.
+      // Valid and invalid records alternate, so no verdict is left over.
+      const after = async (change, available, label) => {
+        const changed = nextBridgeDiscoveryChange(path);
+        await change();
+        await changed;
+        assert.equal(client.available(), available, `${client.name}: ${label}`);
+      };
+
       await writeFile(path, '{"version":1,"port":1234}\n');
       assert.equal(client.available(), false, `${client.name}: missing token`);
 
-      await writeFile(path, '{"version":2,"port":1234,"token":"secret"}\n');
-      assert.equal(client.available(), false, `${client.name}: incompatible version`);
-
-      await writeFile(path, '{"version":1,"port":1234,"token":"secret"}\n');
-      assert.equal(client.available(), true, `${client.name}: valid discovery`);
+      await after(() => writeFile(path, valid), true, 'valid discovery');
+      await after(() => writeFile(path, '{"version":2,"port":1234,"token":"secret"}\n'), false, 'incompatible version');
+      await after(() => writeFile(path, valid), true, 'valid discovery again');
 
       const stale = new Date(Date.now() - 6 * 60_000);
-      await utimes(path, stale, stale);
-      assert.equal(client.available(), false, `${client.name}: stale discovery`);
+      await after(() => utimes(path, stale, stale), false, 'stale discovery');
 
-      await writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${process.pid}}\n`);
-      assert.equal(client.available(), true, `${client.name}: live writer pid`);
+      await after(
+        () => writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${process.pid}}\n`),
+        true,
+        'live writer pid'
+      );
 
       // A fresh file whose writer has exited is a crash leftover another
       // instance's heartbeat may keep touching; it must not surface the tool.
       const exited = await deadProcessId();
-      await writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${exited}}\n`);
-      assert.equal(client.available(), false, `${client.name}: dead writer pid`);
+      await after(
+        () => writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${exited}}\n`),
+        false,
+        'dead writer pid'
+      );
     }
     const stale = await executeBrowserTool({ action: 'status' }, { sessionId: 'stale-session' });
     assert.equal(stale.isError, true);
@@ -1978,7 +1993,10 @@ test('bridge clients read discovery from the isolation namespace when set', asyn
     for (const client of CLIENTS) {
       await writeFile(join(directory, client.file), '{"version":1,"port":1234,"token":"shared"}\n');
       assert.equal(client.available(), false, `${client.name}: shared data dir is not consulted`);
+      // The gate's watched copy learns the new file through its watch.
+      const changed = nextBridgeDiscoveryChange(join(namespace, client.file));
       await writeFile(join(namespace, client.file), '{"version":1,"port":1234,"token":"own"}\n');
+      await changed;
       assert.equal(client.available(), true, `${client.name}: namespaced discovery`);
     }
   } finally {

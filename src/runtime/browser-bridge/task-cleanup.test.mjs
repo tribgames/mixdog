@@ -9,6 +9,7 @@ test('success, failure and cancellation request cleanup for the exact turn witho
   t.mock.module('../bridge-discovery.mjs', {
     namedExports: {
       readBridgeDiscovery: () => discovery,
+      readBridgeDiscoveryFresh: async () => discovery,
       readBridgeDiscoveryDetail: () => ({ reason: 'missing' }),
       bridgeDiscoveryChanged,
     },
