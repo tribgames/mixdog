@@ -30,8 +30,10 @@ const {
   describeGitStartupState,
   describeShellToolsStartupState,
   prewarmGitStartupProbes,
+  prewarmShellToolsStartupState,
   settleGitStartupProbes,
 } = await import('./runtime-capabilities.mjs');
+const { syncFsCalls } = await import('../../../../shared/sync-fs-calls.fixture.mjs');
 
 test('Shell tools startup line reads a POSIX login shell and renders present/absent names', () => {
   const calls = [];
@@ -73,7 +75,7 @@ test('Shell tools startup line renders nothing when the probe fails or times out
 
 test('Shell tools startup line on Windows walks PATH and ignores the Store stub', {
   skip: process.platform === 'win32' ? false : 'requires Windows: the PATH delimiter is platform-bound',
-}, () => {
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-tools-win-'));
   try {
     const real = join(root, 'real');
@@ -88,9 +90,34 @@ test('Shell tools startup line on Windows walks PATH and ignores the Store stub'
       pathValue: `${real};${store}`,
     });
     assert.equal(line, '- Shell tools at startup: node; absent: python jq.');
+    // The off-loop probe (one listing per PATH entry) gives the same answer.
+    const options = { platform: 'win32', names: ['jq', 'python', 'node'], pathValue: `${store};${real}` };
+    await prewarmShellToolsStartupState(options);
+    const calls = await syncFsCalls(() => {
+      assert.equal(describeShellToolsStartupState(options), '- Shell tools at startup: node; absent: jq python.');
+    });
+    assert.deepEqual(calls, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the shell-tools line is observed once off the event loop and shared by every session after it', async (t) => {
+  // What a session open awaits before its synchronous prompt composition.
+  await prewarmGitStartupProbes([]);
+  const spawns = countMainThreadSpawns(t);
+  let lines;
+  let calls;
+  try {
+    calls = await syncFsCalls(() => {
+      lines = Array.from({ length: 20 }, () => describeShellToolsStartupState());
+    });
+  } finally {
+    spawns.restore();
+  }
+  assert.deepEqual(calls, [], 'composition probed PATH on the event loop');
+  assert.deepEqual(spawns.calls, [], 'composition spawned a shell on the event loop');
+  assert.equal(new Set(lines).size, 1);
 });
 
 const gitAvailable =

@@ -9,6 +9,7 @@ import {
   _buildLeadRules,
   _buildSharedRules,
 } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import { treeWatchDropped } from '../runtime/shared/tree-watch-memo.mjs';
 
 function renderLeadPrompt(language) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-language-rules-'));
@@ -58,7 +59,7 @@ test('unknown language ids use system language, not inherited object properties'
   }
 });
 
-test('the literal-preservation sentence is dropped only while the shared output format carries it', () => {
+test('the literal-preservation sentence is dropped only while the shared output format carries it', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-language-rules-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = dataDir;
@@ -84,9 +85,13 @@ test('the literal-preservation sentence is dropped only while the shared output 
     // a byte-identical copy of the shipped partial does not count as an override.
     config('simple');
     const shipped = readFileSync(join(process.cwd(), 'src', 'output-styles', 'common.md'), 'utf8');
-    writeFileSync(join(dataDir, 'output-styles', 'common.md'), shipped);
+    // Edits made outside the app reach the watched styles folder with its watch event.
+    const common = join(dataDir, 'output-styles', 'common.md');
+    writeFileSync(common, shipped);
+    await treeWatchDropped(common);
     assert.doesNotMatch(_buildLeadLanguageContext(), sentence);
-    writeFileSync(join(dataDir, 'output-styles', 'common.md'), `${shipped}\nCustom line.\n`);
+    writeFileSync(common, `${shipped}\nCustom line.\n`);
+    await treeWatchDropped(common);
     assert.match(_buildLeadLanguageContext(), sentence);
   } finally {
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;

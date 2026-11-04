@@ -2,15 +2,41 @@ import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
+import { createTreeWatchMemo } from '../../../../shared/tree-watch-memo.mjs';
 
 // A maximum mtime cannot identify a source revision: deletion/rollback can
 // lower it, and an unchanged newer file can hide edits to every other source.
 // Track each path and its existence independently, without reading warm file
 // bodies. Include ctime/size/inode to notice replacements with preserved mtimes.
+// A rules directory's records are reused while its recursive watch stays
+// quiet (every session open builds several layers over the same trees); a
+// plain file (the config) and a missing path are stat'ed on every call.
+// A write made through the app calls invalidateRulesSources, so the next
+// build is exact; any other edit is seen once its watch event arrives.
+const _sourceWalks = createTreeWatchMemo();
+
+export function invalidateRulesSources() {
+  _sourceWalks.dropAll();
+}
+
 function sourceRevision(paths) {
   const hash = createHash('sha256');
   let readable = true;
-  const record = (value) => hash.update(`${JSON.stringify(value)}\n`);
+  for (const path of paths) {
+    const walked = _sourceWalks.get(path, pathRecords, (records) => records.readable);
+    hash.update(walked.text);
+    if (!walked.readable) readable = false;
+  }
+  // An unreadable source must not turn a partial build into a warm hit.
+  return readable ? hash.digest('hex') : null;
+}
+
+function pathRecords(root) {
+  let text = '';
+  let readable = true;
+  const record = (value) => {
+    text += `${JSON.stringify(value)}\n`;
+  };
   const failed = (path, error) => {
     record([path, error?.code || 'unreadable']);
     if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') readable = false;
@@ -40,9 +66,8 @@ function sourceRevision(paths) {
       }
     }
   };
-  for (const path of paths) walk(path, 3);
-  // An unreadable source must not turn a partial build into a warm hit.
-  return readable ? hash.digest('hex') : null;
+  walk(root, 3);
+  return { text, readable };
 }
 
 export function createRulesSourceCache() {

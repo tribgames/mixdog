@@ -27,6 +27,7 @@ import {
   loadLatestMixdogConfigFromBackup,
   isUserDataRecoveryExpected,
   findLegacyUserDataEvidence,
+  USER_DATA_INIT_MARKER,
 } from './user-data-guard.mjs';
 import { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
 import { bumpConfigInputEpoch } from './config-epoch.mjs';
@@ -122,9 +123,19 @@ function statKey(st) {
   return `${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`;
 }
 
+// While the config directory watch (ensureConfigWatcher) runs, a raw read it
+// has watched since is current until one of its events drops it: no stat per
+// read. Every session open reads sections dozens of times (a missing config
+// also re-checks the user-data marker each time). A read filled before the
+// watch started, or under a lost one, is checked by stat as before.
+const watchTrusted = (entry) => entry.watch !== 0 && entry.watch === configWatchGeneration();
+
 function readConfigRawCached() {
   const now = Date.now();
   if (_configReadCache && _configReadCache.path !== configPath()) _configReadCache = null;
+  if (_configReadCache && watchTrusted(_configReadCache)) return _configReadCache.raw;
+  // Taken before the stat and read, so an event during them drops what they fill.
+  const watch = configWatchGeneration();
   if (_configReadCache) {
     // Fast path (only when a TTL window is configured): serve without any
     // syscall until the window lapses.
@@ -153,7 +164,7 @@ function readConfigRawCached() {
     st = statSync(configPath());
   } catch (err) {
     if (err.code === 'ENOENT') {
-      _configReadCache = null;
+      _configReadCache = missingConfigEntry(watch, now);
       return null;
     }
     process.stderr.write(`[config] readConfigRawCached: unexpected stat error for ${configPath()}: ${err.message}\n`);
@@ -164,15 +175,28 @@ function readConfigRawCached() {
     raw = readFileSync(configPath(), 'utf8');
   } catch (err) {
     if (err.code === 'ENOENT') {
-      _configReadCache = null;
+      _configReadCache = missingConfigEntry(watch, now);
       return null;
     }
     // Fail closed on unknown read errors (EACCES, EIO, …); do NOT cache.
     process.stderr.write(`[config] readJsonFile: unexpected read error for ${configPath()}: ${err.message}\n`);
     throw err;
   }
-  _configReadCache = { raw, path: configPath(), stat: statKey(st), atMs: now };
+  _configReadCache = { raw, path: configPath(), stat: statKey(st), atMs: now, watch };
   return raw;
+}
+
+// A missing config is remembered only under the watch (its creation is an
+// event); unwatched, every read looks again as before.
+function missingConfigEntry(watch, now) {
+  return watch ? { raw: null, path: configPath(), stat: 'missing', atMs: now, watch, empty: false } : null;
+}
+
+// The cache entry of a missing config the watch vouches for. The init marker
+// sits in the watched directory, and its events drop the entry as well.
+function trustedMissingConfig() {
+  const entry = _configReadCache;
+  return entry && entry.raw === null && watchTrusted(entry) ? entry : null;
 }
 
 // Canonical on-disk channel shape. Schedules live in the scheduler DB and
@@ -365,6 +389,11 @@ function readAll() {
   // An upgraded data dir (legacy marker / matching legacy backup, no in-dir
   // marker yet) is a recovery case too; without a verifiable backup reads stay
   // empty and RMW writes refuse (see readAllForRmW).
+  // Under a trusted missing entry an empty answer is reached once: the config
+  // or init marker appearing is an event that drops the entry.
+  const missing = trustedMissingConfig();
+  if (missing?.empty) return {};
+  let lookupFailed = false;
   if (isUserDataRecoveryExpected(resolvePluginData())) {
     let restored = null;
     try {
@@ -372,6 +401,7 @@ function readAll() {
     } catch (err) {
       // A transient backup read failure: this read stays empty and the next
       // one retries (an RMW write refuses instead).
+      lookupFailed = true;
       process.stderr.write(`[config] backup restore lookup failed: ${err.message}\n`);
     }
     if (restored && isPlainObject(restored)) {
@@ -380,6 +410,7 @@ function readAll() {
       return config;
     }
   }
+  if (missing && !lookupFailed) missing.empty = true;
   return {};
 }
 
@@ -622,18 +653,28 @@ const WATCHED_FILES = new Set(['mixdog-config.json', SECRETS_MARKER_FILE]);
 const _configChangeListeners = new Set();
 let _configChangeTimer = null;
 let _configWatcher = null;
+// The config directory's parent: the directory watch follows the directory it
+// opened, not its path, and hears nothing when that directory is renamed away
+// or replaced (Windows) — the parent's rename event naming it does.
+let _configParentWatcher = null;
 let _configWatchDir = '';
 let _configWatchRetryTimer = null;
 
-/** The directory watch implementation; tests substitute a failing watcher. */
-export const configWatchDeps = { watch: fsWatch };
+/** The directory watch implementations; tests substitute failing watchers. */
+export const configWatchDeps = { watch: fsWatch, watchParent: fsWatch };
+
+function closeQuietly(watcher) {
+  try {
+    watcher?.close();
+  } catch {}
+}
 
 function stopConfigWatcher() {
-  try {
-    _configWatcher?.close();
-  } catch {}
+  const watchers = [_configWatcher, _configParentWatcher];
   _configWatcher = null;
+  _configParentWatcher = null;
   _configWatchDir = '';
+  for (const watcher of watchers) closeQuietly(watcher);
 }
 
 // The watched files' bytes at the last listener pass (or the first subscribe).
@@ -724,24 +765,94 @@ function scheduleConfigWatchRetry() {
   _configWatchRetryTimer.unref?.();
 }
 
+// Moves each time a directory watch starts; 0 while none runs for the current
+// config directory, or while nothing would hear that directory replaced. A
+// raw read records it (readConfigRawCached).
+let _configWatchStarts = 0;
+function configWatchGeneration() {
+  if (!_configWatcher || _configWatchDir !== dirname(configPath())) return 0;
+  if (!_configParentWatcher && dirname(_configWatchDir) !== _configWatchDir) return 0;
+  return _configWatchStarts;
+}
+
+// A watch that errors or closes on its own no longer reports the live
+// directory: its reads stop being trusted at once and it is re-established.
+function onConfigWatchLost(watcher, lost) {
+  watcher.on?.('error', lost);
+  watcher.on?.('close', lost);
+}
+
+function watchConfigDir(dir) {
+  const watcher = configWatchDeps.watch(dir, (_event, filename) => {
+    const name = filename ? String(filename) : '';
+    // The raw read goes stale at once (the listener pass is debounced).
+    if (!name || WATCHED_FILES.has(name) || name === USER_DATA_INIT_MARKER) dropConfigReadCache();
+    if (!name || WATCHED_FILES.has(name)) notifyConfigChanged({ fromWatch: true });
+  });
+  _configWatchStarts += 1;
+  watcher.unref?.();
+  onConfigWatchLost(watcher, () => {
+    if (_configWatcher !== watcher) return;
+    stopConfigWatcher();
+    dropConfigReadCache();
+    scheduleConfigWatchRetry();
+  });
+  _configWatcher = watcher;
+}
+
+// The config directory was renamed, removed or created under its parent: the
+// directory watch may follow the old one, so it starts again on the live one
+// (none while it is missing: the parent names it again once it is back).
+function configDirReplaced() {
+  const dir = _configWatchDir;
+  const previous = _configWatcher;
+  _configWatcher = null;
+  closeQuietly(previous);
+  dropConfigReadCache();
+  try {
+    watchConfigDir(dir);
+  } catch (err) {
+    if (err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR') {
+      stopConfigWatcher();
+      scheduleConfigWatchRetry();
+      return;
+    }
+  }
+  // Whatever changed before the new watch started is announced now.
+  notifyConfigChanged({ fromWatch: true });
+}
+
+function watchConfigParent(dir) {
+  const parent = dirname(dir);
+  if (parent === dir) return;
+  const name = basename(dir);
+  try {
+    const watcher = configWatchDeps.watchParent(parent, (event, filename) => {
+      // 'change' is the directory's own metadata (any write inside it).
+      if (event !== 'rename' || (filename && String(filename) !== name)) return;
+      if (_configParentWatcher === watcher) configDirReplaced();
+    });
+    watcher.unref?.();
+    onConfigWatchLost(watcher, () => {
+      if (_configParentWatcher === watcher) _configParentWatcher = null;
+    });
+    _configParentWatcher = watcher;
+  } catch {
+    // Without it reads are checked by stat (configWatchGeneration); changes still arrive.
+  }
+}
+
 function ensureConfigWatcher() {
   const dir = dirname(configPath());
   if (_configWatcher && _configWatchDir === dir) return;
   stopConfigWatcher();
+  _configWatchDir = dir;
+  // The parent first: a replacement between the two starts is still heard.
+  watchConfigParent(dir);
   try {
-    const watcher = configWatchDeps.watch(dir, (_event, filename) => {
-      if (!filename || WATCHED_FILES.has(String(filename))) notifyConfigChanged({ fromWatch: true });
-    });
-    watcher.unref?.();
-    watcher.on?.('error', () => {
-      if (_configWatcher !== watcher) return;
-      stopConfigWatcher();
-      scheduleConfigWatchRetry();
-    });
-    _configWatcher = watcher;
-    _configWatchDir = dir;
+    watchConfigDir(dir);
   } catch {
-    _configWatcher = null;
+    stopConfigWatcher();
     scheduleConfigWatchRetry();
   }
 }

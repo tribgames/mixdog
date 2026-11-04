@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { createRulesSourceCache } from './rules-source-cache.mjs';
+import { createRulesSourceCache, invalidateRulesSources } from './rules-source-cache.mjs';
+import { syncFsCalls } from '../../../../shared/sync-fs-calls.fixture.mjs';
+import { treeWatchDropped } from '../../../../shared/tree-watch-memo.mjs';
 
 async function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-rules-cache-'));
@@ -50,21 +52,48 @@ test('every rules layer detects edits hidden by newer sources and timestamp roll
   assert.match(rules._buildLeadMetaContext(), /PROFILE_BEFORE/);
   assert.match(rules._buildLeadLanguageContext(), /Korean/);
 
-  write('plugin/rules/shared/01-policy.md', 'SHARED_AFTER', '2029-01-01');
-  write('plugin/rules/agent/AGENT.md', 'AGENT_AFTER', '2029-01-01');
-  write('plugin/rules/lead/LEAD.md', 'LEAD_AFTER', '2029-01-01');
+  // Edits made outside the app reach a watched rules tree with its watch event.
+  const edits = [
+    write('plugin/rules/shared/01-policy.md', 'SHARED_AFTER', '2029-01-01'),
+    write('plugin/rules/agent/AGENT.md', 'AGENT_AFTER', '2029-01-01'),
+    write('plugin/rules/lead/LEAD.md', 'LEAD_AFTER', '2029-01-01'),
+  ].map((path) => treeWatchDropped(path));
   write('data/mixdog-config.json', config('PROFILE_AFTER', 'ja'), '2029-01-01');
-  for (const [build, expected, stale] of [
+  await Promise.all(edits);
+  const layers = [
     [rules._buildSharedRules, /SHARED_AFTER/, /SHARED_BEFORE/],
     [rules._buildAgentRules, /AGENT_AFTER/, /AGENT_BEFORE/],
     [rules._buildLeadRules, /LEAD_AFTER/, /LEAD_BEFORE/],
     [rules._buildLeadMetaContext, /PROFILE_AFTER/, /PROFILE_BEFORE/],
     [rules._buildLeadLanguageContext, /Japanese/, /Korean/],
-  ]) {
+  ];
+  for (const [build, expected, stale] of layers) {
     const value = build();
     assert.match(value, expected);
     assert.doesNotMatch(value, stale);
   }
+});
+
+test('session opens over unchanged rules walk no rules tree, and an app write is seen at once', async (t) => {
+  const { write, rules } = await fixture(t);
+  write('plugin/rules/shared/01-policy.md', 'SHARED_ONE');
+  write('plugin/rules/lead/LEAD.md', 'LEAD_ONE');
+  assert.match(rules._buildSharedRules(), /SHARED_ONE/);
+  assert.match(rules._buildLeadRules(), /LEAD_ONE/);
+  const calls = await syncFsCalls(() => {
+    for (let i = 0; i < 20; i += 1) {
+      assert.match(rules._buildSharedRules(), /SHARED_ONE/);
+      assert.match(rules._buildLeadRules(), /LEAD_ONE/);
+    }
+  });
+  assert.deepEqual(
+    calls.filter((call) => call.includes(`${join('plugin', 'rules')}`)),
+    [],
+    'a warm build re-walked a rules tree'
+  );
+  write('plugin/rules/shared/01-policy.md', 'SHARED_TWO');
+  invalidateRulesSources();
+  assert.match(rules._buildSharedRules(), /SHARED_TWO/);
 });
 
 test('unchanged source variants stay warm and failed builds remain retryable', async (t) => {

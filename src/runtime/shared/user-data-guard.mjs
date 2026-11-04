@@ -35,6 +35,7 @@ const BACKUP_MANIFEST = 'backup.json';
 // recreated profile at the same path is fresh. Its instanceId ties backups to
 // this incarnation of the data dir.
 const INIT_MARKER = '.mixdog-user-data.json';
+export const USER_DATA_INIT_MARKER = INIT_MARKER;
 
 const SCOPE_PREFIX = 'scope-';
 

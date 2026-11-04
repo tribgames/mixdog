@@ -60,6 +60,7 @@ test('a runtime start resolves its own data folder, not the first start of the p
     SERVICE: 'mixdog',
   };
   t.mock.module('../lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });
+  const startupCatalogRefresh = Promise.resolve();
   const provider = { name: 'openai', send: () => assert.fail('unexpected provider request') };
   const registry = await import('../runtime/agent/orchestrator/providers/registry.mjs?real=1');
   t.mock.module('../runtime/agent/orchestrator/providers/registry.mjs', {
@@ -68,7 +69,9 @@ test('a runtime start resolves its own data folder, not the first start of the p
       initProviders: async () => {},
       getProvider: () => provider,
       getAllProviders: () => new Map([['openai', provider]]),
-      refreshProviderCatalogsOnStartup: async () => {},
+      // Memoized per catalog epoch like the real registry: a fresh promise per
+      // call re-runs the startup refresh in an endless microtask cycle.
+      refreshProviderCatalogsOnStartup: () => startupCatalogRefresh,
       refreshCatalogs: async () => {},
     },
   });

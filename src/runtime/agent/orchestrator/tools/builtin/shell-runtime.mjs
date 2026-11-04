@@ -10,9 +10,12 @@ let _configuredShell = null;
 const _resolvedShellByKind = new Map();
 const SHELL_RESOLUTION_MISS_TTL_MS = 30_000;
 
+// Every runtime start (one per session in the daemon) applies its config's
+// shell: an unchanged one keeps the resolutions, which walk PATH.
 export function setConfiguredShell(value = '') {
-  const next = String(value || '').trim();
-  _configuredShell = next || null;
+  const next = String(value || '').trim() || null;
+  if (next === _configuredShell) return;
+  _configuredShell = next;
   _resolvedShell = null;
   _resolvedShellByKind.clear();
 }

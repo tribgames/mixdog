@@ -17,6 +17,8 @@ import {
   skillEnabledFlags,
   skillMissingFeature,
 } from './collect.mjs';
+import { syncFsCalls } from '../../../shared/sync-fs-calls.fixture.mjs';
+import { treeWatchDropped } from '../../../shared/tree-watch-memo.mjs';
 
 test('feature-owned built-in skills follow the parent instead of stale individual OFF preferences', () => {
   const previous = process.env.MIXDOG_FEATURE_OFFICE;
@@ -242,7 +244,8 @@ test('loads skills only from globally enabled plugins', () => {
   }
 });
 
-test('loads plugin skills from the manifest skills path as well as the conventional folder', () => {
+
+test('loads plugin skills from the manifest skills path as well as the conventional folder', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-skill-path-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -306,6 +309,9 @@ test('loads plugin skills from the manifest skills path as well as the conventio
     );
     utimesSync(edited, future, future);
     utimesSync(join(pluginRoot, 'skills', 'conventional-skill'), future, future);
+    // An edit made outside the app (no invalidation) reaches the watched
+    // skill root with its watch event; the read after it answers the edit.
+    await treeWatchDropped(edited);
     assert.equal(
       collectSkillsCached(join(root, 'any-project')).find((skill) => skill.name === 'conventional-skill')?.description,
       'Edited in place.'
@@ -341,7 +347,40 @@ test('loads plugin skills from the manifest skills path as well as the conventio
   }
 });
 
-test('an unchanged future-dated file does not mask edits elsewhere', () => {
+test('sessions opening in one event-loop turn share one walk of a watched skill root', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-burst-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  invalidateSkillsCache();
+  try {
+    const skillsDir = join(root, 'data', 'skills');
+    for (const name of ['burst-a', 'burst-b']) {
+      mkdirSync(join(skillsDir, name, 'references'), { recursive: true });
+      writeFileSync(
+        join(skillsDir, name, 'SKILL.md'),
+        ['---', `name: ${name}`, `description: ${name}.`, '---', '', '# Body', ''].join('\n')
+      );
+      writeFileSync(join(skillsDir, name, 'references', 'notes.md'), 'notes\n');
+    }
+    assert.equal(collectSkillsCached(null).filter((skill) => skill.name.startsWith('burst-')).length, 2);
+    // The rest of the burst, before any event-loop turn has passed.
+    const calls = await syncFsCalls(() => {
+      for (let i = 0; i < 20; i += 1) collectSkillsCached(null);
+    });
+    assert.deepEqual(
+      calls.filter((call) => call.includes(skillsDir)),
+      [],
+      'a session in the burst re-walked the watched skill root'
+    );
+  } finally {
+    invalidateSkillsCache();
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unchanged future-dated file does not mask edits elsewhere', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-future-mask-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -362,10 +401,12 @@ test('an unchanged future-dated file does not mask edits elsewhere', () => {
     const describe = (name) => collectSkillsCached(null).find((s) => s.name === name)?.description;
     assert.equal(describe('future-skill'), 'Dated ahead.');
     const edited = write('plain-skill', 'First.');
+    await treeWatchDropped(edited);
     assert.equal(describe('plain-skill'), 'First.');
     writeFileSync(edited, ['---', 'name: plain-skill', 'description: Second.', '---', '', '# Body', ''].join('\n'));
     const past = new Date(Date.now() + 5_000);
     utimesSync(edited, past, past);
+    await treeWatchDropped(edited);
     assert.equal(describe('plain-skill'), 'Second.');
   } finally {
     invalidateSkillsCache();

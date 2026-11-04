@@ -69,6 +69,7 @@ import { importError } from '../conversation-import/discovery.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { standaloneDataDir } from '../runtime-paths.mjs';
 import { registerBotRouteStore } from '../../runtime/shared/agent-store.mjs';
+import { migrateOncePerProcess } from './migrate-once.mjs';
 import {
   dataDirOf,
   resolveRoute,
@@ -77,6 +78,8 @@ import {
   webSearchCapableFor,
   workflowHelpers,
 } from './shared.mjs';
+
+const migrateOnce = (boot, name, migrate) => migrateOncePerProcess(dataDirOf(boot.cfgMod), name, migrate);
 
 export function wireApis(boot) {
   wireToolPolicyRefresh(boot);
@@ -120,7 +123,9 @@ export function wireApis(boot) {
       bootProfile('connector-accounts:merge-failed', { error: error?.message || String(error) });
     }
     // After the merge: every account has its identity before anything connects.
-    if (boot.ensureConnectorAccountIds()) boot.reloadFullConfig();
+    if (migrateOnce(boot, 'connector-account-ids', () => boot.ensureConnectorAccountIds())) {
+      boot.reloadFullConfig();
+    }
   }
   boot.disposeGlobalExtensionSubscription = () => {
     boot.disposeProviderReadiness();
@@ -145,14 +150,14 @@ export function wireApis(boot) {
     // Agents made before the kind marker get `kind: agent` once, so an update
     // never turns a workflow agent into a bot (agent-kind-migration.mjs).
     try {
-      boot.workflowAgentsApi.migrateAgentKindMarkers();
+      migrateOnce(boot, 'agent-kind', () => boot.workflowAgentsApi.migrateAgentKindMarkers());
     } catch (error) {
       bootProfile('agent-kind:migrate-failed', { error: error?.message || String(error) });
     }
     // Bots get their own store (bots/) once, before any catalog read; a
     // failed split leaves agents/ read as before (bot-split-migration.mjs).
     try {
-      boot.workflowAgentsApi.migrateBotStore();
+      migrateOnce(boot, 'bot-split', () => boot.workflowAgentsApi.migrateBotStore());
     } catch (error) {
       bootProfile('bot-split:migrate-failed', { error: error?.message || String(error) });
     }
