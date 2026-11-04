@@ -26,8 +26,9 @@ const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
  * one a single import gives — dependencies depth-first in source order — as
  * long as no module of a stage's graph imports `stagesOf` or an importer of it
  * back. Staging stops at the first stage that fails, so no later stage
- * evaluates; the final import then reports the failure as a single import
- * would.
+ * evaluates, and a failing final import rejects with that stage's error:
+ * Node 22.20 and older re-link a module whose link failed against an emptied
+ * table and report "request for '<first import>' is not in cache" instead.
  */
 export async function importInStages(url, stagesOf) {
   let stages = [];
@@ -36,13 +37,20 @@ export async function importInStages(url, stagesOf) {
   } catch {
     // Unreadable source: one import, as before.
   }
+  let stageError;
   for (const stage of stages) {
     try {
       await import(stage);
-    } catch {
+    } catch (error) {
+      stageError = error;
       break;
     }
     await nextTurn();
   }
-  return import(url);
+  if (!stageError) return import(url);
+  try {
+    return await import(url);
+  } catch {
+    throw stageError;
+  }
 }
