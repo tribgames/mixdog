@@ -47,6 +47,13 @@ test('a request unanswered past its deadline rejects, terminates the worker and 
   assert.equal(request.running(), false, 'the wedged worker is detached');
 });
 
+test('errors name an inline-source worker by its label, never by its source', async () => {
+  const request = createWorkerRequestClient('setInterval(() => {}, 1000);', { eval: true, label: 'inline-test' });
+  const error = await request({}, { timeoutMs: 50 }).catch((caught) => caught);
+  assert.equal(error.code, 'ETIMEDOUT');
+  assert.match(error.message, /: inline-test$/);
+});
+
 test('a post that throws while holds are open leaves the worker referenced', () => {
   // An isolated process with nothing else pending: only the held worker can keep
   // it alive until the worker's late event arrives.
