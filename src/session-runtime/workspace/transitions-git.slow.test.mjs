@@ -387,3 +387,32 @@ test('the dock merge goes through the runtime: registered Project, confirmed tar
     restore();
   }
 });
+
+test('a Project folder that is not a git repository answers an empty branch menu instead of failing', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const folder = tempDir('mixdog-not-git-');
+    writeFileSync(join(folder, 'notes.txt'), 'plain folder\n');
+    const session = {
+      id: `sess_plain_${process.pid}`,
+      cwd: folder,
+      desktopSession: { classification: 'project', projectPath: folder },
+      messages: [],
+    };
+    const api = realApi(session, [folder], { cwd: folder });
+
+    const draft = await api.getProjectBranchMenu({ projectPath: folder });
+    assert.equal(draft.workspace.repoCommonDir, null, 'no repository: the menu reads as not git');
+    assert.deepEqual(draft.branches, []);
+    assert.deepEqual(draft.occupancy, []);
+
+    const menu = await api.getBranchMenu();
+    assert.equal(menu.workspace.repoCommonDir, null);
+    assert.equal(menu.workspace.branch, null);
+    assert.deepEqual(menu.branches, []);
+    assert.deepEqual(menu.occupancy, []);
+  } finally {
+    restore();
+  }
+});

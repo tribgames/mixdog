@@ -5,7 +5,12 @@
  * subfolder Project included): a checkout holds the folder (withProjectFolder)
  * while git changes it, a merge takes the shared management path.
  */
-import { branchMenuEntries, projectWorkspace, worktreeError } from '../../runtime/shared/worktrees/contract.mjs';
+import {
+  branchMenuEntries,
+  isWorktreeError,
+  projectWorkspace,
+  worktreeError,
+} from '../../runtime/shared/worktrees/contract.mjs';
 import * as branchManagement from '../../runtime/shared/worktrees/branch-management.mjs';
 
 function requireText(value, name) {
@@ -42,8 +47,22 @@ export function createProjectBranchOps({
    */
   async function getProjectBranchMenu({ projectPath } = {}) {
     const path = await registeredProject(projectPath);
-    const project = await inspectProject(path);
-    const menu = await (await backend()).listBranchOccupancy({ projectPath: path, sessionId: null });
+    let project;
+    let menu;
+    try {
+      project = await inspectProject(path);
+      menu = await (await backend()).listBranchOccupancy({ projectPath: path, sessionId: null });
+    } catch (error) {
+      if (!isWorktreeError(error, 'WORKTREE_UNSUPPORTED_REPO')) throw error;
+      // A folder with no usable repository has no branches: an answer, not a
+      // failure the menu would retry (no repoCommonDir reads as not git).
+      return {
+        workspace: projectWorkspace({ projectPath: path }),
+        branches: [],
+        occupancy: [],
+        retainedWorktree: null,
+      };
+    }
     const workspace = projectWorkspace({
       projectPath: path,
       repoCommonDir: project.repoCommonDir,
