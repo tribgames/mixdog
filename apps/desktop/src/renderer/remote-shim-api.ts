@@ -495,7 +495,13 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     onVisualizeChanged: (listener) => laneSubscription(REMOTE_VISUALIZE_LANE, ctx.visualizeListeners, listener),
     visualizeState: async () => {
       await connect();
-      return ctx.peerVisualize ? call<VisualizeSessionState[]>('visualizeState') : [];
+      // Inline sources load when their pane shows (visualizePaneInline).
+      return ctx.peerVisualize ? call<VisualizeSessionState[]>('visualizeState', [{ deferInline: true }]) : [];
+    },
+    visualizePaneInline: async (sessionId, tabId, index) => {
+      await connect();
+      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      return call('visualizePaneInline', [sessionId, tabId, index]);
     },
     visualizeCommand: async (command) => {
       await connect();

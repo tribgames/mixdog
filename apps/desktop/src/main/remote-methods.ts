@@ -112,6 +112,9 @@ const VALUE_ONLY_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
   'getSessionReviewFilePatch',
   'getTurnChanges',
   'skillsStatus',
+  // The agents panel and /context footer read only the ledger figures; the
+  // snapshot made each per-session read carry that session's transcript.
+  'getSessionUsage',
 ]);
 
 export function assertRemoteCapability(capability: string): void {

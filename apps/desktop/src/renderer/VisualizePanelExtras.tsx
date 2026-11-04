@@ -12,6 +12,7 @@ import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import { downloadBlob, visualizePaneHasSource, visualizeSourceFileName } from './visualize-source';
+import { readVisualizeInlineBody } from './visualize-inline-body';
 import { downloadVisualizeExport, visualizeRemoteExportAvailable } from './visualize-remote-export';
 import {
   exportVisualizeTab,
@@ -47,10 +48,17 @@ export const visualizeFailureMessage = (reason: unknown): string => {
 /** Download pane `index` to this device (paired remote clients): inline
  *  content and HTML pages as text, everything else as the bytes the pane
  *  loads. */
-async function downloadPane(sessionId: string, tabId: string, index: number, pane: VisualizePaneView): Promise<void> {
+async function downloadPane(
+  sessionId: string,
+  tabId: string,
+  revision: number,
+  index: number,
+  pane: VisualizePaneView
+): Promise<void> {
   const api = window.mixdogDesktop;
   if (pane.inline) {
-    await downloadBlob(new Blob([pane.inline.source], { type: 'text/plain' }), visualizeSourceFileName(pane));
+    const inline = await readVisualizeInlineBody(pane, { sessionId, tabId, revision, index });
+    await downloadBlob(new Blob([inline.source], { type: 'text/plain' }), visualizeSourceFileName(pane));
     return;
   }
   const source = await api?.visualizePaneSource?.(sessionId, tabId, index);
@@ -263,7 +271,7 @@ export function useVisualizePanelExtras(
         id: 'download',
         label: t('Download'),
         icon: Download,
-        onSelect: () => void run(downloadPane(sessionId, tabId, index, pane)),
+        onSelect: () => void run(downloadPane(sessionId, tabId, tab.revision, index, pane)),
       });
       // PNG / PDF: rendered on the host, then this device's own download.
       if (visualizeRemoteExportAvailable()) {

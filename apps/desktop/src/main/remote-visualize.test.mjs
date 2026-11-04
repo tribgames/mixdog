@@ -164,6 +164,44 @@ test('the mirror forwards a path-free state and keeps the paths to itself', () =
   assert.equal(mirror.apply(null), null);
 });
 
+test('a deferring client gets the snapshot without inline sources and reads one pane on open', async () => {
+  const source = 'flowchart LR\n  A --> B';
+  const state = {
+    sessionId: 's1',
+    active: 'i1',
+    tabs: [
+      {
+        id: 'i1',
+        label: 'Pipeline',
+        remoteLabel: 'Pipeline',
+        revision: 2,
+        cwd: tmpdir(),
+        panes: [
+          {
+            kind: 'inline',
+            label: 'Pipeline',
+            target: 'Pipeline',
+            path: '',
+            remoteTarget: 'Pipeline',
+            inline: { kind: 'mermaid', source, title: 'Pipeline' },
+          },
+        ],
+      },
+    ],
+  };
+  const methods = createRemoteVisualizeMethods({
+    mirror: createRemoteVisualizeMirror(),
+    hostRequest: async (method) => (method === 'visualizeState' ? [state] : null),
+    invokeDesktopOperation: async () => null,
+  });
+  const [deferred] = await methods.visualizeState([{ deferInline: true }]);
+  assert.deepEqual(deferred.tabs[0].panes[0].inline, { kind: 'mermaid', source: '', title: 'Pipeline', deferred: true });
+  assert.equal(JSON.stringify(deferred).includes('A --> B'), false, 'no source rides the snapshot');
+  assert.deepEqual(await methods.visualizePaneInline(['s1', 'i1', 0]), { kind: 'mermaid', source, title: 'Pipeline' });
+  const [full] = await methods.visualizeState([]);
+  assert.equal(full.tabs[0].panes[0].inline.source, source, 'an older client still gets the source in the state');
+});
+
 test('state and tab commands go to the window; commands are validated first', async () => {
   const { cwd, outside, cleanup } = workspace();
   const { methods, requests } = fixture(cwd, outside);

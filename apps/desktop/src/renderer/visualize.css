@@ -511,8 +511,9 @@ html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visua
   color: var(--mx-text-muted);
 }
 .visualize-history-kind {
+  /* Wide enough for the longest kind (MARKDOWN), so every label starts in one column. */
   flex: 0 0 auto;
-  min-width: 4.5em;
+  min-width: 6.5em;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;

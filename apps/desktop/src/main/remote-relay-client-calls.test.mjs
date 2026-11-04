@@ -188,7 +188,7 @@ test('read-only capability calls read; quota and usage sweeps take the slow-read
     assert.equal(remoteCallQueueKey('invokeCapability', invoke(capability)), 'readCapabilities');
   }
   assert.equal(remoteCallQueueKey('readCapabilities', read('skillsStatus', 'mcpStatus')), 'readCapabilities');
-  for (const capability of ['getUsageDashboard', 'getQuotaHistory', 'getUsageStats']) {
+  for (const capability of ['getUsageDashboard', 'getQuotaHistory', 'getUsageStats', 'getSessionUsage']) {
     assert.equal(remoteCallQueueKey('invokeCapability', invoke(capability)), 'readCapabilities:slow');
     assert.equal(remoteCallQueueKey('readCapabilities', read('skillsStatus', capability)), 'readCapabilities:slow');
   }
