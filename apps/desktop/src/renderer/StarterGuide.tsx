@@ -222,11 +222,7 @@ export function starterTours(): Record<StepId, TourStop[]> {
       // route label and sets it from the model menu (the "simple" composer
       // style shows no label).
       {
-        target: [
-          '.orchestration-mode-select',
-          '.composer-route-label',
-          '.composer-model-line-controls .model-trigger',
-        ],
+        target: ['.orchestration-mode-select', '.composer-route-label', '.composer-model-line-controls .model-trigger'],
         title: t('Delegation mode'),
         body: t(
           'How the Lead delegates work to agents. Solo does it all, Assisted hands off side tasks, Collaborative splits by feature, and Swarm gives each scope its own agent.'

@@ -253,7 +253,11 @@ test('a failed status or diff fails the review instead of answering "no changes"
   const failing = new Set();
   setGitProcessRunner((command, args, options) =>
     [...failing].some((name) => args.includes(name))
-      ? Promise.resolve({ code: 128, stdout: '', stderr: 'fatal: .git/index: index file open failed: Permission denied' })
+      ? Promise.resolve({
+          code: 128,
+          stdout: '',
+          stderr: 'fatal: .git/index: index file open failed: Permission denied',
+        })
       : runProcessOffThread(command, args, options)
   );
   t.after(() => setGitProcessRunner(null));

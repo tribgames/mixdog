@@ -71,7 +71,7 @@ function useTurnReviewScope(items: TranscriptItem[], sessionId: string | undefin
     const remembered = rememberedScope.current;
     return remembered?.session === reviewSession ? { ...scope, key: remembered.key } : scope;
   }, [items, reviewSession]);
-  const turnScopeKey = `${String(sessionId || 'draft')}:${reviewScope.key}`;
+  const turnScopeKey = `${reviewSession}:${reviewScope.key}`;
   const activeScope = useRef(turnScopeKey);
   activeScope.current = turnScopeKey;
   return { reviewSession, reviewScope, turnScopeKey, activeScope };

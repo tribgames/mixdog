@@ -115,7 +115,7 @@ test('a failed read keeps the last figures and frees the next one', async (conte
   assert.equal(reads.length, 3);
 });
 
-test('the cue is the token of the Lead\'s group that the pool rows carry, plus settled turns', () => {
+test("the cue is the token of the Lead's group that the pool rows carry, plus settled turns", () => {
   const row = (sessionId, ownerSessionId, extra = {}) => ({ tag: sessionId, sessionId, ownerSessionId, ...extra });
   const pool = [
     row(LEAD, LEAD, { ledgerToken: 'g.1' }),
@@ -126,7 +126,14 @@ test('the cue is the token of the Lead\'s group that the pool rows carry, plus s
   const cue = islandUsageCue(pool, LEAD, 0);
   assert.equal(cue, '0|g.1');
   // The group's token moving is the cue, whichever of its rows changed.
-  assert.notEqual(islandUsageCue(pool.map((r) => (r.ownerSessionId === LEAD ? { ...r, ledgerToken: 'g.2' } : r)), LEAD, 0), cue);
+  assert.notEqual(
+    islandUsageCue(
+      pool.map((r) => (r.ownerSessionId === LEAD ? { ...r, ledgerToken: 'g.2' } : r)),
+      LEAD,
+      0
+    ),
+    cue
+  );
   // Another group's token, progress and running totals leave it alone.
   const noise = pool.map((r) =>
     r.ownerSessionId === LEAD
@@ -152,11 +159,26 @@ test('the island and /context together never have two reads of a session in flig
     sessionUsageAsync: () =>
       new Promise((resolve) =>
         gates.push(() => {
-          resolve({ turns: 1, input: 1, output: 0, cacheRead: 0, cacheWrite: 0, unmeasuredTurns: 0, costUsd: 0, costKnownTurns: 1, speedMs: 0, speedOutput: 0 });
+          resolve({
+            turns: 1,
+            input: 1,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            unmeasuredTurns: 0,
+            costUsd: 0,
+            costKnownTurns: 1,
+            speedMs: 0,
+            speedOutput: 0,
+          });
         })
       ),
   };
-  const api = createUsageStatsApi({ ledger: () => ledger, accountPool: () => ({ accounts: [] }), getSessionId: () => LEAD });
+  const api = createUsageStatsApi({
+    ledger: () => ledger,
+    accountPool: () => ({ accounts: [] }),
+    getSessionId: () => LEAD,
+  });
   window.mixdogDesktop = {
     invokeCapability: (request) => api.getSessionUsage(request.args[0]).then((value) => ({ value })),
   };

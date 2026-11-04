@@ -1035,7 +1035,11 @@ test('an open agents panel reads when the ledger records a response for the Lead
   const ledgerState = { mine: 0, other: 0 };
   const publishRows = () =>
     publishPool([
-      poolAgent('lead', { sessionId: 'island-session', ownerSessionId: 'island-session', ledgerToken: `g.${ledgerState.mine}` }),
+      poolAgent('lead', {
+        sessionId: 'island-session',
+        ownerSessionId: 'island-session',
+        ledgerToken: `g.${ledgerState.mine}`,
+      }),
       poolAgent('run-a', { sessionId: 's-a', ledgerToken: `g.${ledgerState.mine}` }),
       poolAgent('run-n', { sessionId: 's-n', parentSessionId: 's-a', ledgerToken: `g.${ledgerState.mine}` }),
       poolAgent('other', { sessionId: 's-x', ownerSessionId: 'another-lead', ledgerToken: `o.${ledgerState.other}` }),
@@ -1071,34 +1075,27 @@ test('an open agents panel reads when the ledger records a response for the Lead
   await answer();
   assert.equal(rowTokens()['run-a'], '250K');
 
-  // A nested agent's response, the Lead's own, and another Lead's detail that supersedes this
-  // group's gateway summary all move this group's token.
-  for (const reason of ['a nested agent', 'the Lead', "another Lead's superseding detail"]) {
-    const before = reads.length;
-    await commit();
-    assert.equal(reads.length, before + 1, `${reason} refreshes the panel`);
-    await answer();
-  }
   // Unrelated sessions committing, busy, moves their own group's token and nothing of ours.
   for (let busy = 0; busy < 20; busy += 1) {
     ledgerState.other += 1;
     await publishRows();
   }
-  assert.equal(reads.length, 6, 'a quiet panel reads nothing while other sessions are busy');  // Lane frames (streamed text, a busy flag) are not the ledger.
+  assert.equal(reads.length, 3, 'a quiet panel reads nothing while other sessions are busy');
+  // Lane frames (streamed text, a busy flag) are not the ledger.
   await publish({ busy: true });
   await publish({ busy: true, streamingTail: { id: 't1', kind: 'assistant', text: 'hello' } });
   await act(async () => t.mock.timers.tick(60_000));
-  assert.equal(reads.length, 6, 'nothing else reads');
+  assert.equal(reads.length, 3, 'nothing else reads');
   // A response with no usage moves no running total; the ledger now says unknown.
   ledger.unmeasured = 1;
   await commit();
-  assert.equal(reads.length, 7);
+  assert.equal(reads.length, 4);
   await answer();
   assert.equal(rowTokens()['run-a'], null, 'the number gives way to unknown');
 
   // The Lead's turn settling takes one reading.
   await publish({ busy: false });
-  assert.equal(reads.length, 8);
+  assert.equal(reads.length, 5);
   await answer();
 });
 

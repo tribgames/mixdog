@@ -140,7 +140,10 @@ export function useCommandSurfaceLifecycle({
       const reads = capabilities.map((capability) => {
         const read = readSurfaceCapability(
           api,
-          capabilityRequest(capability, surface === 'context' && capability === 'contextStatus' ? [{ inspect: true }] : [])
+          capabilityRequest(
+            capability,
+            surface === 'context' && capability === 'contextStatus' ? [{ inspect: true }] : []
+          )
         );
         // The session-spend footer is secondary: a ledger failure leaves it
         // out instead of failing the context reading beside it.

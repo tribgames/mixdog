@@ -85,6 +85,7 @@ export function setGitProcessRunner(runner: GitProcessRunner | null): void {
 // is buffered off-thread now, so it gets a generous bound instead.
 const RUN_MAX_BYTES = 32_000_000;
 const STREAM_MAX_BYTES = 512 * 1024 * 1024;
+const EXEC_MAX_BUFFER = 16_000_000;
 const TAIL_CHARS = 64_000;
 
 /** Bound on the reads the UI polls (status, review, history). Such a read is
@@ -97,6 +98,15 @@ export const GIT_READ_TIMEOUT_MS = 60_000;
 /** Code of a git deadline. Not ETIMEDOUT: the session transport reads that as a
  *  dead daemon connection and re-attaches, dropping every subscription. */
 const GIT_TIMEOUT_CODE = 'EGITTIMEOUT';
+
+function gitTimeout(args: string[], timeoutMs: number): Error {
+  return Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), { code: GIT_TIMEOUT_CODE });
+}
+
+/** A non-zero exit, told by its stderr's tail. */
+function exitFailure(stderr: string, code: number | null): Error {
+  return new Error(scrubGitCredentials(stderr.slice(-TAIL_CHARS)).trim() || `git exited with code ${code}.`);
+}
 
 function runOffThread(
   runner: GitProcessRunner,
@@ -181,7 +191,7 @@ function runGit(
           {
             cwd,
             windowsHide: true,
-            maxBuffer: 16_000_000,
+            maxBuffer: EXEC_MAX_BUFFER,
             env,
           },
           (error, stdout, stderr) => {
@@ -193,11 +203,7 @@ function runGit(
         if (timeoutMs > 0) {
           timer = setTimeout(() => {
             killChildTree(child);
-            reject(
-              Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), {
-                code: GIT_TIMEOUT_CODE,
-              })
-            );
+            reject(gitTimeout(args, timeoutMs));
           }, timeoutMs);
         }
       })
@@ -234,7 +240,7 @@ export function runWithStatus(cwd: string, args: string[]): Promise<GitOutcome> 
           {
             cwd,
             windowsHide: true,
-            maxBuffer: 16_000_000,
+            maxBuffer: EXEC_MAX_BUFFER,
             env,
           },
           (error, stdout, stderr) => {
@@ -262,9 +268,7 @@ export function runWithInput(cwd: string, args: string[], input: string, indexFi
       input,
       maxBytes: STREAM_MAX_BYTES,
     }).then(({ code, stdout, stderr }) => {
-      if (code !== 0) {
-        throw new Error(scrubGitCredentials(stderr.slice(-TAIL_CHARS)).trim() || `git exited with code ${code}.`);
-      }
+      if (code !== 0) throw exitFailure(stderr, code);
       return stdout.slice(-TAIL_CHARS);
     });
   }
@@ -291,10 +295,10 @@ function spawnWithInput(
     let stderr = '';
     let settled = false;
     child.stdout.on('data', (chunk: string) => {
-      stdout = (stdout + chunk).slice(-64_000);
+      stdout = (stdout + chunk).slice(-TAIL_CHARS);
     });
     child.stderr.on('data', (chunk: string) => {
-      stderr = (stderr + chunk).slice(-64_000);
+      stderr = (stderr + chunk).slice(-TAIL_CHARS);
     });
     child.stdin.on('error', () => {
       // A failed git process can close stdin before the buffered patch drains.
@@ -309,7 +313,7 @@ function spawnWithInput(
       if (settled) return;
       settled = true;
       if (code !== 0) {
-        reject(new Error(scrubGitCredentials(stderr).trim() || `git exited with code ${code}.`));
+        reject(exitFailure(stderr, code));
         return;
       }
       resolvePromise(stdout);
@@ -363,9 +367,7 @@ export function streamNulRecords(
     // output), in the same order and with the same trailing-record rule.
     return runOffThread(offThreadRunner, cwd, args, gitEnvironment(), { maxBytes, timeoutMs }).then(
       ({ code, stdout, stderr }) => {
-        if (code !== 0) {
-          throw new Error(scrubGitCredentials(stderr.slice(-TAIL_CHARS)).trim() || `git exited with code ${code}.`);
-        }
+        if (code !== 0) throw exitFailure(stderr, code);
         return deliverNulRecords(stdout, onRecord);
       }
     );
@@ -409,11 +411,7 @@ function spawnNulRecords(
             if (settled) return;
             settled = true;
             killChildTree(child);
-            reject(
-              Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), {
-                code: GIT_TIMEOUT_CODE,
-              })
-            );
+            reject(gitTimeout(args, timeoutMs));
           }, timeoutMs)
         : null;
     child.once('close', () => {
@@ -454,7 +452,7 @@ function spawnNulRecords(
       }
     });
     child.stderr.on('data', (chunk: string) => {
-      stderr = (stderr + chunk).slice(-64_000);
+      stderr = (stderr + chunk).slice(-TAIL_CHARS);
     });
     child.once('error', (error) => {
       if (settled) return;
@@ -465,7 +463,7 @@ function spawnNulRecords(
       if (settled) return;
       settled = true;
       if (code !== 0) {
-        reject(new Error(scrubGitCredentials(stderr).trim() || `git exited with code ${code}.`));
+        reject(exitFailure(stderr, code));
         return;
       }
       if (refusing) refused += refusedOpen ? 1 : 0;
