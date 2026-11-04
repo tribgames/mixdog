@@ -465,6 +465,8 @@ const EXEMPT = {
   visualizePaneFile: 'remote-visualize.ts',
   visualizePanePages: 'remote-visualize.ts',
   visualizePaneRange: 'remote-visualize.ts',
+  // Inline content from the tab state: no file is read.
+  visualizePaneInline: 'remote-visualize.ts',
   visualizeExport: 'remote-visualize.ts',
   attachmentOpen: 'content-addressed store',
   readAttachmentThumbnail: 'content-addressed store',

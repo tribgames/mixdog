@@ -26,6 +26,34 @@ export interface VisualizeInlineContent {
   kind: VisualizeInlineKind;
   source: string;
   title?: string;
+  /** A paired device's snapshot leaves the source out (`source` is ''): the
+   *  pane reads it with `visualizePaneInline` when it is shown. */
+  deferred?: true;
+}
+
+/** `state` with every inline source left out (kind and title kept): a
+ *  device's snapshot lists every session's tabs, and the sources (up to
+ *  512 KB each) were nearly all of it. */
+export function withDeferredInline(state: VisualizeSessionState): VisualizeSessionState {
+  return {
+    ...state,
+    tabs: state.tabs.map((tab) => ({
+      ...tab,
+      panes: tab.panes.map((pane) =>
+        pane.inline
+          ? {
+              ...pane,
+              inline: {
+                kind: pane.inline.kind,
+                source: '',
+                ...(pane.inline.title ? { title: pane.inline.title } : {}),
+                deferred: true as const,
+              },
+            }
+          : pane
+      ),
+    })),
+  };
 }
 
 /** Largest inline `source`, in UTF-8 bytes. */

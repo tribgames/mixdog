@@ -25,6 +25,7 @@ const PARALLEL_READS = new Set([
   // Agent visualize panel: the tab list and pane byte ranges.
   'visualizeState',
   'visualizePaneRange',
+  'visualizePaneInline',
   // A phone's resume reads. As unknown-method barriers each one waited for
   // every in-flight read (a 3-6s usage sweep) and then ran one at a time,
   // holding the transcript's getSnapshot ~3s behind them.
@@ -61,6 +62,10 @@ export const SLOW_READ_CAPABILITIES: ReadonlySet<string> = new Set([
   'getQuotaHistory',
   'getUsageStats',
   'getUsageRequests',
+  // The agents panel's ledger read (3-6s per call, one per listed session):
+  // in the general lane a burst of them took every slot and held the panel's
+  // own listAgents / gitStatus reads ~2.5s behind them.
+  'getSessionUsage',
 ]);
 /** Lane key of a capability call naming one of {@link SLOW_READ_CAPABILITIES}. */
 export const SLOW_CAPABILITY_READ_CALL = 'readCapabilities:slow';

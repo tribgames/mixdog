@@ -65,6 +65,7 @@ import type {
   DesktopVisualizeEvent,
   DesktopVisualizeTabCommand,
   VisualizeCommandResult,
+  VisualizeInlineContent,
   VisualizePaneSource,
   VisualizePaneText,
   VisualizeRemoteExport,
@@ -1000,6 +1001,9 @@ export interface DesktopApi {
   /** Paired web app only: one visualize pane's content, fetched over the
    *  encrypted RPC lane (pane URLs name the host's loopback servers). */
   visualizePaneSource?(sessionId: string, tabId: string, index: number): Promise<VisualizePaneSource>;
+  /** Paired web app only: the source of an inline pane its snapshot left
+   *  out (`inline.deferred`), read when the pane is shown. */
+  visualizePaneInline?(sessionId: string, tabId: string, index: number): Promise<VisualizeInlineContent>;
   /** Paired web app only: a PDF or Office pane rasterized to page images
    *  (a phone cannot show a PDF in a frame). */
   visualizePanePages?(

@@ -62,6 +62,23 @@ test('a remote session diff answers its value without the session snapshot', asy
   assert.ok(shaped < 500);
 });
 
+// The agents panel reads the ledger once per listed session; each read carried
+// that session's transcript beside the figures it uses.
+test('a remote session usage read answers its value without the session snapshot', async () => {
+  const transcript = { sessionId: SESSION, items: [{ kind: 'assistant', text: 'x'.repeat(50_000) }] };
+  const methods = createRemoteMethods({
+    host: {
+      async invokeCapability() {
+        return { value: { turns: 3, measuredTurns: 3 }, snapshot: transcript };
+      },
+    },
+  });
+  const usage = await methods.invokeCapability([
+    { capability: 'getSessionUsage', args: [{ sessionIds: [SESSION], agents: true }], sessionId: SESSION },
+  ]);
+  assert.deepEqual(usage, { value: { turns: 3, measuredTurns: 3 } });
+});
+
 // The composer re-reads its session's skills on focus and on every skill
 // change signal; on a phone each of those would otherwise ship the transcript.
 test('a remote session skill status answers its value without the session snapshot', async () => {

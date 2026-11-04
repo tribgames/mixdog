@@ -26,6 +26,7 @@ import { InlinePaneContent } from './VisualizeInline';
 import { useVisualizePanelExtras } from './VisualizePanelExtras';
 import { VisualizeSource } from './VisualizeSource';
 import { visualizePaneHasSource } from './visualize-source';
+import { useVisualizeInlinePane, visualizeInlineDeferred } from './visualize-inline-body';
 import { remoteInlinePageSource } from './visualize-inline-remote';
 import {
   activateVisualizeTab,
@@ -587,6 +588,21 @@ export function visualizePaneChipLabel(pane: Pick<VisualizePaneView, 'label' | '
   return pane.version === undefined ? pane.label : `v${pane.version} · ${pane.label}`;
 }
 
+type VisualizePaneContentInput = Parameters<typeof visualizePaneContent>[0];
+
+/** An inline pane whose source the snapshot left out: drawn as usual once read. */
+function DeferredInlinePane(props: VisualizePaneContentInput) {
+  const { pane, error } = useVisualizeInlinePane(props.pane, {
+    sessionId: props.sessionId,
+    tabId: props.shown.id,
+    revision: props.shown.revision,
+    index: props.index,
+  });
+  if (error) return <div className="visualize-empty">{error}</div>;
+  if (!pane) return <div className="visualize-empty">{t('Loading…')}</div>;
+  return <>{visualizePaneContent({ ...props, pane }).content}</>;
+}
+
 /** What one pane of a kept tab shows, and whether its frame is double-buffered. */
 function visualizePaneContent({
   sessionId,
@@ -614,6 +630,24 @@ function visualizePaneContent({
         <div className="visualize-empty" role="status">
           {t('This file was removed. The tab reloads when it is back.')}
         </div>
+      ),
+      buffered: false,
+      showSource,
+    };
+  }
+  if (visualizeInlineDeferred(pane)) {
+    // A paired device's snapshot left the source out: it is read now that the pane shows.
+    return {
+      content: (
+        <DeferredInlinePane
+          sessionId={sessionId}
+          shown={shown}
+          pane={pane}
+          index={index}
+          live={live}
+          sourceOn={sourceOn}
+          remoteSource={remoteSource}
+        />
       ),
       buffered: false,
       showSource,

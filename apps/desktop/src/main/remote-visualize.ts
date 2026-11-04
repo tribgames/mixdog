@@ -15,10 +15,12 @@ import {
   type VisualizeHostPane,
   type VisualizeHostState,
   type VisualizeHostTab,
+  type VisualizeInlineContent,
   type VisualizeRemoteExport,
   type VisualizeRemotePaneFile,
   type VisualizeSessionState,
   visualizeThumbnail,
+  withDeferredInline,
 } from '../shared/visualize';
 import { requiredSessionId } from './desktop-state';
 import { requiredString, requiredVisualizeTabCommand } from './ipc-validation';
@@ -222,7 +224,18 @@ export function createRemoteVisualizeMethods(deps: {
     return tab;
   };
   return {
-    visualizeState: () => refresh(),
+    // A client that reads inline sources on open asks for the snapshot without
+    // them; an older client gets them in the state as before.
+    visualizeState: async ([options]) => {
+      const states = await refresh();
+      return record(options).deferInline === true ? states.map(withDeferredInline) : states;
+    },
+    visualizePaneInline: async ([sessionId, tabId, rawIndex]): Promise<VisualizeInlineContent> => {
+      const tab = await tabOf(sessionId, tabId);
+      const inline = tab.panes[paneIndex(rawIndex)]?.inline;
+      if (!inline) throw new Error('This visualize pane has no inline content.');
+      return { kind: inline.kind, source: inline.source, ...(inline.title ? { title: inline.title } : {}) };
+    },
     visualizeCommand: async ([command]) => {
       const valid = requiredVisualizeTabCommand(command);
       // Outside network for a page is the desktop user's decision alone.
