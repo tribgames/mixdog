@@ -60,7 +60,9 @@ parentPort.on('message', (message) => {
     }
     return;
   }
-  const { session, delta, id, opts, reqId, dataDir } = message || {};
+  const { session, delta, id, opts, reqId, scratch, dataDir } = message || {};
+  // The parent's hung-worker clock measures each write from here.
+  parentPort.postMessage({ __start: reqId });
   let full = session;
   try {
     // This realm's env was copied when the worker spawned; the parent's data
@@ -80,7 +82,9 @@ parentPort.on('message', (message) => {
       full = { ...delta.header, messages: [...base, ...delta.tailMessages] };
     }
     // The parent publishes this write's summary row when the reply lands.
-    const outcome = _saveSessionSync(full, opts, { publishSummary: false });
+    // The scratch name is the parent's, so it can reclaim the file if this
+    // thread is terminated mid-write.
+    const outcome = _saveSessionSync(full, opts, { publishSummary: false, scratch });
     const saved = outcome === SAVE_OUTCOME_SAVED;
     if (saved) _rememberBase(sessionId, full.messages);
     else _baseMessages.delete(sessionId);

@@ -166,7 +166,11 @@ function _sweepOrphanChunk(limit, attempted = null) {
 // the gate stops being set, so no production process — and no environment
 // variable — can make a real save fail.
 const SESSION_SAVE_FAULT_ENV = 'MIXDOG_SESSION_SAVE_FAULT_HOOKS';
-const _programmaticFault = { ids: null, remaining: 0, code: 'EIO' };
+const _programmaticFault = { ids: null, remaining: 0, code: 'EIO', stall: null };
+// `stall` makes a matched commit hang instead of failing, just before or just
+// after its rename ('before-rename' / 'after-rename'), until its thread is
+// terminated: a save worker stopped mid-commit.
+const STALL_PHASES = new Set(['before-rename', 'after-rename']);
 // Config epoch: bumped on every change so a realm that mirrors this state
 // (the save worker) can detect a change — including a CLEAR — without diffing
 // sets. Consumption of `remaining` never bumps it.
@@ -195,6 +199,7 @@ function _clearFaultState() {
   _programmaticFault.ids = null;
   _programmaticFault.remaining = 0;
   _programmaticFault.code = 'EIO';
+  _programmaticFault.stall = null;
   _syncedFaultApplied = false;
   _syncedFault = null;
 }
@@ -209,7 +214,7 @@ function _idSet(ids) {
  * Configure (or clear with a falsy argument) in-process commit faults. Only
  * honoured in explicit fault-injection test mode; returns whether the fault
  * was armed.
- * `{ ids: 'sess_x' | ['a','b'] | '*', count?: number, code?: string }`.
+ * `{ ids: 'sess_x' | ['a','b'] | '*', count?: number, code?: string, stall?: 'before-rename' | 'after-rename' }`.
  * `count` is the number of commits to fail (default: unlimited), so a test can
  * fail exactly one save and let the NEXT save land without extra bookkeeping.
  */
@@ -224,6 +229,7 @@ export function setSessionSaveFault(spec = null) {
   const count = Number(spec.count);
   _programmaticFault.remaining = Number.isFinite(count) && count >= 0 ? count : Infinity;
   _programmaticFault.code = typeof spec.code === 'string' && spec.code ? spec.code : 'EIO';
+  _programmaticFault.stall = STALL_PHASES.has(spec.stall) ? spec.stall : null;
   _faultConfigEpoch++;
   _notifyFaultChange();
   return true;
@@ -261,6 +267,7 @@ export function serializeSessionSaveFault() {
     ids: state.ids === '*' ? '*' : [...state.ids],
     remaining: state.remaining === Infinity ? null : state.remaining,
     code: state.code,
+    stall: state.stall,
   };
 }
 
@@ -279,6 +286,7 @@ export function applySessionSaveFault(serialized) {
       ids: serialized.ids === '*' ? '*' : _idSet(serialized.ids),
       remaining,
       code: serialized.code || 'EIO',
+      stall: STALL_PHASES.has(serialized.stall) ? serialized.stall : null,
     };
   }
 }
@@ -302,10 +310,16 @@ function _takeInjectedCommitFault(id) {
   if (!state) return null;
   if (state.ids !== '*' && !state.ids.has(id)) return null;
   if (state.remaining !== Infinity) state.remaining -= 1;
+  if (state.stall) return { stall: state.stall };
   const err = new Error(`[session-store] injected save commit fault for ${id}`);
   err.code = state.code;
   err.injectedSaveFault = true;
-  return err;
+  return { error: err };
+}
+
+// Never returns: only terminating the thread ends the wait.
+function _stallCommit() {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 }
 
 /**
@@ -316,8 +330,11 @@ function _takeInjectedCommitFault(id) {
  */
 export function _commitSessionWrite(tmp, target, id) {
   const injected = _takeInjectedCommitFault(id);
-  if (injected) throw injected;
-  return _renameWithRetrySync(tmp, target);
+  if (injected?.error) throw injected.error;
+  if (injected?.stall === 'before-rename') _stallCommit();
+  const renamed = _renameWithRetrySync(tmp, target);
+  if (injected?.stall === 'after-rename') _stallCommit();
+  return renamed;
 }
 
 /**
@@ -328,8 +345,9 @@ export function _commitSessionWrite(tmp, target, id) {
  */
 export function _commitSessionWriteAttempt(tmp, target, id, attempt) {
   if (attempt === 0) {
+    // A stall is a save worker's (see _commitSessionWrite); never this path's.
     const injected = _takeInjectedCommitFault(id);
-    if (injected) throw injected;
+    if (injected?.error) throw injected.error;
   }
   return renameAttempt(tmp, target, attempt);
 }

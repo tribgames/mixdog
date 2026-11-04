@@ -79,7 +79,13 @@ export async function closeSession(id, reason = 'manual', opts = {}) {
       return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
     }
     closeSnapshot?.rollback();
-    attempt = await waitForLifecycleRetry(id, newGen, attempt);
+    try {
+      attempt = await waitForLifecycleRetry(id, newGen, attempt);
+    } catch {
+      // The commit waited on is stranded (recorded as the lifecycle commit
+      // error): no barrier landed, so the runtime stays intact.
+      return finishClose({ id, reason, tombstone, entry, closeSnapshot: null, newGen: null, outcome });
+    }
   }
 }
 

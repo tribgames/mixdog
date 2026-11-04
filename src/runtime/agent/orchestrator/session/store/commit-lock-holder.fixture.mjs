@@ -15,11 +15,13 @@ const LATE_MS = 1000;
 const HOLDER_DEADLINE_MS = 5000;
 
 const HOLDER = `
-const { parentPort, workerData } = require('node:worker_threads');
+const { parentPort, workerData, threadId } = require('node:worker_threads');
 const control = new Int32Array(workerData.buffer, 0, 2);
-if (Atomics.compareExchange(control, 1, 0, 1) !== 0) throw new Error('commit lock already held');
+// The lock word names its holder (write-guards.mjs): this thread's token.
+const token = threadId + 1;
+if (Atomics.compareExchange(control, 1, 0, token) !== 0) throw new Error('commit lock already held');
 const release = () => {
-  Atomics.store(control, 1, 0);
+  Atomics.compareExchange(control, 1, token, 0);
   Atomics.notify(control, 1);
   process.exit(0);
 };

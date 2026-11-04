@@ -132,14 +132,12 @@ export function _shouldDrop(id, opts, attempt = null) {
 // verdict strictly read at a settled stamp: coalesced calls against an
 // unchanged file cost one stat each, and the final verdict is still taken
 // under the lock by _shouldDrop.
-export function _sessionWriteAuthorityRefusal(id, attempt = null) {
+export function _sessionWriteAuthorityRefusal(id) {
   if (!id) return null;
   if (isSessionWriteFenced(id)) return 'deleted';
   let authority;
   try {
-    // A durable save passes its `attempt`: its pre-admission is then the
-    // first strict write-authority read of that same save (see _shouldDrop).
-    authority = attempt ? _writeAuthorityRecord(sessionPath(id), attempt) : _readCanonicalRecord(sessionPath(id), true);
+    authority = _readCanonicalRecord(sessionPath(id), true);
   } catch {
     // A THROWN authority check is never acceptance: fail closed.
     return 'unreadable';
