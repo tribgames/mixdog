@@ -18,8 +18,8 @@ export function createNewSessionConfig({
 }) {
   let firstSession = true;
   return async function prepareNewSessionConfig() {
-    await flushPendingSessionConfigWrites();
-    await sharedCfgMod.pendingConfigWrites();
+    // The writes accepted or in flight when the new session was asked for.
+    await Promise.all([flushPendingSessionConfigWrites(), sharedCfgMod.pendingConfigWrites()]);
     sharedCfgMod.invalidateConfigReadCache();
     const mcpSettings = () => [rt.config.mcpServers, rt.config.pluginMcp];
     const previousMcp = mcpSettings();

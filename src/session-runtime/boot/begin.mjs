@@ -9,6 +9,7 @@ import { createRoutePreparationGate } from '../route-preparation.mjs';
 import { createRuntimeFeatureGates } from '../runtime-feature-gates.mjs';
 import { createLazyRuntimeModules } from '../runtime-modules.mjs';
 import { sessionToolProfile } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { createConfigWriteOwner } from '../../runtime/shared/config.mjs';
 
 // The boot record: `rt` (shared mutable runtime state, promoted from closure
 // `let`s so extracted modules read/write live values through one reference),
@@ -31,7 +32,16 @@ export function beginBoot(params) {
   // so the post-turn final-content append can skip an exact duplicate.
   rt._lastAppendedAssistant = '';
   prepareStandaloneEnvironment();
-  const boot = { rt, params, sessionTurnApi: null, goalRuntime: null, runtimeFacade: null };
+  const boot = {
+    rt,
+    params,
+    sessionTurnApi: null,
+    goalRuntime: null,
+    runtimeFacade: null,
+    // The config writes this runtime's work starts, boot and facade calls
+    // alike; its close drains exactly these (lifecycle/teardown.mjs).
+    configWrites: createConfigWriteOwner(),
+  };
   const {
     awaitKeychainPrewarm,
     invalidateProviderCaches,

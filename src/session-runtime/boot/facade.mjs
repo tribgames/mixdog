@@ -59,7 +59,22 @@ export function buildFacade(boot) {
     reserveSessionId: (id) => reserveSessionId(boot, id),
     ...facadeGetters(boot),
   });
-  return boot.runtimeFacade;
+  return ownedByRuntime(boot.runtimeFacade, boot.configWrites);
+}
+
+/** Every facade call runs in the runtime's own context, so whatever config
+ *  write it starts (a debounced save, a direct section write such as the
+ *  webhook settings) is the runtime's to drain on close. Getters stay as they
+ *  are: they read state and start no writes. */
+function ownedByRuntime(facade, configWrites) {
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(facade))) {
+    const method = descriptor.value;
+    if (typeof method !== 'function') continue;
+    facade[key] = function ownedCall(...args) {
+      return configWrites.run(() => method.apply(this, args));
+    };
+  }
+  return facade;
 }
 
 function reserveSessionId(boot, id) {

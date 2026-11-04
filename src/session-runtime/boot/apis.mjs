@@ -515,6 +515,7 @@ function lifecycleApiFor(boot) {
     warmupTimers: boot.warmupTimers,
     prewarmTimers: boot.prewarmTimers,
     flushAllConfigSavesAsync: boot.flushAllConfigSavesAsync,
+    settleOwnConfigWrites: boot.configWrites.settled,
     withTeardownDeadline,
     closePatchRuntimeIfLoaded,
     closeNativeToolTransports,

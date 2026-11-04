@@ -7,12 +7,17 @@ import { exitFlushCount } from '../services/agent-tool/helpers.mjs';
 import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
 import { createWorkerIndex } from '../services/agent-tool/worker-index.mjs';
 import { createCloseAll } from '../services/agent-tool/close-flow/close-all.mjs';
+import * as sharedConfig from '../../runtime/shared/config.mjs';
+import { buildFacade } from '../boot/facade.mjs';
+import { createChannelConfigApi } from '../channel-config-api.mjs';
+import { createConfigWriters } from '../config-lifecycle/config-writers.mjs';
 import { createTeardown } from './teardown.mjs';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 function fixture({
   session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] },
   flushConfig,
+  settleOwnConfigWrites,
   onCloseSurface,
   agentTool,
   withTeardownDeadline,
@@ -59,6 +64,7 @@ function fixture({
     warmupTimers: { providerWarmupTimer: setTimeout(() => {}, 60_000) },
     prewarmTimers: { channelStartTimer: setTimeout(() => {}, 60_000) },
     flushAllConfigSavesAsync: flushConfig || (async () => calls.push(['flushConfig'])),
+    settleOwnConfigWrites,
     withTeardownDeadline: withTeardownDeadline || (async (work) => await work),
     closePatchRuntimeIfLoaded: (...args) => {
       calls.push(['closePatchRuntime', ...args]);
@@ -201,6 +207,40 @@ function rowFor(id, owner) {
     });
 }
 
+/** Hold `lockPath` with an async holder of this process; resolves to its release. */
+async function holdFileLock(lockPath) {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let locked;
+  const lockTaken = new Promise((resolve) => {
+    locked = resolve;
+  });
+  const holder = withFileLock(lockPath, async () => {
+    locked();
+    await gate;
+  });
+  await lockTaken;
+  return async () => {
+    release();
+    await holder;
+  };
+}
+
+/** Config writes land in the current data dir, with no user-data backups. */
+function writableConfig() {
+  const previous = process.env.MIXDOG_SKIP_USER_DATA_BACKUP;
+  process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
+  return {
+    holdLock: () => holdFileLock(join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json.lock')),
+    restore: () => {
+      if (previous === undefined) delete process.env.MIXDOG_SKIP_USER_DATA_BACKUP;
+      else process.env.MIXDOG_SKIP_USER_DATA_BACKUP = previous;
+    },
+  };
+}
+
 function realWorkerIndex() {
   const root = makeTempDirSync('teardown');
   mkdirSync(join(root, 'sessions'));
@@ -217,25 +257,7 @@ function realWorkerIndex() {
   const file = join(root, 'agent-workers.json');
   const readRows = () => JSON.parse(readFileSync(file, 'utf8')).workers;
   // Hold this process's index lock with an async holder until released.
-  const holdLock = async () => {
-    let release;
-    const gate = new Promise((resolve) => {
-      release = resolve;
-    });
-    let locked;
-    const lockTaken = new Promise((resolve) => {
-      locked = resolve;
-    });
-    const holder = withFileLock(`${file}.lock`, async () => {
-      locked();
-      await gate;
-    });
-    await lockTaken;
-    return async () => {
-      release();
-      await holder;
-    };
-  };
+  const holdLock = () => holdFileLock(`${file}.lock`);
   const restore = () => {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
@@ -256,6 +278,75 @@ function realWorkerIndex() {
 const shortDeadline = (work, _ms, fallback) =>
   Promise.race([Promise.resolve(work), new Promise((resolve) => setTimeout(() => resolve(fallback), 20))]);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("a session close never waits on another session's held index or config writes", async () => {
+  const other = realWorkerIndex(); // another session's index writer in this process
+  const config = writableConfig();
+  // The closing session's own config writers, over the real shared layer.
+  const writers = createConfigWriters({ cfgMod: {}, sharedCfgMod: sharedConfig });
+  const unlockIndex = await other.holdLock();
+  const unlockConfig = await config.holdLock();
+  const f = fixture({ flushConfig: writers.flushAllConfigSavesAsync });
+  let otherConfigWrite = null;
+  try {
+    other.worker.writeWorkerRows(rowFor('held', 'lead-b'));
+    // Another session's direct config write, waiting on the held config lock.
+    otherConfigWrite = sharedConfig.updateSectionAsync('channels', (current) => ({ ...current, held: true }));
+    const closed = await Promise.race([f.teardown.close('idle-evict', { keepBackgroundWork: true }), sleep(1500)]);
+    assert.equal(closed, true, 'the close resolved while the other writes were held');
+    assert.equal(existsSync(join(process.env.MIXDOG_DATA_DIR, 'agent-workers.json')), false, 'the held write is still queued');
+  } finally {
+    await unlockConfig();
+    await unlockIndex();
+    f.cleanup();
+  }
+  await otherConfigWrite;
+  assert.equal(sharedConfig.readSection('channels')?.held, true, "the other session's config write landed once released");
+  await other.worker.flushWorkerIndexWrites();
+  assert.equal(other.readRows().held?.sessionId, 'held', "the other session's write landed once released");
+  config.restore();
+  await other.cleanupAsync();
+});
+
+test('a session close waits for the config writes its own work started directly', async () => {
+  const idx = realWorkerIndex(); // a scratch data dir
+  const config = writableConfig();
+  const { createConfigWriteOwner } = await import('../../runtime/shared/config.mjs');
+  const configWrites = createConfigWriteOwner();
+  // The runtime's own facade: the webhook settings are a direct section write,
+  // outside the debounced save channels.
+  const facade = buildFacade({
+    rt: {},
+    setupTool: {},
+    workspaceApi: {},
+    configWrites,
+    channelConfigApi: createChannelConfigApi({ channels: { status: () => ({ running: false }) }, reloadChannelsSoon() {} }),
+  });
+  const unlockConfig = await config.holdLock();
+  const f = fixture({ settleOwnConfigWrites: configWrites.settled });
+  let write = null;
+  let unlocked = false;
+  try {
+    write = facade.setWebhookConfig({ domain: 'hooks.example.test' });
+    const closing = f.teardown.close('idle-evict', { keepBackgroundWork: true });
+    const early = await Promise.race([closing.then(() => 'closed'), sleep(300).then(() => 'waiting')]);
+    assert.equal(early, 'waiting', 'the close waits for its own held webhook write');
+    await unlockConfig();
+    unlocked = true;
+    assert.equal(await closing, true);
+    assert.equal(
+      sharedConfig.readSection('channels')?.webhook?.domain,
+      'hooks.example.test',
+      'the write is on disk when the close resolves'
+    );
+  } finally {
+    if (!unlocked) await unlockConfig();
+    await write?.catch(() => {});
+    f.cleanup();
+    config.restore();
+    await idx.cleanupAsync();
+  }
+});
 
 test('close waits for agent closing to finish before draining the index writers', async () => {
   const events = [];
@@ -442,6 +533,11 @@ test("a process-exit close after a Lead A scoped close still closes Lead B's wor
 test('repeated idle evictions leave no growth in exit callbacks or registrations', async () => {
   const idx = realWorkerIndex();
   const baseline = exitFlushCount() - 1; // the helper's own worker index
+  // The process's one exit flush of every index queue is installed by the
+  // first index write of the process; count from after it, so only
+  // per-runtime listeners can show up as growth.
+  idx.worker.queueWorkerIndexMutation(rowFor('warmup', 'lead-a'));
+  await idx.worker.flushWorkerIndexWrites();
   const exitListeners = process.listenerCount('exit');
   const fixtures = [];
   const indexes = [];
@@ -469,7 +565,8 @@ test('repeated idle evictions leave no growth in exit callbacks or registrations
     }
     assert.equal(exitFlushCount(), baseline + 1, 'evicted runtimes released their exit callbacks');
     assert.equal(process.listenerCount('exit'), exitListeners, 'no per-runtime process exit listeners');
-    assert.equal(Object.keys(idx.readRows()).length, 30, 'every evicted runtime drained its rows first');
+    const evictedRows = Object.keys(idx.readRows()).filter((id) => id.startsWith('evicted'));
+    assert.equal(evictedRows.length, 30, 'every evicted runtime drained its rows first');
   } finally {
     for (const f of fixtures) f.cleanup();
     await Promise.allSettled(indexes.map((evicted) => evicted.disposeAsync()));
