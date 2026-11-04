@@ -266,6 +266,65 @@ test('the welcome chain ends on the Agents page with the create button lit; only
   assert.equal(document.querySelector('.starter-tour-card'), null);
 });
 
+test('the create stop lights the visible button, not a hidden retained twin, and its click hands over', async (t) => {
+  const { opened } = await mount(t, { connected: true, mixy: false });
+  await click(button('Maybe later'));
+  // A retained routine page (RoutineNeedsBot) earlier in the DOM: hidden by
+  // visibility only, so it keeps a box in the same spot.
+  const retained = document.createElement('div');
+  retained.style.visibility = 'hidden';
+  const twin = mixyCreateButton(t);
+  retained.append(twin);
+  document.body.prepend(retained);
+  t.after(() => retained.remove());
+  const create = mixyCreateButton(t);
+  create.getBoundingClientRect = () => ({ top: 200, left: 40, width: 180, height: 32, right: 220, bottom: 232 });
+  await click(pill());
+  await click(steps()[5]);
+  assert.deepEqual(opened.views, ['agents']);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+  assert.equal(document.querySelector('.starter-tour-hole[data-live="true"]')?.style.top, '194px');
+  await click(create);
+  await settle();
+  assert.equal(document.querySelector('.starter-tour-card'), null);
+  assert.equal(document.querySelector('.starter-tour-hole'), null);
+});
+
+test('the completion notice covers the pill, at least its width, instead of the panel above it', async (t) => {
+  await mount(t);
+  await click(button('Maybe later'));
+  const guide = document.querySelector('.starter-guide');
+  guide.getBoundingClientRect = () => ({ top: 720, left: 60, width: 230, height: 32, right: 290, bottom: 752 });
+  await click(pill());
+  await click(steps()[2]);
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Done'));
+  const toast = document.querySelector('.starter-guide-toast');
+  assert.equal(toast.style.bottom, `${window.innerHeight - 752}px`, 'bottom edge on the pill’s');
+  assert.equal(toast.style.left, '60px');
+  assert.equal(toast.style.minWidth, '230px');
+  assert.equal(toast.style.width, '', 'grows to fit the step name');
+  assert.equal(toast.style.maxWidth, `${window.innerWidth - 60 - 16}px`);
+});
+
+test('with no visible pill the completion notice still stops 16px short of the window edge', async (t) => {
+  await mount(t);
+  await click(button('Maybe later'));
+  // The side panel is closed: the pill has no box (jsdom's default rect).
+  await click(pill());
+  await click(steps()[2]);
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Done'));
+  const toast = document.querySelector('.starter-guide-toast');
+  assert.equal(toast.style.left, '60px');
+  assert.equal(toast.style.bottom, '16px');
+  assert.equal(toast.style.maxWidth, `${window.innerWidth - 60 - 16}px`);
+});
+
 test('the delegation stop lights where a session tab shows and sets its mode', async (t) => {
   await mount(t);
   await click(button('Maybe later'));

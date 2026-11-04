@@ -51,11 +51,17 @@ const PAD = 6;
 const LIST_ROW = '.schedules-row';
 const LIST_ROW_PAD_Y = 2;
 
+// Retained rail and dock layers stay laid out under the active one, hidden by
+// `visibility` only: their copy of a control (the routine pages' "Create
+// representative bot") has a real box in the same spot, so a box alone would
+// light the hidden twin and never see the click on the visible one.
 function findTarget(target: string | readonly string[]): HTMLElement | null {
   for (const selector of typeof target === 'string' ? [target] : target) {
     for (const element of document.querySelectorAll<HTMLElement>(selector)) {
       const box = element.getBoundingClientRect();
-      if (box.width > 0 && box.height > 0) return element;
+      if (box.width > 0 && box.height > 0 && window.getComputedStyle(element).visibility === 'visible') {
+        return element;
+      }
     }
   }
   return null;

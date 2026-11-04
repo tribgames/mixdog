@@ -140,17 +140,26 @@ function markVisited(step: StepId): (current: GuideState) => GuideState {
       : { ...current, visited: [...current.visited, step] };
 }
 
-/** The completion notice sits just above the pill; with the side panel
- *  closed (no visible pill) it takes the window's bottom-left corner. */
+/** The completion notice covers the pill itself, bottom edges aligned: above
+ *  it, it hid the side panel's list (or, with Settings open, the dialog's
+ *  section list). It is at least the pill's width and grows right, over the
+ *  main area, to fit the step name. With the side panel closed (no visible
+ *  pill) it takes the window's bottom-left corner. */
 function toastPosition(pill: HTMLElement | null): CSSProperties {
-  const box = pill?.getBoundingClientRect();
-  if (!box || box.width === 0) return { left: 60, bottom: 16 };
   // On a phone the fixed toast's containing block is the body, pinned to the
   // visual viewport (soft keyboard): measure from that box, not the window.
   const frame = document.documentElement.hasAttribute('data-mixdog-mobile-tabs')
     ? document.body.getBoundingClientRect()
-    : { left: 0, top: 0, height: window.innerHeight };
-  return { left: box.left - frame.left, width: box.width, bottom: frame.height - (box.top - frame.top) + 6 };
+    : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  const box = pill?.getBoundingClientRect();
+  if (!box || box.width === 0) return { left: 60, bottom: 16, maxWidth: Math.max(0, frame.width - 60 - 16) };
+  const left = box.left - frame.left;
+  return {
+    left,
+    minWidth: box.width,
+    maxWidth: Math.max(box.width, frame.width - left - 16),
+    bottom: frame.height - (box.bottom - frame.top),
+  };
 }
 
 /** The coach-mark stops of each step's tour. */
