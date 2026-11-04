@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { sleep as delay } from '../runtime/shared/sleep.mjs';
+import { DAEMON_KEEP_ALIVE_MS } from '../runtime/shared/daemon-keep-alive.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -65,9 +66,10 @@ export function daemonShouldDetach({ platform = process.platform, processType = 
 // Data calls and lifecycle control must never share a socket pool. A burst of
 // long /call requests can occupy every data socket; health/register/deregister
 // still need a reserved lane so a new terminal can always attach or recover.
-// Idle pooled sockets close before the daemon's 5 s keep-alive does: a request
-// written to a socket the server is closing at that moment fails ECONNRESET.
-const DAEMON_IDLE_SOCKET_MS = 4_000;
+// Idle pooled sockets close before the daemon's keep-alive does (see
+// daemon-keep-alive.mjs): a request written to a socket the server is closing
+// at that moment fails ECONNRESET.
+const DAEMON_IDLE_SOCKET_MS = DAEMON_KEEP_ALIVE_MS;
 const daemonCallAgent = new http.Agent({
   keepAlive: true,
   keepAliveMsecs: 5_000,
