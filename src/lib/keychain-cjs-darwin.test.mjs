@@ -5,7 +5,10 @@
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
@@ -16,12 +19,14 @@ const OTHER = 'agent.xai.apiKey';
 const findArgs = (account) => ['find-generic-password', '-a', account, '-s', 'mixdog', '-w'];
 
 /** A darwin keychain module over a fake `security`: stored = account -> value.
- *  `locked` makes every find fail with something other than "not found". */
+ *  `locked` makes every find fail with something other than "not found".
+ *  `live` makes every async find a real, long-lived process that never answers
+ *  (spawned with the options the module passed), for what a real child holds. */
 function darwinKeychain(stored) {
   const real = { spawnSync: childProcess.spawnSync, spawn: childProcess.spawn, now: Date.now };
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   const log = { sync: [], async: [] };
-  const state = { locked: false, offset: 0 };
+  const state = { locked: false, offset: 0, live: false, liveChildren: [] };
   const answer = (args) => {
     const account = args[args.indexOf('-a') + 1];
     if (args[0] === 'add-generic-password') {
@@ -40,11 +45,21 @@ function darwinKeychain(stored) {
     log.sync.push(args);
     return { ...answer(args), stderr: '' };
   };
-  childProcess.spawn = (cmd, args) => {
+  childProcess.spawn = (cmd, args, options) => {
     log.async.push(args);
+    if (state.live) {
+      const live = real.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], options);
+      state.liveChildren.push(live);
+      return live;
+    }
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
+    // The calls that let a real child and its pipes stop holding the process; the fake holds nothing.
+    for (const handle of [child, child.stdout, child.stderr]) {
+      handle.ref = () => {};
+      handle.unref = () => {};
+    }
     const { status, stdout } = answer(args);
     const finish = () => {
       child.stdout.end(stdout);
@@ -71,6 +86,7 @@ function darwinKeychain(stored) {
       for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve));
     },
     restore() {
+      for (const live of state.liveChildren) live.kill();
       childProcess.spawnSync = real.spawnSync;
       childProcess.spawn = real.spawn;
       Date.now = real.now;
@@ -397,4 +413,95 @@ test('only the per-account find-generic-password is ever spawned to read, warm a
   } finally {
     restore();
   }
+});
+
+test('a cached keychain absence still resolves the fallback file credential, as an uncached read does', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-darwin-fallback-'));
+  const savedDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  const { keychain, log, restore } = darwinKeychain(new Map());
+  try {
+    const dir = path.join(dataDir, 'secrets');
+    const file = path.join(dir, `${encodeURIComponent(KEY)}.secret`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.chmodSync(dir, 0o700);
+    fs.writeFileSync(file, 'sk-from-file');
+    fs.chmodSync(file, 0o600);
+    assert.equal(keychain.getSecret(KEY), null, 'the keychain holds nothing and that absence is cached');
+    // The file store is served on Linux only, so the platform changes once the
+    // miss is cached: what is left of the macOS read is the cached absence.
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    assert.equal(keychain.getSecret(KEY), 'sk-from-file');
+    assert.equal(await keychain.getSecretAsync(KEY), 'sk-from-file');
+    assert.equal(keychain.hasSecret(KEY), true);
+    assert.equal(log.sync.length, 1, 'the cached absence was not read again');
+    assert.deepEqual(log.async, []);
+  } finally {
+    restore();
+    if (savedDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = savedDataDir;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a background re-read holds neither its child, its pipes nor a timer, and is still stopped at the bound', async () => {
+  const savedTimeout = process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS;
+  process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS = '1000';
+  const { keychain, state, advance, settle, restore } = darwinKeychain(new Map([[KEY, 'v']]));
+  // What keeps the event loop (hence the process) running: the child, its pipes, referenced timers.
+  const holding = () => {
+    const counts = {};
+    for (const type of process.getActiveResourcesInfo()) {
+      if (/^(Process|Pipe|Timeout)/.test(type)) counts[type] = (counts[type] || 0) + 1;
+    }
+    return counts;
+  };
+  try {
+    await keychain.prewarmSecrets([KEY]);
+    await settle();
+    const before = holding();
+    // The stale-cache re-read is the background one: nobody awaits it.
+    state.live = true;
+    advance(31000);
+    assert.equal(keychain.getSecret(KEY), 'v');
+    await settle();
+    assert.equal(state.liveChildren.length, 1, 'the stale read started its re-read');
+    assert.equal(state.liveChildren[0].exitCode, null, 'and security has not answered');
+    const closed = new Promise((resolve) => state.liveChildren[0].once('close', resolve));
+    assert.deepEqual(holding(), before, 'nothing the background read started keeps the process alive');
+    // Only the test keeps the loop running now, until the bound kills the child that never answers.
+    const keepAlive = setTimeout(() => {}, 30000);
+    try {
+      await closed;
+    } finally {
+      clearTimeout(keepAlive);
+    }
+    assert.equal(state.liveChildren[0].killed, true, 'the bound still stops a security that never answers');
+  } finally {
+    restore();
+    if (savedTimeout === undefined) delete process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS;
+    else process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS = savedTimeout;
+  }
+});
+
+test('an awaited warm-up keeps the process alive until its callback runs, even when nothing else does', async () => {
+  // A process whose only pending work is the warm-up: `security` answers after
+  // 500 ms. If the awaited read were unref'd, the process would exit silently first.
+  const script = `
+    const cp = require('node:child_process');
+    const realSpawn = cp.spawn;
+    cp.spawn = (cmd, args, options) =>
+      realSpawn(process.execPath, ['-e', "setTimeout(() => process.stdout.write('sk-late\\\\n'), 500)"], options);
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    const keychain = require(${JSON.stringify(modulePath)});
+    keychain.prewarmSecrets([${JSON.stringify(KEY)}]).then(() => {
+      console.log('warmed:' + keychain.getSecret(${JSON.stringify(KEY)}));
+    });
+  `;
+  const stdout = await new Promise((resolve, reject) => {
+    childProcess.execFile(process.execPath, ['-e', script], { timeout: 20000 }, (error, out) =>
+      error ? reject(error) : resolve(out)
+    );
+  });
+  assert.equal(stdout.trim(), 'warmed:sk-late');
 });
