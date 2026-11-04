@@ -366,7 +366,7 @@ test('a Goal change reaches listeners only after its mutation released the recor
 test('closing the Goal runtime releases its storage watch', async (t) => {
   const watching = trackWatchers(t);
   const { dataDir, runtime } = await runtimeFixture(t);
-  assert.deepEqual(watching(), [join(dataDir, 'goals')]);
+  assert.deepEqual(watching(), [dataDir, join(dataDir, 'goals')].sort());
   await runtime.close();
   assert.deepEqual(watching(), []);
 });

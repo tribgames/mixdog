@@ -228,10 +228,11 @@ test('N sessions in one repository share one watcher set', (t) => {
   );
   t.after(() => sessions.forEach((s) => s.dispose()));
   sessions.forEach((s) => s.retarget());
-  // HEAD's directory and the branch ref's directory, once for all five.
-  assert.equal(opened.length, 2);
+  // HEAD's directory and the branch ref's directory, each with the watch on
+  // its parent, once for all five.
+  assert.equal(opened.length, 4);
   sessions.forEach((s) => s.retarget());
-  assert.equal(opened.length, 2, 'retarget with an unchanged folder re-watches nothing');
+  assert.equal(opened.length, 4, 'retarget with an unchanged folder re-watches nothing');
 });
 
 test('steady-state HEAD reads of a watched repository touch no sync fs', (t) => {
@@ -282,8 +283,8 @@ test('a non-repository folder that becomes one is attached on the `.git` event',
   assert.equal(readGitHead(cwd).branch, 'main');
   assert.equal(
     opened.filter((handle) => !handle.closed && handle.dir === cwd).length,
-    0,
-    'the folder watch for `.git` is released once attached'
+    1,
+    'the folder watch for `.git` is released once attached; only the parent watch of `.git` remains'
   );
 });
 
