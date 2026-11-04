@@ -13,10 +13,10 @@ export function createMutationBatch(write, afterFlush = () => {}) {
     }
     if (pending.length === 0) return;
     const batch = pending.splice(0, pending.length);
-    write((byKey) => {
+    write((...collections) => {
       for (const mutator of batch) {
         try {
-          mutator(byKey);
+          mutator(...collections);
         } catch {
           /* one bad row never drops the batch */
         }

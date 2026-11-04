@@ -21,6 +21,7 @@ import {
 } from '../store-summary-index.mjs';
 import {
   applySummaryLogText,
+  readSummaryIndexPairSteps,
   readSummaryLogTextStep,
   summaryIndexStampMs,
   summaryIndexStampMsStep,
@@ -292,8 +293,15 @@ function* _warmSummaryRowsSteps() {
   if (diskMtime <= _summaryIndexMtimeSeen) return _cachedSummaryRows().slice();
   const window = _openSummaryScanWindow();
   try {
-    const logText = yield* readSummaryLogTextStep(path);
-    const raw = applySummaryLogText(JSON.parse(yield ['readFile', path, 'utf-8']), logText);
+    const pair = yield* readSummaryIndexPairSteps(
+      path,
+      () => readSummaryLogTextStep(path),
+      function* readBase() {
+        return yield ['readFile', path, 'utf-8'];
+      }
+    );
+    if (!pair) throw new Error('summary index replaced during the read');
+    const raw = applySummaryLogText(JSON.parse(pair.base), pair.log);
     if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) {
       const rows = _normalizeSummaryIndex(raw).rows;
       if (getPluginData() !== dataDir) return rows;
@@ -331,10 +339,15 @@ function* _coldSummaryRowsInWindow(window, dataDir) {
     if (probe.state !== PROBE_PRESENT && probe.state !== PROBE_ABSENT) indexUnreadable = true;
     if (hasIndex) {
       stampBeforeRead = yield* summaryIndexStampMsStep(p);
-      const logText = yield* readSummaryLogTextStep(p);
-      let text;
+      let pair;
       try {
-        text = yield ['readFile', p, 'utf-8'];
+        pair = yield* readSummaryIndexPairSteps(
+          p,
+          () => readSummaryLogTextStep(p),
+          function* readBase() {
+            return yield ['readFile', p, 'utf-8'];
+          }
+        );
       } catch (err) {
         // Stat said PRESENT and the read failed: the sidecar is there
         // and we cannot have it. FAIL CLOSED — keep serving the cache,
@@ -344,7 +357,10 @@ function* _coldSummaryRowsInWindow(window, dataDir) {
         if (code !== 'ENOENT' && code !== 'ENOTDIR') indexUnreadable = true;
         throw err;
       }
-      const raw = applySummaryLogText(JSON.parse(text), logText);
+      // Replaced across both attempts: no whole read, so the rebuild below
+      // (from the session files) answers, as for a sidecar that does not parse.
+      if (!pair) throw new Error('summary index replaced during the read');
+      const raw = applySummaryLogText(JSON.parse(pair.base), pair.log);
       hasIndex = Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION;
       if (hasIndex) indexedRows = _normalizeSummaryIndex(raw).rows;
     }

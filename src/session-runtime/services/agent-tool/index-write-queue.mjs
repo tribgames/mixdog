@@ -157,6 +157,10 @@ export function createIndexWriteQueue({
   const self = { flush, flushSync: () => flushSync() };
   if (file) registerJsonProjection(file, () => projection);
   let version = 0;
+  // Every accepted write takes the next `version`. Jobs run in order, so
+  // `persistedVersion` — the version of the last write a finished job carried —
+  // says for any write whether it is on disk.
+  let persistedVersion = 0;
   let pending = []; // op sets not yet handed to a job
   let inflight = []; // op sets of the running job
   let running = null;
@@ -209,10 +213,12 @@ export function createIndexWriteQueue({
     inflight = pending;
     pending = [];
     const batch = inflight;
+    const carried = version;
     const job = persist(batch).then(
       (doc) => {
         inflight = [];
         running = null;
+        persistedVersion = carried;
         onPersisted(doc);
         if (pending.length === 0) {
           projection = null;
@@ -240,10 +246,13 @@ export function createIndexWriteQueue({
     running = job;
   }
 
-  /** Resolves once everything written so far is on disk; rejects when a persist
-   *  failed for good (the writes stay queued for a later flush). */
-  async function flush() {
+  /** Resolves once every write up to `upTo` (default: everything written so
+   *  far) is on disk — not the writes made after it, which a busy neighbour
+   *  would otherwise keep postponing. Rejects when a persist failed for good
+   *  (the writes stay queued for a later flush). */
+  async function flush(upTo = version) {
     for (;;) {
+      if (persistedVersion >= upTo) return;
       if (running) {
         const job = running;
         await job;
@@ -284,13 +293,30 @@ export function createIndexWriteQueue({
       schedule();
       return false;
     }
+    persistedVersion = version;
     projection = null;
     unsettled.delete(self);
     onPersisted(doc);
     return true;
   }
 
-  return {
+  /** A handle for one holder of the queue: its writes are the queue's, in the
+   *  same order, but its `flush` waits only for the ones it made, so a holder
+   *  that closes never waits on what its neighbours queued. */
+  function writer() {
+    let last = 0;
+    return {
+      write(mutator, options) {
+        const next = queue.write(mutator, options);
+        if (next) last = version;
+        return next;
+      },
+      flush: () => flush(last),
+      hasUnpersisted: () => last > persistedVersion,
+    };
+  }
+
+  const queue = {
     /** Run `mutator` now against the projection; persist its effect later
      *  (`rerun`: persist by re-running it on the locked document instead).
      *  Returns the projected document, or null (no file / mutator threw). */
@@ -321,6 +347,7 @@ export function createIndexWriteQueue({
     flush,
     flushSync,
   };
+  return { ...queue, writer };
 }
 
 let processExitFlushInstalled = false;

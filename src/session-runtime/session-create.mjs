@@ -7,6 +7,7 @@ import { bootProfile } from './boot-profile.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 import { elapsedMs, prepareRoute } from './session-create/route-prep.mjs';
 import { materializeSession, prewarmWsTransport, readStartupFiles } from './session-create/materialize.mjs';
+import { whenSessionWritersFree } from '../runtime/agent/orchestrator/session/store/session-writer-claim.mjs';
 import { dispatchSessionStart } from './session-create/session-start-hook.mjs';
 import { prewarmGitStartupProbes } from '../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
@@ -75,6 +76,8 @@ export function createSessionCreator(deps, routes) {
     await gitProbes;
     // After the git probes: the cwd listing consults their gitignore answers.
     const startupFiles = await readStartupFiles(rt);
+    // A reserved id may be one a prune is deciding about (its old record is gone): wait for that, so this creation is not refused.
+    if (rt.reservedSessionId) await whenSessionWritersFree(rt.reservedSessionId);
     // The fence/record may have changed during the awaits above (close during
     // reservation prewarm): re-validate synchronously right before adoption.
     assertAdmissionOpen(rt);

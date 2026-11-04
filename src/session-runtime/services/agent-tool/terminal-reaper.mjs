@@ -6,6 +6,7 @@
 import { createTagTombstones } from './terminal-reaper/tombstones.mjs';
 import { createScanAdmission } from './terminal-reaper/scan-admission.mjs';
 import { createStaleRowTransition } from './terminal-reaper/stale-rows.mjs';
+import { createGoneRowSweep } from './terminal-reaper/gone-rows.mjs';
 
 export function createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSession }) {
   const tombstones = createTagTombstones({ tagMaps, index });
@@ -25,7 +26,11 @@ export function createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSessi
     getLiveSession,
   });
 
+  const gone = createGoneRowSweep({ cfgMod, mgr, tagMaps, index });
+
   return {
+    sweepGoneRows: gone.sweepGoneRows,
+    forgetDeletedSession: gone.forgetDeletedSession,
     tagTombstoneIndex: tombstones.tagTombstoneIndex,
     tombstoneBlocksScan,
     scanUpsertSession: scan.scanUpsertSession,

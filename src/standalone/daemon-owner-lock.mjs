@@ -19,8 +19,29 @@ export function daemonOwnerLockPath(dataDir) {
 /** `{ held: false }` while another live daemon holds the lock, else the
  *  holder's handle `{ held, path, intact(), release() }`, which must stay
  *  referenced for as long as the daemon runs. */
-export function acquireDaemonOwnerLock(lockPath) {
-  return acquireOsExclusiveLock(lockPath, LOCK_OPTIONS);
+// The handle this process holds, if any: what tells the daemon from every other
+// process on the data dir (`daemonOwnerLockHeld` below answers for any holder).
+let heldHere = null;
+
+export async function acquireDaemonOwnerLock(lockPath) {
+  const lock = await acquireOsExclusiveLock(lockPath, LOCK_OPTIONS);
+  if (!lock.held) return lock;
+  // Releasing ends the ownership too: the handle's own `held` stays true.
+  const owned = {
+    ...lock,
+    release() {
+      if (heldHere === owned) heldHere = null;
+      lock.release();
+    },
+  };
+  heldHere = owned;
+  return owned;
+}
+
+/** Whether THIS process is the daemon that owns its data dir: it took the lock
+ *  and the lock file is still the one it locked. */
+export function daemonOwnerLockHeldHere() {
+  return heldHere?.held === true && heldHere.intact();
 }
 
 /** Whether a live daemon (booting, serving or stopping) holds the lock. A

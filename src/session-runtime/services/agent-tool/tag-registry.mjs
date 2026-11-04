@@ -151,6 +151,8 @@ export function createTagRegistry({ dataDir, cfgMod, mgr, sessionRecords = null 
     resumableTagSession: reaped.resumableTagSession,
     transitionStaleNonterminalRows: reaper.transitionStaleNonterminalRows,
     nextStaleRowDeadline: reaper.nextStaleRowDeadline,
+    sweepGoneRows: reaper.sweepGoneRows,
+    forgetDeletedSession: reaper.forgetDeletedSession,
     heldRowFor: reaper.heldRowFor,
   };
 }

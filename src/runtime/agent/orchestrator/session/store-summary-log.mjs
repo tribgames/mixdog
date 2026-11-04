@@ -51,6 +51,41 @@ export function* readSummaryLogTextStep(indexPath) {
   }
 }
 
+/** The identity of the base file (a compaction replaces it, so it changes
+ *  whatever the bytes), or null when it cannot be stat'ed. */
+export function* summaryBaseIdentityStep(indexPath) {
+  try {
+    const info = yield ['stat', indexPath, { bigint: true }];
+    return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Attempts at one consistent read: the second exists for the one compaction
+ *  that lands inside the first. Two in a row are not a read, and the caller
+ *  treats the index as unreadable (the session files are the authority then). */
+export const SUMMARY_PAIR_ATTEMPTS = 2;
+
+/**
+ * The delta log and the base as ONE pair. A compaction writes the new base and
+ * then empties the log, with no lock a reader takes; a log read before it
+ * replayed over a base read after it puts older rows over newer ones. The
+ * base's identity is taken before the reads and after them, and a pair read
+ * across a replacement is read again. `readLog()` and `readBase()` are the
+ * caller's own read steps; the result is `{ log, base }`, or null when no
+ * attempt came out whole.
+ */
+export function* readSummaryIndexPairSteps(indexPath, readLog, readBase) {
+  for (let attempt = 0; attempt < SUMMARY_PAIR_ATTEMPTS; attempt += 1) {
+    const before = yield* summaryBaseIdentityStep(indexPath);
+    const log = yield* readLog();
+    const base = yield* readBase();
+    if ((yield* summaryBaseIdentityStep(indexPath)) === before) return { log, base };
+  }
+  return null;
+}
+
 /** `raw` (parsed base) with the log's ops replayed over its rows. */
 export function applySummaryLogText(raw, logText) {
   if (!logText || !raw || typeof raw !== 'object') return raw;

@@ -203,13 +203,17 @@ export function createStandaloneAgent({
     for (const scope of statusScopes.values()) {
       steps.push(() => registry.refreshTagsFromSessions({ context: scope.context }));
     }
+    // Every owner's gone rows, not only the scopes' (the pass reports its own failures).
+    steps.push(() => void registry.sweepGoneRows().catch(reportMaintenanceFailure));
     steps.push(refreshRolePolicies);
     return steps;
   }
+  function reportMaintenanceFailure(error) {
+    process.stderr.write(`[agent-tool] gone-row sweep failed: ${error?.message || error}\n`);
+  }
   function nextMaintenanceDeadline(since) {
-    let next = Infinity;
-    for (const scope of statusScopes.values()) next = Math.min(next, registry.nextStaleRowDeadline(scope.context, since));
-    return next;
+    // A row of any owner comes due by its stamps alone, scope or not.
+    return registry.nextStaleRowDeadline({}, since);
   }
   function noteStatusScope(scopedContext, ownerSession, pid) {
     const key = scopeKey(ownerSession, pid);
@@ -341,6 +345,7 @@ export function createStandaloneAgent({
     }),
     onRolePolicyResolved(() => statusMayHaveChanged()),
     registerSessionPurgeHook((sessionId) => {
+      registry.forgetDeletedSession(sessionId);
       endStatusScopesOf(sessionId);
       bookkeepingMayBeDue();
     }),

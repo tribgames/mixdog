@@ -112,7 +112,11 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       batch.flush();
       await store.flush();
     },
+    /** `mutator` gets the keyed collections of a write (rows, tombstones, priority keys). */
     queueWorkerIndexMutation: (mutator) => (file ? batch.queue(mutator) : false),
+    /** `writeWorkerRows` for a change that must hold on the document it is
+     *  persisted against: the mutator runs again on the locked file. */
+    updateWorkerRows: store.update,
     workerRowFromSession: rowFromSession,
     upsertWorkerRow,
     upsertWorkerSession: (session, fallbackTag = '', extra = {}) =>
