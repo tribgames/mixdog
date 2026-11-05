@@ -31,6 +31,8 @@ export async function promoteWithRetry(
         // …and with the dispatching SESSION, so a pooled host (desktop) can
         // show the job on its own pane only.
         ownerSessionId,
+        // …and with the owner incarnation the command was spawned in.
+        ownerEpoch: run.foregroundRecordInput?.ownerEpoch ?? null,
       });
       if (!promoted) promotionFailure = promotionFailure || 'promotion unavailable';
       return promoted;

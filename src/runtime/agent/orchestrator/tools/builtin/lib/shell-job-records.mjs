@@ -209,10 +209,14 @@ export function publishShellJobRecord(
     startedAtMs = 0,
     foreground = false,
     terminationUnconfirmed = false,
+    ownerEpoch = null,
   } = {}
 ) {
   const jobId = String(task?.jobId || '').trim();
   if (!jobId) return Promise.resolve();
+  // The owner incarnation this job belongs to: the caller's, captured when it
+  // started, else the one publishing now.
+  const jobEpoch = ownerEpoch ?? shellOwnerEpoch(ownerSessionId);
   let admitted = Promise.resolve();
   if (task?.cwd) {
     const granting = tryAdmitWorkspaceActivityAsync(ownerSessionId || jobId, task.cwd, {
@@ -267,7 +271,7 @@ export function publishShellJobRecord(
         ...(terminationUnconfirmed ? { terminationUnconfirmed: true } : {}),
         // Its owner session closed: any session that sees the folder lists
         // (and may release) it.
-        ...(closedOwnerSessions.has(String(ownerSessionId || '')) ? { ownerSessionClosed: true } : {}),
+        ...(ownerClosedSince(ownerSessionId, jobEpoch) ? { ownerSessionClosed: true } : {}),
       };
       records.set(jobId, record);
       incarnations.delete(jobId);
@@ -287,13 +291,27 @@ export function publishShellJobRecord(
 // termination watch on confirmation, or by an explicit user force-release —
 // never by a timer.
 const terminationHolds = new Map();
-// Owner sessions that closed in this runtime: their holds have no owner left
-// to release them, so any session that sees the workspace may.
-const closedOwnerSessions = new Set();
+// How many times each owner session has closed in this runtime. A session id
+// outlives its runtime (it is loaded again on demand), so a close speaks only
+// for the jobs of the incarnations before it: a job carries the count from its
+// start (`ownerEpoch`), and its owner is closed for it exactly when the count
+// has moved since. Holds of a closed owner have no owner left to release them,
+// so any session that sees the workspace may.
+const ownerEpochs = new Map();
 
-export function registerTerminationHold(jobId, { ownerSessionId = null, cwd = null, release }) {
+/** The owner session's close count now; a job captures it when it starts. */
+export function shellOwnerEpoch(sessionId) {
+  return ownerEpochs.get(String(sessionId || '').trim()) ?? 0;
+}
+
+function ownerClosedSince(sessionId, epoch) {
+  return shellOwnerEpoch(sessionId) > epoch;
+}
+export function registerTerminationHold(jobId, { ownerSessionId = null, cwd = null, release, ownerEpoch = null }) {
   const key = String(jobId || '').trim();
-  if (key && typeof release === 'function') terminationHolds.set(key, { ownerSessionId, cwd, release });
+  if (key && typeof release === 'function') {
+    terminationHolds.set(key, { ownerSessionId, cwd, release, ownerEpoch: ownerEpoch ?? shellOwnerEpoch(ownerSessionId) });
+  }
 }
 
 export function clearTerminationHold(jobId) {
@@ -305,7 +323,7 @@ export function clearTerminationHold(jobId) {
 export function noteShellOwnerSessionClosed(sessionId) {
   const id = String(sessionId || '').trim();
   if (!id) return;
-  closedOwnerSessions.add(id);
+  ownerEpochs.set(id, shellOwnerEpoch(id) + 1);
   for (const [jobId, record] of records) {
     if (record?.ownerSessionId === id) void patchRunningShellJobRecord(jobId, { ownerSessionClosed: true });
   }
@@ -337,7 +355,10 @@ export function takeReleaseRequest(jobId) {
   }
 }
 
-function mayRelease(hold, { callerSessionId, callerCwd, ownerClosed = closedOwnerSessions.has(hold.ownerSessionId) }) {
+function mayRelease(
+  hold,
+  { callerSessionId, callerCwd, ownerClosed = ownerClosedSince(hold.ownerSessionId, hold.ownerEpoch) }
+) {
   if (!hold.ownerSessionId || hold.ownerSessionId === callerSessionId) return true;
   return ownerClosed && workspaceSees(hold.cwd, callerCwd);
 }

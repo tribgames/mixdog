@@ -172,6 +172,21 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
         pausedMs: atMs - client.pausedAt,
         bufferedBytes: res.writableLength,
         needDrain: res.writableNeedDrain,
+        // The socket decides whether this response's 'drain' can fire (node
+        // _http_server.js socketOnDrain: only for socket._httpMessage while the
+        // socket itself drains), so a stall that outlives its buffer names it.
+        ...(res.socket
+          ? {
+              socket: {
+                owned: res.socket._httpMessage === res,
+                destroyed: res.socket.destroyed,
+                writable: res.socket.writable,
+                needDrain: res.socket.writableNeedDrain,
+                corked: res.socket.writableCorked,
+                bufferedBytes: res.socket.writableLength,
+              },
+            }
+          : {}),
         pendingBytes: client.pendingBytes || 0,
         maxPendingBytes,
       });

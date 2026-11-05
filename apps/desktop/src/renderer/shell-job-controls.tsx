@@ -4,6 +4,7 @@ import {
   shellFinishedLabel,
   shellFinishedOk,
   shellRowAction,
+  shellStopOutcome,
   type JobRow,
   type ShellStopState,
 } from './background-jobs-model';
@@ -61,9 +62,9 @@ export function useShellStops(sessionId: string) {
         if (kind === 'release') {
           done = (await window.mixdogDesktop.releaseShellJob?.(sessionId, row.taskId))?.released === true;
         } else {
-          const result = await window.mixdogDesktop.stopShellJob?.(sessionId, row.taskId);
-          done = result?.stopped === true;
-          unconfirmed = result?.unconfirmed === true;
+          const outcome = shellStopOutcome(await window.mixdogDesktop.stopShellJob?.(sessionId, row.taskId));
+          done = outcome === 'done';
+          unconfirmed = outcome === 'unconfirmed';
         }
       } catch {
         done = false;

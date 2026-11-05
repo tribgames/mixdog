@@ -25,6 +25,7 @@ import type {
   DesktopTranscriptHistoryPage,
   DesktopTranscriptHistoryRequest,
   DesktopSubmitOptions,
+  DesktopShellStopResult,
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
@@ -864,10 +865,7 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.cancelQuotaResume(sessionId);
   }
 
-  async stopShellJob(
-    sessionId: string,
-    taskId: string
-  ): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }> {
+  async stopShellJob(sessionId: string, taskId: string): Promise<DesktopShellStopResult> {
     return this.lifecycle.stopShellJob(sessionId, taskId);
   }
 

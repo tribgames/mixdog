@@ -45,6 +45,16 @@ export function shellRowAction(
   return row.terminationUnconfirmed ? 'release' : 'stop';
 }
 
+/** How a Stop request ended for its row. 'done': the job is stopped, or had
+ *  already ended — either way the row waits for the host to report the job's
+ *  terminal state, and a job that was over is never shown as a failed stop. */
+export function shellStopOutcome(
+  result: { stopped?: boolean; unconfirmed?: boolean; finished?: boolean } | null | undefined
+): 'done' | 'unconfirmed' | 'failed' {
+  if (result?.stopped === true || result?.finished === true) return 'done';
+  return result?.unconfirmed === true ? 'unconfirmed' : 'failed';
+}
+
 /** A finished shell that exited cleanly: exit code 0, neither failed nor stopped. */
 export function shellFinishedOk(row: Pick<JobRow, 'status' | 'exitCode'>): boolean {
   return row.exitCode === 0 && row.status !== 'failed' && row.status !== 'cancelled';

@@ -196,6 +196,17 @@ export * from './contract-notifications';
 
 export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 
+/** What a Stop of a background shell job answers. `stopped`: the job was
+ *  cancelled. `unconfirmed`: the kill was sent, the processes are not yet
+ *  confirmed gone. `finished`: the job had already ended, so there was nothing
+ *  to stop (the host reports its terminal state on the row). */
+export interface DesktopShellStopResult {
+  stopped: boolean;
+  unconfirmed?: boolean;
+  finished?: boolean;
+  error?: string;
+}
+
 /** One entry of an agent's own memory pool: `id` and `indexRevision` address
  *  it for a delete (the pool's list version; a stale one is refused). */
 export interface DesktopAgentMemoryEntry {
@@ -482,11 +493,10 @@ export interface DesktopApi {
   cancelQuotaResume(sessionId: string): Promise<boolean>;
   /** Stops one running background shell job of the session through its
    *  runtime (the task tool's cancel). `stopped` is true only when the job was
-   *  actually cancelled; unknown, finished or failed cancels carry `error`. */
-  stopShellJob?(
-    sessionId: string,
-    taskId: string
-  ): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }>;
+   *  actually cancelled; a job that had already ended answers `finished` (its
+   *  row shows how it ended, not a failed stop); unknown or failed cancels
+   *  carry `error`. */
+  stopShellJob?(sessionId: string, taskId: string): Promise<DesktopShellStopResult>;
   /** Explicit "Release anyway" for a shell job whose termination is
    *  unconfirmed: drops its workspace hold in the owning runtime. The caller
    *  confirms with the user first. */
