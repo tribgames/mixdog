@@ -112,11 +112,36 @@ impl HfHttp for ReqwestHf {
     }
 }
 
-/// Parses `bytes 0-<end>/<total>`.
+/// Parses `bytes 0-<end>/<total>` (`/^bytes 0-(\d+)\/(\d+)$/`: digits only).
 fn content_range(value: &str) -> Option<(u64, u64)> {
     let rest = value.strip_prefix("bytes 0-")?;
     let (end, total) = rest.split_once('/')?;
-    Some((end.parse().ok()?, total.parse().ok()?))
+    let digits = |s: &str| (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok()).flatten();
+    Some((digits(end)?, digits(total)?))
+}
+
+const MAX_SAFE_INTEGER: i64 = (1 << 53) - 1;
+
+/// JavaScript truthiness of a parsed JSON value.
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// One GGUF row of the file listing; an absent size is absent, as in JSON from Node.
+fn listed(entry: &Value) -> Value {
+    let mut row = Map::new();
+    row.insert("filename".into(), entry["rfilename"].clone());
+    if let Some(size) = entry.get("size") {
+        row.insert("sizeBytes".into(), size.clone());
+    }
+    row.insert("sha256".into(), entry.pointer("/lfs/sha256").filter(|v| truthy(v)).cloned().unwrap_or(Value::Null));
+    Value::Object(row)
 }
 
 async fn fetch_gguf_header(http: &dyn HfHttp, url: &str, file_size: u64) -> Result<super::gguf::GgufHeader, HfError> {
@@ -164,7 +189,8 @@ impl HuggingFaceCatalog {
     }
 
     pub async fn search(&self, query: Option<&Value>) -> Result<Value, HfError> {
-        let query = query.and_then(Value::as_str).map(mixdog_js::js_trim).filter(|q| !q.is_empty() && mixdog_js::utf16_len(q) <= 200);
+        // The length limit counts the query as given, the emptiness test the trimmed one.
+        let query = query.and_then(Value::as_str).filter(|q| mixdog_js::utf16_len(q) <= 200).map(mixdog_js::js_trim).filter(|q| !q.is_empty());
         let Some(query) = query else { return invalid("query must contain 1–200 characters.") };
         let url = format!("{ORIGIN}/api/models?search={}&filter=gguf&limit=20&sort=downloads&direction=-1", encode(query));
         let rows = self.http.get_json(&url, MAX_JSON).await.map_err(HfError::Failed)?;
@@ -175,7 +201,9 @@ impl HuggingFaceCatalog {
             .filter(|r| is_repository_id(r.get("id").and_then(Value::as_str).unwrap_or("")))
             .map(|r| {
                 let id = r["id"].as_str().expect("filtered");
-                json!({"repository": id, "downloads": r.get("downloads").and_then(Value::as_f64).unwrap_or(0.0), "source": format!("{ORIGIN}/{id}")})
+                // `Number(row.downloads) || 0`
+                let downloads = r.get("downloads").map_or(f64::NAN, mixdog_js::to_number);
+                json!({"repository": id, "downloads": if downloads.is_nan() { 0.0 } else { downloads }, "source": format!("{ORIGIN}/{id}")})
             })
             .collect();
         Ok(json!({"models": models}))
@@ -189,7 +217,7 @@ impl HuggingFaceCatalog {
             Some(v) => Some(v.as_f64().filter(|c| c.fract() == 0.0).map(|c| c as i64).filter(|c| (LOCAL_CONTEXT_MIN_TOKENS..=32768).contains(c)).ok_or_else(|| HfError::Invalid(format!("contextWindow must be between {LOCAL_CONTEXT_MIN_TOKENS} and 32768.")))?),
         };
         let info = self.http.get_json(&format!("{ORIGIN}/api/models/{repository}?blobs=true"), MAX_JSON).await.map_err(HfError::Failed)?;
-        let flag = |k: &str| info.get(k).map_or(false, |v| !matches!(v, Value::Null | Value::Bool(false)) && v != "");
+        let flag = |k: &str| info.get(k).is_some_and(truthy);
         if flag("private") || flag("gated") || flag("disabled") {
             return failed("Only public, ungated Hugging Face models can be installed.");
         }
@@ -204,10 +232,10 @@ impl HuggingFaceCatalog {
             .flatten()
             .filter(|e| e.get("rfilename").and_then(Value::as_str).is_some_and(|n| n.to_lowercase().ends_with(".gguf")))
             .collect();
-        let Some(filename) = args.get("filename").filter(|f| !f.is_null() && *f != "") else {
+        let Some(filename) = args.get("filename").filter(|f| truthy(f)) else {
             return Ok(json!({
                 "repository": repository, "revision": sha, "license": license, "source": format!("{ORIGIN}/{repository}"),
-                "files": files.iter().take(200).map(|e| json!({"filename": e["rfilename"], "sizeBytes": e.get("size"), "sha256": e.pointer("/lfs/sha256")})).collect::<Vec<_>>(),
+                "files": files.iter().take(200).map(|e| listed(e)).collect::<Vec<_>>(),
                 "filesTruncated": files.len() > 200,
             }));
         };
@@ -216,7 +244,7 @@ impl HuggingFaceCatalog {
             return invalid("Select one complete GGUF file; split shards and traversal paths are unsupported.");
         }
         let file = files.iter().find(|e| e["rfilename"] == filename);
-        let size = file.and_then(|f| f.get("size")).and_then(Value::as_i64).filter(|s| *s > 0);
+        let size = file.and_then(|f| f.get("size")).and_then(Value::as_i64).filter(|s| (1..=MAX_SAFE_INTEGER).contains(s));
         let sha256 = file.and_then(|f| f.pointer("/lfs/sha256")).and_then(Value::as_str).filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
         let (Some(file), Some(size), Some(sha256)) = (file, size, sha256) else { return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.") };
         if file.pointer("/lfs/size").and_then(Value::as_i64) != Some(size) {

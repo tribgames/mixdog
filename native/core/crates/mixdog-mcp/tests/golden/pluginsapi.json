@@ -1,0 +1,1996 @@
+{
+ "base": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden",
+ "fixtures": {
+  "alpha": {
+   ".claude-plugin/plugin.json": "{\"name\":\"alpha-plugin\",\"title\":\"Alpha\"}",
+   ".mcp.json": "{\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/s.js\"]}}}"
+  },
+  "beta": {
+   "plugin.json": "{\"name\":\"beta\"}",
+   ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"x\"},\"b\":{\"url\":\"https://b.test/mcp\"}}}"
+  }
+ },
+ "initialConfig": {
+  "theme": "dark",
+  "mcpServers": {
+   "plugin-alpha-plugin": {
+    "command": "node",
+    "args": [
+     "<BASE>\\src\\alpha\\s.js"
+    ],
+    "env": {
+     "MIXDOG_PLUGIN_ROOT": "<BASE>\\src\\alpha"
+    }
+   },
+   "plugin-beta--b": {
+    "url": "https://b.test/mcp",
+    "env": {
+     "MIXDOG_PLUGIN_ROOT": "<BASE>\\src\\beta"
+    },
+    "headers": {
+     "X": "1"
+    },
+    "enabled": false
+   },
+   "plain": {
+    "command": "z"
+   }
+  }
+ },
+ "steps": [
+  {
+   "name": "status of an empty registry",
+   "method": "plugins/pluginsStatus",
+   "params": {},
+   "result": {
+    "registryPath": "<BASE>\\data\\plugins\\registry.json",
+    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "plugins": []
+   },
+   "error": null,
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plugin-alpha-plugin": {
+      "command": "node",
+      "args": [
+       "<BASE>\\src\\alpha\\s.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<BASE>\\src\\alpha"
+      }
+     },
+     "plugin-beta--b": {
+      "url": "https://b.test/mcp",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<BASE>\\src\\beta"
+      },
+      "headers": {
+       "X": "1"
+      },
+      "enabled": false
+     },
+     "plain": {
+      "command": "z"
+     }
+    }
+   }
+  },
+  {
+   "name": "add alpha adopts its earlier copy",
+   "method": "plugins/addPlugin",
+   "params": {
+    "source": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\src\\alpha"
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha-b867ce0a",
+     "source": "<BASE>\\src\\alpha",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\alpha",
+     "managed": false,
+     "name": "alpha-plugin",
+     "title": "Alpha",
+     "version": null,
+     "description": "",
+     "enabled": true,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "author": "",
+     "homepage": "",
+     "repository": "",
+     "license": "",
+     "keywords": [],
+     "exists": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": [
+      {
+       "id": "alpha-b867ce0a",
+       "source": "<BASE>\\src\\alpha",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\alpha",
+       "managed": false,
+       "name": "alpha-plugin",
+       "title": "Alpha",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      }
+     ]
+    }
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plugin-beta--b": {
+       "url": "https://b.test/mcp",
+       "env": {
+        "MIXDOG_PLUGIN_ROOT": "<BASE>\\src\\beta"
+       },
+       "headers": {
+        "X": "1"
+       },
+       "enabled": false
+      },
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {
+      "alpha-b867ce0a": {
+       "search": {
+        "alias": "plugin-alpha-plugin",
+        "args": [
+         "<BASE>\\src\\alpha\\s.js"
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "flushSkills",
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plugin-beta--b": {
+      "url": "https://b.test/mcp",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<BASE>\\src\\beta"
+      },
+      "headers": {
+       "X": "1"
+      },
+      "enabled": false
+     },
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "add beta adopts its disabled copy",
+   "method": "plugins/addPlugin",
+   "params": {
+    "source": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\src\\beta"
+   },
+   "result": {
+    "plugin": {
+     "id": "beta-c9d2878b",
+     "source": "<BASE>\\src\\beta",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\beta",
+     "managed": false,
+     "name": "beta",
+     "title": "beta",
+     "version": null,
+     "description": "",
+     "enabled": true,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "author": "",
+     "homepage": "",
+     "repository": "",
+     "license": "",
+     "keywords": [],
+     "exists": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": [
+      {
+       "id": "alpha-b867ce0a",
+       "source": "<BASE>\\src\\alpha",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\alpha",
+       "managed": false,
+       "name": "alpha-plugin",
+       "title": "Alpha",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      },
+      {
+       "id": "beta-c9d2878b",
+       "source": "<BASE>\\src\\beta",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\beta",
+       "managed": false,
+       "name": "beta",
+       "title": "beta",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      }
+     ]
+    }
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {
+      "alpha-b867ce0a": {
+       "search": {
+        "alias": "plugin-alpha-plugin",
+        "args": [
+         "<BASE>\\src\\alpha\\s.js"
+        ]
+       }
+      },
+      "beta-c9d2878b": {
+       "b": {
+        "alias": "plugin-beta--b",
+        "enabled": false,
+        "headers": {
+         "X": "1"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "flushSkills",
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "status after both",
+   "method": "plugins/pluginsStatus",
+   "params": {},
+   "result": {
+    "registryPath": "<BASE>\\data\\plugins\\registry.json",
+    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "plugins": [
+     {
+      "id": "alpha-b867ce0a",
+      "source": "<BASE>\\src\\alpha",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\alpha",
+      "managed": false,
+      "name": "alpha-plugin",
+      "title": "Alpha",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true,
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "id": "beta-c9d2878b",
+      "source": "<BASE>\\src\\beta",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\beta",
+      "managed": false,
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true,
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     }
+    ]
+   },
+   "error": null,
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "scope a plugin by name",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "plugins",
+    "name": "alpha-plugin",
+    "projects": [
+     "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\proj1"
+    ]
+   },
+   "result": {
+    "registryPath": "<BASE>\\data\\plugins\\registry.json",
+    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "plugins": [
+     {
+      "id": "alpha-b867ce0a",
+      "source": "<BASE>\\src\\alpha",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\alpha",
+      "managed": false,
+      "name": "alpha-plugin",
+      "title": "Alpha",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true,
+      "scope": [
+       "<BASE>\\proj1"
+      ],
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "id": "beta-c9d2878b",
+      "source": "<BASE>\\src\\beta",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\beta",
+      "managed": false,
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true,
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     }
+    ]
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {
+      "alpha-b867ce0a": {
+       "search": {
+        "alias": "plugin-alpha-plugin",
+        "args": [
+         "<BASE>\\src\\alpha\\s.js"
+        ]
+       }
+      },
+      "beta-c9d2878b": {
+       "b": {
+        "alias": "plugin-beta--b",
+        "enabled": false,
+        "headers": {
+         "X": "1"
+        }
+       }
+      }
+     },
+     "extensionScopes": {
+      "skills": {},
+      "mcp": {},
+      "plugins": {
+       "alpha-b867ce0a": [
+        "<BASE>\\proj1"
+       ]
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "status shows the scope and activeHere",
+   "method": "plugins/pluginsStatus",
+   "params": {},
+   "result": {
+    "registryPath": "<BASE>\\data\\plugins\\registry.json",
+    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "plugins": [
+     {
+      "id": "alpha-b867ce0a",
+      "source": "<BASE>\\src\\alpha",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\alpha",
+      "managed": false,
+      "name": "alpha-plugin",
+      "title": "Alpha",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true,
+      "scope": [
+       "<BASE>\\proj1"
+      ],
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "id": "beta-c9d2878b",
+      "source": "<BASE>\\src\\beta",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\beta",
+      "managed": false,
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true,
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     }
+    ]
+   },
+   "error": null,
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "scope a skill to two projects",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "skills",
+    "name": "deploy",
+    "projects": [
+     "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\proj2",
+     "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\proj1"
+    ]
+   },
+   "result": {
+    "skills": [
+     {
+      "name": "deploy",
+      "owner": {
+       "kind": "plugin",
+       "id": "x"
+      },
+      "scope": [
+       "<BASE>\\proj1",
+       "<BASE>\\proj2"
+      ],
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "name": "other",
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     }
+    ]
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {
+      "alpha-b867ce0a": {
+       "search": {
+        "alias": "plugin-alpha-plugin",
+        "args": [
+         "<BASE>\\src\\alpha\\s.js"
+        ]
+       }
+      },
+      "beta-c9d2878b": {
+       "b": {
+        "alias": "plugin-beta--b",
+        "enabled": false,
+        "headers": {
+         "X": "1"
+        }
+       }
+      }
+     },
+     "extensionScopes": {
+      "skills": {
+       "deploy": [
+        "<BASE>\\proj1",
+        "<BASE>\\proj2"
+       ]
+      },
+      "mcp": {},
+      "plugins": {
+       "alpha-b867ce0a": [
+        "<BASE>\\proj1"
+       ]
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {
+      "deploy": [
+       "<BASE>\\proj1",
+       "<BASE>\\proj2"
+      ]
+     },
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "scope a skill back to global",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "skills",
+    "name": "deploy",
+    "projects": null
+   },
+   "result": {
+    "skills": [
+     {
+      "name": "deploy",
+      "owner": {
+       "kind": "plugin",
+       "id": "x"
+      },
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "name": "other",
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     }
+    ]
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {
+      "alpha-b867ce0a": {
+       "search": {
+        "alias": "plugin-alpha-plugin",
+        "args": [
+         "<BASE>\\src\\alpha\\s.js"
+        ]
+       }
+      },
+      "beta-c9d2878b": {
+       "b": {
+        "alias": "plugin-beta--b",
+        "enabled": false,
+        "headers": {
+         "X": "1"
+        }
+       }
+      }
+     },
+     "extensionScopes": {
+      "skills": {},
+      "mcp": {},
+      "plugins": {
+       "alpha-b867ce0a": [
+        "<BASE>\\proj1"
+       ]
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "scope a plugin that is not registered",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "plugins",
+    "name": "nope",
+    "projects": []
+   },
+   "result": null,
+   "error": "plugin not registered: nope",
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "scope an mcp server",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "mcp",
+    "name": "plain",
+    "projects": []
+   },
+   "result": null,
+   "error": "MCP servers are switched off per project in Project settings (setProjectConnectorEnabled)",
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "scope an unknown kind",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "bogus",
+    "name": "x",
+    "projects": []
+   },
+   "result": null,
+   "error": "extension scope kind must be one of skills, mcp, plugins",
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "scope without a name",
+   "method": "config/setExtensionScope",
+   "params": {
+    "kind": "skills",
+    "name": "  ",
+    "projects": []
+   },
+   "result": null,
+   "error": "extension name is required",
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "disable by name object",
+   "method": "plugins/setPluginEnabled",
+   "params": {
+    "plugin": {
+     "name": "alpha-plugin"
+    },
+    "enabled": false
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha-b867ce0a",
+     "source": "<BASE>\\src\\alpha",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\alpha",
+     "managed": false,
+     "name": "alpha-plugin",
+     "title": "Alpha",
+     "version": null,
+     "description": "",
+     "enabled": false,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "author": "",
+     "homepage": "",
+     "repository": "",
+     "license": "",
+     "keywords": [],
+     "exists": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": [
+      {
+       "id": "alpha-b867ce0a",
+       "source": "<BASE>\\src\\alpha",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\alpha",
+       "managed": false,
+       "name": "alpha-plugin",
+       "title": "Alpha",
+       "version": null,
+       "description": "",
+       "enabled": false,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      },
+      {
+       "id": "beta-c9d2878b",
+       "source": "<BASE>\\src\\beta",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\beta",
+       "managed": false,
+       "name": "beta",
+       "title": "beta",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      }
+     ]
+    }
+   },
+   "error": null,
+   "saves": [],
+   "events": [
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "enable by string",
+   "method": "plugins/setPluginEnabled",
+   "params": {
+    "plugin": "alpha-plugin",
+    "enabled": true
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha-b867ce0a",
+     "source": "<BASE>\\src\\alpha",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\alpha",
+     "managed": false,
+     "name": "alpha-plugin",
+     "title": "Alpha",
+     "version": null,
+     "description": "",
+     "enabled": true,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "author": "",
+     "homepage": "",
+     "repository": "",
+     "license": "",
+     "keywords": [],
+     "exists": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": [
+      {
+       "id": "alpha-b867ce0a",
+       "source": "<BASE>\\src\\alpha",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\alpha",
+       "managed": false,
+       "name": "alpha-plugin",
+       "title": "Alpha",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      },
+      {
+       "id": "beta-c9d2878b",
+       "source": "<BASE>\\src\\beta",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\beta",
+       "managed": false,
+       "name": "beta",
+       "title": "beta",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      }
+     ]
+    }
+   },
+   "error": null,
+   "saves": [],
+   "events": [
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "update alpha",
+   "method": "plugins/updatePlugin",
+   "params": {
+    "plugin": {
+     "name": "alpha-plugin"
+    }
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha-b867ce0a",
+     "source": "<BASE>\\src\\alpha",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\alpha",
+     "managed": false,
+     "name": "alpha-plugin",
+     "title": "Alpha",
+     "version": null,
+     "description": "",
+     "enabled": true,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "author": "",
+     "homepage": "",
+     "repository": "",
+     "license": "",
+     "keywords": [],
+     "exists": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": [
+      {
+       "id": "alpha-b867ce0a",
+       "source": "<BASE>\\src\\alpha",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\alpha",
+       "managed": false,
+       "name": "alpha-plugin",
+       "title": "Alpha",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      },
+      {
+       "id": "beta-c9d2878b",
+       "source": "<BASE>\\src\\beta",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\beta",
+       "managed": false,
+       "name": "beta",
+       "title": "beta",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      }
+     ]
+    }
+   },
+   "error": null,
+   "saves": [],
+   "events": [
+    "invalidateSkills",
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "update with a blank plugin",
+   "method": "plugins/updatePlugin",
+   "params": {
+    "plugin": {}
+   },
+   "result": null,
+   "error": "plugin not registered: [object Object]",
+   "saves": [],
+   "events": [
+    "invalidateSkills"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "update with null",
+   "method": "plugins/updatePlugin",
+   "params": {
+    "plugin": null
+   },
+   "result": null,
+   "error": "Cannot read properties of null (reading 'id')",
+   "saves": [],
+   "events": [
+    "invalidateSkills"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "add a blank source",
+   "method": "plugins/addPlugin",
+   "params": {
+    "source": ""
+   },
+   "result": null,
+   "error": "plugin URL/path is required",
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "reload",
+   "method": "plugins/reloadPlugins",
+   "params": {},
+   "result": {
+    "registryPath": "<BASE>\\data\\plugins\\registry.json",
+    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "plugins": [
+     {
+      "id": "alpha-b867ce0a",
+      "source": "<BASE>\\src\\alpha",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\alpha",
+      "managed": false,
+      "name": "alpha-plugin",
+      "title": "Alpha",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true
+     },
+     {
+      "id": "beta-c9d2878b",
+      "source": "<BASE>\\src\\beta",
+      "url": null,
+      "sourceType": "local",
+      "root": "<BASE>\\src\\beta",
+      "managed": false,
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "enabled": true,
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "exists": true
+     }
+    ]
+   },
+   "error": null,
+   "saves": [],
+   "events": [
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "alpha-b867ce0a": {
+      "search": {
+       "alias": "plugin-alpha-plugin",
+       "args": [
+        "<BASE>\\src\\alpha\\s.js"
+       ]
+      }
+     },
+     "beta-c9d2878b": {
+      "b": {
+       "alias": "plugin-beta--b",
+       "enabled": false,
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "remove alpha drops its intents",
+   "method": "plugins/removePlugin",
+   "params": {
+    "plugin": "alpha-plugin"
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha-b867ce0a",
+     "source": "<BASE>\\src\\alpha",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\alpha",
+     "managed": false,
+     "name": "alpha-plugin",
+     "title": "Alpha",
+     "version": null,
+     "description": "",
+     "enabled": true,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "author": "",
+     "homepage": "",
+     "repository": "",
+     "license": "",
+     "keywords": [],
+     "exists": true,
+     "removed": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": [
+      {
+       "id": "beta-c9d2878b",
+       "source": "<BASE>\\src\\beta",
+       "url": null,
+       "sourceType": "local",
+       "root": "<BASE>\\src\\beta",
+       "managed": false,
+       "name": "beta",
+       "title": "beta",
+       "version": null,
+       "description": "",
+       "enabled": true,
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "author": "",
+       "homepage": "",
+       "repository": "",
+       "license": "",
+       "keywords": [],
+       "exists": true
+      }
+     ]
+    }
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {
+      "beta-c9d2878b": {
+       "b": {
+        "enabled": false,
+        "alias": "plugin-beta--b",
+        "headers": {
+         "X": "1"
+        }
+       }
+      }
+     },
+     "extensionScopes": {
+      "skills": {},
+      "mcp": {},
+      "plugins": {
+       "alpha-b867ce0a": [
+        "<BASE>\\proj1"
+       ]
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "flushSkills",
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "beta-c9d2878b": {
+      "b": {
+       "enabled": false,
+       "alias": "plugin-beta--b",
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "remove an unknown plugin",
+   "method": "plugins/removePlugin",
+   "params": {
+    "plugin": "ghost"
+   },
+   "result": null,
+   "error": "plugin not registered: ghost",
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {
+     "beta-c9d2878b": {
+      "b": {
+       "enabled": false,
+       "alias": "plugin-beta--b",
+       "headers": {
+        "X": "1"
+       }
+      }
+     }
+    },
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "remove beta",
+   "method": "plugins/removePlugin",
+   "params": {
+    "plugin": {
+     "name": "beta"
+    }
+   },
+   "result": {
+    "plugin": {
+     "id": "beta-c9d2878b",
+     "source": "<BASE>\\src\\beta",
+     "url": null,
+     "sourceType": "local",
+     "root": "<BASE>\\src\\beta",
+     "managed": false,
+     "name": "beta",
+     "title": "beta",
+     "version": null,
+     "description": "",
+     "enabled": true,
+     "installedAt": "<TS>",
+     "updatedAt": "<TS>",
+     "removed": true
+    },
+    "status": {
+     "registryPath": "<BASE>\\data\\plugins\\registry.json",
+     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "plugins": []
+    }
+   },
+   "error": null,
+   "saves": [
+    {
+     "theme": "dark",
+     "mcpServers": {
+      "plain": {
+       "command": "z"
+      }
+     },
+     "pluginMcp": {},
+     "extensionScopes": {
+      "skills": {},
+      "mcp": {},
+      "plugins": {
+       "alpha-b867ce0a": [
+        "<BASE>\\proj1"
+       ]
+      }
+     }
+    }
+   ],
+   "events": [
+    "save",
+    "flushSkills",
+    "connect:{\"reconcile\":true}",
+    "invalidateSkills",
+    "surface"
+   ],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {},
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "status when everything is removed",
+   "method": "plugins/pluginsStatus",
+   "params": {},
+   "result": {
+    "registryPath": "<BASE>\\data\\plugins\\registry.json",
+    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "plugins": []
+   },
+   "error": null,
+   "saves": [],
+   "events": [],
+   "config": {
+    "theme": "dark",
+    "mcpServers": {
+     "plain": {
+      "command": "z"
+     }
+    },
+    "pluginMcp": {},
+    "extensionScopes": {
+     "skills": {},
+     "mcp": {},
+     "plugins": {
+      "alpha-b867ce0a": [
+       "<BASE>\\proj1"
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

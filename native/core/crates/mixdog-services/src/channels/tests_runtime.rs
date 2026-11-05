@@ -596,21 +596,18 @@ async fn the_service_answers_admin_methods_and_maps_refusals_to_domain_errors() 
     let saved = ask(&svc, "channel/saveSchedule", json!({"entry": recurring("a"), "opId": "o1"})).await.unwrap();
     assert_eq!(saved["name"], "a");
     let taken = ask(&svc, "channel/saveSchedule", json!({"entry": recurring("a")})).await.unwrap_err();
-    assert_eq!(
-        taken,
-        CoreError::DomainError {
-            domain: "channel".into(),
-            code: Some("SCHEDULE_NAME_TAKEN".into()),
-            detail: Some(Box::new(DomainErrorDetail::ScheduleNameTaken { name: "a".into() })),
-        }
-    );
+    let CoreError::DomainError { domain, code, message, detail } = taken else { panic!("a coded error") };
+    assert_eq!((&*domain, code.as_deref()), ("channel", Some("SCHEDULE_NAME_TAKEN")));
+    assert!(message.is_some_and(|m| !m.is_empty()), "Node's message travels with the typed detail");
+    assert_eq!(detail.as_deref(), Some(&DomainErrorDetail::ScheduleNameTaken { name: "a".into() }));
     let refused = ask(&svc, "channel/saveSchedule", json!({"entry": {"name": "b"}})).await.unwrap_err();
     assert_eq!(
         refused,
         CoreError::DomainError {
             domain: "channel".into(),
             code: Some("CHANNEL_FAILED".into()),
-            detail: Some(Box::new(DomainErrorDetail::CommandFailed { message: "schedule instructions are required".into() })),
+            message: Some("schedule instructions are required".into()),
+            detail: None,
         }
     );
     assert_eq!(ask(&svc, "channel/setScheduleEnabled", json!({"name": "a", "enabled": false})).await.unwrap(), json!({"name": "a", "enabled": false}));
@@ -641,7 +638,7 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events, agent providers/presets/maintenance re-registered");
     assert_eq!(e.agent.reloads.load(Ordering::SeqCst), 1, "the retry did not reload again");
     let conflict = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {"x": 1}})).await.unwrap_err();
-    assert_eq!(conflict, CoreError::DomainError { domain: "channel".into(), code: Some("ECALLIDCONFLICT".into()), detail: None });
+    assert_eq!(conflict, CoreError::DomainError { domain: "channel".into(), code: Some("ECALLIDCONFLICT".into()), message: None, detail: None });
     // A tool the core does not host answers as the worker's dispatch does for any unknown name.
     let reply = svc.call(request("channel/call", json!({"name": "reply", "args": {}}), Some("op-2"))).await.unwrap();
     let Reply::Value(unknown) = reply else { panic!("not a value") };

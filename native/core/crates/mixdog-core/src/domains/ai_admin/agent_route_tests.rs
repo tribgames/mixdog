@@ -1,7 +1,6 @@
 //! `setAgentRoute` against the Node recording (`fixtures/ai-admin/route-admin-twin.json`
 //! `agentCases`) over the real `AgentRoutes` and `Config`; the catalog facts are the recorded ones.
 
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -11,7 +10,8 @@ use mixdog_ai::service::admin_route::{
 use mixdog_core_api::mock::MockStatePublisher;
 use serde_json::{Value, json};
 
-use super::agent_route_service::{AgentRoutePublisher, AgentRouteSetter, HIDDEN_AGENTS, agent_editor_id};
+use super::agent_route_service::{AgentRoutePublisher, AgentRouteSetter, agent_editor_id};
+use super::hidden_agents::hidden_agents;
 use super::chain::RouteContext;
 use crate::config::{AgentRoutes, Config, ConfigLanes};
 
@@ -67,7 +67,7 @@ fn editor_ids_match_node() {
     for case in twin()["agentCases"].as_array().unwrap() {
         let want = case["oracle"]["editorId"].as_str().unwrap();
         assert_eq!(agent_editor_id(case["agentId"].as_str().unwrap()), want, "{}", case["agentId"]);
-        assert_eq!(HIDDEN_AGENTS.contains(&want), case["oracle"]["hidden"].as_bool().unwrap(), "{want}");
+        assert_eq!(hidden_agents().contains(want), case["oracle"]["hidden"].as_bool().unwrap(), "{want}");
     }
 }
 
@@ -86,7 +86,7 @@ async fn set_agent_route_matches_node() {
             config: config.clone(),
             context: Arc::new(Facts { case: case.clone(), config: config.clone() }),
             publisher: published.clone(),
-            hidden: HIDDEN_AGENTS.iter().map(|s| (*s).to_owned()).collect::<HashSet<_>>(),
+            hidden: hidden_agents(),
         };
         let got = match setter.set_agent_route(case["agentId"].as_str().unwrap(), &obj(&case["request"])).await {
             Ok(v) => json!({ "value": v }),

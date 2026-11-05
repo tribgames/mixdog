@@ -32,6 +32,24 @@ use crate::ownership;
 /// Upper bound for one awaited child event, so a broken gate fails instead of hanging.
 pub(crate) const EVENT_BOUND: Duration = Duration::from_secs(300);
 
+thread_local! {
+    static DENY_EXIT_WATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether this thread's `ExitWatch::open` is made to fail as the OS does
+/// when it denies the watch (another user's or a protected process).
+pub(crate) fn exit_watch_denied() -> bool {
+    DENY_EXIT_WATCH.with(std::cell::Cell::get)
+}
+
+/// One gate step with the exit watch denied.
+fn step_with_exit_watch_denied(gate: &mut Gate) -> Result<GateStep, GateError> {
+    DENY_EXIT_WATCH.with(|deny| deny.set(true));
+    let result = gate.step();
+    DENY_EXIT_WATCH.with(|deny| deny.set(false));
+    result
+}
+
 #[derive(Default)]
 pub(crate) struct FakeTable {
     running: HashMap<u64, ProcessInfo>,
@@ -608,4 +626,67 @@ fn proven_owner_waits_for_its_os_exit_and_cannot_be_released() {
     );
     child.wait();
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
+}
+
+#[test]
+fn a_denied_exit_watch_is_a_typed_failure_never_an_unwakeable_wait() {
+    // A proven owner: not releasable, so only its exit could have ended a wait.
+    let (child, port) = idle_child_process(true);
+    let temp = TempData::new();
+    let pid = child.pid();
+    let record = format!(
+        r#"{{"kind":"mixdog-daemon","pid":{pid},"livenessPort":{}}}"#,
+        port.unwrap()
+    );
+    temp.write("daemon-owner.json", record.as_bytes());
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let result = step_with_exit_watch_denied(&mut gate);
+    let Err(GateError::ExitUnwatchable {
+        kind,
+        process,
+        releasable,
+    }) = result
+    else {
+        panic!("expected ExitUnwatchable, got {result:?}")
+    };
+    assert_eq!(
+        (kind, process.identity.pid, releasable),
+        (BlockedKind::WaitExit, pid, false)
+    );
+    // Like a 1.4.5 contender facing a live peer: nothing claimed, nothing written.
+    assert_eq!(temp.file("daemon-owner.json.claim.lock"), None);
+    assert_eq!(temp.file("daemon-owner.json").unwrap(), record.as_bytes());
+    assert!(matches!(
+        gate.release(pid),
+        Err(ReleaseError::NotReleasable(_))
+    ));
+}
+
+#[test]
+fn a_denied_exit_watch_on_a_releasable_block_still_takes_the_users_release() {
+    let (child, _) = idle_child_process(false);
+    let temp = TempData::new();
+    let pid = child.pid();
+    temp.write(
+        "daemon-owner.json",
+        format!(r#"{{"kind":"mixdog-daemon","pid":{pid}}}"#).as_bytes(),
+    );
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let result = step_with_exit_watch_denied(&mut gate);
+    assert!(
+        matches!(
+            result,
+            Err(GateError::ExitUnwatchable {
+                kind: BlockedKind::Undecidable,
+                releasable: true,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    gate.release(pid).unwrap();
+    assert!(matches!(
+        step_with_exit_watch_denied(&mut gate).unwrap(),
+        GateStep::Clear
+    ));
 }

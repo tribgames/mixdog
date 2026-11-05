@@ -276,6 +276,7 @@ pub(super) fn core_error(error: ConfigError) -> CoreError {
                 }
                 .into(),
             ),
+            message: None,
             detail: None,
         },
     }
@@ -290,6 +291,7 @@ fn tool(result: Result<Value, ToolModulesError>) -> Result<Value, CoreError> {
         ToolModulesError::Failed(_) => CoreError::DomainError {
             domain: "config".into(),
             code: Some("settingFailed".into()),
+            message: None,
             detail: None,
         },
         ToolModulesError::Config(error) => core_error(error),

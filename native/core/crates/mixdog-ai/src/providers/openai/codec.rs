@@ -15,9 +15,12 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::body::build_with;
+use super::client_meta::Metadata;
+use super::delta;
 use super::config::CODEX_HTTP_BETA;
 use super::config::CODEX_ORIGINATOR;
 use super::config::CODEX_WS_BETA;
+use super::config::CodexIdentity;
 use super::config::OpenAiConfig;
 use super::config::REPLAY_OWNER;
 use super::config::Route;
@@ -39,7 +42,7 @@ impl OpenAiCodec {
         Self { config, transport }
     }
 
-    fn headers(&self, request: &ModelRequest) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest, tier: Option<&str>) -> Vec<(String, String)> {
         let ctx = &self.config.context;
         let ws = self.transport == TransportKind::WebSocket;
         let mut headers = Vec::new();
@@ -61,27 +64,33 @@ impl OpenAiCodec {
                     if ws { CODEX_WS_BETA } else { CODEX_HTTP_BETA }.into(),
                 );
                 push("originator", CODEX_ORIGINATOR.into());
-                push("x-client-request-id", ctx.request_id());
+                if !ws {
+                    push("x-client-request-id", ctx.request_id());
+                }
                 push("User-Agent", identity.user_agent.clone());
                 push("version", identity.version.clone());
                 push("x-codex-beta-features", identity.beta_features.clone());
-                if let Some(key) = request.options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()) {
-                    if !ws {
-                        push("session_id", key.to_owned());
+                if ws {
+                    // The socket opens as a prewarm: one identity block, the
+                    // turn's own state travels in each frame's client_metadata.
+                    let metadata = Metadata::of(request, &identity.installation_id, ctx.now_unix_ms(), true);
+                    for (name, value) in metadata.handshake_headers(&request.model, tier) {
+                        push(&name, value);
                     }
-                    push("session-id", key.to_owned());
-                    push("thread-id", key.to_owned());
-                }
-                if let Some(thread) = &request.options.thread {
-                    push(
-                        "x-codex-window-id",
-                        format!("{}:{}", thread.id, thread.window),
-                    );
-                    if let Some(turn) = &thread.turn
-                        && let Some(scope) = request_scope(request)
-                        && let Some(state) = ctx.turn_state(scope, turn.as_str())
-                    {
-                        push("x-codex-turn-state", state);
+                } else {
+                    if let Some(key) = request.options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()) {
+                        push("session_id", key.to_owned());
+                        push("session-id", key.to_owned());
+                        push("thread-id", key.to_owned());
+                    }
+                    if let Some(thread) = &request.options.thread {
+                        push(
+                            "x-codex-window-id",
+                            format!("{}:{}", thread.id, thread.window),
+                        );
+                        if let Some(state) = self.turn_state(request) {
+                            push("x-codex-turn-state", state);
+                        }
                     }
                 }
             }
@@ -124,23 +133,62 @@ impl OpenAiCodec {
         self.config.route()
     }
 
+    /// The client identity of the Codex route.
+    pub fn identity(&self) -> Option<&CodexIdentity> {
+        match &self.config.target {
+            Target::Codex(identity) => Some(identity),
+            Target::ApiKey => None,
+        }
+    }
+
+    /// The same route over another transport (the fallback's HTTP codec).
+    pub fn with_transport(&self, transport: TransportKind) -> Self {
+        Self { config: self.config.clone(), transport }
+    }
+
+    /// The token the request's turn was issued, if an earlier response of
+    /// this turn gave one.
+    fn turn_state(&self, request: &ModelRequest) -> Option<String> {
+        let turn = request.options.thread.as_ref()?.turn.as_ref()?;
+        self.config.context.turn_state(request_scope(request)?, turn.as_str())
+    }
+
+    /// The request body a `response.create` frame carries, without `type`:
+    /// the transport-only `stream` does not exist on a socket. The second
+    /// value is the body's `service_tier`.
+    pub fn ws_body(
+        &self,
+        request: &ModelRequest,
+        effort: Option<&EffortProjection>,
+    ) -> (Map<String, Value>, Option<&'static str>) {
+        let built = build_with(&self.config, request, effort);
+        (built.map.into_iter().filter(|(key, _)| key != "stream").collect(), built.service_tier)
+    }
+
+    /// `frame` as sent: on the Codex route with the identity block of
+    /// [`Metadata`] in its `client_metadata`.
+    pub fn ws_frame(&self, request: &ModelRequest, frame: Map<String, Value>) -> Map<String, Value> {
+        let Target::Codex(identity) = &self.config.target else {
+            return frame;
+        };
+        let now = self.config.context.now_unix_ms();
+        Metadata::of(request, &identity.installation_id, now, false).frame(frame, now, self.turn_state(request).as_deref())
+    }
+
     /// [`WireCodec::encode`] with the conversation's mid-turn effort updates.
     pub fn encode_with(
         &self,
         request: &ModelRequest,
         effort: Option<&EffortProjection>,
     ) -> Result<WireRequest, ProviderError> {
-        let built = build_with(&self.config, request, effort);
         let ws = self.transport == TransportKind::WebSocket;
         let route = self.config.route();
-        let map = if ws {
-            // A response.create frame: `type` leads and `stream` does not exist.
-            let mut frame = Map::new();
-            frame.insert("type".into(), Value::String("response.create".into()));
-            frame.extend(built.map.into_iter().filter(|(key, _)| key != "stream"));
-            frame
+        let (map, tier) = if ws {
+            let (body, tier) = self.ws_body(request, effort);
+            (self.ws_frame(request, delta::response_create(&body, None, None)), tier)
         } else {
-            built.map
+            let built = build_with(&self.config, request, effort);
+            (built.map, built.service_tier)
         };
         let body = serde_json::to_vec(&Value::Object(map))
             .expect("a JSON object with string keys always serializes");
@@ -148,7 +196,7 @@ impl OpenAiCodec {
             transport: self.transport,
             method: if ws { "GET" } else { "POST" }.into(),
             url: if ws { route.ws_url() } else { route.http_url() }.into(),
-            headers: self.headers(request),
+            headers: self.headers(request, tier),
             body,
         })
     }

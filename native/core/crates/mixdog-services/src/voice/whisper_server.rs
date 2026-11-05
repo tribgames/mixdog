@@ -9,18 +9,18 @@
 
 use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use tokio::io::AsyncReadExt;
+use futures::FutureExt;
 use tokio::net::TcpStream;
-use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use super::pipeline::{AudioTools, ServerContract, VoiceError, WhisperEngine};
+use crate::local_provider::server_process::{Launcher, LogSink, RunningProcess, SystemLauncher};
+use crate::tidy::process::{Processes, RunOptions};
 
 const PREFERRED_PORT: u16 = 8771;
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
@@ -31,10 +31,17 @@ const LOG_TAIL_BYTES: usize = 4000;
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 struct Running {
-    child: Child,
+    process: Arc<dyn RunningProcess>,
     contract: ServerContract,
     port: u16,
     log: Arc<StdMutex<String>>,
+}
+
+impl Running {
+    /// Whether the child has exited, without waiting.
+    fn exited(&self) -> bool {
+        self.process.wait().now_or_never().is_some()
+    }
 }
 
 #[derive(Default)]
@@ -51,22 +58,23 @@ pub struct WhisperServer {
     preferred_port: u16,
     idle_timeout: Option<Duration>,
     http: reqwest::Client,
-}
-
-impl Default for WhisperServer {
-    fn default() -> Self {
-        Self::new(PREFERRED_PORT, Some(IDLE_TIMEOUT))
-    }
+    launcher: Arc<SystemLauncher>,
 }
 
 impl WhisperServer {
+    /// The default port and idle release; the child runs under the shared process manager.
+    pub fn with_defaults(processes: &Processes) -> Self {
+        Self::new(PREFERRED_PORT, Some(IDLE_TIMEOUT), processes)
+    }
+
     /// `idle_timeout: None` never releases an idle child.
-    pub fn new(preferred_port: u16, idle_timeout: Option<Duration>) -> Self {
+    pub fn new(preferred_port: u16, idle_timeout: Option<Duration>, processes: &Processes) -> Self {
         Self {
             shared: Arc::default(),
             preferred_port,
             idle_timeout,
             http: reqwest::Client::new(),
+            launcher: Arc::new(SystemLauncher::new(processes)),
         }
     }
 
@@ -91,33 +99,32 @@ impl WhisperServer {
 
     async fn start(&self, contract: &ServerContract) -> Result<Running, VoiceError> {
         let port = select_port(&contract.host, self.preferred_port)?;
-        let mut command = Command::new(&contract.server_cmd);
-        command
-            .arg("--model")
-            .arg(&contract.model_path)
-            .args(["--host", &contract.host, "--port", &port.to_string(), "-t", &contract.thread_count.to_string()])
-            .current_dir(contract.server_cmd.parent().unwrap_or(Path::new(".")))
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        let mut child = command
-            .spawn()
-            .map_err(|e| VoiceError(format!("whisper-server failed to start: {e}")))?;
+        let args = [
+            "--model".to_owned(),
+            contract.model_path.to_string_lossy().into_owned(),
+            "--host".to_owned(),
+            contract.host.clone(),
+            "--port".to_owned(),
+            port.to_string(),
+            "-t".to_owned(),
+            contract.thread_count.to_string(),
+        ];
+        let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
         let log = Arc::new(StdMutex::new(String::new()));
-        if let Some(out) = child.stdout.take() {
-            tokio::spawn(collect_tail(out, log.clone()));
-        }
-        if let Some(err) = child.stderr.take() {
-            tokio::spawn(collect_tail(err, log.clone()));
-        }
-        let mut running = Running { child, contract: contract.clone(), port, log };
+        let sink: LogSink = {
+            let log = log.clone();
+            Arc::new(move |text: &str| append_tail(&mut log.lock().unwrap(), text))
+        };
+        let process = self
+            .launcher
+            .launch(&contract.server_cmd.to_string_lossy(), &args, &cwd, &[], sink)
+            .await
+            .map_err(|e| VoiceError(format!("whisper-server failed to start: {e}")))?;
+        let running = Running { process, contract: contract.clone(), port, log };
         let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
         let addr = format!("{}:{port}", contract.host);
         while tokio::time::Instant::now() < deadline {
-            if let Ok(Some(_)) = running.child.try_wait() {
+            if running.exited() {
                 let tail = running.log.lock().unwrap().clone();
                 return Err(VoiceError(format!("whisper-server died during startup:\n{tail}")));
             }
@@ -138,7 +145,7 @@ impl WhisperEngine for WhisperServer {
         {
             let mut slot = self.shared.running.lock().await;
             let alive = match slot.as_mut() {
-                Some(r) => r.contract == *contract && matches!(r.child.try_wait(), Ok(None)),
+                Some(r) => r.contract == *contract && !r.exited(),
                 None => false,
             };
             if !alive {
@@ -241,21 +248,14 @@ fn select_port(host: &str, preferred: u16) -> Result<u16, VoiceError> {
         .map_err(|e| VoiceError(format!("no loopback port for whisper-server: {e}")))
 }
 
-async fn collect_tail<R: tokio::io::AsyncRead + Unpin>(mut reader: R, log: Arc<StdMutex<String>>) {
-    let mut buf = [0u8; 1024];
-    while let Ok(n) = reader.read(&mut buf).await {
-        if n == 0 {
-            break;
+fn append_tail(log: &mut String, text: &str) {
+    log.push_str(text);
+    if log.len() > LOG_TAIL_BYTES {
+        let mut cut = log.len() - LOG_TAIL_BYTES;
+        while !log.is_char_boundary(cut) {
+            cut += 1;
         }
-        let mut log = log.lock().unwrap();
-        log.push_str(&String::from_utf8_lossy(&buf[..n]));
-        if log.len() > LOG_TAIL_BYTES {
-            let mut cut = log.len() - LOG_TAIL_BYTES;
-            while !log.is_char_boundary(cut) {
-                cut += 1;
-            }
-            log.drain(..cut);
-        }
+        log.drain(..cut);
     }
 }
 
@@ -265,14 +265,13 @@ async fn teardown(slot: &mut Option<Running>) {
     }
 }
 
-async fn teardown_running(mut running: Running) {
-    let _ = running.child.start_kill();
-    let _ = tokio::time::timeout(STOP_GRACE, running.child.wait()).await;
+async fn teardown_running(running: Running) {
+    running.process.kill();
+    let _ = tokio::time::timeout(STOP_GRACE, running.process.wait()).await;
 }
 
-/// ffmpeg and ffprobe as child processes.
-#[derive(Default)]
-pub struct ProcessAudioTools;
+/// ffmpeg and ffprobe as children of the shared process manager.
+pub struct ProcessAudioTools(pub Processes);
 
 #[async_trait]
 impl AudioTools for ProcessAudioTools {
@@ -285,44 +284,41 @@ impl AudioTools for ProcessAudioTools {
         channels: u32,
         threads: usize,
     ) -> Result<(), VoiceError> {
-        let mut command = Command::new(ffmpeg);
-        command
-            .arg("-i")
-            .arg(audio)
-            .args(["-ar", &sample_rate.to_string(), "-ac", &channels.to_string(), "-threads", &threads.to_string(), "-y"])
-            .arg(wav)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000);
-        let status = command
-            .status()
-            .await
-            .map_err(|e| VoiceError(format!("{} {e}", ffmpeg.display())))?;
-        if status.success() {
+        let args: Vec<String> = [
+            "-i",
+            &audio.to_string_lossy(),
+            "-ar",
+            &sample_rate.to_string(),
+            "-ac",
+            &channels.to_string(),
+            "-threads",
+            &threads.to_string(),
+            "-y",
+            &wav.to_string_lossy(),
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let mut options = RunOptions::new(wav.parent().unwrap_or(Path::new(".")));
+        options.timeout = Duration::ZERO;
+        let result = self.0.run(&ffmpeg.to_string_lossy(), &args, options).await;
+        if result.code == 0 {
             Ok(())
+        } else if !result.error.is_empty() {
+            Err(VoiceError(format!("{} {}", ffmpeg.display(), result.error)))
         } else {
-            Err(VoiceError(format!("{} exit {}", ffmpeg.display(), status.code().map_or("signal".into(), |c| c.to_string()))))
+            Err(VoiceError(format!("{} exit {}", ffmpeg.display(), if result.code < 0 { "signal".into() } else { result.code.to_string() })))
         }
     }
 
     async fn probe_duration_sec(&self, audio: &Path) -> Option<f64> {
-        let mut command = Command::new("ffprobe");
-        command
-            .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1"])
-            .arg(audio)
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000);
-        let output = command.output().await.ok()?;
-        if !output.status.success() {
+        let args: Vec<String> = ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", &audio.to_string_lossy()].map(str::to_owned).to_vec();
+        let mut options = RunOptions::new(audio.parent().unwrap_or(Path::new(".")));
+        options.timeout = Duration::ZERO;
+        let output = self.0.run("ffprobe", &args, options).await;
+        if output.code != 0 {
             return None;
         }
-        Some(mixdog_js::string_to_number(&String::from_utf8_lossy(&output.stdout))).filter(|d| d.is_finite() && *d != 0.0)
+        Some(mixdog_js::string_to_number(&output.stdout)).filter(|d| d.is_finite() && *d != 0.0)
     }
 }
 

@@ -8,6 +8,7 @@ pub mod disk;
 pub mod errors;
 pub mod include;
 pub mod manager;
+pub mod activity;
 pub mod measure;
 pub mod merge;
 pub mod names;

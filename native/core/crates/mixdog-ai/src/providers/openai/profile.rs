@@ -220,6 +220,7 @@ impl ResponsesProfile {
             prior: request.options.provider_state.clone(),
             model: request.model.clone(),
             message_count: request.messages.len(),
+            resumed_response_id: self.resume(request).ok().and_then(|c| c.previous_response_id),
         })
     }
 

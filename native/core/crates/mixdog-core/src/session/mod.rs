@@ -38,6 +38,7 @@ pub mod user_text;
 pub mod user_cwd;
 pub mod user_facts;
 pub mod agent_route;
+pub mod session_options;
 mod view;
 pub mod worktree;
 
@@ -64,6 +65,7 @@ pub use self::run::SteerInput;
 pub use self::seams::AppendPosition;
 pub use self::seams::BarrierError;
 pub use self::seams::CloseIngest;
+pub use self::seams::SensitiveMarks;
 pub use self::seams::SessionMeta;
 pub use self::user_cwd::UserCwd;
 pub use self::store::MemoryCloseIngest;
@@ -115,6 +117,8 @@ pub struct SessionDeps {
     pub search: Arc<dyn TurnIngest>,
     /// The memory ingest when a thread unloads or the core shuts down.
     pub memory: Arc<dyn CloseIngest>,
+    /// The sensitive values a running turn's session gains (its search rows are replaced).
+    pub sensitive: Arc<dyn SensitiveMarks>,
     /// The cwd files under the data dir (`user-cwd.mjs`).
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.

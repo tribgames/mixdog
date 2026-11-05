@@ -28,11 +28,13 @@ fn failed(message: String) -> CoreError {
     CoreError::DomainError {
         domain: DOMAIN.into(),
         code: Some(CHANNEL_FAILED.into()),
-        detail: Some(Box::new(DomainErrorDetail::CommandFailed { message })),
+        message: Some(message.into()),
+        detail: None,
     }
 }
 
-/// A coded schedule refusal keeps its code and public name; every other failure is a message.
+/// A coded schedule refusal keeps its code, its message and its public name; every other
+/// failure is a message.
 pub fn admin_error(error: AdminError) -> CoreError {
     if let AdminError::Schedule(schedule) = &error
         && let Some((code, name)) = schedule.code_fields()
@@ -40,6 +42,7 @@ pub fn admin_error(error: AdminError) -> CoreError {
         return CoreError::DomainError {
             domain: DOMAIN.into(),
             code: Some(code.into()),
+            message: Some(error.to_string().into()),
             detail: name.filter(|n| !n.is_empty()).and_then(|n| {
                 let name = n.to_string();
                 Some(Box::new(match code {
@@ -59,6 +62,7 @@ fn call_error(error: CallError) -> CoreError {
         CallError::CallIdConflict(_) => CoreError::DomainError {
             domain: DOMAIN.into(),
             code: Some("ECALLIDCONFLICT".into()),
+            message: None,
             detail: None,
         },
         CallError::Failed(message) => failed(message),

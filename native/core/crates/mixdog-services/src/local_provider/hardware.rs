@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::change::ChangeSignal;
 use crate::media::store::now_ms;
+use crate::tidy::process::{Processes, RunOptions};
 
 const GPU_FIELDS: &str = "index,uuid,name,memory.total,memory.free";
 const CACHE_MS: i64 = 5_000;
@@ -68,7 +69,9 @@ pub fn parse_nvidia_gpus(output: &str) -> Vec<Gpu> {
             let uuid_ok = uuid.len() > 4 && uuid[..4].eq_ignore_ascii_case("GPU-") && uuid[4..].chars().all(|c| c.is_ascii_hexdigit() || c == '-');
             let memory = mixdog_js::string_to_number(parts[parts.len() - 2]) * MIB as f64;
             let free = mixdog_js::string_to_number(parts[parts.len() - 1]) * MIB as f64;
-            if !uuid_ok || memory <= 0.0 || free < 0.0 || free > memory || memory.fract() != 0.0 || free.fract() != 0.0 {
+            // `Number.isSafeInteger`: a whole number within ±(2^53 - 1).
+            let safe = |n: f64| n.is_finite() && n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0;
+            if !uuid_ok || memory <= 0.0 || free < 0.0 || free > memory || !safe(memory) || !safe(free) {
                 return None;
             }
             Some(Gpu { index, uuid: uuid.into(), vendor: "NVIDIA", name: parts[2..parts.len() - 2].join(", "), memory_bytes: memory as i64, free_memory_bytes: free as i64 })
@@ -111,18 +114,20 @@ pub struct HardwareProbe {
     cache_ms: i64,
     value: Mutex<Hardware>,
     signal: ChangeSignal,
+    processes: Processes,
 }
 
 impl HardwareProbe {
-    pub fn new(os: &str, arch: &str, cache_ms: Option<i64>) -> Arc<Self> {
-        Self::with_signal(os, arch, cache_ms, ChangeSignal::default())
+    pub fn new(os: &str, arch: &str, cache_ms: Option<i64>, processes: Processes) -> Arc<Self> {
+        Self::with_signal(os, arch, cache_ms, ChangeSignal::default(), processes)
     }
 
     /// A probe that ticks `signal` when what it reports (not merely when it was checked) changes.
-    pub fn with_signal(os: &str, arch: &str, cache_ms: Option<i64>, signal: ChangeSignal) -> Arc<Self> {
+    pub fn with_signal(os: &str, arch: &str, cache_ms: Option<i64>, signal: ChangeSignal, processes: Processes) -> Arc<Self> {
         let supported_platform = !platform_key(os, arch).is_empty();
         Arc::new(Self {
             signal,
+            processes,
             os: os.into(),
             arch: arch.into(),
             supported_platform,
@@ -185,36 +190,43 @@ impl HardwareProbe {
         next
     }
 
-    /// The real probe: `nvidia-smi` or `sysctl`.
+    /// The real probe: `nvidia-smi` or `sysctl`, run under the shared process manager.
     pub async fn detect(&self, force: bool) -> Hardware {
         let apple = self.os == "macos";
-        self.refresh(force, || async move { if apple { query_apple().await } else { query_nvidia().await } }).await
+        let processes = self.processes.clone();
+        self.refresh(force, || async move { if apple { query_apple(&processes).await } else { query_nvidia(&processes).await } }).await
     }
 }
 
-async fn query_nvidia() -> Result<Query, String> {
-    let mut cmd = tokio::process::Command::new("nvidia-smi");
-    cmd.args([&format!("--query-gpu={GPU_FIELDS}"), "--format=csv,noheader,nounits"]).kill_on_drop(true);
-    #[cfg(windows)]
-    cmd.creation_flags(0x0800_0000);
-    let out = tokio::time::timeout(Duration::from_secs(5), cmd.output()).await.map_err(|_| "nvidia-smi timed out".to_owned())?.map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(format!("nvidia-smi exited with {}", out.status));
+/// One probe command with its 5 s limit; `Err` when it could not run or did not finish.
+async fn probe_command(processes: &Processes, program: &str, args: &[&str]) -> Result<String, String> {
+    let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+    let cwd = std::env::temp_dir();
+    let mut options = RunOptions::new(&cwd);
+    options.timeout = Duration::from_secs(5);
+    options.max_capture = 64 * 1024;
+    let result = processes.run(program, &args, options).await;
+    if result.timed_out {
+        return Err(format!("{} timed out", program.rsplit('/').next().unwrap_or(program)));
     }
-    Ok(Query::Nvidia(String::from_utf8_lossy(&out.stdout).into_owned()))
+    if !result.error.is_empty() {
+        return Err(result.error);
+    }
+    if result.code != 0 {
+        return Err(format!("{} exited with {}", program.rsplit('/').next().unwrap_or(program), result.code));
+    }
+    Ok(result.stdout)
 }
 
-async fn query_apple() -> Result<Query, String> {
+async fn query_nvidia(processes: &Processes) -> Result<Query, String> {
+    probe_command(processes, "nvidia-smi", &[&format!("--query-gpu={GPU_FIELDS}"), "--format=csv,noheader,nounits"]).await.map(Query::Nvidia)
+}
+
+async fn query_apple(processes: &Processes) -> Result<Query, String> {
     // macOS before 14 has no such key.
-    let limit = tokio::time::timeout(Duration::from_secs(5), tokio::process::Command::new("/usr/sbin/sysctl").args(["-n", "iogpu.wired_limit_mb"]).output())
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .map(|o| mixdog_js::string_to_number(&String::from_utf8_lossy(&o.stdout)))
-        .filter(|n| n.is_finite())
-        .map_or(0, |n| n as i64);
-    let total = tokio::process::Command::new("/usr/sbin/sysctl").args(["-n", "hw.memsize"]).output().await.ok().and_then(|o| mixdog_js::js_trim(&String::from_utf8_lossy(&o.stdout)).parse::<i64>().ok()).unwrap_or(0);
-    let name = tokio::process::Command::new("/usr/sbin/sysctl").args(["-n", "machdep.cpu.brand_string"]).output().await.ok().map(|o| mixdog_js::js_trim(&String::from_utf8_lossy(&o.stdout)).to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Apple Silicon".into());
+    let limit = probe_command(processes, "/usr/sbin/sysctl", &["-n", "iogpu.wired_limit_mb"]).await.ok().map(|text| mixdog_js::string_to_number(&text)).filter(|n| n.is_finite()).map_or(0, |n| n as i64);
+    let total = probe_command(processes, "/usr/sbin/sysctl", &["-n", "hw.memsize"]).await.ok().and_then(|text| mixdog_js::js_trim(&text).parse::<i64>().ok()).unwrap_or(0);
+    let name = probe_command(processes, "/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"]).await.ok().map(|text| mixdog_js::js_trim(&text).to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Apple Silicon".into());
     Ok(Query::Apple { name, total_bytes: total, wired_limit_mb: limit })
 }
 
@@ -268,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_sorts_gpus_caches_and_reports_failures() {
-        let probe = HardwareProbe::new("windows", "x86_64", Some(60_000));
+        let probe = HardwareProbe::new("windows", "x86_64", Some(60_000), Processes::for_tests());
         assert!(probe.status().checking);
         let hw = probe.refresh(false, || async { Ok(Query::Nvidia(SMI.into())) }).await;
         assert!(hw.supported);
@@ -280,8 +292,17 @@ mod tests {
         assert_eq!((failed.supported, failed.error.as_deref()), (false, Some("boom")));
         let empty = probe.refresh(true, || async { Ok(Query::Nvidia(String::new())) }).await;
         assert_eq!(empty.error.as_deref(), Some("No compatible NVIDIA GPU detected."));
-        let unsupported = HardwareProbe::new("linux", "x86_64", None).refresh(false, || async { Err("never".into()) }).await;
+        let unsupported = HardwareProbe::new("linux", "x86_64", None, Processes::for_tests()).refresh(false, || async { Err("never".into()) }).await;
         assert!(!unsupported.supported && !unsupported.checking);
+    }
+
+    #[tokio::test]
+    async fn a_probe_command_reports_output_failure_and_a_missing_program() {
+        let processes = Processes::for_tests();
+        let (shell, flag) = if cfg!(windows) { ("cmd.exe", "/C") } else { ("sh", "-c") };
+        assert_eq!(probe_command(&processes, shell, &[flag, "echo 42"]).await.unwrap().trim(), "42");
+        assert_eq!(probe_command(&processes, shell, &[flag, "exit 3"]).await.unwrap_err().rsplit(' ').next(), Some("3"));
+        assert!(probe_command(&processes, "definitely-not-a-binary-xyz", &[]).await.unwrap_err().contains("not found"));
     }
 
     #[test]

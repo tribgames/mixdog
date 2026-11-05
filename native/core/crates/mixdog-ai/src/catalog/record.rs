@@ -57,9 +57,35 @@ pub enum Thinking {
     Budget(BudgetSpec),
 }
 
+pub use mixdog_core_api::domain::provider::CustomReasoning;
+pub use mixdog_core_api::domain::provider::ParameterOption;
+pub use mixdog_core_api::domain::provider::ParameterValue;
+pub use mixdog_core_api::domain::provider::PickerFields;
+pub use mixdog_core_api::domain::provider::ReasoningOption;
+pub use mixdog_core_api::domain::provider::ServiceTier;
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelRecord {
+    /// The picker's row fields, as the adapter listed them.
+    #[serde(default)]
+    pub picker: PickerFields,
+    /// Out of the picker; saved routes on it keep resolving.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The effort the provider's own listing names as the model's default
+    /// (`defaultEffort`); the picker selects it when the route's ladder has it.
+    #[serde(default)]
+    pub default_effort: Option<String>,
+    /// The kind of model the listing states (`chat`, `embedding`, …).
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// When the provider created the model (epoch seconds, as listed).
+    #[serde(default)]
+    pub created: Option<i64>,
+    /// The model a routing alias resolves to.
+    #[serde(default)]
+    pub alias_target: Option<String>,
     /// Wire family the source assigns (for example `gemini`, `claude`).
     #[serde(default)]
     pub family: Option<String>,
@@ -91,6 +117,12 @@ pub struct ModelRecord {
 impl ModelRecord {
     pub fn new(provider: ProviderId, id: impl Into<String>) -> Self {
         Self {
+            picker: PickerFields::default(),
+            hidden: false,
+            default_effort: None,
+            mode: None,
+            created: None,
+            alias_target: None,
             family: None,
             thinking: Thinking::Unspecified,
             npm: None,

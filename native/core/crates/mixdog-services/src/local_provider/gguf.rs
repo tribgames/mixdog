@@ -110,7 +110,6 @@ impl Reader<'_> {
                 4 => Item::Number(u32::from_le_bytes(b.try_into().unwrap()) as f64),
                 5 => Item::Number(i32::from_le_bytes(b.try_into().unwrap()) as f64),
                 10 => Item::Number(u64::from_le_bytes(b.try_into().unwrap()) as f64),
-                7 => Item::Number(f64::from(b[0] != 0)),
                 6 => Item::Number(f64::from(f32::from_le_bytes(b.try_into().unwrap()))),
                 _ => Item::None,
             }
@@ -163,6 +162,11 @@ pub fn parse_gguf_header(buffer: &[u8]) -> Result<GgufHeader, GgufError> {
                 numbers.insert(key, n);
             }
             Item::Text(t) if keep && key == "general.architecture" => architecture = Some(t),
+            // Node keeps a string as the value: truthy (so `|| fallback` does not apply) and not a
+            // number. Infinity is neither finite nor a valid dimension, which is the same verdict.
+            Item::Text(t) if keep && !t.is_empty() => {
+                numbers.insert(key, f64::INFINITY);
+            }
             _ => {}
         }
     }
@@ -198,7 +202,7 @@ pub fn gguf_memory_plan(header: &GgufHeader, file_size: i64, requested: i64) -> 
     }
     let context_window = requested.min(model_context);
     let dimension = positive("embedding_length")? as f64 / positive("attention.head_count")? as f64;
-    let dim = |name: &str| header.metadata.get(&format!("{arch}.attention.{name}")).copied().filter(|v| *v != 0.0).unwrap_or(dimension);
+    let dim = |name: &str| header.metadata.get(&format!("{arch}.attention.{name}")).copied().filter(|v| *v != 0.0 && !v.is_nan()).unwrap_or(dimension);
     let (key, val) = (dim("key_length"), dim("value_length"));
     if ![key, val].iter().all(|n| n.fract() == 0.0 && *n > 0.0) {
         return bad("Unsupported GGUF attention dimensions");

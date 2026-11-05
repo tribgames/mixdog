@@ -18,7 +18,7 @@ pub struct MediaService {
 }
 
 fn domain(code: &str) -> CoreError {
-    CoreError::DomainError { domain: "media".into(), code: Some(code.into()), detail: None }
+    CoreError::DomainError { domain: "media".into(), code: Some(code.into()), message: None, detail: None }
 }
 
 impl From<MediaError> for CoreError {

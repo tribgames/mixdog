@@ -20,7 +20,6 @@ use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
-use mixdog_protocol::DomainErrorDetail;
 use mixdog_protocol::ThreadId;
 use serde_json::Value;
 use serde_json::json;
@@ -46,7 +45,12 @@ fn map_error(error: ExtError) -> CoreError {
             CoreError::CapabilityUnavailable { capability: "extensionHost".into(), detail: reason.into() }
         }
         ExtError::UnknownWorker | ExtError::HostExited { .. } => {
-            CoreError::DomainError { domain: "document".into(), code: Some("HOST_EXITED".into()), detail: None }
+            CoreError::DomainError {
+                domain: "document".into(),
+                code: Some("HOST_EXITED".into()),
+                message: None,
+                detail: None,
+            }
         }
         ExtError::Failed { code, message } if code == "invalid_params" => invalid("params", &message),
         // The two codes whose text Node shows includes an external program's own message: the
@@ -56,11 +60,15 @@ fn map_error(error: ExtError) -> CoreError {
         ExtError::Failed { code, message } if code == "install_failed" || code == "failed" => CoreError::DomainError {
             domain: "document".into(),
             code: Some(code.to_uppercase().into()),
-            detail: Some(Box::new(DomainErrorDetail::ExternalFailure { message })),
+            message: Some(message.into()),
+            detail: None,
         },
-        ExtError::Failed { code, .. } => {
-            CoreError::DomainError { domain: "document".into(), code: Some(code.to_uppercase().into()), detail: None }
-        }
+        ExtError::Failed { code, .. } => CoreError::DomainError {
+            domain: "document".into(),
+            code: Some(code.to_uppercase().into()),
+            message: None,
+            detail: None,
+        },
     }
 }
 
@@ -258,9 +266,10 @@ mod tests {
     async fn an_external_tools_message_travels_with_its_error() {
         let (service, _) = service_failing("install_failed");
         let error = service.call(request("document/installLibreOffice", json!({ "opId": "x" }))).await.unwrap_err();
-        let CoreError::DomainError { code, detail, .. } = error else { panic!("a coded error") };
+        let CoreError::DomainError { code, message, detail, .. } = error else { panic!("a coded error") };
         assert_eq!(code.as_deref(), Some("INSTALL_FAILED"));
-        assert_eq!(detail.as_deref(), Some(&DomainErrorDetail::ExternalFailure { message: "m".into() }));
+        assert_eq!(message.as_deref(), Some("m"));
+        assert_eq!(detail, None);
     }
 
     fn service_failing(code: &str) -> (DocumentService, Arc<Scripted>) {

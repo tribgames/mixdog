@@ -40,6 +40,11 @@ const cases = [
       usage: { inputTokens: 50, outputTokens: 10, cachedTokens: 5, cacheWriteTokens: 7 },
     },
   },
+  {
+    name: 'completed with one-hour cache writes',
+    provider: 'anthropic', model: 'zz-claude', inputExcludesCache: true,
+    end: { kind: 'completed', usage: { inputTokens: 50, outputTokens: 10, cacheWriteTokens: 9, cacheWrite1hTokens: 4 } },
+  },
   { name: 'completed without usage', provider: 'openai', model: 'zz-test-model', end: { kind: 'completed' } },
   {
     name: 'completed on a fallback model',

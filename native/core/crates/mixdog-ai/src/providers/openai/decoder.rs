@@ -116,6 +116,9 @@ pub struct StateReport {
     /// The requested model id, not an alias the server answered with.
     pub model: String,
     pub message_count: usize,
+    /// The `previous_response_id` the request resumed from. A socket turn
+    /// whose response carries no id keeps this one as the slot's `responseId`.
+    pub resumed_response_id: Option<String>,
 }
 
 pub struct ResponsesDecoder {
@@ -703,7 +706,8 @@ impl ResponsesDecoder {
             let response_id = response
                 .get("id")
                 .and_then(Value::as_str)
-                .or(self.outcome.response_id.as_deref());
+                .or(self.outcome.response_id.as_deref())
+                .or(report.resumed_response_id.as_deref().filter(|_| self.framing == Framing::WebSocket));
             let slot = next_slot(
                 &report.spec,
                 self.replay_owner.as_str(),

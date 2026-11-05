@@ -1,17 +1,29 @@
 //! The webhook HTTP listener (`webhook/listener-lifecycle.mjs`, `webhook.mjs` routing): binds
 //! loopback on the configured port or the next seven, answers `GET /` and `POST /webhook/<name>`,
-//! and moves bytes between the socket and [`WebhookService`]. The endpoint gate runs before any
-//! body byte is read; the body is streamed through [`BodyCollector`], so an over-cap sender gets
-//! its 413 at the chunk that crosses the cap and the connection is dropped.
+//! and moves bytes between the socket and [`WebhookService`]. HTTP/1.1 framing is hyper's, with
+//! Node's server limits: 16 KiB of headers (431 beyond), 60 s to receive them, five minutes for
+//! the body, keep-alive and pipelining. The endpoint gate runs before any body byte is read; the
+//! body is fed frame by frame through [`BodyCollector`], so an over-cap sender gets its 413 at
+//! the frame that crosses the cap and the connection is closed.
 //!
 //! The relay tunnel that forwards a public URL to this port is not part of the listener.
 
-use std::io::ErrorKind;
+use std::convert::Infallible;
+use std::io::{self, ErrorKind};
 use std::net::Ipv4Addr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper_util::rt::{TokioIo, TokioTimer};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -22,10 +34,12 @@ use crate::channels::running::WorkGuard;
 
 /// The port walk after the configured one (`maxPort = basePort + 7`).
 const PORT_SPAN: u16 = 7;
-/// Node's default header cap is 16 KiB.
+/// Node's default `maxHeaderSize`.
 const MAX_HEAD_BYTES: usize = 16 * 1024;
-/// Node's default `requestTimeout`: the whole request must arrive within five minutes.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// Node's default `headersTimeout`.
+pub(crate) const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
+/// Node's default `requestTimeout`: the body must arrive within five minutes.
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct WebhookListener {
     port: u16,
@@ -65,7 +79,8 @@ impl WebhookListener {
         self.port
     }
 
-    /// Stops accepting and releases the port; requests already in flight finish.
+    /// Stops accepting and releases the port; a request already in flight finishes, then its
+    /// connection closes.
     pub async fn stop(self) {
         self.stop.cancel();
         let _ = self.accept.await;
@@ -79,8 +94,7 @@ async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: 
             () = stop.cancelled() => break,
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
-                    let service = Arc::clone(&service);
-                    tokio::spawn(async move { serve(stream, &service).await });
+                    tokio::spawn(serve(stream, Arc::clone(&service), stop.clone()));
                 }
                 Err(e) => tracing::warn!("webhook: accept failed: {e}"),
             },
@@ -88,170 +102,153 @@ async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: 
     }
 }
 
-struct Request {
-    method: String,
-    target: String,
-    headers: Headers,
+async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken) {
+    let handler = service_fn(move |request| {
+        let service = Arc::clone(&service);
+        async move { Ok::<_, Infallible>(respond(request, &service).await) }
+    });
+    let connection = http1::Builder::new()
+        .timer(TokioTimer::new())
+        .header_read_timeout(HEADERS_TIMEOUT)
+        .max_buf_size(MAX_HEAD_BYTES)
+        .serve_connection(TokioIo::new(Lingering(Some(stream))), handler);
+    tokio::pin!(connection);
+    tokio::select! {
+        _ = connection.as_mut() => return,
+        () = stop.cancelled() => connection.as_mut().graceful_shutdown(),
+    }
+    let _ = connection.await;
 }
 
-async fn serve(mut stream: TcpStream, service: &WebhookService) {
-    let _ = tokio::time::timeout(REQUEST_TIMEOUT, handle(&mut stream, service)).await;
-    let _ = stream.shutdown().await;
-}
+/// How long a closed connection keeps reading and discarding what the peer still sends.
+const LINGER: Duration = Duration::from_secs(5);
 
-async fn handle(stream: &mut TcpStream, service: &WebhookService) -> Option<()> {
-    let (request, leftover) = read_head(stream).await?;
-    let Request { method, target, headers } = request;
-    match (method.as_str(), target.as_str()) {
-        ("GET", "/") => write_response(stream, 200, "text/plain", b"OK").await,
-        ("POST", path) if path.starts_with("/webhook/") => webhook(stream, service, path, headers, leftover).await,
-        _ => write_response(stream, 404, "text/plain", b"Not Found").await,
+/// A socket that is half-closed and drained when hyper lets go of it. Closing a socket with
+/// unread bytes resets the connection, and a reset throws away the reply the peer has not read
+/// yet — a 413 or 400 sent to a sender that is still mid-body would never arrive. The shutdown
+/// sends the reply and a FIN first; the read-out lets the sender finish or notice (RFC 9112 §9.6).
+struct Lingering(Option<TcpStream>);
+
+impl Lingering {
+    fn socket(&mut self) -> Pin<&mut TcpStream> {
+        Pin::new(self.0.as_mut().expect("the socket is present until the connection is dropped"))
     }
 }
 
-async fn webhook(stream: &mut TcpStream, service: &WebhookService, target: &str, headers: Headers, leftover: Vec<u8>) -> Option<()> {
+impl AsyncRead for Lingering {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        self.socket().poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Lingering {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.socket().poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(mut self: Pin<&mut Self>, cx: &mut Context<'_>, bufs: &[io::IoSlice<'_>]) -> Poll<io::Result<usize>> {
+        self.socket().poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.socket().poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.socket().poll_shutdown(cx)
+    }
+}
+
+impl Drop for Lingering {
+    fn drop(&mut self) {
+        if let (Some(stream), Ok(runtime)) = (self.0.take(), tokio::runtime::Handle::try_current()) {
+            runtime.spawn(linger(stream));
+        }
+    }
+}
+
+async fn linger(mut stream: TcpStream) {
+    let _ = stream.shutdown().await;
+    let mut sink = [0u8; 8192];
+    let _ = tokio::time::timeout(LINGER, async { while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {} }).await;
+}
+
+type Reply = Response<Full<Bytes>>;
+
+/// `close` ends the connection after the reply: the request body was not (fully) consumed or
+/// its framing is broken.
+fn reply(status: u16, content_type: &str, body: Vec<u8>, close: bool) -> Reply {
+    let mut builder = Response::builder().status(status).header("content-type", content_type);
+    if close {
+        builder = builder.header("connection", "close");
+    }
+    builder.body(Full::new(Bytes::from(body))).expect("a reply with a valid status and headers")
+}
+
+fn json_reply(reply_body: &HttpReply, close: bool) -> Reply {
+    reply(reply_body.status, "application/json", serde_json::to_vec(&reply_body.body).unwrap_or_default(), close)
+}
+
+async fn respond(request: Request<Incoming>, service: &WebhookService) -> Reply {
+    let (parts, body) = request.into_parts();
+    let target = parts.uri.path_and_query().map_or_else(|| "/".to_owned(), |p| p.as_str().to_owned());
+    match (parts.method.as_str(), target.as_str()) {
+        ("GET", "/") => reply(200, "text/plain", b"OK".to_vec(), false),
+        ("POST", path) if path.starts_with("/webhook/") => webhook(service, path, request_headers(&parts.headers), body).await,
+        _ => reply(404, "text/plain", b"Not Found".to_vec(), false),
+    }
+}
+
+/// Repeated headers join with ", " as in Node's `req.headers`.
+fn request_headers(map: &hyper::HeaderMap) -> Headers {
+    let mut headers = Headers::new();
+    for (name, value) in map {
+        let value = String::from_utf8_lossy(value.as_bytes()).trim_matches([' ', '\t']).to_owned();
+        headers
+            .entry(name.as_str().to_owned())
+            .and_modify(|v| {
+                v.push_str(", ");
+                v.push_str(&value);
+            })
+            .or_insert(value);
+    }
+    headers
+}
+
+async fn webhook(service: &WebhookService, target: &str, headers: Headers, body: Incoming) -> Reply {
     // The request is work from its first byte, so the core never stops under it.
     let _busy = service.listening();
     let name = match service.precheck(target).await {
         Ok(name) => name,
-        Err(reply) => return write_reply(stream, &reply).await,
+        Err(refusal) => return json_reply(&refusal, false),
     };
-    let body = match read_body(stream, &headers, leftover).await? {
-        Body::Done(bytes) => bytes,
-        Body::TooLarge(reply) => return write_reply(stream, &reply).await,
-    };
-    let reply = service.process(&name, &headers, &body).await;
-    write_reply(stream, &reply).await
-}
-
-/// The request line and headers, and whatever body bytes arrived with them.
-async fn read_head(stream: &mut TcpStream) -> Option<(Request, Vec<u8>)> {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
-    let end = loop {
-        if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            break at;
-        }
-        if buf.len() > MAX_HEAD_BYTES {
-            return None;
-        }
-        let n = stream.read(&mut chunk).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-    };
-    let head = std::str::from_utf8(&buf[..end]).ok()?;
-    let mut lines = head.split("\r\n");
-    let mut first = lines.next()?.split(' ');
-    let (method, target) = (first.next()?.to_string(), first.next()?.to_string());
-    let mut headers = Headers::new();
-    for line in lines {
-        let (name, value) = line.split_once(':')?;
-        let value = value.trim_matches([' ', '\t']);
-        // Repeated headers join with ", " as in Node's `req.headers`.
-        headers.entry(name.to_ascii_lowercase()).and_modify(|v| {
-            v.push_str(", ");
-            v.push_str(value);
-        }).or_insert_with(|| value.to_string());
+    match tokio::time::timeout(REQUEST_TIMEOUT, collect(body)).await {
+        Err(_) => reply(408, "text/plain", b"Request Timeout".to_vec(), true),
+        Ok(Err(_)) => reply(400, "text/plain", b"Bad Request".to_vec(), true),
+        Ok(Ok(Collected::TooLarge(refusal))) => json_reply(&refusal, true),
+        Ok(Ok(Collected::Done(bytes))) => json_reply(&service.process(&name, &headers, &bytes).await, false),
     }
-    Some((Request { method, target, headers }, buf[end + 4..].to_vec()))
 }
 
-enum Body {
+enum Collected {
     Done(Vec<u8>),
-    /// The 413 to send; the connection is dropped after it.
+    /// The 413 to send; the connection is closed after it.
     TooLarge(HttpReply),
 }
 
-/// Streams the body through the collector: `Content-Length` or chunked framing. None when the
-/// peer vanished or sent a broken frame.
-async fn read_body(stream: &mut TcpStream, headers: &Headers, leftover: Vec<u8>) -> Option<Body> {
+/// Feeds the body frame by frame; a frame that crosses the cap ends the read at once.
+async fn collect(mut body: Incoming) -> Result<Collected, hyper::Error> {
     let mut collector = BodyCollector::default();
-    let chunked = headers.get("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
-    if chunked {
-        let mut pending = leftover;
-        loop {
-            let line_end = loop {
-                if let Some(at) = pending.windows(2).position(|w| w == b"\r\n") {
-                    break at;
-                }
-                fill(stream, &mut pending).await?;
-            };
-            let size_text = std::str::from_utf8(&pending[..line_end]).ok()?.split(';').next()?.trim();
-            let size = usize::from_str_radix(size_text, 16).ok()?;
-            pending.drain(..line_end + 2);
-            if size == 0 {
-                break;
-            }
-            while pending.len() < size + 2 {
-                fill(stream, &mut pending).await?;
-            }
-            if let Err(reply) = collector.push(&pending[..size]) {
-                return Some(Body::TooLarge(reply));
-            }
-            pending.drain(..size + 2);
-        }
-    } else {
-        let mut remaining: usize = headers.get("content-length").map_or(Some(0), |v| v.parse().ok())?;
-        let mut feed = |bytes: &[u8], remaining: &mut usize| {
-            let take = bytes.len().min(*remaining);
-            *remaining -= take;
-            collector.push(&bytes[..take])
-        };
-        if let Err(reply) = feed(&leftover, &mut remaining) {
-            return Some(Body::TooLarge(reply));
-        }
-        let mut chunk = [0u8; 16 * 1024];
-        while remaining > 0 {
-            let n = stream.read(&mut chunk).await.ok()?;
-            if n == 0 {
-                return None;
-            }
-            if let Err(reply) = feed(&chunk[..n], &mut remaining) {
-                return Some(Body::TooLarge(reply));
-            }
+    while let Some(frame) = body.frame().await {
+        if let Some(data) = frame?.data_ref()
+            && let Err(refusal) = collector.push(data)
+        {
+            return Ok(Collected::TooLarge(refusal));
         }
     }
-    collector.finish().map(Body::Done)
-}
-
-async fn fill(stream: &mut TcpStream, pending: &mut Vec<u8>) -> Option<()> {
-    let mut chunk = [0u8; 16 * 1024];
-    let n = stream.read(&mut chunk).await.ok()?;
-    if n == 0 {
-        return None;
-    }
-    pending.extend_from_slice(&chunk[..n]);
-    Some(())
-}
-
-fn reason(status: u16) -> &'static str {
-    match status {
-        200 => "OK",
-        202 => "Accepted",
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        403 => "Forbidden",
-        404 => "Not Found",
-        413 => "Payload Too Large",
-        415 => "Unsupported Media Type",
-        500 => "Internal Server Error",
-        _ => "Status",
-    }
-}
-
-async fn write_reply(stream: &mut TcpStream, reply: &HttpReply) -> Option<()> {
-    write_response(stream, reply.status, "application/json", &serde_json::to_vec(&reply.body).ok()?).await
-}
-
-async fn write_response(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> Option<()> {
-    let head = format!(
-        "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        reason(status),
-        body.len()
-    );
-    stream.write_all(head.as_bytes()).await.ok()?;
-    stream.write_all(body).await.ok()?;
-    stream.flush().await.ok()
+    Ok(Collected::Done(collector.finish().unwrap_or_default()))
 }

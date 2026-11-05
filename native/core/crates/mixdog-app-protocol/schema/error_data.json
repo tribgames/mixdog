@@ -18,27 +18,8 @@
       "description": "`files` of `WORKTREE_DIRTY`: a path preview, or a count (carry `too-large`)."
     },
     "DomainErrorDetail": {
-      "description": "Structured detail of a coded domain failure, one variant per code that carries details today (worktree, merge, room and schedule refusals). Fields and their optionality are the union over every producer of that code. Shared by core-api and the wire.",
+      "description": "Structured detail of a coded domain failure, one variant per code that carries details today (worktree, merge, room and schedule refusals). Fields and their optionality are the union over every producer of that code. Shared by core-api and the wire. The error's text is never here: it is the error's own `message`, as Node's `error.message`.",
       "oneOf": [
-        {
-          "description": "An external tool's or host's failure message, for codes whose Node-visible text includes it. The codes: `INSTALL_FAILED` and `FAILED` (document worker: package manager and conversion engine), `HOST_COMMAND_FAILED` (a command the desktop host answered with a JSON-RPC error). With `code: None` it carries the text of a plain Node `Error` (one that has no `code`), so the message reaches the user unchanged.",
-          "properties": {
-            "message": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "externalFailure"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "message",
-            "type"
-          ],
-          "type": "object"
-        },
         {
           "description": "`WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.",
           "properties": {
@@ -958,44 +939,6 @@
           "type": "object"
         },
         {
-          "description": "A failure whose only structured part is a text shown as is; the SCM engine puts the git or gh text of a code that has no fields of its own here, in `name`.",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "display"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "name",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "A command failure whose text is shown to the user verbatim (git or gh stderr, a refusal sentence); never parsed or reworded.",
-          "properties": {
-            "message": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "commandFailed"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "message",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
           "description": "`MERGE_CONFLICT`: the conflicted files, as git listed them.",
           "properties": {
             "files": {
@@ -1548,7 +1491,7 @@
       "type": "object"
     },
     {
-      "description": "A failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`); `code` is the domain's stable code, never message text. Absent when the failure has none, as Node's plain `Error` answers.",
+      "description": "A failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`), as Node's error carries it: `code` is the domain's stable code, absent when the failure has none (a plain `Error`); `message` is `error.message`; `detail` the typed fields.",
       "properties": {
         "code": {
           "type": [
@@ -1568,6 +1511,12 @@
         },
         "domain": {
           "type": "string"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "reason": {
           "enum": [

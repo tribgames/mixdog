@@ -1,4 +1,7 @@
-//! LR §11 gates 1–5 against the real 1.4.5 tag (69fe41b05), on temp data dirs only.
+//! LR §11 gates 1–5 and 7 against the real 1.4.5 tag (69fe41b05), on temp
+//! data dirs only. The core child pauses at the `barrier::Step`s named in
+//! `MIXDOG_OWN_CORE_PAUSE` (a test-only hook), so a test can suspend or kill
+//! it, or start 1.4.5 contenders, at an exact step.
 //!
 //! Ignored by default: run with `--ignored` and `MIXDOG_TAG_TREE` naming a
 //! `git archive 69fe41b05` extraction with its `node_modules`
@@ -234,7 +237,9 @@ fn record_pid(data: &Path) -> String {
 
 /// Child entry: one core on `MIXDOG_OWN_CORE_DATA`. Reports `LOCKED_OUT`,
 /// each `BLOCKED <kind> <pid> HELD <pid R named when this core first held B>`,
-/// then `SERVING`; answers `REVALIDATE` lines.
+/// then `SERVING`; answers `REVALIDATE` lines. At each step named in
+/// `MIXDOG_OWN_CORE_PAUSE` (comma-separated, first time only) it reports
+/// `AT <step>` and waits for a `GO` line.
 #[test]
 #[ignore = "child process entry for the tag gates"]
 fn core_child() {
@@ -244,9 +249,21 @@ fn core_child() {
     let data_path = PathBuf::from(&data);
     let first_held = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
     let sink = first_held.clone();
+    let pauses: Vec<String> = std::env::var("MIXDOG_OWN_CORE_PAUSE")
+        .map(|list| list.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let mut paused = std::collections::HashSet::new();
     let _hook = crate::barrier::tests::set_hook(move |step| {
         if step == Step::Held && sink.borrow().is_none() {
             *sink.borrow_mut() = Some(record_pid(&data_path));
+        }
+        let name = format!("{step:?}");
+        if pauses.contains(&name) && paused.insert(name.clone()) {
+            marker(&format!("AT {name}"));
+            let mut line = String::new();
+            while std::io::stdin().read_line(&mut line).unwrap_or(0) > 0 && line.trim() != "GO" {
+                line.clear();
+            }
         }
     });
     let runtime = PathBuf::from(std::env::var_os("MIXDOG_OWN_CORE_RUNTIME").expect("runtime"));
@@ -281,6 +298,11 @@ fn core_child() {
 }
 
 fn core_process(temp: &TempData) -> SelfChild {
+    core_process_paused(temp, "")
+}
+
+/// A core child that pauses at each step in `pauses` (`Step` names, comma-separated).
+fn core_process_paused(temp: &TempData, pauses: &str) -> SelfChild {
     SelfChild::spawn(
         "verdict::tag_gates::core_child",
         &[
@@ -289,8 +311,42 @@ fn core_process(temp: &TempData) -> SelfChild {
                 "MIXDOG_OWN_CORE_RUNTIME",
                 temp.runtime().display().to_string(),
             ),
+            ("MIXDOG_OWN_CORE_PAUSE", pauses.to_string()),
         ],
     )
+}
+
+/// Reads `core`'s markers until `SERVING`, then checks the barrier. A
+/// `BLOCKED` marker may only name `daemon`; with `kill`, a `WaitExit` on it
+/// kills it (its OS exit unblocks the core), else it must exit by itself.
+fn serves_after(core: &SelfChild, temp: &TempData, daemon: Option<&mut Child>, kill: bool) {
+    let mut daemon = daemon;
+    loop {
+        let marker = core.next().expect("the core exited before serving");
+        if marker == "SERVING" {
+            break;
+        }
+        let rest = marker
+            .strip_prefix("BLOCKED ")
+            .unwrap_or_else(|| panic!("unexpected core marker {marker}"));
+        let mut parts = rest.split_whitespace();
+        let kind = parts.next().expect("kind");
+        let pid: u32 = parts.next().expect("pid").parse().expect("pid");
+        let child = daemon
+            .as_deref_mut()
+            .unwrap_or_else(|| panic!("blocked with no live 1.4.5 daemon: {marker}"));
+        assert_eq!(pid, child.id(), "blocked on another process: {marker}");
+        if kill && kind == "WaitExit" {
+            kill_tree(child);
+        }
+    }
+    assert!(has_barrier(temp), "serving without the barrier");
+    if let Some(child) = daemon {
+        assert!(
+            child.try_wait().expect("try_wait").is_some(),
+            "a 1.4.5 daemon runs beside a serving core"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -714,4 +770,215 @@ fn gate_5_live_1_4_5_daemon_blocks_until_its_os_exit() {
         barrier_bytes(own.instance_id())
     );
     assert_eq!(own.revalidate(), Ok(()));
+}
+
+// ---------------------------------------------------------------------------
+// §11.7 the steps of LR §3.2: suspension, crash points, interleaved contenders
+// ---------------------------------------------------------------------------
+
+/// Longer than a 1.4.5 daemon's default fence (40 s without a refresh).
+const SUSPEND: Duration = Duration::from_secs(50);
+
+fn daemon_log(temp: &TempData) -> String {
+    std::fs::read_to_string(temp.data().join("daemon.log")).unwrap_or_default()
+}
+
+/// A real 1.4.5 daemon started now: `Some(pid)` once it serves (its record
+/// published and its liveness socket owned), `None` once it exited 0.
+fn contender(temp: &TempData) -> (Child, Option<u32>) {
+    let mut child = daemon(temp)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("daemon");
+    let pid = child.id();
+    let until = Instant::now() + SETTLE;
+    loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            assert_eq!(status.code(), Some(0), "{}", daemon_log(temp));
+            return (child, None);
+        }
+        let port = owner_record(temp, pid).and_then(|v| v["livenessPort"].as_u64());
+        if let Some(port) = port
+            && OsProcessTable.listens(pid, port as u16).unwrap()
+        {
+            return (child, Some(pid));
+        }
+        if Instant::now() >= until {
+            kill_tree(&mut child);
+            panic!("1.4.5 daemon neither served nor exited");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// A real 1.4.5 daemon claims while the core is paused at `inject`; the core
+/// is then suspended at `at` for longer than the daemon's fence. `residual`:
+/// the core holds `B` at `at`, the documented exposure, so the daemon fences.
+fn suspended_after_a_claim_in_the_gap(inject: Step, at: Step, residual: bool) {
+    let temp = TempData::new();
+    let pauses = if inject == at {
+        format!("{inject:?}")
+    } else {
+        format!("{inject:?},{at:?}")
+    };
+    let mut core = core_process_paused(&temp, &pauses);
+    assert_eq!(core.expect(&format!("AT {inject:?}")), "");
+    let (mut tag_daemon, pid) = contender(&temp);
+    let pid = pid.expect("the 1.4.5 daemon claims while the core holds nothing");
+    if inject != at {
+        core.send("GO");
+        assert_eq!(core.expect(&format!("AT {at:?}")), "");
+    }
+    let beat = owner_record(&temp, pid).expect("R names the daemon")["heartbeatAt"].clone();
+    suspend(core.pid(), true);
+    std::thread::sleep(SUSPEND);
+    let fenced = daemon_log(&temp).contains("owner lease");
+    let beat_after = owner_record(&temp, pid).map(|v| v["heartbeatAt"].clone());
+    suspend(core.pid(), false);
+    core.send("GO");
+    if residual {
+        assert!(fenced, "the residual window fences: {}", daemon_log(&temp));
+        assert!(
+            wait_bounded(&mut tag_daemon, SETTLE).is_some(),
+            "the fenced daemon exits"
+        );
+        serves_after(&core, &temp, Some(&mut tag_daemon), false);
+    } else {
+        assert!(!fenced, "{}", daemon_log(&temp));
+        assert!(
+            tag_daemon.try_wait().unwrap().is_none(),
+            "the daemon serves on"
+        );
+        assert_ne!(beat_after, Some(beat), "its heartbeat kept refreshing");
+        assert!(!has_barrier(&temp));
+        serves_after(&core, &temp, Some(&mut tag_daemon), true);
+    }
+    kill_tree(&mut tag_daemon);
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag); suspends the core for 50 s"]
+fn gate_7_claim_before_the_pre_link_read_then_suspended_is_not_fenced() {
+    suspended_after_a_claim_in_the_gap(Step::Judged, Step::Judged, false);
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag); suspends the core for 50 s"]
+fn gate_7_claim_in_the_gap_suspended_before_the_link_is_not_fenced() {
+    suspended_after_a_claim_in_the_gap(Step::Linking, Step::Linking, false);
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag); suspends the core for 50 s"]
+fn gate_7_residual_claim_in_the_gap_suspended_holding_b_fences() {
+    suspended_after_a_claim_in_the_gap(Step::Linking, Step::Held, true);
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag); suspends the core for 50 s"]
+fn gate_7_residual_claim_in_the_gap_suspended_at_the_conflict_fences() {
+    suspended_after_a_claim_in_the_gap(Step::Linking, Step::Conflict, true);
+}
+
+/// Every step of the `clear` path, in order.
+const CLEAR_PATH: [Step; 6] = [
+    Step::Judged,
+    Step::Linking,
+    Step::Held,
+    Step::ClaimLockTaken,
+    Step::RecordWritten,
+    Step::BarrierInstalled,
+];
+
+/// The core is killed at `at` (after a 1.4.5 claim in the gap, with
+/// `inject`); then optionally a real 1.4.5 daemon starts; then the next core
+/// boots. Never two serving owners, and the next boot converges to a serving
+/// core with the barrier.
+fn killed_at(at: Step, inject: bool, contend: bool) {
+    let temp = TempData::new();
+    let pauses = if inject {
+        format!("Linking,{at:?}")
+    } else {
+        format!("{at:?}")
+    };
+    let mut core = core_process_paused(&temp, &pauses);
+    let mut live = None;
+    if inject {
+        assert_eq!(core.expect("AT Linking"), "");
+        let (child, pid) = contender(&temp);
+        assert!(pid.is_some(), "the injected daemon claims");
+        live = Some(child);
+        core.send("GO");
+    }
+    assert_eq!(core.expect(&format!("AT {at:?}")), "");
+    drop(core);
+    if contend {
+        let (mut child, pid) = contender(&temp);
+        if pid.is_some() {
+            assert!(
+                live.is_none(),
+                "two 1.4.5 daemons serve after a kill at {at:?}"
+            );
+            live = Some(child);
+        } else {
+            child.wait().expect("wait");
+        }
+    }
+    let next = core_process(&temp);
+    serves_after(&next, &temp, live.as_mut(), true);
+}
+
+#[test]
+fn a_core_killed_at_each_step_leaves_a_dir_the_next_boot_converges_on() {
+    for at in CLEAR_PATH {
+        killed_at(at, false, false);
+    }
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_7_kill_at_each_step_then_a_1_4_5_contender_then_the_next_boot_converges() {
+    for at in CLEAR_PATH {
+        killed_at(at, false, true);
+    }
+    for at in [Step::Held, Step::Conflict] {
+        killed_at(at, true, true);
+    }
+}
+
+/// While the core is suspended at `at` holding `B`, real 1.4.5 daemon starts
+/// all exit 0 and change neither `B` nor `R`; after resume the core serves.
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_7_contenders_interleaved_with_the_link_record_and_rename_exit() {
+    for at in [
+        Step::Held,
+        Step::ClaimLockTaken,
+        Step::RecordWritten,
+        Step::BarrierInstalled,
+    ] {
+        let temp = TempData::new();
+        let mut core = core_process_paused(&temp, &format!("{at:?}"));
+        assert_eq!(core.expect(&format!("AT {at:?}")), "");
+        suspend(core.pid(), true);
+        let before = (temp.file(CLAIM_LOCK_FILE), temp.file(RECORD_FILE));
+        for _ in 0..2 {
+            let (mut child, pid) = contender(&temp);
+            if pid.is_some() {
+                kill_tree(&mut child);
+                panic!("a 1.4.5 daemon claimed while the core held B at {at:?}");
+            }
+        }
+        assert_eq!(
+            (temp.file(CLAIM_LOCK_FILE), temp.file(RECORD_FILE)),
+            before,
+            "at {at:?}"
+        );
+        suspend(core.pid(), false);
+        core.send("GO");
+        serves_after(&core, &temp, None, true);
+        core.send("REVALIDATE");
+        assert_eq!(core.expect("REVALIDATE "), "Ok(())");
+    }
 }

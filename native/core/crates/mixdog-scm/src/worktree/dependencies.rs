@@ -9,6 +9,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use mixdog_core_api::domain::command::PathIndex;
+use mixdog_core_api::domain::command::spawn_form;
+use mixdog_core_api::domain::command::which;
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
 use mixdog_js::locale_compare;
@@ -458,19 +461,9 @@ fn parse_int(text: &str) -> Option<i64> {
 }
 
 async fn yarn_install_flag(scm: &Scm, cancel: &CancellationToken, tool: &str, cwd: &Path) -> Option<&'static str> {
-    // A `.cmd`/`.bat` shim (yarn on Windows) cannot be spawned itself: it runs under the
-    // command interpreter, as the shared tidy runner does.
-    let is_shim = cfg!(windows) && Path::new(tool).extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-    let mut spec = if is_shim {
-        let shell = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
-        let mut spec = ExecSpec::new(&shell, cwd);
-        spec.args = strings(&["/d", "/s", "/c", tool, "--version"]);
-        spec
-    } else {
-        let mut spec = ExecSpec::new(tool, cwd);
-        spec.args = strings(&["--version"]);
-        spec
-    };
+    let (program, args) = spawn_form(tool, &strings(&["--version"]));
+    let mut spec = ExecSpec::new(&program, cwd);
+    spec.args = args;
     spec.time_limit = Some(VERSION_TIMEOUT);
     let output = scm.git.exec().run(spec, cancel).await.ok()?;
     if !output.success() {
@@ -538,35 +531,6 @@ async fn install(
     })
 }
 
-/// First match for `name` on `path_var`, or `None`: a pure filesystem lookup.
-pub fn which(name: &str, path_var: &str) -> Option<String> {
-    let bin = js_trim(name);
-    if bin.is_empty() {
-        return None;
-    }
-    if Path::new(bin).is_absolute() || bin.contains('/') || bin.contains('\\') {
-        return Path::new(bin).exists().then(|| bin.to_owned());
-    }
-    let candidates: Vec<String> = if !cfg!(windows) || bin.rfind('.').is_some_and(|at| at > 0) {
-        vec![bin.to_owned()]
-    } else {
-        let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-        std::iter::once(bin.to_owned())
-            .chain(extensions.split(';').map(js_trim).filter(|e| !e.is_empty()).map(|e| format!("{bin}{}", e.to_lowercase())))
-            .collect()
-    };
-    let delimiter = if cfg!(windows) { ';' } else { ':' };
-    for dir in path_var.split(delimiter).map(js_trim).filter(|d| !d.is_empty()) {
-        for candidate in &candidates {
-            let full = Path::new(dir).join(candidate);
-            if std::fs::metadata(&full).is_ok_and(|m| m.is_file()) {
-                return Some(full.to_string_lossy().into_owned());
-            }
-        }
-    }
-    None
-}
-
 pub struct PlanInput {
     pub worktree_dir: PathBuf,
     pub main_dir: Option<PathBuf>,
@@ -587,6 +551,8 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
     let path_var = input.path_var.clone().unwrap_or_else(|| {
         std::env::var("PATH").or_else(|_| std::env::var("Path")).unwrap_or_default()
     });
+    let path_env = HashMap::from([("PATH".to_owned(), path_var)]);
+    let path_index = PathIndex::new(Some(&path_env));
     let folders = find_lockfile_folders(scm, cancel, &input.worktree_dir, input.main_dir.as_deref()).await?;
     if folders.is_empty() {
         return Ok(DependencyPlan {
@@ -632,14 +598,14 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
             plan.notes.push(format!("{where_} was not prepared; {} {}.", links.join(", "), shared_clause(links.len())));
             continue;
         }
-        let Some(found) = named.tools.iter().find(|candidate| which(candidate, &path_var).is_some()) else {
+        let Some(found) = named.tools.iter().find(|candidate| which(candidate, Some(&path_env), Some(&path_index)).is_some()) else {
             plan.notes.push(format!(
                 "{first} is not on PATH; {where_} was not prepared (run `{}` there if tests need it).",
                 command_line(first, &named)
             ));
             continue;
         };
-        let tool = which(found, &path_var).expect("found above");
+        let tool = which(found, Some(&path_env), Some(&path_index)).expect("found above").to_string_lossy().into_owned();
         let Some(spec) = install(scm, cancel, entry, &cwd, Some(&tool)).await? else {
             plan.notes.push(format!("{found} could not be queried; {where_} was not prepared."));
             continue;

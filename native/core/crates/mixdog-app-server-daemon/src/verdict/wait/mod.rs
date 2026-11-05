@@ -49,6 +49,13 @@ pub(crate) struct ExitWatch(sys::ExitWatch);
 impl ExitWatch {
     /// `None` when the identified process has already exited.
     pub(crate) fn open(identity: ProcessIdentity) -> io::Result<Option<Self>> {
+        #[cfg(test)]
+        if crate::verdict::tests::exit_watch_denied() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "exit watch denied by the test",
+            ));
+        }
         Ok(sys::ExitWatch::open(identity)?.map(Self))
     }
 }

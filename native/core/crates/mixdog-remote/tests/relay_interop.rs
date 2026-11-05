@@ -5,6 +5,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+#[allow(clippy::disallowed_types, reason = "test runs the unmodified Node relay as the reference peer")]
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +29,11 @@ struct Relay {
 }
 
 impl Relay {
+    #[allow(
+        clippy::disallowed_methods,
+        clippy::disallowed_types,
+        reason = "test runs the unmodified Node relay as the reference peer"
+    )]
     fn spawn() -> Self {
         let server = std::env::var("MIXDOG_RELAY_SERVER").map(PathBuf::from).unwrap_or_else(|_| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/server.mjs")

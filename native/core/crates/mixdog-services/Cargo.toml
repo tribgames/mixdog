@@ -30,6 +30,9 @@ thiserror = { workspace = true }
 tokio-postgres = { workspace = true }
 unicode-normalization = { workspace = true }
 hmac = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }

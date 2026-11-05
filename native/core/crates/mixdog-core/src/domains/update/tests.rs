@@ -9,7 +9,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering as AtomicOrdering;
 
 use mixdog_core_api::mock::MockHostChannel;
-use mixdog_protocol::DomainErrorDetail;
 use tokio::sync::Notify;
 
 use super::*;
@@ -484,8 +483,8 @@ async fn the_desktop_updater_is_commanded_through_the_host() {
     .unwrap_err();
     assert!(matches!(
         error,
-        CoreError::DomainError { detail: Some(ref detail), .. }
-            if matches!(**detail, DomainErrorDetail::ExternalFailure { ref message } if message == "Updater is busy")
+        CoreError::DomainError { message: Some(ref message), detail: None, .. }
+            if &**message == "Updater is busy"
     ));
 }
 

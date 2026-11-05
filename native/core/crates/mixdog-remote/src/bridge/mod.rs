@@ -1,11 +1,13 @@
-//! The relay bridge (LR §9): per `client-open`, one WebSocket to the current target core — the
-//! local core's `/rpc`, or the SSH tunnel endpoint of a server core — carrying the peer id.
+//! The relay bridge (LR §9): per `client-open`, one connection to the current target core — an
+//! in-process relay connection for this PC's own core ([`local`]), or a WebSocket to the SSH
+//! tunnel endpoint of a server core ([`ws`]) — carrying the peer id.
 //! Decrypted frames cross byte for byte in both directions without being parsed; `client-close`,
 //! a revoke, or the loss of the relay leg or the target closes the bridged socket; a core's close
 //! code (1001 draining, 4002 version) is forwarded to the phone as the close.
 //!
 //! Each peer is one task, so a stalled phone stops only its own task (DS-REM-5).
 
+pub mod local;
 pub mod ws;
 
 use std::collections::HashMap;

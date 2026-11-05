@@ -31,7 +31,9 @@ impl DeviceIdentity {
             && self.device_secret.len() >= 16
     }
 
-    fn mint() -> Self {
+    /// A fresh identity that is never written down: what a tunnel runs with when its identity
+    /// file can be neither read nor written.
+    pub fn mint() -> Self {
         let mut secret = [0u8; 24];
         rand::rng().fill_bytes(&mut secret);
         Self { device_id: uuid::Uuid::new_v4().to_string(), device_secret: hex(&secret) }

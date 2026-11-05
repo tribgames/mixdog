@@ -67,7 +67,7 @@ pub struct AgentRuntime {
 
 /// What an explicit-tag spawn resolved to.
 enum SpawnPlan {
-    Reused(AgentReply),
+    Reused(Box<AgentReply>),
     Fresh { args: Value, respawned: bool },
 }
 
@@ -461,7 +461,7 @@ impl AgentRuntime {
                 .send_flow
                 .dispatch_to_existing_session(&prepared, caller, DispatchOptions { reused: true, ..DispatchOptions::default() })
                 .await?;
-            return Ok(SpawnPlan::Reused(reply));
+            return Ok(SpawnPlan::Reused(Box::new(reply)));
         }
         if self.deps.terminal_trace.has_terminal_trace(tag, scope) {
             self.deps.terminal_trace.reap_terminal_trace_for_tag(tag, scope);
@@ -478,7 +478,7 @@ impl AgentRuntime {
                 )
                 .await?;
             if let Some(reply) = resumed {
-                return Ok(SpawnPlan::Reused(reply));
+                return Ok(SpawnPlan::Reused(Box::new(reply)));
             }
             registry.consume_tag_tombstone(&tombstone);
             let mut spawn_args = args.clone();
@@ -511,7 +511,7 @@ impl AgentRuntime {
                 )
                 .await?;
             if let Some(reply) = resumed {
-                return Ok(SpawnPlan::Reused(reply));
+                return Ok(SpawnPlan::Reused(Box::new(reply)));
             }
         }
         Ok(SpawnPlan::Fresh { args: args.clone(), respawned: false })
@@ -528,7 +528,7 @@ impl AgentRuntime {
             // One decision at a time per owner's tag: a spawn queued behind a send or spawn that
             // resumed this tag reuses it instead of resuming it again.
             match self.resume.serialized(&tag, caller, self.resolve_explicit_tag_spawn(&tag, &args, caller, scope)).await? {
-                SpawnPlan::Reused(reply) => return Ok(reply),
+                SpawnPlan::Reused(reply) => return Ok(*reply),
                 SpawnPlan::Fresh { args, respawned } => (args, respawned),
             }
         };

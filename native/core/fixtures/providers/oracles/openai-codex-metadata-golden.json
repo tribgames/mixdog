@@ -1,0 +1,206 @@
+{
+ "source": "openai-codex-metadata.mjs _withCodexWsClientMetadata / _codexWsCompatibilityHeaders",
+ "installationId": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+ "nowMs": 1700000100000,
+ "scenarios": [
+  {
+   "name": "raw session id, cache key only",
+   "input": {
+    "sessionId": "sess_daemon_1700000000123_abcdef",
+    "cacheKey": "mixdog-codex",
+    "model": "gpt-5.5"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "33293966-357c-72bc-9397-b5b22b9e5762",
+    "thread_id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+    "turn_id": "ac4a3485-794f-7666-b159-6ad50772a9bf",
+    "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"33293966-357c-72bc-9397-b5b22b9e5762\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"ac4a3485-794f-7666-b159-6ad50772a9bf\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1700000000123}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000"
+   },
+   "handshakeHeaders": {
+    "session-id": "33293966-357c-72bc-9397-b5b22b9e5762",
+    "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+    "x-client-request-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+    "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"33293966-357c-72bc-9397-b5b22b9e5762\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5"
+   }
+  },
+  {
+   "name": "thread, window and turn given",
+   "input": {
+    "sessionId": "018f0001-0000-7000-8000-000000000001",
+    "cacheKey": "mixdog-codex",
+    "thread": {
+     "id": "018f0002-0000-7000-8000-000000000002",
+     "window": 3,
+     "turn": "018f0004-0000-7000-8000-000000000004"
+    },
+    "model": "gpt-5.5",
+    "serviceTier": "priority"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "018f0001-0000-7000-8000-000000000001",
+    "thread_id": "018f0002-0000-7000-8000-000000000002",
+    "turn_id": "018f0004-0000-7000-8000-000000000004",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:3",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"018f0004-0000-7000-8000-000000000004\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:3\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1713692016640}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000"
+   },
+   "handshakeHeaders": {
+    "session-id": "018f0001-0000-7000-8000-000000000001",
+    "thread-id": "018f0002-0000-7000-8000-000000000002",
+    "x-client-request-id": "018f0002-0000-7000-8000-000000000002",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:3",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:3\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5;tier=priority"
+   }
+  },
+  {
+   "name": "prewarm",
+   "input": {
+    "sessionId": "018f0001-0000-7000-8000-000000000001",
+    "cacheKey": "k",
+    "thread": {
+     "id": "018f0002-0000-7000-8000-000000000002",
+     "window": 0,
+     "turn": null
+    },
+    "requestKind": "prewarm",
+    "model": "gpt-5.5"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "018f0001-0000-7000-8000-000000000001",
+    "thread_id": "018f0002-0000-7000-8000-000000000002",
+    "turn_id": "",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000"
+   },
+   "handshakeHeaders": {
+    "session-id": "018f0001-0000-7000-8000-000000000001",
+    "thread-id": "018f0002-0000-7000-8000-000000000002",
+    "x-client-request-id": "018f0002-0000-7000-8000-000000000002",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5"
+   }
+  },
+  {
+   "name": "compaction session",
+   "input": {
+    "sessionId": "sess_1700000000123:compact",
+    "cacheKey": "k",
+    "model": "gpt-5.5"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "e3deed40-36fb-781f-816b-dbf08d2f9d58",
+    "thread_id": "8254c329-a928-70f6-9539-dd376f4816ee",
+    "turn_id": "239c188f-e8f1-7521-9f98-1af3077c959a",
+    "x-codex-window-id": "8254c329-a928-70f6-9539-dd376f4816ee:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"e3deed40-36fb-781f-816b-dbf08d2f9d58\",\"thread_id\":\"8254c329-a928-70f6-9539-dd376f4816ee\",\"agent_name\":\"/root\",\"turn_id\":\"239c188f-e8f1-7521-9f98-1af3077c959a\",\"window_id\":\"8254c329-a928-70f6-9539-dd376f4816ee:0\",\"request_kind\":\"compaction\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1700000100000}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000"
+   },
+   "handshakeHeaders": {
+    "session-id": "e3deed40-36fb-781f-816b-dbf08d2f9d58",
+    "thread-id": "8254c329-a928-70f6-9539-dd376f4816ee",
+    "x-client-request-id": "8254c329-a928-70f6-9539-dd376f4816ee",
+    "x-codex-window-id": "8254c329-a928-70f6-9539-dd376f4816ee:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"e3deed40-36fb-781f-816b-dbf08d2f9d58\",\"thread_id\":\"8254c329-a928-70f6-9539-dd376f4816ee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8254c329-a928-70f6-9539-dd376f4816ee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5"
+   }
+  },
+  {
+   "name": "transport scope forks the pool key",
+   "input": {
+    "sessionId": "018f0001-0000-7000-8000-000000000001",
+    "transportScope": "scope-9",
+    "cacheKey": "k",
+    "thread": {
+     "id": "018f0002-0000-7000-8000-000000000002",
+     "window": 1,
+     "turn": "018f0004-0000-7000-8000-000000000004"
+    },
+    "model": "gpt-5.5"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "018f0001-0000-7000-8000-000000000001",
+    "thread_id": "018f0002-0000-7000-8000-000000000002",
+    "turn_id": "018f0004-0000-7000-8000-000000000004",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:1",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"018f0004-0000-7000-8000-000000000004\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:1\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1713692016640}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000"
+   },
+   "handshakeHeaders": {
+    "session-id": "018f0001-0000-7000-8000-000000000001",
+    "thread-id": "018f0002-0000-7000-8000-000000000002",
+    "x-client-request-id": "018f0002-0000-7000-8000-000000000002",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:1",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:1\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5"
+   }
+  },
+  {
+   "name": "turn state echoed",
+   "input": {
+    "sessionId": "018f0001-0000-7000-8000-000000000001",
+    "cacheKey": "k",
+    "thread": {
+     "id": "018f0002-0000-7000-8000-000000000002",
+     "window": 0,
+     "turn": "018f0004-0000-7000-8000-000000000004"
+    },
+    "model": "gpt-5.5",
+    "turnState": "tok-1"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "018f0001-0000-7000-8000-000000000001",
+    "thread_id": "018f0002-0000-7000-8000-000000000002",
+    "turn_id": "018f0004-0000-7000-8000-000000000004",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"018f0004-0000-7000-8000-000000000004\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1713692016640}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000",
+    "x-codex-turn-state": "tok-1"
+   },
+   "handshakeHeaders": {
+    "session-id": "018f0001-0000-7000-8000-000000000001",
+    "thread-id": "018f0002-0000-7000-8000-000000000002",
+    "x-client-request-id": "018f0002-0000-7000-8000-000000000002",
+    "x-codex-window-id": "018f0002-0000-7000-8000-000000000002:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"018f0001-0000-7000-8000-000000000001\",\"thread_id\":\"018f0002-0000-7000-8000-000000000002\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"018f0002-0000-7000-8000-000000000002:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5"
+   }
+  },
+  {
+   "name": "nothing but a model",
+   "input": {
+    "cacheKey": null,
+    "model": "gpt-5.5"
+   },
+   "clientMetadata": {
+    "x-codex-installation-id": "b3bd341f-5e20-49cf-ae9b-ddf71b42fcee",
+    "session_id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54",
+    "thread_id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54",
+    "turn_id": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+    "x-codex-window-id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"ad35b1d1-0bce-782e-b8dd-776a8e624b54\",\"thread_id\":\"ad35b1d1-0bce-782e-b8dd-776a8e624b54\",\"agent_name\":\"/root\",\"turn_id\":\"bd8c929e-5d86-7b61-bb65-e63a120717d0\",\"window_id\":\"ad35b1d1-0bce-782e-b8dd-776a8e624b54:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1700000100000}",
+    "x-codex-ws-stream-request-start-ms": "1700000100000"
+   },
+   "handshakeHeaders": {
+    "session-id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54",
+    "thread-id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54",
+    "x-client-request-id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54",
+    "x-codex-window-id": "ad35b1d1-0bce-782e-b8dd-776a8e624b54:0",
+    "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"ad35b1d1-0bce-782e-b8dd-776a8e624b54\",\"thread_id\":\"ad35b1d1-0bce-782e-b8dd-776a8e624b54\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"ad35b1d1-0bce-782e-b8dd-776a8e624b54:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+    "x-codex-routing-hint": "model=gpt-5.5"
+   }
+  }
+ ]
+}

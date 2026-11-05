@@ -898,13 +898,14 @@ export type DocumentPreviewParams = { root: string, rel: string, options?: JsonV
  * Structured detail of a coded domain failure, one variant per code that
  * carries details today (worktree, merge, room and schedule refusals). Fields
  * and their optionality are the union over every producer of that code.
- * Shared by core-api and the wire.
+ * Shared by core-api and the wire. The error's text is never here: it is the error's own
+ * `message`, as Node's `error.message`.
  */
-export type DomainErrorDetail = { "type": "externalFailure", message: string, } | { "type": "worktreeBusyJobs", reason: string, outcome?: string, admission?: string, sessions?: Array<string>, entryId?: string, kept?: string, workers?: number, jobs?: number, shellJobs?: number, starting?: number, sessionId?: string, } | { "type": "worktreeDirty", reason?: string, operation?: string, count?: number, files?: DirtyFiles, paths?: Array<string>, maxFiles?: number, maxBytes?: number, head?: string, baseCommit?: string, recoveryRef?: string, restored?: boolean, cause?: string, restoreError?: string, entryId?: string, ignored?: Array<string>, } | { "type": "worktreeDirtyChoice", count: number, paths: Array<string>, } | { "type": "worktreeTargetMismatch", target?: string, current?: string, expected?: string, actual?: string, } | { "type": "worktreeUnmerged", commit?: string, entryId?: string, branch?: string, mergeTarget?: string, commits?: number, } | { "type": "worktreeProjectUnknown", projectPath?: string, reason?: string, } | { "type": "worktreeUnsupportedRepo", projectPath?: string, file?: string, line?: number, rel?: string, baseBranch?: string, branch?: string, } | { "type": "worktreePathUnsafe", entryId: string, path: string, reason?: string, links?: Array<string>, count?: number, } | { "type": "worktreeRevisionConflict", entryId?: string, remaining?: Array<RemovalRemnant>, branch?: string, txId?: string, expectedRevision?: number, revision?: number, } | { "type": "worktreeBranchOccupied", branch: string, path?: string, 
+export type DomainErrorDetail = { "type": "worktreeBusyJobs", reason: string, outcome?: string, admission?: string, sessions?: Array<string>, entryId?: string, kept?: string, workers?: number, jobs?: number, shellJobs?: number, starting?: number, sessionId?: string, } | { "type": "worktreeDirty", reason?: string, operation?: string, count?: number, files?: DirtyFiles, paths?: Array<string>, maxFiles?: number, maxBytes?: number, head?: string, baseCommit?: string, recoveryRef?: string, restored?: boolean, cause?: string, restoreError?: string, entryId?: string, ignored?: Array<string>, } | { "type": "worktreeDirtyChoice", count: number, paths: Array<string>, } | { "type": "worktreeTargetMismatch", target?: string, current?: string, expected?: string, actual?: string, } | { "type": "worktreeUnmerged", commit?: string, entryId?: string, branch?: string, mergeTarget?: string, commits?: number, } | { "type": "worktreeProjectUnknown", projectPath?: string, reason?: string, } | { "type": "worktreeUnsupportedRepo", projectPath?: string, file?: string, line?: number, rel?: string, baseBranch?: string, branch?: string, } | { "type": "worktreePathUnsafe", entryId: string, path: string, reason?: string, links?: Array<string>, count?: number, } | { "type": "worktreeRevisionConflict", entryId?: string, remaining?: Array<RemovalRemnant>, branch?: string, txId?: string, expectedRevision?: number, revision?: number, } | { "type": "worktreeBranchOccupied", branch: string, path?: string, 
 /**
  * `session` or `external` (today's `kind`).
  */
-kind?: string, sessionId?: string, } | { "type": "worktreeMissing", entryId?: string, worktreeId?: string, path?: string, } | { "type": "worktreeFileRecovery", entryId: string, path: string, recoveryRoot: string, } | { "type": "worktreeDefaultBranch", branch: string, } | { "type": "worktreeDiskInsufficient", requiredBytes: number, freeBytes?: number, path: string, reason?: string, } | { "type": "worktreeLargeRepoConfirm", estimateBytes: number, thresholdBytes: number, } | { "type": "worktreeProjectMismatch", projectPath: string, worktreeId?: string, worktreeProject?: string, repoCommonDir?: string, } | { "type": "worktreeRemovalIncomplete", entryId: string, path: string, retryable: boolean, remaining: Array<RemovalRemnant>, reason?: string, revision?: number, } | { "type": "mergeFailed", reason: string, source?: string, aborted?: boolean, } | { "type": "mergeTargetDirty", operation: string, files: Array<string>, count?: number, } | { "type": "roomMemberSwitchedOff", name: string, } | { "type": "scheduleNameTaken", name: string, } | { "type": "scheduleRenameRunning", name: string, } | { "type": "scheduleRenameReloadFailed", name: string, } | { "type": "display", name: string, } | { "type": "commandFailed", message: string, } | { "type": "mergeConflict", files: Array<string>, };
+kind?: string, sessionId?: string, } | { "type": "worktreeMissing", entryId?: string, worktreeId?: string, path?: string, } | { "type": "worktreeFileRecovery", entryId: string, path: string, recoveryRoot: string, } | { "type": "worktreeDefaultBranch", branch: string, } | { "type": "worktreeDiskInsufficient", requiredBytes: number, freeBytes?: number, path: string, reason?: string, } | { "type": "worktreeLargeRepoConfirm", estimateBytes: number, thresholdBytes: number, } | { "type": "worktreeProjectMismatch", projectPath: string, worktreeId?: string, worktreeProject?: string, repoCommonDir?: string, } | { "type": "worktreeRemovalIncomplete", entryId: string, path: string, retryable: boolean, remaining: Array<RemovalRemnant>, reason?: string, revision?: number, } | { "type": "mergeFailed", reason: string, source?: string, aborted?: boolean, } | { "type": "mergeTargetDirty", operation: string, files: Array<string>, count?: number, } | { "type": "roomMemberSwitchedOff", name: string, } | { "type": "scheduleNameTaken", name: string, } | { "type": "scheduleRenameRunning", name: string, } | { "type": "scheduleRenameReloadFailed", name: string, } | { "type": "mergeConflict", files: Array<string>, };
 
 /**
  * Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.
@@ -940,7 +941,7 @@ export type EnabledModule = { enabled: boolean, };
 /**
  * `{"reason": …, …typed fields}`.
  */
-export type ErrorData = { "reason": "notInitialized" } | { "reason": "alreadyInitialized" } | { "reason": "clientOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverShuttingDown", drainReason: DrainReason, } | { "reason": "coreMigrating", kind: string, done: number, total: number, } | { "reason": "catalogRebuilding", done: number, total: number, } | { "reason": "threadNotFound", threadId: ThreadId, } | { "reason": "threadClosing", threadId: ThreadId, } | { "reason": "turnNotActive", threadId: ThreadId, turnId?: TurnId, } | { "reason": "itemNotFound", threadId: ThreadId, itemId: ItemId, } | { "reason": "queuedEntryNotFound", threadId: ThreadId, queuedId: QueuedId, } | { "reason": "preconditionFailed", expected: JsonValue, actual: JsonValue, } | { "reason": "permissionDenied", method: string, origin: Origin, } | { "reason": "capabilityUnavailable", capability: string, detail: string, } | { "reason": "opFenced", opId: OpId, } | { "reason": "connectionClosed" } | { "reason": "storeDamaged", threadId: ThreadId, fileNo: number, offset: number, } | { "reason": "blobNotFound", digest: BlobDigest, } | { "reason": "itemTooLarge", limit: number, } | { "reason": "domainError", domain: string, code?: string, detail?: DomainErrorDetail, } | { "reason": "methodNotFound", method: string, } | { "reason": "invalidParams", path: string, expected: string, } | { "reason": "opIdConflict", opId: OpId, } | { "reason": "opIdExpired", opId: OpId, watermark: string, } | { "reason": "opIdRequired" } | { "reason": "cursorInvalidated", threadId: ThreadId, historyRev: number, } | { "reason": "inputTooLarge", limit: number, } | { "reason": "internal", incidentId: string, } | { "reason": "barrierFailed", scope: string, ioKind: string, } | { "reason": "storageIndeterminate", scope: string, } | { "reason": "storageUnsupported", op: string, osError: string, } | { "reason": "externalOutcomeUnknown", opId: OpId, effect: string, target: string, } | { "reason": "providerError", provider: string, status?: number, kind: string, } | { "reason": "cancelled", by: string, } | { "reason": "blobCorrupt", digest: BlobDigest, } | { "reason": "inflightLimit", class: RequestClass, limit: number, } | { "reason": "windowFull", threadId: ThreadId, } | { "reason": "queueFull", queue: string, } | { "reason": "invalidServerRequestResponse", requestId: RequestId, detail: string, };
+export type ErrorData = { "reason": "notInitialized" } | { "reason": "alreadyInitialized" } | { "reason": "clientOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverShuttingDown", drainReason: DrainReason, } | { "reason": "coreMigrating", kind: string, done: number, total: number, } | { "reason": "catalogRebuilding", done: number, total: number, } | { "reason": "threadNotFound", threadId: ThreadId, } | { "reason": "threadClosing", threadId: ThreadId, } | { "reason": "turnNotActive", threadId: ThreadId, turnId?: TurnId, } | { "reason": "itemNotFound", threadId: ThreadId, itemId: ItemId, } | { "reason": "queuedEntryNotFound", threadId: ThreadId, queuedId: QueuedId, } | { "reason": "preconditionFailed", expected: JsonValue, actual: JsonValue, } | { "reason": "permissionDenied", method: string, origin: Origin, } | { "reason": "capabilityUnavailable", capability: string, detail: string, } | { "reason": "opFenced", opId: OpId, } | { "reason": "connectionClosed" } | { "reason": "storeDamaged", threadId: ThreadId, fileNo: number, offset: number, } | { "reason": "blobNotFound", digest: BlobDigest, } | { "reason": "itemTooLarge", limit: number, } | { "reason": "domainError", domain: string, code?: string, message?: string, detail?: DomainErrorDetail, } | { "reason": "methodNotFound", method: string, } | { "reason": "invalidParams", path: string, expected: string, } | { "reason": "opIdConflict", opId: OpId, } | { "reason": "opIdExpired", opId: OpId, watermark: string, } | { "reason": "opIdRequired" } | { "reason": "cursorInvalidated", threadId: ThreadId, historyRev: number, } | { "reason": "inputTooLarge", limit: number, } | { "reason": "internal", incidentId: string, } | { "reason": "barrierFailed", scope: string, ioKind: string, } | { "reason": "storageIndeterminate", scope: string, } | { "reason": "storageUnsupported", op: string, osError: string, } | { "reason": "externalOutcomeUnknown", opId: OpId, effect: string, target: string, } | { "reason": "providerError", provider: string, status?: number, kind: string, } | { "reason": "cancelled", by: string, } | { "reason": "blobCorrupt", digest: BlobDigest, } | { "reason": "inflightLimit", class: RequestClass, limit: number, } | { "reason": "windowFull", threadId: ThreadId, } | { "reason": "queueFull", queue: string, } | { "reason": "invalidServerRequestResponse", requestId: RequestId, detail: string, };
 
 /**
  * `error`: a connection-scoped failure, or a thread error with `willRetry`.
@@ -1449,6 +1450,26 @@ export type HostLocalPageUrlParams = { root: string, rel: string, scope?: LocalP
 export type HostNotificationClickedParams = { threadId: ThreadId, };
 
 export type HostNotificationShowParams = { title: string, body: string, threadId?: ThreadId, sound?: string, volume?: number, };
+
+/**
+ * Result of `host/notification/status` (Node's host method `notificationStatus`).
+ */
+export type HostNotificationStatus = { 
+/**
+ * Whether this PC can show OS notifications (`Notification.isSupported()`).
+ */
+supported: boolean, 
+/**
+ * The OS's system idle time in seconds (`powerMonitor.getSystemIdleTime()`: input anywhere
+ * on the PC counts); `null` when the host cannot tell, which the caller treats as not
+ * active. The caller judges it against its own window (Node: 180 s).
+ */
+idleSeconds: number | null, };
+
+/**
+ * Params of `host/notification/status` (core → host): none.
+ */
+export type HostNotificationStatusParams = Record<string, never>;
 
 export type HostPowerParams = { event: PowerEvent, };
 
@@ -2183,21 +2204,25 @@ export type ModelListParams = { force?: boolean, refresh?: boolean, quick?: bool
 /**
  * Electron → server core: one streamed event of a `model/proxy/execute` request.
  */
-export type ModelProxyEventParams = { requestId: RequestId, event: JsonValue, };
+export type ModelProxyEventParams = { requestId: RequestId, event: ProxyEvent, };
 
 /**
  * Server core → a connection with `capabilities.modelProxy`: run one model call
  * with this machine's accounts. Completion is the response; losing the
  * connection resolves the call `cancelled`.
  */
-export type ModelProxyExecuteParams = { call: JsonValue, };
+export type ModelProxyExecuteParams = { call: ProxyCall, };
 
-export type ModelProxyResult = { result: JsonValue, };
+/**
+ * A failed call answers with a JSON-RPC error whose data is a
+ * [`crate::v2::model_proxy::ProxyFailure`].
+ */
+export type ModelProxyResult = { result: ProxyAnswer, };
 
 /**
  * Local core → Electron: one streamed event of a `modelProxy/run` request.
  */
-export type ModelProxyRunEventParams = { runId: string, event: JsonValue, };
+export type ModelProxyRunEventParams = { runId: string, event: ProxyEvent, };
 
 /**
  * Electron → its local core: execute a proxied call.
@@ -2206,7 +2231,7 @@ export type ModelProxyRunParams = {
 /**
  * Stream id the local core stamps on `modelProxy/run/event`.
  */
-runId: string, call: JsonValue, };
+runId: string, call: ProxyCall, };
 
 export type ModelRequestPhase = "started" | "completed" | "failed";
 
@@ -2731,6 +2756,104 @@ delivery?: DeliveryState, };
  */
 export type ProviderId = string;
 
+/**
+ * The answer to a [`ProxyCall`].
+ */
+export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig", providers: { [key in string]?: ProxyProviderInfo }, ready: boolean, };
+
+/**
+ * A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it
+ * is never carried: the sender inlines the bytes (under its byte budget), and a reference that
+ * stays travels as `unavailable`.
+ */
+export type ProxyBinary = { "kind": "base64", data: string, } | { "kind": "unavailable" };
+
+export type ProxyBudget = { transportMs: number, semanticMs: number, };
+
+export type ProxyCacheTier = "tier3" | "env";
+
+/**
+ * What the remote runtime asks of the PC's providers (`ModelProxyProvider`,
+ * `quota-reading.mjs:93`, `loadModelProxyProviderConfig`).
+ */
+export type ProxyCall = { "method": "send", provider: string, request: ProxyRequest, } | { "method": "listModels", provider: string, refresh: boolean, } | { "method": "quotaUsable", provider: string, model: string, } | { "method": "resolveWireRoute", provider: string, model: string, context: ProxyRouteContext, } | { "method": "providerConfig" };
+
+export type ProxyContent = string | Array<ProxyPart>;
+
+export type ProxyDocument = { "kind": "base64", mediaType: string, data: string, } | { "kind": "text", mediaType: string | null, data: string, } | { "kind": "content", content: JsonValue, };
+
+export type ProxyEffortProjection = { initialEffort: string, 
+/**
+ * `(message index, effort)` pairs; a JSON object would key them by text.
+ */
+updates: Array<[number, string]>, };
+
+/**
+ * One stream event of an attempt (`StreamEvent`).
+ */
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, };
+
+export type ProxyHostedTool = { "kind": "webSearch", toolType: string, allowedDomains: Array<string>, userLocation: ProxyLocation | null, maxUses: number | null, contextSize: string | null, includeSources: boolean, };
+
+export type ProxyImage = { "kind": "base64", data: string, mimeType: string, } | { "kind": "url", url: string, } | { "kind": "fileId", id: string, };
+
+export type ProxyItemKind = "text" | "reasoning" | "tool";
+
+export type ProxyLocation = { country: string | null, region: string | null, city: string | null, timezone: string | null, };
+
+export type ProxyMessage = { role: ProxyRole, content: ProxyContent, cacheTier: ProxyCacheTier | null, toolCalls: Array<ProxyToolCall>, toolCallId: string | null, isError: boolean, phase: ProxyPhase | null, thinkingBlocks: JsonValue | null, assistantBlocks: JsonValue | null, nativeToolSearch: JsonValue | null, source: ProxyMessageSource | null, turnReminder: string | null, providerReplay: Array<ProxyReplay>, };
+
+export type ProxyMessageSource = "steering" | "streamCutRecovery" | "tailReminder";
+
+/**
+ * A model the PC's provider lists, with the first-response budget of its catalog entry.
+ */
+export type ProxyModel = { id: string, displayName: string | null, contextWindow: number | null, maxOutputTokens: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null, firstResponseBudget: ProxyBudget | null, };
+
+/**
+ * `RequestOptions` field for field. The connection scope and the model's output ceiling are the
+ * PC's to derive, so they are not carried.
+ */
+export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null, };
+
+export type ProxyPart = { "type": "text", text: string, } | { "type": "image", source: ProxyImage, } | { "type": "file", source: ProxyBinary, mimeType: string, filename: string | null, } | { "type": "document", source: ProxyDocument, title: string | null, };
+
+export type ProxyPhase = "commentary" | "finalAnswer";
+
+/**
+ * What a server learns of one PC provider: usable or not, and its traits.
+ */
+export type ProxyProviderInfo = { enabled: boolean, type?: string, name?: string, hiddenModels?: Array<string>, authState?: string, modelProxy: ProxyTraits, };
+
+export type ProxyReplay = { owner: string, items: JsonValue, };
+
+export type ProxyRequest = { model: string, messages: Array<ProxyMessage>, tools: Array<ProxyTool>, options: ProxyOptions, };
+
+export type ProxyRole = "system" | "user" | "assistant" | "tool" | "developer";
+
+export type ProxyRouteContext = { agent: boolean, };
+
+export type ProxyRouteSource = "pinned" | "override" | "catalog" | "endpoints" | "agent" | "default" | "unknown";
+
+export type ProxyStop = { "kind": "endTurn" } | { "kind": "toolUse" } | { "kind": "maxTokens" } | { "kind": "stopSequence" } | { "kind": "contentFilter" } | { "kind": "refusal" } | { "kind": "continueTurn" } | { "kind": "other", value: string, };
+
+export type ProxyThread = { id: string, window: number, turn: string | null, };
+
+export type ProxyTool = { name: string, description: string, inputSchema: JsonValue, deferLoading: boolean, };
+
+export type ProxyToolCall = { id: string, name: string, arguments: JsonValue, nativeType: string | null, };
+
+/**
+ * The adapter traits of a PC provider its stand-in needs.
+ */
+export type ProxyTraits = { inputExcludesCache?: boolean, nativePdf?: boolean, consumesReadWindows?: boolean, takesImages?: boolean, firstResponseBudget?: ProxyBudget, };
+
+export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, cacheWrite1hTokens: number, reasoningTokens: number, raw: JsonValue | null, costTicks: number | null, };
+
+export type ProxyWire = "chat" | "responses" | "messages" | "gemini";
+
+export type ProxyWireRoute = { wire: ProxyWire, source: ProxyRouteSource, };
+
 export type PtySize = { cols: number, rows: number, };
 
 /**
@@ -3045,7 +3168,7 @@ export type ServerNotification = { "method": "thread/snapshot", "params": Thread
 /**
  * Request from the core to a client.
  */
-export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
+export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
 
 /**
  * To every eligible connection, losers included (P §8.4 step 4).
@@ -4779,6 +4902,7 @@ export type ServerRequestMethods = {
   "host/browser/command": { params: HostCommandParams; result: JsonValue };
   "host/visualize/command": { params: HostVisualizeCommandParams; result: JsonValue | null };
   "host/systemProxy/resolve": { params: HostSystemProxyResolveParams; result: HostSystemProxyResolveResponse };
+  "host/notification/status": { params: HostNotificationStatusParams; result: HostNotificationStatus };
   "host/update/command": { params: HostUpdateCommandParams; result: JsonValue };
   "host/capture/fileSnapshot": { params: HostFileSnapshotParams; result: HostFileSnapshot };
   "host/localPage/url": { params: HostLocalPageUrlParams; result: string };
@@ -15713,6 +15837,12 @@ export const methodTable = {
       "params": "HostSystemProxyResolveParams",
       "requires": "host.systemProxy",
       "result": "HostSystemProxyResolveResponse"
+    },
+    {
+      "method": "host/notification/status",
+      "params": "HostNotificationStatusParams",
+      "requires": "host.notifications",
+      "result": "HostNotificationStatus"
     },
     {
       "method": "host/update/command",

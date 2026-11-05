@@ -30,6 +30,7 @@ impl UsagePricing for Unpriced {
             args.input_tokens
         };
         let mut rates = Map::new();
+        let written_1h = args.cache_write_1h_tokens.min(written);
         rates.insert("requestedModel".into(), args.requested_model.clone().map_or(Value::Null, Value::from));
         rates.insert("pricingModel".into(), json!(args.pricing_model.clone().unwrap_or_else(|| args.model.clone())));
         rates.insert("pricingProvider".into(), json!(args.provider));
@@ -41,6 +42,9 @@ impl UsagePricing for Unpriced {
             if let Some(tier) = tier.as_ref().filter(|tier| !tier.is_empty()) {
                 rates.insert(key.into(), json!(tier));
             }
+        }
+        if written_1h != 0.0 {
+            rates.insert("cacheWrite1hTokens".into(), crate::service::admin_route::jnum(written_1h));
         }
         let reason = if args.input_tokens_known == Some(false) { "unmeasured-input" } else { "model-not-found" };
         rates.insert("unpricedReason".into(), json!(reason));
@@ -66,6 +70,7 @@ fn usage_of(spec: &Value) -> Usage {
         output_tokens: n("outputTokens"),
         cache_read_tokens: n("cachedTokens"),
         cache_write_tokens: n("cacheWriteTokens"),
+        cache_write_1h_tokens: n("cacheWrite1hTokens"),
         cost: spec.get("costUsd").and_then(Value::as_f64).and_then(UsdTicks::from_usd),
         ..Usage::default()
     }
@@ -137,7 +142,7 @@ async fn every_outcome_writes_the_rows_node_writes() {
     let _ = mixdog_js::time::set_process_zone(Tz::UTC);
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let cases = golden["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 15);
+    assert_eq!(cases.len(), 16);
     for case in cases {
         let want = case["rows"].as_array().unwrap();
         let rows = rows_of(case).await;

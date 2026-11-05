@@ -17,6 +17,7 @@
 //! run in their own tests.
 
 pub mod approval;
+pub mod command;
 pub mod common;
 pub mod computer;
 pub mod ext;

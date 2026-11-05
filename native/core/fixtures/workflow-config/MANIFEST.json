@@ -3,9 +3,9 @@
   "fileCount": 3,
   "files": [
     {
-      "bytes": 79131,
+      "bytes": 81070,
       "path": "scenarios.json",
-      "sha256": "2cd38cf3ee179db54c269588e82c54fa709ccb0d270be8ec64b91549c9db2c7b"
+      "sha256": "f24645f73b7c1c1621d24d4c90a49985e27f55255c5829c15892aebd75b631ea"
     },
     {
       "bytes": 732,
@@ -36,5 +36,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-workflow-config.mjs",
   "set": "workflow-config",
-  "totalBytes": 80114
+  "totalBytes": 82053
 }

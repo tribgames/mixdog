@@ -174,14 +174,6 @@ impl Run {
                 }
                 Err(failure) => failure,
             };
-            // A failed attempt may have changed the session's state (a dropped
-            // cache after a 401): it replaces the pending state exactly as a
-            // reported one does, before any recovery builds the next request.
-            let mut failure = failure;
-            if let Some(state) = failure.error.provider_state.take() {
-                self.provider_state = Some(*state);
-                self.provider_state_changed = true;
-            }
             match self.recover(*failure).await? {
                 Recovery::Proceed(response) => return Ok(SendResult::Proceed(response)),
                 Recovery::Replay => continue,
@@ -204,6 +196,25 @@ impl Run {
                 shown_chars: shown,
                 reasoning_shown: reasoning,
             }))
+        };
+        // Stored text attachments become their text in every request; the saved
+        // messages keep the reference.
+        let request = match self.config.attachments.clone() {
+            Some(resolver) => {
+                let mut built = (*request).clone();
+                let messages = std::mem::take(&mut built.messages);
+                let resolved = or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref()))
+                    .await
+                    .ok_or(AgentError::Aborted)?;
+                match resolved {
+                    Ok(messages) => {
+                        built.messages = messages;
+                        Arc::new(built)
+                    }
+                    Err(error) => return Ok(fail(*error, builder, false, 0, false)),
+                }
+            }
+            None => request,
         };
         // A text-only route degrades and checks the request on every attempt.
         let request = match self.config.text_only.clone() {
@@ -250,7 +261,7 @@ impl Run {
             };
             match &event {
                 StreamEvent::TextDelta(text) => {
-                    shown_chars += mixdog_js::utf16_len(&text);
+                    shown_chars += mixdog_js::utf16_len(text);
                     self.emit(RunEvent::TextDelta(text.clone()));
                 }
                 StreamEvent::ReasoningDelta(text) => {

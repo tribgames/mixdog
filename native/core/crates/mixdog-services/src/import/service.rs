@@ -48,7 +48,7 @@ impl From<Failure> for CoreError {
     fn from(failure: Failure) -> Self {
         match failure {
             Failure::Invalid(Invalid(path, expected)) => CoreError::InvalidParams { path: path.into(), expected: expected.into() },
-            Failure::Import(ImportError(code)) => CoreError::DomainError { domain: "import".into(), code: Some(code.into()), detail: None },
+            Failure::Import(ImportError(code)) => CoreError::DomainError { domain: "import".into(), code: Some(code.into()), message: None, detail: None },
         }
     }
 }

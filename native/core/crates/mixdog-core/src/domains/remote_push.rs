@@ -43,6 +43,7 @@ impl PushSink for RemotePushSink {
                 body: request.body.clone(),
                 reason: reason_of(request.event),
                 host_id: self.runtime.host_id(),
+                approval: request.approval.as_ref().map(|approval| (approval.id.clone(), approval.allow_once)),
             })
             .await
     }

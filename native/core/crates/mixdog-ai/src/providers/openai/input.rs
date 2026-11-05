@@ -17,18 +17,16 @@ use mixdog_core_api::domain::provider::Phase;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_protocol::ProviderId;
+use mixdog_protocol::tool_call_ids;
+use mixdog_protocol::tool_call_ids::OPENAI_RESPONSES_IDS;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
-use sha2::Sha256;
 
 use super::effort::EffortProjection;
 
 /// Synthetic output for a call whose result never committed (cancel/abort).
 const CANCELLED_OUTPUT: &str = "Cancelled";
-const ID_MAX_LEN: usize = 64;
-const ID_HASH_CHARS: usize = 10;
 
 /// What a replayed `tool_search` item becomes on a wire without the native
 /// search tool.
@@ -86,91 +84,17 @@ pub fn content_text(content: &Content) -> String {
 // Tool-call ids at the wire
 // ---------------------------------------------------------------------------
 
-fn id_is_valid(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= ID_MAX_LEN
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
-}
-
-fn id_stand_in(id: &str, salt: u32) -> String {
-    let digest = Sha256::digest(format!("{salt}\u{0}{id}").as_bytes());
-    let hash: String = digest
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>()
-        .chars()
-        .take(ID_HASH_CHARS)
-        .collect();
-    let mut stem = String::new();
-    let mut in_run = false;
-    for c in id.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-            stem.push(c);
-            in_run = false;
-        } else if !in_run {
-            stem.push('_');
-            in_run = true;
-        }
-    }
-    let stem: String = stem
-        .trim_matches('_')
-        .chars()
-        .take(ID_MAX_LEN - ID_HASH_CHARS - 1)
-        .collect();
-    if stem.is_empty() {
-        format!("call_{hash}").chars().take(ID_MAX_LEN).collect()
-    } else {
-        format!("{stem}_{hash}")
-    }
-}
-
 /// Stand-ins for the ids the Responses wire refuses; a valid id passes
 /// unchanged and a call and its result always map to the same value.
 fn wire_id_map(messages: &[Message]) -> HashMap<String, String> {
-    let mut ids: Vec<&str> = Vec::new();
-    let mut seen: HashSet<&str> = HashSet::new();
-    for message in messages {
+    let ids = messages.iter().flat_map(|message| -> Vec<&str> {
         match message.role {
-            Role::Assistant => {
-                for call in &message.tool_calls {
-                    if !call.id.is_empty() && seen.insert(call.id.as_str()) {
-                        ids.push(call.id.as_str());
-                    }
-                }
-            }
-            Role::Tool => {
-                if let Some(id) = message.tool_call_id.as_deref()
-                    && !id.is_empty()
-                    && seen.insert(id)
-                {
-                    ids.push(id);
-                }
-            }
-            _ => {}
+            Role::Assistant => message.tool_calls.iter().map(|call| call.id.as_str()).collect(),
+            Role::Tool => message.tool_call_id.as_deref().into_iter().collect(),
+            _ => Vec::new(),
         }
-    }
-    let mut taken: HashSet<String> = ids
-        .iter()
-        .filter(|id| id_is_valid(id))
-        .map(|id| (*id).to_owned())
-        .collect();
-    let mut map = HashMap::new();
-    for id in ids {
-        if id_is_valid(id) {
-            continue;
-        }
-        let mut salt = 0;
-        let mut wire = id_stand_in(id, salt);
-        while taken.contains(&wire) {
-            salt += 1;
-            wire = id_stand_in(id, salt);
-        }
-        taken.insert(wire.clone());
-        map.insert(id.to_owned(), wire);
-    }
-    map
+    });
+    tool_call_ids::wire_id_map(ids, OPENAI_RESPONSES_IDS)
 }
 
 // ---------------------------------------------------------------------------

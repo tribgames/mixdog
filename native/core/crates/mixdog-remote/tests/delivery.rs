@@ -1,74 +1,27 @@
 //! `RemoteRuntime::deliver_push` against a scripted relay (a local WebSocket peer that speaks the
 //! leg's frames; no real relay or account), and the PC-signed Web Push store's register/remove.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures::{SinkExt, StreamExt};
 use hkdf::Hkdf;
-use mixdog_core_api::state::{SectionChange, StatePublisher};
-use mixdog_protocol::SectionName;
-use mixdog_remote::access::runtime::{LegLink, PushDelivery, RemoteEvents, RemoteRuntime, RuntimeConfig};
-use mixdog_remote::access::settings::AccessSettings;
-use mixdog_remote::bridge::{DialError, Dialer, Upstream};
+use mixdog_remote::access::runtime::{PushDelivery, RemoteRuntime};
 use mixdog_remote::e2ee::{SealedBox, ServerIdentity, WebPushKeys, generate_claim_key_pair, seal_web_push_keys};
 use mixdog_remote::identity::load_or_create_e2ee_identity;
-use mixdog_remote::pair_code::{PairCodeEffects, PairCodeView};
 use mixdog_remote::push::legacy::LegacyPushStore;
 use mixdog_remote::push::native_crypto::{NATIVE_PUSH_INFO, Reason, collapse_key};
-use mixdog_remote::registry::DeviceRegistry;
-use mixdog_remote::section::{RemoteSection, RemoteSectionValue};
-use mixdog_rt::{CancellationToken, InLane, LaneToken};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
-fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
-    let out = Arc::new(Mutex::new(None));
-    let slot = out.clone();
-    mixdog_rt::testing::tokens()
-        .durability_io
-        .submit(&CancellationToken::new(), move |lane| {
-            *slot.lock().unwrap() = Some(job(lane));
-        })
-        .unwrap();
-    out.lock().unwrap().take().unwrap()
-}
-
-struct NoEffects;
-impl PairCodeEffects for NoEffects {
-    fn send(&mut self, _: Value) -> bool {
-        false
-    }
-    fn publish(&mut self, _: Option<&PairCodeView>) {}
-    fn wake_at(&mut self, _: u64) {}
-}
-
-struct NoDial;
-#[async_trait]
-impl Dialer for NoDial {
-    async fn dial(&self, _: &str) -> Result<Box<dyn Upstream>, DialError> {
-        Err(DialError)
-    }
-}
-
-struct Silent;
-impl StatePublisher for Silent {
-    fn publish(&self, _: SectionName, _: Option<String>, _: SectionChange) {}
-}
-
-struct Quiet;
-impl RemoteEvents for Quiet {
-    fn controller_key_delivered(&self, _: &str) {}
-    fn owed_access_changed(&self) {}
-    fn status(&self, _: Value) {}
-}
+mod common;
+use common::{NoDial, on_lane, runtime_for};
 
 const AUTH: &str = "MzMzMzMzMzMzMzMzMzMzMw";
 
@@ -134,19 +87,7 @@ async fn rig(browsers: &[(&str, &str)]) -> Rig {
         })
         .collect();
     let (port, frames) = scripted_relay(json!({ "type": "webpush-subscriptions", "subscriptions": rows })).await;
-    let cfg = RuntimeConfig {
-        dir: path.clone(),
-        relay_url: Some(format!("ws://127.0.0.1:{port}")),
-        app_version: None,
-        durability: mixdog_rt::testing::tokens().durability_io,
-        dialer: Arc::new(NoDial),
-        registry: Arc::new(DeviceRegistry::default()),
-        section: Arc::new(RemoteSection::new(Arc::new(Silent), RemoteSectionValue::default())),
-        settings: Arc::new(AccessSettings::new(path, Arc::new(|| "PC".to_owned()))),
-        link: LegLink::default(),
-        events: Arc::new(Quiet),
-    };
-    let runtime = RemoteRuntime::new(cfg, Box::new(|_| Box::new(NoEffects)));
+    let runtime = runtime_for(path, port, Arc::new(NoDial));
     runtime.start(true).await.unwrap();
     let mut rig = Rig { runtime, frames, _dir: dir };
     // The reply to the first subscriptions frame: the capabilities and the set were taken in.
@@ -162,6 +103,7 @@ fn delivery(device: &str, reason: Reason, body: &str) -> PushDelivery {
         body: body.into(),
         reason,
         host_id: "HOST".into(),
+        approval: None,
     }
 }
 
@@ -237,6 +179,26 @@ async fn a_native_push_is_bound_encrypted_for_the_phone_and_unbound() {
             "reason": "turn-failed", "hostId": "HOST",
         })
     );
+
+    // An approval travels inside the encryption; the relay is told only the reason. `allowOnce`
+    // is written only when true.
+    for (allow, expected) in [
+        (true, json!({ "approvalId": "ap-1", "allowOnce": true })),
+        (false, json!({ "approvalId": "ap-1" })),
+    ] {
+        let mut push = delivery("phone1", Reason::ApprovalPending, "Needs you.");
+        push.approval = Some(("ap-1".into(), allow));
+        rig.runtime.deliver_push(&push).await.unwrap();
+        let sent = frame_of(&mut rig.frames, "native-push").await;
+        assert_eq!(sent["reason"], "approval-pending");
+        let content = decrypt_native(sent["mx"].as_str().unwrap(), &phone.secret);
+        let mut base = json!({
+            "title": "Title", "body": "Needs you.", "sessionId": "session-1",
+            "reason": "approval-pending", "hostId": "HOST",
+        });
+        base.as_object_mut().unwrap().extend(expected.as_object().unwrap().clone());
+        assert_eq!(content, base);
+    }
 
     assert!(rig.runtime.remove_native_push("phone1", None).await.unwrap());
     let unbound = frame_of(&mut rig.frames, "native-push-unbind").await;

@@ -2,19 +2,18 @@
 //! per-server intents (T §4 config sources). Reading touches the filesystem, so every reader
 //! takes an [`InLane`] proof of the maintenance lane; the parsing helpers are pure.
 
-use std::collections::BTreeMap;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 
 use mixdog_js::js_trim;
+use mixdog_js::js_object_keys as ordered_keys;
 use mixdog_rt::InLane;
 use mixdog_rt::MaintenanceIo;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::config::ConfigError;
-use crate::config::transport_kind;
+use crate::plugin_servers::declared_mcp_transport;
 
 /// Manifest files in precedence order.
 pub const MANIFEST_FILES: [&str; 3] = [".codex-plugin/plugin.json", "plugin.json", ".claude-plugin/plugin.json"];
@@ -172,27 +171,20 @@ pub struct PluginMcpDeclarations {
 
 /// Why a declared entry cannot be launched; names fields and types, never a configured value.
 fn server_problem(entry: &Value) -> Option<String> {
-    if !entry.is_object() {
+    let Some(map) = entry.as_object() else {
         return Some("server entry must be an object".to_owned());
-    }
-    let non_empty = |key: &str| entry.get(key).and_then(Value::as_str).is_some_and(|s| !js_trim(s).is_empty());
-    match transport_kind(entry) {
-        Err(ConfigError::UnknownType) => Some(ConfigError::UnknownType.to_string()),
-        Err(_) => None,
-        Ok(crate::config::TransportKind::Stdio) => (!non_empty("command")).then(|| "stdio server requires \"command\"".to_owned()),
-        Ok(kind) => {
-            let label = match kind {
-                crate::config::TransportKind::Sse => "sse",
-                crate::config::TransportKind::WebSocket => "ws",
-                _ => "http",
-            };
-            (!non_empty("url")).then(|| format!("{label} server requires \"url\""))
-        }
+    };
+    let non_empty = |key: &str| map.get(key).and_then(Value::as_str).is_some_and(|s| !js_trim(s).is_empty());
+    match declared_mcp_transport(map) {
+        None => Some("\"type\" must be one of stdio, http, streamable-http, sse, ws".to_owned()),
+        Some(kind) if kind == "stdio" => (!non_empty("command")).then(|| "stdio server requires \"command\"".to_owned()),
+        Some(kind) => (!non_empty("url")).then(|| format!("{kind} server requires \"url\"")),
     }
 }
 
 struct Collector {
-    servers: BTreeMap<String, DeclaredServer>,
+    /// In the order the keys were first declared; a later declaration of a key replaces it in place.
+    servers: Vec<DeclaredServer>,
     errors: Vec<DeclarationError>,
 }
 
@@ -222,14 +214,16 @@ impl Collector {
     }
 
     fn add_all(&mut self, map: &Map<String, Value>, source: &Path) {
-        for (key, config) in map {
+        for key in ordered_keys(map) {
+            let config = &map[key];
             match server_problem(config) {
                 Some(problem) => self.error(source, Some(key), problem),
                 None => {
-                    self.servers.insert(
-                        key.clone(),
-                        DeclaredServer { key: key.clone(), config: config.clone(), source: source.to_path_buf() },
-                    );
+                    let server = DeclaredServer { key: key.clone(), config: config.clone(), source: source.to_path_buf() };
+                    match self.servers.iter_mut().find(|s| s.key == *key) {
+                        Some(existing) => *existing = server,
+                        None => self.servers.push(server),
+                    }
                 }
             }
         }
@@ -270,7 +264,7 @@ impl Collector {
 /// key. Never fails for plugin content; errors carry locations and field names, never values.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
 pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
-    let mut collector = Collector { servers: BTreeMap::new(), errors: Vec::new() };
+    let mut collector = Collector { servers: Vec::new(), errors: Vec::new() };
     let found = MANIFEST_FILES.iter().find(|f| root.join(f).exists()).copied();
     let mcp_json = root.join(".mcp.json");
     let has_mcp_json = mcp_json.exists();
@@ -283,7 +277,8 @@ pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcp
         collector.load_file(&mcp_json);
     }
     if let Some(file) = found {
-        let path = root.join(file);
+        // Joined by component, as Node joins `rel.split('/')`, so the separators are the host's own.
+        let path = file.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
         let (_, doc) = manifest(lane, root);
         match doc.get("mcpServers") {
             None => {}
@@ -308,24 +303,14 @@ pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcp
             Some(_) => collector.error(&path, None, "\"mcpServers\" must be a path, a list, or an object"),
         }
     }
-    PluginMcpDeclarations { format, servers: collector.servers.into_values().collect(), errors: collector.errors }
+    PluginMcpDeclarations { format, servers: collector.servers, errors: collector.errors }
 }
 
-/// The user's intent for one plugin-declared server: stored apart from the declaration as
-/// `pluginMcp[pluginId][declaredKey]`.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct ServerIntent {
-    pub enabled: Option<bool>,
-    pub alias: Option<String>,
-    /// `env`, `headers`, `env_http_headers`: merged over the declared map.
-    pub maps: BTreeMap<String, Map<String, Value>>,
-    /// `command`, `args`, `url`, `bearer_token_env_var`, `env_vars` and the timeout spellings:
-    /// replace the declared value.
-    pub values: Map<String, Value>,
-}
-
-const INTENT_MAP_FIELDS: [&str; 3] = ["env", "headers", "env_http_headers"];
-const INTENT_VALUE_FIELDS: [&str; 13] = [
+/// The user's intent for one plugin-declared server is stored apart from the declaration as
+/// `pluginMcp[pluginId][declaredKey]`: `enabled`, a kept `alias`, the `INTENT_MAP_FIELDS` merged
+/// over the declared maps, and the `INTENT_VALUE_FIELDS` replacing the declared values.
+pub const INTENT_MAP_FIELDS: [&str; 3] = ["env", "headers", "env_http_headers"];
+pub const INTENT_VALUE_FIELDS: [&str; 13] = [
     "command",
     "args",
     "url",
@@ -341,70 +326,53 @@ const INTENT_VALUE_FIELDS: [&str; 13] = [
     "call_timeout_ms",
 ];
 
-fn normalize_intent(value: &Value) -> Option<ServerIntent> {
+fn normalize_intent(value: &Value) -> Option<Value> {
     let object = value.as_object()?;
-    let mut intent = ServerIntent {
-        enabled: object.get("enabled").and_then(Value::as_bool),
-        alias: object
-            .get("alias")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned),
-        ..ServerIntent::default()
-    };
+    let mut out = Map::new();
+    // `enabled: true` is kept too: it turns on a server declared `enabled: false`.
+    if let Some(enabled) = object.get("enabled").and_then(Value::as_bool) {
+        out.insert("enabled".to_owned(), Value::Bool(enabled));
+    }
+    if let Some(alias) = object.get("alias").and_then(Value::as_str).map(js_trim).filter(|s| !s.is_empty()) {
+        out.insert("alias".to_owned(), Value::String(alias.to_owned()));
+    }
     for field in INTENT_MAP_FIELDS {
-        if let Some(map) = object.get(field).and_then(Value::as_object) {
-            let kept: Map<String, Value> =
-                map.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect();
-            if !kept.is_empty() {
-                intent.maps.insert(field.to_owned(), kept);
-            }
+        let Some(map) = object.get(field).and_then(Value::as_object) else { continue };
+        let kept: Map<String, Value> = ordered_keys(map)
+            .into_iter()
+            .filter(|key| !map[*key].is_null())
+            .map(|key| (key.clone(), map[key].clone()))
+            .collect();
+        if !kept.is_empty() {
+            out.insert(field.to_owned(), Value::Object(kept));
         }
     }
     for field in INTENT_VALUE_FIELDS {
         if let Some(v) = object.get(field).filter(|v| !v.is_null()) {
-            intent.values.insert(field.to_owned(), v.clone());
+            out.insert(field.to_owned(), v.clone());
         }
     }
-    let empty = intent.enabled.is_none() && intent.alias.is_none() && intent.maps.is_empty() && intent.values.is_empty();
-    (!empty).then_some(intent)
+    (!out.is_empty()).then_some(Value::Object(out))
 }
 
-/// `{ pluginId: { declaredKey: intent } }` with empty records dropped.
-pub fn normalize_intents(value: &Value) -> BTreeMap<String, BTreeMap<String, ServerIntent>> {
-    let mut out = BTreeMap::new();
+/// `{ pluginId: { declaredKey: intent } }` with empty records dropped, in the order a JavaScript
+/// object lists them.
+pub fn normalize_intents(value: &Value) -> Map<String, Value> {
+    let mut out = Map::new();
     let Some(plugins) = value.as_object() else { return out };
-    for (plugin, servers) in plugins {
+    for plugin in ordered_keys(plugins) {
         let id = js_trim(plugin);
-        let Some(servers) = servers.as_object().filter(|_| !id.is_empty()) else { continue };
-        let kept: BTreeMap<String, ServerIntent> = servers
-            .iter()
-            .filter(|(key, _)| !key.is_empty())
-            .filter_map(|(key, intent)| Some((key.clone(), normalize_intent(intent)?)))
+        let Some(servers) = plugins[plugin].as_object().filter(|_| !id.is_empty()) else { continue };
+        let kept: Map<String, Value> = ordered_keys(servers)
+            .into_iter()
+            .filter(|key| !key.is_empty())
+            .filter_map(|key| Some((key.clone(), normalize_intent(&servers[key])?)))
             .collect();
         if !kept.is_empty() {
-            out.insert(id.to_owned(), kept);
+            out.insert(id.to_owned(), Value::Object(kept));
         }
     }
     out
-}
-
-/// A declared entry with the user's intent layered over it (`enabled` included).
-pub fn apply_intent(declared: &Value, intent: &ServerIntent) -> Value {
-    let mut entry = declared.as_object().cloned().unwrap_or_default();
-    if let Some(enabled) = intent.enabled {
-        entry.insert("enabled".to_owned(), Value::Bool(enabled));
-    }
-    for (field, overrides) in &intent.maps {
-        let mut merged = entry.get(field).and_then(Value::as_object).cloned().unwrap_or_default();
-        merged.extend(overrides.clone());
-        entry.insert(field.clone(), Value::Object(merged));
-    }
-    for (field, value) in &intent.values {
-        entry.insert(field.clone(), value.clone());
-    }
-    Value::Object(entry)
 }
 
 #[cfg(test)]
@@ -423,16 +391,12 @@ mod tests {
     }
 
     #[test]
-    fn intent_layers_over_declaration() {
+    fn intents_keep_only_what_a_plugin_server_override_applies() {
         let intents = normalize_intents(&json!({
             "p": {"s": {"enabled": false, "env": {"A": "2", "B": null}, "url": "https://x", "junk": 1}, "empty": {}},
             " ": {"s": {"enabled": true}}
         }));
-        let intent = &intents["p"]["s"];
-        assert_eq!(intents["p"].len(), 1);
-        let merged = apply_intent(&json!({"command": "c", "env": {"A": "1", "C": "3"}}), intent);
-        assert_eq!(merged["enabled"], json!(false));
-        assert_eq!(merged["env"], json!({"A": "2", "C": "3"}));
-        assert_eq!(merged["url"], json!("https://x"));
+        assert_eq!(intents.len(), 1);
+        assert_eq!(intents["p"], json!({"s": {"enabled": false, "env": {"A": "2"}, "url": "https://x"}}));
     }
 }

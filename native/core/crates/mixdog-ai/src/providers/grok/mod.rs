@@ -25,6 +25,8 @@ use crate::providers::connect::rewrite::HttpAdapter;
 use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::connect::rewrite::Rewriter;
 use crate::providers::compat::CompatConfig;
+use crate::providers::compat::chat::EnvSource;
+use crate::registry::keys::ProcessEnv;
 use crate::providers::connect::random_uuid;
 use crate::providers::compat::CompatProfile;
 use crate::providers::compat::responses::CompatResponsesCodec;
@@ -70,6 +72,7 @@ pub fn codec(client_version: &str) -> Arc<dyn WireCodec> {
     let config = CompatConfig {
         base_url: Some(PROXY_BASE_URL.to_owned()),
         client_version: client_version.to_owned(),
+        environment: Some(EnvSource(Arc::new(ProcessEnv))),
         ..CompatConfig::for_profile(&profile)
     };
     Arc::new(CompatResponsesCodec::new(profile, config, TransportKind::Http1))

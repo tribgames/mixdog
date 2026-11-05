@@ -175,6 +175,8 @@ pub(crate) enum JobDone {
         reply: oneshot::Sender<ApprovalResolution>,
         result: Result<ApprovalId, CoreError>,
     },
+    /// The running turn's session gained a sensitive value.
+    SensitiveMarked,
 }
 
 /// What the actor does first.
@@ -195,6 +197,8 @@ struct RunSlot {
     input: watch::Sender<InputState>,
     /// The run's input never became durable: no terminal record follows.
     start_failed: bool,
+    /// The run's `onSensitiveValuesMarked` subscription (`ask-turn-state.mjs:104`).
+    _marks: Box<dyn Send>,
 }
 
 pub(crate) struct ActorChannels {
@@ -386,6 +390,9 @@ impl SessionActor {
         };
         let memory = self.deps.memory.clone();
         let cwd = self.cwd();
+        if super::session_options::memory_off(&self.projected.header) {
+            return Box::pin(async {});
+        }
         Box::pin(async move {
             let Ok(rows) = context.read().await else {
                 return;
@@ -503,6 +510,15 @@ impl SessionActor {
                 reply,
                 result,
             } => self.approval_id(turn, ask, reply, result),
+            // Today's `ingestSessionTurn(turn.session)` on a mark (`ask-turn-state.mjs:104`):
+            // the search rows get a replacement under the new version, once what the turn
+            // committed so far is durable.
+            JobDone::SensitiveMarked => {
+                if self.run.is_some() {
+                    let ack = self.ingest_when_durable();
+                    self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
+                }
+            }
         }
     }
 
@@ -1760,11 +1776,19 @@ impl SessionActor {
         }
         let cancel = CancellationToken::new();
         let (input_tx, input_rx) = watch::channel(InputState::Pending);
+        let jobs = self.jobs_tx.clone();
+        let marks = self.deps.sensitive.on_marked(
+            &self.id,
+            Box::new(move || {
+                let _ = jobs.send(JobDone::SensitiveMarked);
+            }),
+        );
         self.run = Some(RunSlot {
             turn: turn.clone(),
             cancel: cancel.clone(),
             input: input_tx,
             start_failed: false,
+            _marks: marks,
         });
         self.cell.publish_run(Some(Arc::new(ActiveRun {
             turn: turn.clone(),

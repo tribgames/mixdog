@@ -236,6 +236,7 @@ fn table() -> Vec<(CoreError, i64, &'static str)> {
             CoreError::DomainError {
                 domain: "git".into(),
                 code: Some("WORKTREE_DIRTY".into()),
+                message: None,
                 detail: None,
             },
             INVALID_REQUEST,

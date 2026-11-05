@@ -1,0 +1,213 @@
+{
+ "source": "openai-oauth-login.mjs createOpenAIOAuthLogin (browser flow, fake issuer)",
+ "scenarios": {
+  "withExpiresIn": {
+   "tokens": {
+    "access_token": "eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEifSwic3ViIjoic3ViLWFjY2VzcyJ9.sig",
+    "id_token": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdWItMSIsImVtYWlsIjoibWVAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn19.sig",
+    "expires_in": 7200
+   },
+   "nowMs": 1700000000000,
+   "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
+   "authorizeParamOrder": [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "scope",
+    "code_challenge",
+    "code_challenge_method",
+    "id_token_add_organizations",
+    "codex_cli_simplified_flow",
+    "state",
+    "originator"
+   ],
+   "authorizeFixed": {
+    "response_type": "code",
+    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "redirect_uri": "http://localhost:1455/auth/callback",
+    "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+    "code_challenge_method": "S256",
+    "id_token_add_organizations": "true",
+    "codex_cli_simplified_flow": "true",
+    "originator": "codex_cli_rs"
+   },
+   "stateShape": {
+    "length": 32,
+    "hex": true
+   },
+   "challengeLength": 43,
+   "verifierLength": 86,
+   "tokenRequest": {
+    "method": "POST",
+    "contentType": "application/x-www-form-urlencoded",
+    "order": [
+     "grant_type",
+     "code",
+     "redirect_uri",
+     "client_id",
+     "code_verifier"
+    ],
+    "fixed": {
+     "grant_type": "authorization_code",
+     "code": "code 123",
+     "redirect_uri": "http://localhost:1455/auth/callback",
+     "client_id": "app_EMoamEEZ73f0CkXaXp7hrann"
+    }
+   },
+   "saved": {
+    "access_token": "eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEifSwic3ViIjoic3ViLWFjY2VzcyJ9.sig",
+    "refresh_token": "refresh-1",
+    "expires_at": 1700007200000,
+    "account_id": "acct-1",
+    "identity": {
+     "id": "sub-1:acct-1",
+     "email": "me@example.com"
+    }
+   },
+   "savedKeyOrder": [
+    "access_token",
+    "refresh_token",
+    "expires_at",
+    "account_id",
+    "identity"
+   ]
+  },
+  "jwtExpiryOnly": {
+   "tokens": {
+    "access_token": "eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTIifSwic3ViIjoic3ViLTIiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwQGV4YW1wbGUuY29tIn19.sig",
+    "id_token": null,
+    "expires_in": null
+   },
+   "nowMs": 1700000000000,
+   "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
+   "authorizeParamOrder": [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "scope",
+    "code_challenge",
+    "code_challenge_method",
+    "id_token_add_organizations",
+    "codex_cli_simplified_flow",
+    "state",
+    "originator"
+   ],
+   "authorizeFixed": {
+    "response_type": "code",
+    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "redirect_uri": "http://localhost:1455/auth/callback",
+    "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+    "code_challenge_method": "S256",
+    "id_token_add_organizations": "true",
+    "codex_cli_simplified_flow": "true",
+    "originator": "codex_cli_rs"
+   },
+   "stateShape": {
+    "length": 32,
+    "hex": true
+   },
+   "challengeLength": 43,
+   "verifierLength": 86,
+   "tokenRequest": {
+    "method": "POST",
+    "contentType": "application/x-www-form-urlencoded",
+    "order": [
+     "grant_type",
+     "code",
+     "redirect_uri",
+     "client_id",
+     "code_verifier"
+    ],
+    "fixed": {
+     "grant_type": "authorization_code",
+     "code": "code 123",
+     "redirect_uri": "http://localhost:1455/auth/callback",
+     "client_id": "app_EMoamEEZ73f0CkXaXp7hrann"
+    }
+   },
+   "saved": {
+    "access_token": "eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTIifSwic3ViIjoic3ViLTIiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwQGV4YW1wbGUuY29tIn19.sig",
+    "refresh_token": "refresh-1",
+    "expires_at": 1700003600000,
+    "account_id": "acct-2",
+    "identity": {
+     "id": "sub-2:acct-2",
+     "email": "p@example.com"
+    }
+   },
+   "savedKeyOrder": [
+    "access_token",
+    "refresh_token",
+    "expires_at",
+    "account_id",
+    "identity"
+   ]
+  },
+  "opaqueTokens": {
+   "tokens": {
+    "access_token": "opaque-access",
+    "id_token": null,
+    "expires_in": null
+   },
+   "nowMs": 1700000000000,
+   "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
+   "authorizeParamOrder": [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "scope",
+    "code_challenge",
+    "code_challenge_method",
+    "id_token_add_organizations",
+    "codex_cli_simplified_flow",
+    "state",
+    "originator"
+   ],
+   "authorizeFixed": {
+    "response_type": "code",
+    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "redirect_uri": "http://localhost:1455/auth/callback",
+    "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+    "code_challenge_method": "S256",
+    "id_token_add_organizations": "true",
+    "codex_cli_simplified_flow": "true",
+    "originator": "codex_cli_rs"
+   },
+   "stateShape": {
+    "length": 32,
+    "hex": true
+   },
+   "challengeLength": 43,
+   "verifierLength": 86,
+   "tokenRequest": {
+    "method": "POST",
+    "contentType": "application/x-www-form-urlencoded",
+    "order": [
+     "grant_type",
+     "code",
+     "redirect_uri",
+     "client_id",
+     "code_verifier"
+    ],
+    "fixed": {
+     "grant_type": "authorization_code",
+     "code": "code 123",
+     "redirect_uri": "http://localhost:1455/auth/callback",
+     "client_id": "app_EMoamEEZ73f0CkXaXp7hrann"
+    }
+   },
+   "saved": {
+    "access_token": "opaque-access",
+    "refresh_token": "refresh-1",
+    "expires_at": 0,
+    "identity": null
+   },
+   "savedKeyOrder": [
+    "access_token",
+    "refresh_token",
+    "expires_at",
+    "identity"
+   ]
+  }
+ }
+}

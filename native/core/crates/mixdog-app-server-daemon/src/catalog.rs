@@ -52,7 +52,7 @@ impl CatalogHost {
 pub async fn build_catalog(
     tokens: &LaneTokens,
     data_dir: &Path,
-    sources: Vec<Arc<dyn ModelSource>>,
+    sources: Vec<ModelSource>,
 ) -> Result<CatalogHost, CatalogError> {
     let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).map_err(CatalogError::Http)?;
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };

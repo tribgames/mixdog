@@ -214,7 +214,9 @@ pub struct Blocked {
     /// Whether `release{pid}` may resolve it (never for a proven 1.4.5 owner).
     pub releasable: bool,
     dir: Option<DirWatch>,
-    exit: Option<ExitWatch>,
+    /// Always present: a block the owner's exit cannot wake is never returned
+    /// ([`GateError::ExitUnwatchable`]).
+    exit: ExitWatch,
 }
 
 impl fmt::Debug for Blocked {
@@ -243,7 +245,7 @@ impl Blocked {
     /// Blocks until the process exits, the data dir changes (a held claim
     /// lock) or `interrupt` fires; then run [`Gate::step`] again.
     pub fn wait(&self, interrupt: &Interrupt) -> io::Result<Wake> {
-        wait::wait(interrupt, self.dir.as_ref(), self.exit.as_ref())
+        wait::wait(interrupt, self.dir.as_ref(), Some(&self.exit))
     }
 }
 
@@ -259,6 +261,16 @@ pub enum GateError {
     Io(io::Error),
     /// `B` is a non-empty directory or a special file.
     ClaimLockUnusable,
+    /// The verdict blocks on `process`, which runs but whose exit this user
+    /// may not wait on (the OS denied the exit watch). A 1.4.5 contender takes
+    /// such a pid as a live peer and does not claim; neither does the core,
+    /// and it never waits on something only an interrupt could end. When
+    /// `releasable`, `release{pid}` still applies before the next step.
+    ExitUnwatchable {
+        kind: BlockedKind,
+        process: ProcessInfo,
+        releasable: bool,
+    },
 }
 
 impl From<io::Error> for GateError {
@@ -274,6 +286,11 @@ impl fmt::Display for GateError {
             Self::ClaimLockUnusable => {
                 f.write_str("daemon-owner.json.claim.lock is not a file Mixdog can replace")
             }
+            Self::ExitUnwatchable { process, .. } => write!(
+                f,
+                "prior owner pid {} is running, but this user cannot wait for its exit",
+                process.identity.pid
+            ),
         }
     }
 }
@@ -436,10 +453,19 @@ impl Gate {
             // The process's exit always changes the facts; a process that already
             // exited sends the verdict around again.
             let exit = match ExitWatch::open(process.identity) {
-                Ok(Some(exit)) => Some(exit),
+                Ok(Some(exit)) => exit,
                 Ok(None) => continue,
-                // Exists but may not be waited on by this user (start time unknown).
-                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => None,
+                // Runs, but this user may not wait on it: 1.4.5 takes such a pid
+                // (EPERM) as live and does not claim (`T:pid-liveness.mjs:22-25`,
+                // `T:daemon.mjs:577-583`). Neither does the core.
+                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                    self.blocked = Some((process.clone(), releasable));
+                    return Err(GateError::ExitUnwatchable {
+                        kind,
+                        process,
+                        releasable,
+                    });
+                }
                 Err(error) => return Err(error.into()),
             };
             self.blocked = Some((process.clone(), releasable));

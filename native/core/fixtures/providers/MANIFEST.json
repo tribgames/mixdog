@@ -2,9 +2,14 @@
   "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>",
   "externalFixtures": [
     "gemini-explicit-cache/cases.json (WP-AI-GOOGLE)",
-    "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)"
+    "oracles/openai-codex-metadata-golden.json (WP-AI-OPENAI)",
+    "oracles/openai-login-golden.json (WP-AI-OPENAI)",
+    "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)",
+    "oracles/openai-retry-policy-golden.json (WP-AI-OPENAI)",
+    "oracles/openai-transport-switch-golden.json (WP-AI-OPENAI)",
+    "oracles/openai-ws-delta-golden.json (WP-AI-OPENAI)"
   ],
-  "fileCount": 60,
+  "fileCount": 65,
   "files": [
     {
       "bytes": 309490,
@@ -267,9 +272,19 @@
       "sha256": "72398a2d04bb93ea1a4c848cf3dde476ebaa874dfe28f70f3badc371807110e2"
     },
     {
+      "bytes": 15152,
+      "path": "oracles/openai-codex-metadata-golden.json",
+      "sha256": "80f06106695d6d8ccecb44f0be42df496e0b4169d84224d1ea8c016ba9a672fb"
+    },
+    {
       "bytes": 59045,
       "path": "oracles/openai-compat-responses-head-parity.json",
       "sha256": "d05d0561408cd2300bbadb5638ef5dc1dcb402747eac8dea6fa7eaa9d319f485"
+    },
+    {
+      "bytes": 6374,
+      "path": "oracles/openai-login-golden.json",
+      "sha256": "abb05d65d470f58117adc030aafb7e8c6e1ad4609b472bf23147191fbd9f6be9"
     },
     {
       "bytes": 14030,
@@ -280,6 +295,21 @@
       "bytes": 6529,
       "path": "oracles/openai-responses-payload-parity.fixture.json",
       "sha256": "7461a562bcc4cd0af15406312ac18dc3a3127959b6b9fea97bbf99461b0d1fd2"
+    },
+    {
+      "bytes": 987,
+      "path": "oracles/openai-retry-policy-golden.json",
+      "sha256": "d8e75610c9b4cc6fc9fb9e722f674b1655196baaecff74f7e6ea28577fc45dc2"
+    },
+    {
+      "bytes": 5549,
+      "path": "oracles/openai-transport-switch-golden.json",
+      "sha256": "b51c75b31e7575b9d5daf8517fd2a16ed0cf3d23307cbf7911e343155409b793"
+    },
+    {
+      "bytes": 36235,
+      "path": "oracles/openai-ws-delta-golden.json",
+      "sha256": "57d0ecad4d4632578ceac2ed63f8a919ca92eea0394fbf70b71a225b191df01b"
     },
     {
       "bytes": 8990,

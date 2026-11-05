@@ -27,6 +27,7 @@ mixdog-ai = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await"] }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
+tokio-util = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 reqwest = { workspace = true }
@@ -49,4 +50,4 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

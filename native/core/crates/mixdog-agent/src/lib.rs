@@ -9,6 +9,7 @@
 //! `mixdog-core-api`.
 
 pub mod agent_tool;
+pub mod attachments;
 mod batch;
 pub mod coerce;
 pub mod boundary;

@@ -1,0 +1,4133 @@
+{
+ "cases": [
+  {
+   "name": "one declared server",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme-search": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme-search": "plugin"
+    },
+    "entries": {
+     "plugin-acme-search": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme-search"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "acme": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "key repeats the plugin",
+   "plugins": [
+    {
+     "id": "acme-1a2b3c4d",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"acme\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<Rs:acme-1a2b3c4d>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme-1a2b3c4d>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme-1a2b3c4d>",
+       "PLUGIN_ROOT": "<R:acme-1a2b3c4d>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme-1a2b3c4d",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme-1a2b3c4d",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme-1a2b3c4d"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme-1a2b3c4d",
+       "key": "acme",
+       "format": "claude",
+       "root": "<R:acme-1a2b3c4d>",
+       "source": "<R:acme-1a2b3c4d>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme-1a2b3c4d",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme": "plugin"
+    },
+    "entries": {
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme-1a2b3c4d",
+       "key": "acme",
+       "format": "claude",
+       "root": "<R:acme-1a2b3c4d>",
+       "source": "<R:acme-1a2b3c4d>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme-1a2b3c4d",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme-1a2b3c4d": {
+      "id": "acme-1a2b3c4d",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "acme-1a2b3c4d": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "long names get a hash suffix",
+   "plugins": [
+    {
+     "id": "a-very-long-plugin-identifier-here",
+     "name": "Long",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"another-long-key\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-a-very-long-plug-ea67ec02": {
+      "command": "node",
+      "args": [
+       "<Rs:a-very-long-plugin-identifier-here>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:a-very-long-plugin-identifier-here>",
+       "MIXDOG_PLUGIN_ROOT": "<R:a-very-long-plugin-identifier-here>",
+       "PLUGIN_ROOT": "<R:a-very-long-plugin-identifier-here>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\a-very-long-plugin-identifier-here",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\a-very-long-plugin-identifier-here",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\a-very-long-plugin-identifier-here"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "a-very-long-plugin-identifier-here",
+       "key": "another-long-key",
+       "format": "claude",
+       "root": "<R:a-very-long-plugin-identifier-here>",
+       "source": "<R:a-very-long-plugin-identifier-here>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\a-very-long-plugin-identifier-here",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-a-very-long-plug-ea67ec02": "plugin"
+    },
+    "entries": {
+     "plugin-a-very-long-plug-ea67ec02": {
+      "owner": {
+       "kind": "plugin",
+       "id": "a-very-long-plugin-identifier-here",
+       "key": "another-long-key",
+       "format": "claude",
+       "root": "<R:a-very-long-plugin-identifier-here>",
+       "source": "<R:a-very-long-plugin-identifier-here>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\a-very-long-plugin-identifier-here",
+       "cwdDependent": true,
+       "name": "Long"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "a-very-long-plugin-identifier-here": {
+      "id": "a-very-long-plugin-identifier-here",
+      "name": "Long",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-a-very-long-plug-ea67ec02"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "a-very-long-plugin-identifier-here": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "plugins without id or root are skipped",
+   "plugins": [
+    {
+     "id": "",
+     "name": "blank",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    },
+    {
+     "id": "gone",
+     "name": "Gone",
+     "exists": false,
+     "files": {}
+    },
+    {
+     "id": "noroot",
+     "name": "NoRoot",
+     "noRoot": true,
+     "files": {}
+    },
+    {
+     "id": "fine",
+     "name": "Fine",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-fine-a": {
+      "command": "node",
+      "args": [
+       "<Rs:fine>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:fine>",
+       "MIXDOG_PLUGIN_ROOT": "<R:fine>",
+       "PLUGIN_ROOT": "<R:fine>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\fine",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\fine",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\fine"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "fine",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:fine>",
+       "source": "<R:fine>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\fine",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-fine-a": "plugin"
+    },
+    "entries": {
+     "plugin-fine-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "fine",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:fine>",
+       "source": "<R:fine>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\fine",
+       "cwdDependent": true,
+       "name": "Fine"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "gone": {
+      "id": "gone",
+      "name": "Gone",
+      "enabled": true,
+      "format": "none",
+      "errors": [
+       {
+        "message": "plugin root not found: <R:gone>"
+       }
+      ],
+      "servers": [],
+      "missing": true
+     },
+     "noroot": {
+      "id": "noroot",
+      "name": "NoRoot",
+      "enabled": true,
+      "format": "none",
+      "errors": [
+       {
+        "message": "plugin root not found: "
+       }
+      ],
+      "servers": [],
+      "missing": true
+     },
+     "fine": {
+      "id": "fine",
+      "name": "Fine",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-fine-a"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "gone": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "disabled plugin keeps its servers off",
+   "plugins": [
+    {
+     "id": "off",
+     "name": "Off",
+     "enabled": false,
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]},\"b\":{\"url\":\"https://x.test/mcp\"}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-off-a": {
+      "command": "node",
+      "args": [
+       "<Rs:off>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:off>",
+       "MIXDOG_PLUGIN_ROOT": "<R:off>",
+       "PLUGIN_ROOT": "<R:off>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\off",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\off",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\off"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "off",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:off>",
+       "source": "<R:off>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\off",
+       "cwdDependent": true
+      },
+      "enabled": false
+     },
+     "plugin-off-b": {
+      "url": "https://x.test/mcp",
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "off",
+       "key": "b",
+       "format": "claude",
+       "root": "<R:off>",
+       "source": "<R:off>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\off",
+       "cwdDependent": false
+      },
+      "enabled": false
+     }
+    },
+    "sources": {
+     "plugin-off-a": "plugin",
+     "plugin-off-b": "plugin"
+    },
+    "entries": {
+     "plugin-off-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "off",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:off>",
+       "source": "<R:off>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\off",
+       "cwdDependent": true,
+       "name": "Off"
+      },
+      "pluginEnabled": false,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-off-b": {
+      "owner": {
+       "kind": "plugin",
+       "id": "off",
+       "key": "b",
+       "format": "claude",
+       "root": "<R:off>",
+       "source": "<R:off>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\off",
+       "cwdDependent": false,
+       "name": "Off"
+      },
+      "pluginEnabled": false,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "off": {
+      "id": "off",
+      "name": "Off",
+      "enabled": false,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-off-a",
+       "plugin-off-b"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "off": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "server declared off, intent turns it on",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"],\"enabled\":false},\"b\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"],\"enabled\":false}}}"
+     }
+    }
+   ],
+   "config": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "enabled": true
+      },
+      "b": {
+       "enabled": false
+      }
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme-a": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "plugin-acme-b": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "b",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": false
+     }
+    },
+    "sources": {
+     "plugin-acme-a": "plugin",
+     "plugin-acme-b": "plugin"
+    },
+    "entries": {
+     "plugin-acme-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": false,
+      "warnings": []
+     },
+     "plugin-acme-b": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "b",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": false,
+      "declaredEnabled": false,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme-a",
+       "plugin-acme-b"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "enabled": true
+      },
+      "b": {
+       "enabled": false
+      }
+     }
+    }
+   },
+   "pinned": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "enabled": true
+      },
+      "b": {
+       "enabled": false
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "pluginMcp": {}
+   },
+   "withIntent": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "enabled": true
+      },
+      "b": {
+       "enabled": false
+      },
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "enabled": true
+      },
+      "b": {
+       "enabled": false
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "intent overrides layer over the declaration",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"],\"env\":{\"A\":\"1\",\"B\":\"2\"},\"headers\":{\"H\":\"x\"}}}}"
+     }
+    }
+   ],
+   "config": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "env": {
+        "B": "9",
+        "C": "3",
+        "D": null
+       },
+       "command": "deno",
+       "args": [
+        "run"
+       ],
+       "timeoutMs": 5,
+       "junk": 1
+      },
+      "": {
+       "enabled": false
+      },
+      "b": {}
+     },
+     "  ": {
+      "a": {
+       "enabled": false
+      }
+     },
+     "other": "x"
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme-a": {
+      "command": "deno",
+      "args": [
+       "run"
+      ],
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "A": "1",
+       "B": "9",
+       "C": "3"
+      },
+      "headers": {
+       "H": "x"
+      },
+      "timeoutMs": 5,
+      "cwd": "<C>",
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme-a": "plugin"
+    },
+    "entries": {
+     "plugin-acme-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme-a"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "env": {
+        "B": "9",
+        "C": "3",
+        "D": null
+       },
+       "command": "deno",
+       "args": [
+        "run"
+       ],
+       "timeoutMs": 5,
+       "junk": 1
+      },
+      "": {
+       "enabled": false
+      },
+      "b": {}
+     },
+     "  ": {
+      "a": {
+       "enabled": false
+      }
+     },
+     "other": "x"
+    }
+   },
+   "pinned": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "env": {
+        "B": "9",
+        "C": "3",
+        "D": null
+       },
+       "command": "deno",
+       "args": [
+        "run"
+       ],
+       "timeoutMs": 5,
+       "junk": 1
+      },
+      "": {
+       "enabled": false
+      },
+      "b": {}
+     },
+     "  ": {
+      "a": {
+       "enabled": false
+      }
+     },
+     "other": "x"
+    }
+   },
+   "withoutFirst": {
+    "pluginMcp": {}
+   },
+   "withIntent": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "env": {
+        "B": "9",
+        "C": "3"
+       },
+       "command": "deno",
+       "args": [
+        "run"
+       ],
+       "timeoutMs": 5
+      },
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {
+     "acme": {
+      "a": {
+       "env": {
+        "B": "9",
+        "C": "3"
+       },
+       "command": "deno",
+       "args": [
+        "run"
+       ],
+       "timeoutMs": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "kept alias wins, collisions get a suffix",
+   "plugins": [
+    {
+     "id": "one",
+     "name": "One",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    },
+    {
+     "id": "two",
+     "name": "Two",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {
+    "pluginMcp": {
+     "two": {
+      "a": {
+       "alias": "mine"
+      }
+     }
+    },
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     },
+     "plugin-one-a-1ffceb": {
+      "command": "node",
+      "args": [
+       "<Rs:one>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:one>",
+       "MIXDOG_PLUGIN_ROOT": "<R:one>",
+       "PLUGIN_ROOT": "<R:one>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\one",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\one",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\one"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "one",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:one>",
+       "source": "<R:one>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\one",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "mine": {
+      "command": "node",
+      "args": [
+       "<Rs:two>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:two>",
+       "MIXDOG_PLUGIN_ROOT": "<R:two>",
+       "PLUGIN_ROOT": "<R:two>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\two",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\two",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\two"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "two",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:two>",
+       "source": "<R:two>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\two",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-one-a": "config",
+     "mine2": "config",
+     "plugin-one-a-1ffceb": "plugin",
+     "mine": "plugin"
+    },
+    "entries": {
+     "plugin-one-a": {
+      "owner": null,
+      "warnings": []
+     },
+     "mine2": {
+      "owner": null,
+      "warnings": []
+     },
+     "plugin-one-a-1ffceb": {
+      "owner": {
+       "kind": "plugin",
+       "id": "one",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:one>",
+       "source": "<R:one>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\one",
+       "cwdDependent": true,
+       "name": "One"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "unpinned": true,
+      "warnings": [
+       "name \"plugin-one-a\" is taken by a configured MCP server; using \"plugin-one-a-1ffceb\""
+      ]
+     },
+     "mine": {
+      "owner": {
+       "kind": "plugin",
+       "id": "two",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:two>",
+       "source": "<R:two>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\two",
+       "cwdDependent": true,
+       "name": "Two"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "one": {
+      "id": "one",
+      "name": "One",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-one-a-1ffceb"
+      ]
+     },
+     "two": {
+      "id": "two",
+      "name": "Two",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "mine"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-one-a-1ffceb",
+      "plugin": "one",
+      "message": "name \"plugin-one-a\" is taken by a configured MCP server; using \"plugin-one-a-1ffceb\""
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {
+    "pluginMcp": {
+     "two": {
+      "a": {
+       "alias": "mine"
+      }
+     }
+    },
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     }
+    }
+   },
+   "pinned": {
+    "pluginMcp": {
+     "two": {
+      "a": {
+       "alias": "mine"
+      }
+     },
+     "one": {
+      "a": {
+       "alias": "plugin-one-a-1ffceb"
+      }
+     }
+    },
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     }
+    }
+   },
+   "withoutFirst": {
+    "pluginMcp": {
+     "two": {
+      "a": {
+       "alias": "mine"
+      }
+     }
+    },
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     }
+    }
+   },
+   "withIntent": {
+    "pluginMcp": {
+     "two": {
+      "a": {
+       "alias": "mine"
+      }
+     },
+     "one": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    },
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {
+     "two": {
+      "a": {
+       "alias": "mine"
+      }
+     }
+    },
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "mine2": {
+      "command": "y"
+     }
+    }
+   }
+  },
+  {
+   "name": "a later plugin takes a taken generated name",
+   "plugins": [
+    {
+     "id": "dup",
+     "name": "Dup1",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    },
+    {
+     "id": "dup-aaaaaaaa",
+     "name": "Dup2",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-dup-a": {
+      "command": "node",
+      "args": [
+       "<Rs:dup>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:dup>",
+       "MIXDOG_PLUGIN_ROOT": "<R:dup>",
+       "PLUGIN_ROOT": "<R:dup>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\dup",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\dup",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\dup"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "dup",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:dup>",
+       "source": "<R:dup>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\dup",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "plugin-dup-a-a87782": {
+      "command": "node",
+      "args": [
+       "<Rs:dup>-aaaaaaaa/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:dup>-aaaaaaaa",
+       "MIXDOG_PLUGIN_ROOT": "<R:dup>-aaaaaaaa",
+       "PLUGIN_ROOT": "<R:dup>-aaaaaaaa",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\dup-aaaaaaaa",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\dup-aaaaaaaa",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\dup-aaaaaaaa"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "dup-aaaaaaaa",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:dup>-aaaaaaaa",
+       "source": "<R:dup>-aaaaaaaa\\.mcp.json",
+       "data": "<D>\\plugins\\data\\dup-aaaaaaaa",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-dup-a": "plugin",
+     "plugin-dup-a-a87782": "plugin"
+    },
+    "entries": {
+     "plugin-dup-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "dup",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:dup>",
+       "source": "<R:dup>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\dup",
+       "cwdDependent": true,
+       "name": "Dup1"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-dup-a-a87782": {
+      "owner": {
+       "kind": "plugin",
+       "id": "dup-aaaaaaaa",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:dup>-aaaaaaaa",
+       "source": "<R:dup>-aaaaaaaa\\.mcp.json",
+       "data": "<D>\\plugins\\data\\dup-aaaaaaaa",
+       "cwdDependent": true,
+       "name": "Dup2"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "unpinned": true,
+      "warnings": [
+       "name \"plugin-dup-a\" is taken by plugin \"dup\"; using \"plugin-dup-a-a87782\""
+      ]
+     }
+    },
+    "plugins": {
+     "dup": {
+      "id": "dup",
+      "name": "Dup1",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-dup-a"
+      ]
+     },
+     "dup-aaaaaaaa": {
+      "id": "dup-aaaaaaaa",
+      "name": "Dup2",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-dup-a-a87782"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-dup-a-a87782",
+      "plugin": "dup-aaaaaaaa",
+      "message": "name \"plugin-dup-a\" is taken by plugin \"dup\"; using \"plugin-dup-a-a87782\""
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {
+    "pluginMcp": {
+     "dup-aaaaaaaa": {
+      "a": {
+       "alias": "plugin-dup-a-a87782"
+      }
+     }
+    }
+   },
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "dup": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "alias taken by a configured server",
+   "plugins": [
+    {
+     "id": "one",
+     "name": "One",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {
+    "pluginMcp": {
+     "one": {
+      "a": {
+       "alias": "cfg"
+      }
+     }
+    },
+    "mcpServers": {
+     "cfg": {
+      "command": "z"
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "cfg": {
+      "command": "z"
+     },
+     "plugin-one-a": {
+      "command": "node",
+      "args": [
+       "<Rs:one>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:one>",
+       "MIXDOG_PLUGIN_ROOT": "<R:one>",
+       "PLUGIN_ROOT": "<R:one>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\one",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\one",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\one"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "one",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:one>",
+       "source": "<R:one>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\one",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "cfg": "config",
+     "plugin-one-a": "plugin"
+    },
+    "entries": {
+     "cfg": {
+      "owner": null,
+      "warnings": []
+     },
+     "plugin-one-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "one",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:one>",
+       "source": "<R:one>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\one",
+       "cwdDependent": true,
+       "name": "One"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": [
+       "kept name \"cfg\" is taken by a configured MCP server"
+      ]
+     }
+    },
+    "plugins": {
+     "one": {
+      "id": "one",
+      "name": "One",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-one-a"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-one-a",
+      "plugin": "one",
+      "message": "kept name \"cfg\" is taken by a configured MCP server"
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {
+    "pluginMcp": {
+     "one": {
+      "a": {
+       "alias": "cfg"
+      }
+     }
+    },
+    "mcpServers": {
+     "cfg": {
+      "command": "z"
+     }
+    }
+   },
+   "pinned": {
+    "pluginMcp": {
+     "one": {
+      "a": {
+       "alias": "cfg"
+      }
+     }
+    },
+    "mcpServers": {
+     "cfg": {
+      "command": "z"
+     }
+    }
+   },
+   "withoutFirst": {
+    "pluginMcp": {},
+    "mcpServers": {
+     "cfg": {
+      "command": "z"
+     }
+    }
+   },
+   "withIntent": {
+    "pluginMcp": {
+     "one": {
+      "a": {
+       "alias": "cfg"
+      },
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    },
+    "mcpServers": {
+     "cfg": {
+      "command": "z"
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {
+     "one": {
+      "a": {
+       "alias": "cfg"
+      }
+     }
+    },
+    "mcpServers": {
+     "cfg": {
+      "command": "z"
+     }
+    }
+   }
+  },
+  {
+   "name": "transports and cwd rules",
+   "plugins": [
+    {
+     "id": "mix",
+     "name": "Mixdog",
+     "files": {
+      "plugin.json": "{\"name\":\"mix\",\"mcpServers\":{\"s\":{\"command\":\"a\"},\"w\":{\"cwd\":\"sub/dir\",\"command\":\"b\"},\"r\":{\"cwd\":\"${PLUGIN_ROOT}/x\",\"command\":\"c\"}}}"
+     }
+    },
+    {
+     "id": "cla",
+     "name": "Claude",
+     "files": {
+      ".claude-plugin/plugin.json": "{\"name\":\"x\",\"mcpServers\":{\"s\":{\"command\":\"a\"},\"d\":{\"command\":\"b\",\"cwd\":\"rel\"},\"h\":{\"url\":\"https://h.test/${PLUGIN_DATA}/${MIXDOG_PLUGIN_ROOT}\",\"headers\":{\"A\":\"${CLAUDE_PLUGIN_DATA}\"}}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-mix-s": {
+      "command": "a",
+      "cwd": "<R:mix>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:mix>",
+       "MIXDOG_PLUGIN_ROOT": "<R:mix>",
+       "PLUGIN_ROOT": "<R:mix>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\mix",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\mix",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\mix"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "mix",
+       "key": "s",
+       "format": "mixdog",
+       "root": "<R:mix>",
+       "source": "<R:mix>\\plugin.json",
+       "data": "<D>\\plugins\\data\\mix",
+       "cwdDependent": false
+      },
+      "enabled": true
+     },
+     "plugin-mix-w": {
+      "cwd": "<R:mix>\\sub\\dir",
+      "command": "b",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:mix>",
+       "MIXDOG_PLUGIN_ROOT": "<R:mix>",
+       "PLUGIN_ROOT": "<R:mix>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\mix",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\mix",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\mix"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "mix",
+       "key": "w",
+       "format": "mixdog",
+       "root": "<R:mix>",
+       "source": "<R:mix>\\plugin.json",
+       "data": "<D>\\plugins\\data\\mix",
+       "cwdDependent": false
+      },
+      "enabled": true
+     },
+     "plugin-mix-r": {
+      "cwd": "<Rs:mix>/x",
+      "command": "c",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:mix>",
+       "MIXDOG_PLUGIN_ROOT": "<R:mix>",
+       "PLUGIN_ROOT": "<R:mix>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\mix",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\mix",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\mix"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "mix",
+       "key": "r",
+       "format": "mixdog",
+       "root": "<R:mix>",
+       "source": "<R:mix>\\plugin.json",
+       "data": "<D>\\plugins\\data\\mix",
+       "cwdDependent": false
+      },
+      "enabled": true
+     },
+     "plugin-cla-s": {
+      "command": "a",
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:cla>",
+       "MIXDOG_PLUGIN_ROOT": "<R:cla>",
+       "PLUGIN_ROOT": "<R:cla>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\cla",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\cla",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\cla"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "cla",
+       "key": "s",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "plugin-cla-d": {
+      "command": "b",
+      "cwd": "<R:cla>\\rel",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:cla>",
+       "MIXDOG_PLUGIN_ROOT": "<R:cla>",
+       "PLUGIN_ROOT": "<R:cla>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\cla",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\cla",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\cla"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "cla",
+       "key": "d",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": false
+      },
+      "enabled": true
+     },
+     "plugin-cla-h": {
+      "url": "https://h.test/<Ds>/plugins/data/cla/<Rs:cla>",
+      "headers": {
+       "A": "<Ds>/plugins/data/cla"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "cla",
+       "key": "h",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": false
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-mix-s": "plugin",
+     "plugin-mix-w": "plugin",
+     "plugin-mix-r": "plugin",
+     "plugin-cla-s": "plugin",
+     "plugin-cla-d": "plugin",
+     "plugin-cla-h": "plugin"
+    },
+    "entries": {
+     "plugin-mix-s": {
+      "owner": {
+       "kind": "plugin",
+       "id": "mix",
+       "key": "s",
+       "format": "mixdog",
+       "root": "<R:mix>",
+       "source": "<R:mix>\\plugin.json",
+       "data": "<D>\\plugins\\data\\mix",
+       "cwdDependent": false,
+       "name": "Mixdog"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-mix-w": {
+      "owner": {
+       "kind": "plugin",
+       "id": "mix",
+       "key": "w",
+       "format": "mixdog",
+       "root": "<R:mix>",
+       "source": "<R:mix>\\plugin.json",
+       "data": "<D>\\plugins\\data\\mix",
+       "cwdDependent": false,
+       "name": "Mixdog"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-mix-r": {
+      "owner": {
+       "kind": "plugin",
+       "id": "mix",
+       "key": "r",
+       "format": "mixdog",
+       "root": "<R:mix>",
+       "source": "<R:mix>\\plugin.json",
+       "data": "<D>\\plugins\\data\\mix",
+       "cwdDependent": false,
+       "name": "Mixdog"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-cla-s": {
+      "owner": {
+       "kind": "plugin",
+       "id": "cla",
+       "key": "s",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": true,
+       "name": "Claude"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-cla-d": {
+      "owner": {
+       "kind": "plugin",
+       "id": "cla",
+       "key": "d",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": false,
+       "name": "Claude"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-cla-h": {
+      "owner": {
+       "kind": "plugin",
+       "id": "cla",
+       "key": "h",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": false,
+       "name": "Claude"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "mix": {
+      "id": "mix",
+      "name": "Mixdog",
+      "enabled": true,
+      "format": "mixdog",
+      "errors": [],
+      "servers": [
+       "plugin-mix-s",
+       "plugin-mix-w",
+       "plugin-mix-r"
+      ]
+     },
+     "cla": {
+      "id": "cla",
+      "name": "Claude",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-cla-s",
+       "plugin-cla-d",
+       "plugin-cla-h"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "mix": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "no session cwd",
+   "plugins": [
+    {
+     "id": "cla",
+     "name": "Claude",
+     "files": {
+      ".claude-plugin/plugin.json": "{\"name\":\"x\",\"mcpServers\":{\"s\":{\"command\":\"a\"}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "",
+   "catalog": {
+    "servers": {
+     "plugin-cla-s": {
+      "command": "a",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:cla>",
+       "MIXDOG_PLUGIN_ROOT": "<R:cla>",
+       "PLUGIN_ROOT": "<R:cla>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\cla",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\cla",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\cla"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "cla",
+       "key": "s",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-cla-s": "plugin"
+    },
+    "entries": {
+     "plugin-cla-s": {
+      "owner": {
+       "kind": "plugin",
+       "id": "cla",
+       "key": "s",
+       "format": "claude",
+       "root": "<R:cla>",
+       "source": "<R:cla>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\cla",
+       "cwdDependent": true,
+       "name": "Claude"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "cla": {
+      "id": "cla",
+      "name": "Claude",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-cla-s"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "cla": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "declaration errors surface per plugin",
+   "plugins": [
+    {
+     "id": "bad",
+     "name": "Bad",
+     "files": {
+      ".mcp.json": "{ not json",
+      ".claude-plugin/plugin.json": "{\"mcpServers\":[\"missing.json\",5,{\"x\":{\"type\":\"nope\"}},{\"y\":{}}]}"
+     }
+    },
+    {
+     "id": "empty",
+     "name": "Empty",
+     "files": {
+      "README.md": "x"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {},
+    "sources": {},
+    "entries": {},
+    "plugins": {
+     "bad": {
+      "id": "bad",
+      "name": "Bad",
+      "enabled": true,
+      "format": "claude",
+      "errors": [
+       {
+        "source": "<R:bad>\\.mcp.json",
+        "message": "invalid JSON at line 1 column 3"
+       },
+       {
+        "source": "<R:bad>\\.claude-plugin\\plugin.json",
+        "message": "\"mcpServers\"[0]: MCP file not found"
+       },
+       {
+        "source": "<R:bad>\\.claude-plugin\\plugin.json",
+        "message": "\"mcpServers\"[1]: MCP path must be a non-empty string"
+       },
+       {
+        "source": "<R:bad>\\.claude-plugin\\plugin.json",
+        "key": "x",
+        "message": "\"type\" must be one of stdio, http, streamable-http, sse, ws"
+       },
+       {
+        "source": "<R:bad>\\.claude-plugin\\plugin.json",
+        "key": "y",
+        "message": "stdio server requires \"command\""
+       }
+      ],
+      "servers": []
+     },
+     "empty": {
+      "id": "empty",
+      "name": "Empty",
+      "enabled": true,
+      "format": "none",
+      "errors": [],
+      "servers": []
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "bad": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "array and path declarations merge in order",
+   "plugins": [
+    {
+     "id": "many",
+     "name": "Many",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"z\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]},\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}",
+      ".claude-plugin/plugin.json": "{\"mcpServers\":[\"./extra.json\",{\"b\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]},\"z\":{\"command\":\"over\"}}]}",
+      "extra.json": "{\"mcpServers\":{\"e\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]},\"a\":{\"command\":\"again\"}}}"
+     }
+    }
+   ],
+   "config": {},
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-many-z": {
+      "command": "over",
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:many>",
+       "MIXDOG_PLUGIN_ROOT": "<R:many>",
+       "PLUGIN_ROOT": "<R:many>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\many"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "many",
+       "key": "z",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "plugin-many-a": {
+      "command": "again",
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:many>",
+       "MIXDOG_PLUGIN_ROOT": "<R:many>",
+       "PLUGIN_ROOT": "<R:many>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\many"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "many",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\extra.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "plugin-many-e": {
+      "command": "node",
+      "args": [
+       "<Rs:many>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:many>",
+       "MIXDOG_PLUGIN_ROOT": "<R:many>",
+       "PLUGIN_ROOT": "<R:many>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\many"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "many",
+       "key": "e",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\extra.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true
+      },
+      "enabled": true
+     },
+     "plugin-many-b": {
+      "command": "node",
+      "args": [
+       "<Rs:many>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:many>",
+       "MIXDOG_PLUGIN_ROOT": "<R:many>",
+       "PLUGIN_ROOT": "<R:many>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\many",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\many"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "many",
+       "key": "b",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-many-z": "plugin",
+     "plugin-many-a": "plugin",
+     "plugin-many-e": "plugin",
+     "plugin-many-b": "plugin"
+    },
+    "entries": {
+     "plugin-many-z": {
+      "owner": {
+       "kind": "plugin",
+       "id": "many",
+       "key": "z",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true,
+       "name": "Many"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-many-a": {
+      "owner": {
+       "kind": "plugin",
+       "id": "many",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\extra.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true,
+       "name": "Many"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-many-e": {
+      "owner": {
+       "kind": "plugin",
+       "id": "many",
+       "key": "e",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\extra.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true,
+       "name": "Many"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-many-b": {
+      "owner": {
+       "kind": "plugin",
+       "id": "many",
+       "key": "b",
+       "format": "claude",
+       "root": "<R:many>",
+       "source": "<R:many>\\.claude-plugin\\plugin.json",
+       "data": "<D>\\plugins\\data\\many",
+       "cwdDependent": true,
+       "name": "Many"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "many": {
+      "id": "many",
+      "name": "Many",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-many-z",
+       "plugin-many-a",
+       "plugin-many-e",
+       "plugin-many-b"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {},
+   "pinned": {},
+   "withoutFirst": {},
+   "withIntent": {
+    "pluginMcp": {
+     "many": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "earlier copy is adopted as intent",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "@R:acme@/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@",
+       "TOKEN": "t"
+      },
+      "enabled": false
+     },
+     "keep": {
+      "command": "x"
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "keep": {
+      "command": "x"
+     },
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "TOKEN": "t"
+      },
+      "cwd": "<C>",
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": false
+     }
+    },
+    "sources": {
+     "keep": "config",
+     "plugin-acme": "plugin"
+    },
+    "entries": {
+     "keep": {
+      "owner": null,
+      "warnings": []
+     },
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": false,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": {
+     "removed": [
+      "plugin-acme"
+     ],
+     "intents": {
+      "acme": {
+       "search": {
+        "alias": "plugin-acme",
+        "enabled": false,
+        "env": {
+         "TOKEN": "t"
+        }
+       }
+      }
+     }
+    }
+   },
+   "adopted": {
+    "mcpServers": {
+     "keep": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "plugin-acme",
+       "enabled": false,
+       "env": {
+        "TOKEN": "t"
+       }
+      }
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "keep": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "plugin-acme",
+       "enabled": false,
+       "env": {
+        "TOKEN": "t"
+       }
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "TOKEN": "t"
+      },
+      "enabled": false
+     },
+     "keep": {
+      "command": "x"
+     }
+    }
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "TOKEN": "t"
+      },
+      "enabled": false
+     },
+     "keep": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "TOKEN": "t"
+      },
+      "enabled": false
+     },
+     "keep": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "copies of several servers",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"one\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]},\"two\":{\"url\":\"https://two.test/mcp\"}}}"
+     }
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-acme--one": {
+      "command": "node",
+      "args": [
+       "@R:acme@/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      },
+      "_mixdogPluginDisabled": true
+     },
+     "plugin-acme--two": {
+      "url": "https://two.test/mcp",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@/"
+      },
+      "headers": {
+       "A": "b"
+      }
+     },
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "enabled": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "plugin-acme--gone",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "enabled": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "plugin-acme",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "enabled": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "other-name",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     },
+     "plugin-acme--one": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "one",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": false
+     },
+     "plugin-acme--two": {
+      "url": "https://two.test/mcp",
+      "headers": {
+       "A": "b"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "two",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": false
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme--gone": "config",
+     "plugin-acme": "config",
+     "other-name": "config",
+     "stranger": "config",
+     "plugin-acme--one": "plugin",
+     "plugin-acme--two": "plugin"
+    },
+    "entries": {
+     "plugin-acme--gone": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "plugin-acme--gone",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": [
+       "\"plugin-acme--gone\" looks like a plugin MCP copy but was left as configured: the plugin no longer declares \"gone\""
+      ]
+     },
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "plugin-acme",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": [
+       "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: it matches none or several declared servers"
+      ]
+     },
+     "other-name": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "other-name",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": [
+       "\"other-name\" looks like a plugin MCP copy but was left as configured: its name does not follow the plugin's naming (plugin-acme)"
+      ]
+     },
+     "stranger": {
+      "owner": null,
+      "warnings": [
+       "\"stranger\" looks like a plugin MCP copy but was left as configured: no registered plugin has root C:\\nowhere"
+      ]
+     },
+     "plugin-acme--one": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "one",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": false,
+      "declaredEnabled": true,
+      "warnings": []
+     },
+     "plugin-acme--two": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "two",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme--one",
+       "plugin-acme--two"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-acme--gone",
+      "message": "\"plugin-acme--gone\" looks like a plugin MCP copy but was left as configured: the plugin no longer declares \"gone\""
+     },
+     {
+      "name": "plugin-acme",
+      "message": "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: it matches none or several declared servers"
+     },
+     {
+      "name": "other-name",
+      "message": "\"other-name\" looks like a plugin MCP copy but was left as configured: its name does not follow the plugin's naming (plugin-acme)"
+     },
+     {
+      "name": "stranger",
+      "message": "\"stranger\" looks like a plugin MCP copy but was left as configured: no registered plugin has root C:\\nowhere"
+     }
+    ],
+    "adoption": {
+     "removed": [
+      "plugin-acme--one",
+      "plugin-acme--two"
+     ],
+     "intents": {
+      "acme": {
+       "one": {
+        "alias": "plugin-acme--one",
+        "enabled": false
+       },
+       "two": {
+        "alias": "plugin-acme--two",
+        "headers": {
+         "A": "b"
+        }
+       }
+      }
+     }
+    }
+   },
+   "adopted": {
+    "mcpServers": {
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "one": {
+       "alias": "plugin-acme--one",
+       "enabled": false
+      },
+      "two": {
+       "alias": "plugin-acme--two",
+       "headers": {
+        "A": "b"
+       }
+      }
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "one": {
+       "alias": "plugin-acme--one",
+       "enabled": false
+      },
+      "two": {
+       "alias": "plugin-acme--two",
+       "headers": {
+        "A": "b"
+       }
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-acme--one": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     },
+     "plugin-acme--two": {
+      "url": "https://two.test/mcp",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>/"
+      },
+      "headers": {
+       "A": "b"
+      }
+     },
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     }
+    }
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-acme--one": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     },
+     "plugin-acme--two": {
+      "url": "https://two.test/mcp",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>/"
+      },
+      "headers": {
+       "A": "b"
+      }
+     },
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-acme--one": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     },
+     "plugin-acme--two": {
+      "url": "https://two.test/mcp",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>/"
+      },
+      "headers": {
+       "A": "b"
+      }
+     },
+     "plugin-acme--gone": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "other-name": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     },
+     "stranger": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "C:\\nowhere"
+      }
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "copy whose transport changed is left alone",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "taken-by-other"
+      }
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "enabled": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false
+      }
+     },
+     "taken-by-other": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme": "config",
+     "taken-by-other": "plugin"
+    },
+    "entries": {
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": [
+       "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: plugin server \"search\" already keeps the name \"taken-by-other\""
+      ]
+     },
+     "taken-by-other": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "taken-by-other"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-acme",
+      "message": "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: plugin server \"search\" already keeps the name \"taken-by-other\""
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {
+    "mcpServers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "taken-by-other"
+      }
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "taken-by-other"
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {}
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "taken-by-other"
+      },
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-acme": {
+      "type": "http",
+      "url": "https://x.test",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "copy of a plugin whose directory is gone",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "exists": false,
+     "files": {}
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      },
+      "_mixdogPluginDisabled": true
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true,
+      "enabled": false,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "plugin-acme",
+       "format": "none",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false
+      }
+     }
+    },
+    "sources": {
+     "plugin-acme": "config"
+    },
+    "entries": {
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "plugin-acme",
+       "format": "none",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": false,
+      "declaredEnabled": true,
+      "warnings": [
+       "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: plugin root <R:acme> is missing"
+      ]
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "none",
+      "errors": [
+       {
+        "message": "plugin root not found: <R:acme>"
+       }
+      ],
+      "servers": [],
+      "missing": true
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-acme",
+      "message": "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: plugin root <R:acme> is missing"
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     }
+    }
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "x",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "_mixdogPluginDisabled": true
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "copy overrides map fields and cwd",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"],\"env\":{\"A\":\"1\"},\"cwd\":\"work\"}}}"
+     }
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "@R:acme@/server.js"
+      ],
+      "cwd": "@R:acme@/work",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@",
+       "A": "1",
+       "B": "2"
+      },
+      "startupTimeoutMs": 9
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "A": "1",
+       "B": "2"
+      },
+      "cwd": "<R:acme>\\work",
+      "startupTimeoutMs": 9,
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": false
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme": "plugin"
+    },
+    "entries": {
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme"
+      ]
+     }
+    },
+    "warnings": [],
+    "adoption": {
+     "removed": [
+      "plugin-acme"
+     ],
+     "intents": {
+      "acme": {
+       "search": {
+        "alias": "plugin-acme",
+        "env": {
+         "B": "2"
+        },
+        "startupTimeoutMs": 9
+       }
+      }
+     }
+    }
+   },
+   "adopted": {
+    "mcpServers": {},
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "plugin-acme",
+       "env": {
+        "B": "2"
+       },
+       "startupTimeoutMs": 9
+      }
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {},
+    "pluginMcp": {
+     "acme": {
+      "search": {
+       "alias": "plugin-acme",
+       "env": {
+        "B": "2"
+       },
+       "startupTimeoutMs": 9
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "cwd": "<R:acme>/work",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "A": "1",
+       "B": "2"
+      },
+      "startupTimeoutMs": 9
+     }
+    }
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "cwd": "<R:acme>/work",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "A": "1",
+       "B": "2"
+      },
+      "startupTimeoutMs": 9
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "cwd": "<R:acme>/work",
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "A": "1",
+       "B": "2"
+      },
+      "startupTimeoutMs": 9
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "copy dropping a declared entry is left alone",
+   "plugins": [
+    {
+     "id": "acme",
+     "name": "Acme",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"],\"env\":{\"A\":\"1\"}}}}"
+     }
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "@R:acme@/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "@R:acme@"
+      }
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      },
+      "enabled": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false
+      }
+     },
+     "plugin-acme-search": {
+      "command": "node",
+      "args": [
+       "<Rs:acme>/server.js"
+      ],
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:acme>",
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>",
+       "PLUGIN_ROOT": "<R:acme>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\acme",
+       "A": "1"
+      },
+      "cwd": "<C>",
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-acme": "config",
+     "plugin-acme-search": "plugin"
+    },
+    "entries": {
+     "plugin-acme": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "config",
+       "data": "",
+       "cwdDependent": false,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": [
+       "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: its \"env\" differ from the plugin declaration in a way a plugin server override cannot keep"
+      ]
+     },
+     "plugin-acme-search": {
+      "owner": {
+       "kind": "plugin",
+       "id": "acme",
+       "key": "search",
+       "format": "claude",
+       "root": "<R:acme>",
+       "source": "<R:acme>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\acme",
+       "cwdDependent": true,
+       "name": "Acme"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "warnings": []
+     }
+    },
+    "plugins": {
+     "acme": {
+      "id": "acme",
+      "name": "Acme",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-acme-search"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-acme",
+      "message": "\"plugin-acme\" looks like a plugin MCP copy but was left as configured: its \"env\" differ from the plugin declaration in a way a plugin server override cannot keep"
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    }
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {
+     "acme": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-acme": {
+      "command": "node",
+      "args": [
+       "<R:acme>/server.js"
+      ],
+      "env": {
+       "MIXDOG_PLUGIN_ROOT": "<R:acme>"
+      }
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "a generated collision name is pinned",
+   "plugins": [
+    {
+     "id": "one",
+     "name": "One",
+     "files": {
+      ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"node\",\"args\":[\"${CLAUDE_PLUGIN_ROOT}/server.js\"]}}}"
+     }
+    }
+   ],
+   "config": {
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     }
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "plugin-one-a": {
+      "command": "x"
+     },
+     "plugin-one-a-1ffceb": {
+      "command": "node",
+      "args": [
+       "<Rs:one>/server.js"
+      ],
+      "cwd": "<C>",
+      "env": {
+       "CLAUDE_PLUGIN_ROOT": "<R:one>",
+       "MIXDOG_PLUGIN_ROOT": "<R:one>",
+       "PLUGIN_ROOT": "<R:one>",
+       "CLAUDE_PLUGIN_DATA": "<D>\\plugins\\data\\one",
+       "MIXDOG_PLUGIN_DATA": "<D>\\plugins\\data\\one",
+       "PLUGIN_DATA": "<D>\\plugins\\data\\one"
+      },
+      "_mixdogStrictEnv": true,
+      "_mixdogRootsFollowScope": true,
+      "_mixdogPlugin": {
+       "id": "one",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:one>",
+       "source": "<R:one>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\one",
+       "cwdDependent": true
+      },
+      "enabled": true
+     }
+    },
+    "sources": {
+     "plugin-one-a": "config",
+     "plugin-one-a-1ffceb": "plugin"
+    },
+    "entries": {
+     "plugin-one-a": {
+      "owner": null,
+      "warnings": []
+     },
+     "plugin-one-a-1ffceb": {
+      "owner": {
+       "kind": "plugin",
+       "id": "one",
+       "key": "a",
+       "format": "claude",
+       "root": "<R:one>",
+       "source": "<R:one>\\.mcp.json",
+       "data": "<D>\\plugins\\data\\one",
+       "cwdDependent": true,
+       "name": "One"
+      },
+      "pluginEnabled": true,
+      "serverEnabled": true,
+      "declaredEnabled": true,
+      "unpinned": true,
+      "warnings": [
+       "name \"plugin-one-a\" is taken by a configured MCP server; using \"plugin-one-a-1ffceb\""
+      ]
+     }
+    },
+    "plugins": {
+     "one": {
+      "id": "one",
+      "name": "One",
+      "enabled": true,
+      "format": "claude",
+      "errors": [],
+      "servers": [
+       "plugin-one-a-1ffceb"
+      ]
+     }
+    },
+    "warnings": [
+     {
+      "name": "plugin-one-a-1ffceb",
+      "plugin": "one",
+      "message": "name \"plugin-one-a\" is taken by a configured MCP server; using \"plugin-one-a-1ffceb\""
+     }
+    ],
+    "adoption": null
+   },
+   "adopted": {
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     }
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {
+     "one": {
+      "a": {
+       "alias": "plugin-one-a-1ffceb"
+      }
+     }
+    }
+   },
+   "withoutFirst": {
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     }
+    }
+   },
+   "withIntent": {
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {
+     "one": {
+      "k": {
+       "enabled": false,
+       "alias": "al"
+      }
+     }
+    }
+   },
+   "withIntentCleared": {
+    "mcpServers": {
+     "plugin-one-a": {
+      "command": "x"
+     }
+    },
+    "pluginMcp": {}
+   }
+  },
+  {
+   "name": "configured servers pass through",
+   "plugins": [],
+   "config": {
+    "mcpServers": {
+     "a": {
+      "command": "x",
+      "_mixdogPluginDisabled": true
+     },
+     "b": 5,
+     "c": null
+    }
+   },
+   "cwd": "@C@",
+   "catalog": {
+    "servers": {
+     "a": {
+      "command": "x",
+      "_mixdogPluginDisabled": true,
+      "enabled": false
+     },
+     "b": {},
+     "c": {}
+    },
+    "sources": {
+     "a": "config",
+     "b": "config",
+     "c": "config"
+    },
+    "entries": {
+     "a": {
+      "owner": null,
+      "warnings": []
+     },
+     "b": {
+      "owner": null,
+      "warnings": []
+     },
+     "c": {
+      "owner": null,
+      "warnings": []
+     }
+    },
+    "plugins": {},
+    "warnings": [],
+    "adoption": null
+   },
+   "adopted": {
+    "mcpServers": {
+     "a": {
+      "command": "x",
+      "_mixdogPluginDisabled": true
+     },
+     "b": 5,
+     "c": null
+    }
+   },
+   "pinned": {
+    "mcpServers": {
+     "a": {
+      "command": "x",
+      "_mixdogPluginDisabled": true
+     },
+     "b": 5,
+     "c": null
+    }
+   },
+   "withoutFirst": null,
+   "withIntent": null,
+   "withIntentCleared": null
+  }
+ ]
+}

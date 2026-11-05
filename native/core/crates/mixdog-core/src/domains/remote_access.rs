@@ -335,3 +335,131 @@ impl DomainService for RemoteAccessService {
         Admit::Accepted
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_remote::access::runtime::{LegLink, RemoteEvents, RuntimeConfig};
+    use mixdog_remote::access::settings::AccessSettings;
+    use mixdog_remote::bridge::{DialError, Dialer, Upstream};
+    use mixdog_remote::pair_code::{PairCodeEffects, PairCodeView};
+    use mixdog_remote::section::{RemoteSection, RemoteSectionValue};
+
+    use super::*;
+    use crate::domains::support::testing::{request, scopes, value, with_op};
+
+    struct NoEffects;
+    impl PairCodeEffects for NoEffects {
+        fn send(&mut self, _: Value) -> bool {
+            false
+        }
+        fn publish(&mut self, _: Option<&PairCodeView>) {}
+        fn wake_at(&mut self, _: u64) {}
+    }
+
+    struct NoDial;
+    #[async_trait]
+    impl Dialer for NoDial {
+        async fn dial(&self, _: &str) -> Result<Box<dyn Upstream>, DialError> {
+            Err(DialError)
+        }
+    }
+
+    struct Quiet;
+    impl RemoteEvents for Quiet {
+        fn controller_key_delivered(&self, _: &str) {}
+        fn owed_access_changed(&self) {}
+        fn status(&self, _: Value) {}
+    }
+
+    /// The service over a runtime whose relay is off: nothing connects.
+    async fn rig(dir: &Path) -> (RemoteAccessService, Arc<RemoteRuntime>) {
+        let registry = Arc::new(DeviceRegistry::default());
+        let runtime = Arc::new(RemoteRuntime::new(
+            RuntimeConfig {
+                dir: dir.to_path_buf(),
+                relay_url: None,
+                app_version: None,
+                durability: mixdog_rt::testing::tokens().durability_io,
+                dialer: Arc::new(NoDial),
+                registry: registry.clone(),
+                section: Arc::new(RemoteSection::new(Arc::new(MockStatePublisher::default()), RemoteSectionValue::default())),
+                settings: Arc::new(AccessSettings::new(dir.to_path_buf(), Arc::new(|| "PC".to_owned()))),
+                link: LegLink::default(),
+                events: Arc::new(Quiet),
+            },
+            Box::new(|_| Box::new(NoEffects)),
+        ));
+        (RemoteAccessService::new(runtime.clone(), registry, scopes(dir, "remoteAccess").await), runtime)
+    }
+
+    fn sentence(error: &CoreError) -> String {
+        format!("{error:?}")
+    }
+
+    #[tokio::test]
+    async fn settings_answer_with_the_view_and_a_duplicate_op_replays_without_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let (service, runtime) = rig(dir.path()).await;
+        let named = value(&service, request("remoteAccess/setName", with_op(json!({ "name": "Desk" }), 1), Some(1))).await.unwrap();
+        assert_eq!((named["name"].as_str(), named["defaultName"].as_str()), (Some("Desk"), Some("PC")));
+        let off = value(&service, request("remoteAccess/setEnabled", with_op(json!({ "enabled": false }), 2), Some(2))).await.unwrap();
+        assert_eq!(off["enabled"], json!(false));
+        value(&service, request("remoteAccess/setName", with_op(json!({ "name": "Other" }), 3), Some(3))).await.unwrap();
+        assert_eq!(runtime.settings().name, "Other");
+        // The same op again answers what it recorded and does not rename the PC back.
+        let again = value(&service, request("remoteAccess/setName", with_op(json!({ "name": "Desk" }), 1), Some(1))).await.unwrap();
+        assert_eq!(again["name"], json!("Desk"));
+        assert_eq!(runtime.settings().name, "Other");
+        // The same op id with other params is a conflict, not a replay.
+        let conflict = value(&service, request("remoteAccess/setName", with_op(json!({ "name": "Third" }), 1), Some(1))).await;
+        assert!(matches!(conflict, Err(CoreError::OpIdConflict { .. })));
+    }
+
+    #[tokio::test]
+    async fn the_web_push_methods_refuse_with_todays_sentence_while_the_relay_is_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let (service, _) = rig(dir.path()).await;
+        let unavailable = "Push notifications are unavailable on this connection.";
+        let key = value(&service, request("remoteAccess/pushPublicKey", json!({}), None)).await.unwrap_err();
+        assert!(sentence(&key).contains(unavailable), "{key:?}");
+        let register = value(
+            &service,
+            request("remoteAccess/registerPushSubscription", with_op(json!({ "input": { "endpoint": "https://push.example/x" } }), 3), Some(3)),
+        )
+        .await
+        .unwrap_err();
+        assert!(sentence(&register).contains(unavailable), "{register:?}");
+        let remove = value(
+            &service,
+            request("remoteAccess/removePushSubscription", with_op(json!({ "endpoint": "https://push.example/x" }), 4), Some(4)),
+        )
+        .await
+        .unwrap_err();
+        assert!(sentence(&remove).contains(unavailable), "{remove:?}");
+    }
+
+    #[tokio::test]
+    async fn phone_side_calls_need_a_paired_connection_and_arguments_are_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (service, _) = rig(dir.path()).await;
+        // The caller is no phone: there is no credential to register a token for.
+        let native = value(&service, request("remoteAccess/registerNativePush", with_op(json!({ "input": {} }), 5), Some(5)))
+            .await
+            .unwrap_err();
+        assert!(sentence(&native).contains("Native push needs a paired client."), "{native:?}");
+        // A claim nobody is asking about is not resolved.
+        let claim = value(&service, request("remoteAccess/resolveClaim", with_op(json!({ "input": ["nope", true] }), 6), Some(6))).await.unwrap();
+        assert_eq!(claim, json!(false));
+        let owed = value(
+            &service,
+            request("remoteAccess/settleOwedControllerKeys", with_op(json!({ "input": [["k"], "x"] }), 7), Some(7)),
+        )
+        .await
+        .unwrap_err();
+        assert!(sentence(&owed).contains("The settled marker is not a count."), "{owed:?}");
+        assert!(matches!(service.call(request("remoteAccess/nope", json!({}), None)).await, Err(CoreError::InvalidParams { .. })));
+    }
+}

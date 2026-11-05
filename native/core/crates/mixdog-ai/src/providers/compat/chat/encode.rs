@@ -231,11 +231,7 @@ fn lower_messages(
     messages: &[Message],
 ) -> Result<Vec<JsonValue>, ProviderError> {
     let ids = wire_tool_call_ids(messages);
-    let wire_id = |id: &str| -> String {
-        ids.iter()
-            .find(|(from, _)| from == id)
-            .map_or_else(|| id.to_owned(), |(_, to)| to.clone())
-    };
+    let wire_id = |id: &str| -> String { ids.get(id).cloned().unwrap_or_else(|| id.to_owned()) };
     let mut out: Vec<JsonValue> = Vec::with_capacity(messages.len());
     let mut pending_media: Vec<JsonValue> = Vec::new();
     for message in messages {
@@ -334,4 +330,18 @@ pub fn build_body(
     body.insert("stream".into(), true.into());
     body.insert("stream_options".into(), json!({"include_usage": true}));
     Ok(body)
+}
+
+/// The text of every message this dialect sends as `system` (a `developer`
+/// message counts unless the dialect keeps the role), as the lowering writes
+/// it. The xAI Responses cache prefix is identified by these.
+pub fn system_texts(dialect: &ChatDialect, messages: &[Message]) -> Result<Vec<String>, ProviderError> {
+    let mut texts = Vec::new();
+    for message in messages.iter().filter(|m| role_name(m.role, dialect) == "system") {
+        // A non-user role's content is always text.
+        if let JsonValue::String(text) = content_value(message.role, &message.content)? {
+            texts.push(text);
+        }
+    }
+    Ok(texts)
 }

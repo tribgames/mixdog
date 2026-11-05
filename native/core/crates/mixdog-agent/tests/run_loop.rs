@@ -619,20 +619,6 @@ async fn tool_round_then_final_text() {
 }
 
 #[tokio::test]
-async fn a_failed_attempts_cleared_provider_state_is_handed_back() {
-    use mixdog_core_api::domain::provider::ProviderState;
-    // A 401 that dropped the gemini cache: the cleared state must be saved even
-    // though the run ends in failure.
-    let mut unauthorized = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
-    unauthorized.provider_state = Some(Box::new(ProviderState::default()));
-    let h = Harness::new(vec![Attempt::Reject(unauthorized)]);
-    let Err(failure) = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await else {
-        panic!("an auth refusal ends the run")
-    };
-    assert_eq!(failure.provider_state, Some(ProviderState::default()));
-}
-
-#[tokio::test]
 async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     use mixdog_core_api::domain::provider::ProviderState;
     // An empty reported state means "clear"; it is still a reported change.
@@ -1311,6 +1297,52 @@ fn rejection(kind: ErrorKind, code: Option<&str>) -> Attempt {
     error.status = Some(400);
     error.message = "bad   request".into();
     Attempt::Reject(error)
+}
+
+struct Refs;
+
+#[async_trait]
+impl mixdog_agent::attachments::AttachmentText for Refs {
+    async fn text_of(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> Result<Option<String>, Box<ProviderError>> {
+        use mixdog_core_api::domain::provider::BinarySource;
+        use mixdog_core_api::domain::provider::ContentPart;
+        Ok(match part {
+            ContentPart::File { source: BinarySource::AttachmentRef(r), filename, .. } if r == "text-ref" => {
+                Some(format!("<file name=\"{}\">\nbody\n</file>", filename.as_deref().unwrap_or("")))
+            }
+            _ => None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_reference_in_history() {
+    use mixdog_core_api::domain::provider::BinarySource;
+    use mixdog_core_api::domain::provider::ContentPart;
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let reference = |r: &str| ContentPart::File {
+        source: BinarySource::AttachmentRef(r.into()),
+        mime_type: "text/markdown".into(),
+        filename: Some("notes.md".into()),
+    };
+    let prompt = AgentMessage::user_content(Content::Parts(vec![
+        ContentPart::Text("see".into()),
+        reference("text-ref"),
+        reference("image-ref"),
+    ]));
+    let mut cfg = config();
+    cfg.attachments = Some(Arc::new(Refs));
+    let output = finish(h.run(cfg, vec![], vec![prompt])).await;
+    let sent = &h.provider.requests()[0].messages[0].content;
+    assert_eq!(
+        sent,
+        &Content::Parts(vec![
+            ContentPart::Text("see".into()),
+            ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into()),
+            reference("image-ref"),
+        ])
+    );
+    assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::File { .. })));
 }
 
 #[tokio::test]

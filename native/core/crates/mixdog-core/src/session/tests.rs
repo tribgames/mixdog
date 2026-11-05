@@ -652,6 +652,38 @@ async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_closes() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let reply = directory
+        .request(request(
+            "thread/start",
+            json!({
+                "opId": "op-start", "kind": "task", "projectPath": "/ws",
+                "session": { "toolProfile": "headless", "approvalMode": "implicit", "memory": false },
+            }),
+            "op-start",
+        ))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["approvalMode"], "implicit");
+    assert_eq!(header["sourceType"], "exec");
+
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     let rig = Rig::new();
     let (release, gate) = tokio::sync::watch::channel(false);
@@ -705,6 +737,44 @@ async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
     assert_eq!(thread, handle.id);
     assert_eq!(messages.len(), 2, "the input row and the reply: {messages:?}");
     assert_eq!(messages[1]["text"], "re: hello");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search_copy() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    rig.set_script(Arc::new(move |run| {
+        let mut gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let fill = json!({
+        "name": "browser",
+        "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } },
+    });
+    // Outside a turn a mark re-ingests nothing.
+    assert!(rig.sensitive.remember(handle.id.as_str(), &[fill.clone()]));
+    turn(&handle, "hold", "op-1").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(lock(&rig.ingests.0).is_empty());
+
+    let again = json!({
+        "name": "browser",
+        "arguments": { "action": "fill", "input": { "sensitive": true, "text": "s3cret" } },
+    });
+    assert!(rig.sensitive.remember(handle.id.as_str(), &[again]));
+    eventually(|| (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    let (thread, messages) = lock(&rig.ingests.0)[0].clone();
+    assert_eq!(thread, handle.id);
+    assert_eq!(messages.len(), 1, "the turn's durable input row: {messages:?}");
+
+    release.send(true).expect("release");
+    eventually(|| (lock(&rig.ingests.0).len() == 2).then_some(())).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

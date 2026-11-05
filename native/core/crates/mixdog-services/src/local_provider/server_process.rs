@@ -5,16 +5,22 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::command::spawn_form;
+use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::process::{CommandSpec, EnvSpec, ExitStatus, OutputMode, ProcessError, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest};
+use mixdog_protocol::ProcessHandle;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::change::ChangeSignal;
 use super::hardware::Gpu;
+use crate::tidy::process::Processes;
 
 const LOG_LIMIT: usize = 16_384;
 
@@ -56,9 +62,14 @@ pub trait RunningProcess: Send + Sync {
     fn kill(&self);
 }
 
+/// Receives a child's stdout/stderr text. The alias keeps the argument's lifetime higher-ranked
+/// through `async_trait`.
+pub type LogSink = Arc<dyn for<'a> Fn(&'a str) + Send + Sync + 'static>;
+
+#[async_trait]
 pub trait Launcher: Send + Sync {
     /// Spawns the child; `log` receives its stdout/stderr text.
-    fn launch(&self, executable: &str, args: &[String], cwd: &str, env: &[(String, String)], log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<Arc<dyn RunningProcess>, String>;
+    async fn launch(&self, executable: &str, args: &[String], cwd: &str, env: &[(String, String)], log: LogSink) -> Result<Arc<dyn RunningProcess>, String>;
 }
 
 #[async_trait]
@@ -206,7 +217,7 @@ impl ServerProcess {
         let api_key: String = (0..2).map(|_| uuid::Uuid::new_v4().simple().to_string()).collect();
         let args = (spec.args)(port, &api_key);
         let log_sink: Arc<Mutex<String>> = Arc::default();
-        let log_cb: Arc<dyn Fn(&str) + Send + Sync> = {
+        let log_cb: LogSink = {
             let sink = log_sink.clone();
             Arc::new(move |text| {
                 let mut s = sink.lock().unwrap();
@@ -220,7 +231,7 @@ impl ServerProcess {
                 }
             })
         };
-        let process = self.launcher.launch(&spec.executable, &args, &spec.cwd, &launch.env, log_cb);
+        let process = self.launcher.launch(&spec.executable, &args, &spec.cwd, &launch.env, log_cb).await;
         let state_log = log_sink.clone();
         let (process, spawn_error) = match process {
             Ok(p) => (Some(p), None),
@@ -401,16 +412,26 @@ impl ServerProcess {
     }
 }
 
-/// The real thing: tokio child process, `/health` over loopback.
-pub struct SystemLauncher;
+/// The real thing: a child of the shared process manager (tree kill, exit events); `/health`
+/// goes over loopback.
+pub struct SystemLauncher(Arc<dyn ProcessManager>);
 
-struct TokioProcess {
+impl SystemLauncher {
+    pub fn new(processes: &Processes) -> Self {
+        Self(processes.manager())
+    }
+}
+
+static NEXT_SERVER: AtomicU64 = AtomicU64::new(0);
+
+struct ManagedProcess {
     exit: tokio::sync::watch::Receiver<Option<ExitInfo>>,
-    kill: CancellationToken,
+    manager: Arc<dyn ProcessManager>,
+    handle: ProcessHandle,
 }
 
 #[async_trait]
-impl RunningProcess for TokioProcess {
+impl RunningProcess for ManagedProcess {
     async fn wait(&self) -> ExitInfo {
         let mut rx = self.exit.clone();
         loop {
@@ -423,60 +444,51 @@ impl RunningProcess for TokioProcess {
         }
     }
     fn kill(&self) {
-        self.kill.cancel();
+        let _ = self.manager.kill(&self.handle);
     }
 }
 
+#[async_trait]
 impl Launcher for SystemLauncher {
-    fn launch(&self, executable: &str, args: &[String], cwd: &str, env: &[(String, String)], log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<Arc<dyn RunningProcess>, String> {
-        use tokio::io::AsyncReadExt;
-        let mut cmd = tokio::process::Command::new(executable);
-        cmd.args(args).current_dir(cwd).envs(env.iter().cloned()).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
-        #[cfg(windows)]
-        cmd.creation_flags(0x0800_0000);
-        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-        for mut pipe in [child.stdout.take().map(|p| Box::new(p) as Box<dyn tokio::io::AsyncRead + Send + Unpin>), child.stderr.take().map(|p| Box::new(p) as Box<dyn tokio::io::AsyncRead + Send + Unpin>)].into_iter().flatten() {
-            let log = log.clone();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 4096];
-                while let Ok(n) = pipe.read(&mut buf).await {
-                    if n == 0 {
+    async fn launch(&self, executable: &str, args: &[String], cwd: &str, env: &[(String, String)], log: LogSink) -> Result<Arc<dyn RunningProcess>, String> {
+        let (program, argv) = spawn_form(executable, args);
+        let cwd = AbsPath::new(std::path::absolute(cwd).map_err(|e| e.to_string())?).ok_or_else(|| format!("working directory {cwd} is not absolute"))?;
+        let handle = ProcessHandle(format!("llama-{}-{}", std::process::id(), NEXT_SERVER.fetch_add(1, Ordering::Relaxed)));
+        let request = SpawnRequest {
+            handle: handle.clone(),
+            command: CommandSpec::Argv { program: program.clone(), args: argv },
+            cwd,
+            env: EnvSpec { inherit: true, set: env.iter().cloned().collect(), remove: Vec::new() },
+            pty: None,
+            stdin_piped: false,
+            output: OutputMode::Separate,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        };
+        self.0.spawn(request).await.map_err(|e| match e {
+            ProcessError::ProgramNotFound { .. } => format!("{program}: program not found"),
+            ProcessError::PermissionDenied => format!("{program}: permission denied"),
+            other => format!("{program}: could not start ({other:?})"),
+        })?;
+        let mut events = self.0.subscribe(&handle, Some(0)).map_err(|e| format!("{program}: {e:?}"))?;
+        let (tx, rx) = tokio::sync::watch::channel(None);
+        tokio::spawn(async move {
+            while let Some(event) = events.next().await {
+                match event {
+                    ProcessEvent::Output { bytes, .. } => log(&String::from_utf8_lossy(&bytes)),
+                    ProcessEvent::Exited { exit, .. } => {
+                        let (exit_code, signal) = match exit.status {
+                            ExitStatus::Code(code) => (Some(code), None),
+                            ExitStatus::Signal(signal) => (None, Some(format!("SIG{signal}"))),
+                        };
+                        let _ = tx.send(Some(ExitInfo { exit_code, signal }));
                         break;
                     }
-                    log(&String::from_utf8_lossy(&buf[..n]));
                 }
-            });
-        }
-        let (tx, rx) = tokio::sync::watch::channel(None);
-        let kill = CancellationToken::new();
-        let killer = kill.clone();
-        tokio::spawn(async move {
-            let status = tokio::select! {
-                s = child.wait() => s,
-                _ = killer.cancelled() => {
-                    let _ = child.start_kill();
-                    child.wait().await
-                }
-            };
-            let info = match status {
-                Ok(s) => ExitInfo { exit_code: s.code(), signal: signal_name(&s) },
-                Err(_) => ExitInfo { exit_code: None, signal: None },
-            };
-            let _ = tx.send(Some(info));
+            }
         });
-        Ok(Arc::new(TokioProcess { exit: rx, kill }))
+        Ok(Arc::new(ManagedProcess { exit: rx, manager: self.0.clone(), handle }))
     }
-}
-
-#[cfg(unix)]
-fn signal_name(status: &std::process::ExitStatus) -> Option<String> {
-    use std::os::unix::process::ExitStatusExt;
-    status.signal().map(|s| format!("SIG{s}"))
-}
-
-#[cfg(not(unix))]
-fn signal_name(_: &std::process::ExitStatus) -> Option<String> {
-    None
 }
 
 pub struct LoopbackHealth(reqwest::Client);
@@ -548,8 +560,9 @@ mod tests {
         last: Mutex<Option<Arc<FakeProcess>>>,
     }
 
+    #[async_trait]
     impl Launcher for FakeLauncher {
-        fn launch(&self, _: &str, args: &[String], _: &str, _: &[(String, String)], log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<Arc<dyn RunningProcess>, String> {
+        async fn launch(&self, _: &str, args: &[String], _: &str, _: &[(String, String)], log: LogSink) -> Result<Arc<dyn RunningProcess>, String> {
             self.launched.fetch_add(1, Ordering::SeqCst);
             let (exit, rx) = tokio::sync::watch::channel(None);
             let p = Arc::new(FakeProcess { killed: AtomicBool::new(false), exit, rx });
@@ -612,6 +625,35 @@ mod tests {
         assert_eq!(s.status()["lastExit"]["expected"], true);
         s.stop().await.unwrap();
         assert_eq!(s.status()["running"], false);
+    }
+
+    #[tokio::test]
+    async fn the_system_launcher_runs_a_child_under_the_process_manager() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().into_owned();
+        let launcher = SystemLauncher::new(&Processes::for_tests());
+        let shell = if cfg!(windows) { "cmd.exe" } else { "sh" };
+        let flag = if cfg!(windows) { "/C" } else { "-c" };
+        let text: Arc<Mutex<String>> = Arc::default();
+        let sink = |text: &Arc<Mutex<String>>| -> LogSink {
+            let text = text.clone();
+            Arc::new(move |chunk: &str| text.lock().unwrap().push_str(chunk))
+        };
+        // Output and the exit code arrive through the manager's events; env is passed on.
+        let echo = if cfg!(windows) { "echo out %MIXDOG_PROBE% & echo err 1>&2 & exit 7" } else { "echo out $MIXDOG_PROBE; echo err >&2; exit 7" };
+        let process = launcher.launch(shell, &[flag.into(), echo.into()], &cwd, &[("MIXDOG_PROBE".into(), "hello".into())], sink(&text)).await.unwrap();
+        let exit = tokio::time::timeout(Duration::from_secs(20), process.wait()).await.unwrap();
+        assert_eq!((exit.exit_code, exit.signal), (Some(7), None));
+        let seen = text.lock().unwrap().clone();
+        assert!(seen.contains("out hello") && seen.contains("err"), "{seen}");
+        // A long-running child dies when killed.
+        let sleeper = if cfg!(windows) { "ping -n 60 127.0.0.1 >nul" } else { "sleep 60" };
+        let process = launcher.launch(shell, &[flag.into(), sleeper.into()], &cwd, &[], sink(&text)).await.unwrap();
+        process.kill();
+        tokio::time::timeout(Duration::from_secs(20), process.wait()).await.unwrap();
+        // A missing program is a launch error, not a panic.
+        let missing = launcher.launch("definitely-not-a-binary-xyz", &[], &cwd, &[], sink(&text)).await.err().unwrap();
+        assert!(missing.contains("not found"), "{missing}");
     }
 
     #[tokio::test(start_paused = true)]

@@ -335,6 +335,23 @@ pub struct HostCommandParams {
     pub thread_id: Option<ThreadId>,
 }
 
+/// Params of `host/notification/status` (core → host): none.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct HostNotificationStatusParams {}
+
+/// Result of `host/notification/status` (Node's host method `notificationStatus`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HostNotificationStatus {
+    /// Whether this PC can show OS notifications (`Notification.isSupported()`).
+    pub supported: bool,
+    /// The OS's system idle time in seconds (`powerMonitor.getSystemIdleTime()`: input anywhere
+    /// on the PC counts); `null` when the host cannot tell, which the caller treats as not
+    /// active. The caller judges it against its own window (Node: 180 s).
+    pub idle_seconds: Option<f64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct HostSystemProxyResolveParams {
     pub url: String,
@@ -662,12 +679,14 @@ pub struct RemotePointerParams {
 /// connection resolves the call `cancelled`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct ModelProxyExecuteParams {
-    pub call: JsonValue,
+    pub call: crate::v2::model_proxy::ProxyCall,
 }
 
+/// A failed call answers with a JSON-RPC error whose data is a
+/// [`crate::v2::model_proxy::ProxyFailure`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct ModelProxyResult {
-    pub result: JsonValue,
+    pub result: crate::v2::model_proxy::ProxyAnswer,
 }
 
 /// Electron → server core: one streamed event of a `model/proxy/execute` request.
@@ -675,7 +694,7 @@ pub struct ModelProxyResult {
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyEventParams {
     pub request_id: RequestId,
-    pub event: JsonValue,
+    pub event: crate::v2::model_proxy::ProxyEvent,
 }
 
 /// Electron → its local core: execute a proxied call.
@@ -684,7 +703,7 @@ pub struct ModelProxyEventParams {
 pub struct ModelProxyRunParams {
     /// Stream id the local core stamps on `modelProxy/run/event`.
     pub run_id: String,
-    pub call: JsonValue,
+    pub call: crate::v2::model_proxy::ProxyCall,
 }
 
 /// Local core → Electron: one streamed event of a `modelProxy/run` request.
@@ -692,5 +711,5 @@ pub struct ModelProxyRunParams {
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyRunEventParams {
     pub run_id: String,
-    pub event: JsonValue,
+    pub event: crate::v2::model_proxy::ProxyEvent,
 }

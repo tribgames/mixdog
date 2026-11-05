@@ -20,6 +20,8 @@ sha1 = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+mixdog-ai = { workspace = true }
+mixdog-core-api = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tempfile = { workspace = true }

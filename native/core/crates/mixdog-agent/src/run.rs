@@ -81,6 +81,8 @@ pub struct RunConfig {
     /// The route's model takes no media input: each request is degraded and
     /// checked (`input-capabilities.mjs`).
     pub text_only: Option<crate::text_only::TextOnlyInput>,
+    /// Resolves stored text-attachment references to their text in each request.
+    pub attachments: Option<std::sync::Arc<dyn crate::attachments::AttachmentText>>,
 }
 
 impl RunConfig {
@@ -105,6 +107,7 @@ impl RunConfig {
             effort: None,
             step_auto_effort: None,
             text_only: None,
+            attachments: None,
         }
     }
 }
@@ -245,9 +248,6 @@ pub struct RunFailure {
     pub carried_report: String,
     pub transcript: Vec<AgentMessage>,
     pub carry: RunCarry,
-    /// Set when a provider changed the session's state during the run; the host
-    /// saves it with `RunPort::save_provider_state` (an empty state clears it).
-    pub provider_state: Option<ProviderState>,
 }
 
 /// The ask result: the terminal response plus the loop's aggregate usage.
@@ -265,7 +265,9 @@ pub struct RunOutput {
     pub provider_continuations: u32,
     pub transcript: Vec<AgentMessage>,
     pub carry: RunCarry,
-    /// As on [`RunFailure`].
+    /// Set when a provider changed the session's state during the run; the host
+    /// saves it with `RunPort::save_provider_state` (an empty state clears it).
+    /// A failed run saves none: Node persists state from a delivered result only.
     pub provider_state: Option<ProviderState>,
 }
 
@@ -483,7 +485,6 @@ impl Run {
                 carried_report: self.no_tool.ended_report(),
                 transcript: self.messages,
                 carry: self.carry,
-                provider_state: self.provider_state_changed.then_some(self.provider_state).flatten(),
             }),
         }
     }

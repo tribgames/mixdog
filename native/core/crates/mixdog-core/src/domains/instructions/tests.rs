@@ -7,7 +7,6 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
-use mixdog_protocol::DomainErrorDetail;
 use serde_json::Value;
 use serde_json::json;
 
@@ -106,12 +105,10 @@ fn refusal(error: CoreError) -> (Option<String>, String) {
     match error {
         CoreError::DomainError {
             code,
-            detail: Some(detail),
+            message: Some(message),
+            detail: None,
             ..
-        } => match *detail {
-            DomainErrorDetail::CommandFailed { message } => (code.map(|c| c.to_string()), message),
-            other => panic!("unexpected detail {other:?}"),
-        },
+        } => (code.map(|c| c.to_string()), message.to_string()),
         other => panic!("unexpected error {other:?}"),
     }
 }

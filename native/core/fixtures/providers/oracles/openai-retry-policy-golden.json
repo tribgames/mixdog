@@ -1,0 +1,65 @@
+{
+ "source": "openai-retry-policy.mjs, openai-http-sse-request.mjs, openai-ws-send-attempts/policy.mjs, openai-oauth.mjs, openai-ws.mjs",
+ "requestBackoffMs": [
+  200,
+  200,
+  400,
+  800,
+  1600,
+  3200
+ ],
+ "streamBackoffMs": [
+  200,
+  400,
+  800,
+  1600,
+  3200
+ ],
+ "jitterRatio": 0.1,
+ "requestMaxRetries": 4,
+ "requestWaitsMs": [
+  200,
+  400,
+  800,
+  1600
+ ],
+ "midstreamRetries": 5,
+ "handshakeMaxAttempts": 6,
+ "midstreamWaitsMs": [
+  200,
+  400,
+  800,
+  1600,
+  3200
+ ],
+ "providerRetryPolicy": {
+  "openaiOauth": {
+   "unboundedConnectionRetry": true,
+   "contentFilterRetryable": true
+  },
+  "openai": {
+   "unboundedConnectionRetry": true,
+   "contentFilterRetryable": true
+  }
+ },
+ "adviceRetryableKinds": [
+  "overloaded",
+  "rate_limited",
+  "transient"
+ ],
+ "connectionLadderMs": [
+  5000,
+  10000,
+  20000,
+  40000,
+  60000,
+  60000,
+  60000,
+  60000,
+  60000,
+  60000,
+  60000,
+  60000,
+  60000
+ ]
+}

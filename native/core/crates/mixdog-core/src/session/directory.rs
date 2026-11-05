@@ -628,6 +628,9 @@ impl ThreadDirectory for SessionDirectory {
                 if let Some(path) = &params.project_path {
                     header.insert("cwd".into(), json!(path));
                 }
+                if let Some(options) = &params.session {
+                    super::session_options::write_header(options, &mut header);
+                }
                 let handle = self
                     .inner
                     .create(CreateSpec {

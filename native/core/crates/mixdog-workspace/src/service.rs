@@ -265,7 +265,7 @@ impl WorkspaceService {
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
-            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), detail: None },
+            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: None, detail: None },
         }
     }
 
@@ -753,6 +753,7 @@ impl WorkspaceService {
                 (OpRowState::Rejected, code) => Err(CoreError::DomainError {
                     domain: "workspace".into(),
                     code: Some(code.unwrap_or_else(|| "rejected".into()).into()),
+                    message: None,
                     detail: None,
                 }),
                 _ => Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect: method.into(), target: "".into() }),

@@ -163,7 +163,7 @@ impl From<&Usage> for Facts {
             output_tokens: usage.output_tokens as f64,
             cached_tokens: usage.cache_read_tokens as f64,
             cache_write_tokens: usage.cache_write_tokens as f64,
-            cache_write_1h_tokens: 0.0,
+            cache_write_1h_tokens: usage.cache_write_1h_tokens as f64,
             cost_usd: usage.cost.map(|ticks| ticks.0 as f64 / 10_000_000_000.0),
             raw_service_tier: usage
                 .raw

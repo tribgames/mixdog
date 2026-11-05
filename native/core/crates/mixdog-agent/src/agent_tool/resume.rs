@@ -71,7 +71,7 @@ pub struct TagResume {
     env: Arc<dyn Environment>,
     default_cwd: String,
     /// Owner scope + tag -> a lock every decision on that tag passes through, in order.
-    in_flight: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    in_flight: Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
 }
 
 impl TagResume {
@@ -96,10 +96,15 @@ impl TagResume {
         };
         let key = format!("{owner}\0{tag}");
         let lock = Arc::clone(
-            self.in_flight.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key.clone()).or_default(),
+            self.in_flight
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entry(key.clone())
+                .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1))),
         );
         let result = {
-            let _turn = lock.lock().await;
+            // A semaphore is never closed here, so the wait only ends with a permit.
+            let _turn = lock.acquire().await;
             run.await
         };
         let mut map = self.in_flight.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
