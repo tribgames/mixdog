@@ -210,8 +210,8 @@ export function recordTranscriptBoundary(session, field, boundary, same) {
   const anchor = messages[index];
   const switches = Array.isArray(anchor.meta?.[field]) ? anchor.meta[field] : [];
   if (switches.some(same)) return true;
-  // Replace the message object: the session save worker detects changed
-  // messages by reference identity, so an in-place meta edit is never saved.
+  // Replace the message object: the session log's recorder diffs messages by
+  // reference, so an in-place meta edit would never be recorded.
   messages[index] = { ...anchor, meta: { ...anchor.meta, [field]: [...switches, boundary] } };
   return true;
 }

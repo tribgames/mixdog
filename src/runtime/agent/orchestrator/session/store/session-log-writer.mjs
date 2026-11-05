@@ -12,7 +12,8 @@
  * synchronous: each is a whole-file step done once per tenure (or on a rare
  * repair), and the exit drain must be able to open a log it has to flush.
  * A batch's bytes are written on the thread (into the page cache); only its
- * fsync, and a rewrite's waits between refused renames, run off it.
+ * fsync, the check of the json beside the log before it, and a rewrite's
+ * waits between refused renames, run off it.
  *
  * A new log (a new session, a legacy conversion, a redaction rewrite, a
  * repair) is written whole to a temp file, read back and proven, then
@@ -38,6 +39,7 @@ import {
   unlinkSync,
   writeSync,
 } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -53,9 +55,11 @@ import {
   jsonEqual,
   messageJson,
   newLogId,
+  sameFingerprint,
+  SESSION_LOG_SUFFIX,
   sha1Hex,
 } from './session-log-format.mjs';
-import { legacySessionId, parseSessionLog, sessionFromLog } from './session-log-reader.mjs';
+import { legacySessionId, legacyStanding, parseSessionLog, sessionFromLog } from './session-log-reader.mjs';
 
 export const SESSION_LOG_ERRORS = Object.freeze({
   /** The log is not the one this copy was recorded on, or the claim is gone. */
@@ -132,6 +136,68 @@ function writeBatchSync(fd, buffer, position) {
   for (let done = 0; done < buffer.length; ) {
     done += io.writeSync(fd, buffer, done, buffer.length - done, position + done);
   }
+}
+
+const ABSENT = (err) => err?.code === 'ENOENT' || err?.code === 'ENOTDIR';
+
+async function statOrNull(path) {
+  try {
+    return await stat(path);
+  } catch (err) {
+    if (ABSENT(err)) return null;
+    throw err;
+  }
+}
+
+function statOrNullSync(path) {
+  try {
+    return statSync(path);
+  } catch (err) {
+    if (ABSENT(err)) return null;
+    throw err;
+  }
+}
+
+async function readOrNull(path) {
+  try {
+    return await readFile(path);
+  } catch (err) {
+    if (ABSENT(err)) return null;
+    throw err;
+  }
+}
+
+function readOrNullSync(path) {
+  try {
+    return readFileSync(path);
+  } catch (err) {
+    if (ABSENT(err)) return null;
+    throw err;
+  }
+}
+
+// What a json whose bytes were proven is remembered by. The change time is in
+// it: every content write and every timestamp set moves it, and no file API
+// of Node sets it back, so a rewrite whose mtime was restored to the proven
+// one is read again. (The mtime alone would let the writer trust bytes the
+// seam, which trusts only the anchor's fingerprint, reads as diverged.)
+function statIdentity(st) {
+  return {
+    size: Number(st.size),
+    mtimeMs: Number(st.mtimeMs),
+    ctimeMs: Number(st.ctimeMs),
+    ino: Number(st.ino),
+  };
+}
+
+function sameStatIdentity(identity, st) {
+  return (
+    identity !== null &&
+    identity.size === Number(st.size) &&
+    identity.mtimeMs === Number(st.mtimeMs) &&
+    identity.ctimeMs === Number(st.ctimeMs) &&
+    identity.ino === Number(st.ino)
+  );
 }
 
 function removeQuietly(path) {
@@ -395,8 +461,10 @@ function writeProvenText(path, text, what) {
 }
 
 // The legacy json with its messages redacted, written to a temp file and
-// proven before anything moves; null when no message changes.
-function prepareRedactedJson(redaction, sessionId) {
+// proven before anything moves; null when no message changes. The new base
+// takes the redacted json as its anchor, so a json diverged from `anchor`
+// (the log's) is refused: anchoring it would hide what the older build wrote.
+function prepareRedactedJson(redaction, sessionId, anchor) {
   let bytes;
   try {
     bytes = readFileSync(redaction.jsonPath);
@@ -404,6 +472,7 @@ function prepareRedactedJson(redaction, sessionId) {
     if (err?.code === 'ENOENT') return null;
     throw err;
   }
+  if (legacyStanding(anchor, { bytes }) === 'diverged') throw divergedJsonError(redaction.jsonPath);
   let doc = null;
   try {
     doc = JSON.parse(bytes.toString('utf8'));
@@ -500,6 +569,13 @@ function recorderOptions(options = {}) {
     // Test runs (node --test sets NODE_TEST_CONTEXT) freeze what is recorded.
     freezeRecorded: options.freezeRecorded ?? process.env.NODE_TEST_CONTEXT !== undefined,
   };
+}
+
+function divergedJsonError(jsonPath) {
+  return logError(
+    SESSION_LOG_ERRORS.CHANGED,
+    `${jsonPath} is no longer the json its log was built from (an older build wrote it): the json is the record`
+  );
 }
 
 function assertClaim(claim) {
@@ -607,8 +683,13 @@ function repairDamagedLog(logPath, log, claim) {
 export class SessionLogRecorder {
   constructor({ logPath, fd, log, refs, options }) {
     this.logPath = logPath;
+    this._jsonPath = join(dirname(logPath), `${basename(logPath, SESSION_LOG_SUFFIX)}.json`);
     this.sessionId = log.sessionId;
+    // The json the log was built from, as its base names it (never changed
+    // but by a rewrite's new base), and apart from it the stat the json's
+    // bytes were last proven not diverged under (_jsonDecided).
     this.legacy = log.legacy;
+    this._jsonProven = null;
     this.loaded = log.messages ? sessionFromLog(log) : null;
     this._options = options;
     this._fd = fd;
@@ -812,11 +893,61 @@ export class SessionLogRecorder {
    * False once the log moved on outside this recorder: another writer
    * appended to it, cut it or renamed another file over it. Exact while no
    * batch of this recorder is being written; during one (or a rewrite) true —
-   * every batch checks again right before it writes.
+   * every batch checks again right before it writes. Whether the log is
+   * still the record (the json beside it) is the batch's own check (_drain).
    */
   get atLogEnd() {
     if (this._draining || this._ops.length || this._fd === null) return true;
     return this._atLogEnd(this._end, this._unacked?.buffer ?? null);
+  }
+
+  /**
+   * Whether the json beside the log diverged from the json the log was built
+   * from: the seam then reads that json (legacyStanding), so records written
+   * now would be acknowledged yet never read. Its stat settles it while the
+   * json is absent, still has the anchor's fingerprint, or still has the stat
+   * its bytes were last proven under — a touch that left the bytes as they
+   * were costs one read, once; otherwise the bytes decide. This is the
+   * synchronous course, for the whole-file steps (an open, a rewrite) and
+   * the exit drain; a batch takes the async one (_jsonDiverged).
+   */
+  jsonDivergedSync() {
+    const before = statOrNullSync(this._jsonPath);
+    if (this._jsonSettled(before)) return false;
+    const bytes = readOrNullSync(this._jsonPath);
+    return this._jsonDecided(before, bytes, statOrNullSync(this._jsonPath));
+  }
+
+  async _jsonDiverged() {
+    const before = await statOrNull(this._jsonPath);
+    if (this._jsonSettled(before)) return false;
+    const bytes = await readOrNull(this._jsonPath);
+    return this._jsonDecided(before, bytes, await statOrNull(this._jsonPath));
+  }
+
+  _jsonSettled(st) {
+    if (!st) return true;
+    if (this.legacy && sameFingerprint(this.legacy, fileFingerprint(st))) return true;
+    return sameStatIdentity(this._jsonProven, st);
+  }
+
+  // A json gone meanwhile is absent (the log speaks). One not diverged is
+  // remembered by its stat only when that did not change across the read.
+  _jsonDecided(before, bytes, after) {
+    if (bytes === null) return false;
+    if (legacyStanding(this.legacy, { bytes }) === 'diverged') return true;
+    if (after && sameStatIdentity(statIdentity(before), after)) this._jsonProven = statIdentity(after);
+    return false;
+  }
+
+  // The exit drain's check of a batch: why its records may not be written on
+  // the log, or null — they would land over (or after) another writer's
+  // records, or on a log that is no longer the record. The json wins, as
+  // after a downgrade; nothing is written.
+  _writtenOutside(start, pending) {
+    if (!this._atLogEnd(start, pending)) return this._movedOnError();
+    if (this.jsonDivergedSync()) return divergedJsonError(this._jsonPath);
+    return null;
   }
 
   // Every writer of a log appends at its end or renames a new file over its
@@ -1065,8 +1196,29 @@ export class SessionLogRecorder {
         const waiters = this._waiters;
         this._waiters = [];
         this._unacked = { buffer, start, lastSeq, waiters };
+        // The json first, off the thread (it may have to be read whole). A
+        // read that fails tells nothing: the batch is kept for the next one,
+        // as a failed write is.
+        let diverged;
+        try {
+          diverged = await this._jsonDiverged();
+        } catch (err) {
+          if (this._closedHard) return;
+          for (const waiter of [...waiters, ...this._waiters]) waiter.reject(this._stale ?? err);
+          this._waiters = [];
+          return;
+        }
+        // The exit drain wrote this batch meanwhile, or the recorder lost its
+        // claim or was discarded: nothing of it is written here.
+        if (this._closedHard) return;
+        if (this._stale) {
+          for (const waiter of waiters) waiter.reject(this._stale);
+          return;
+        }
+        // Then the claim and the log itself, right before the write.
         try {
           this._options.claim.assertHeld();
+          if (diverged) throw divergedJsonError(this._jsonPath);
           // Records diffed against a state the log no longer ends in would
           // land over (or after) another writer's: none of them is written.
           if (!this._atLogEnd(start, failed?.buffer ?? null)) throw this._movedOnError();
@@ -1147,8 +1299,8 @@ export class SessionLogRecorder {
       const fresh = Buffer.from(this._queue.join(''), 'utf8');
       const start = this._unacked ? this._unacked.start : this._end;
       const buffer = this._unacked ? Buffer.concat([this._unacked.buffer, fresh]) : fresh;
-      if (!this._atLogEnd(start, this._unacked?.buffer ?? null)) {
-        const err = this._movedOnError();
+      const err = this._writtenOutside(start, this._unacked?.buffer ?? null);
+      if (err) {
         for (const waiter of this._unacked?.waiters ?? []) waiter.reject(err);
         this._goStale(err);
         throw err;
@@ -1331,6 +1483,8 @@ export class SessionLogRecorder {
   // rewrite was accepted with; its messages are projected now, with the
   // sensitive values as they are.
   _planRewrite({ header: accepted, messages, reason, redaction }) {
+    // A new base on a log that is no longer the record would be as unread.
+    if (this.jsonDivergedSync()) throw divergedJsonError(this._jsonPath);
     const header = { ...accepted, id: this.sessionId };
     const messageJsons = messages.map((message) => this._messageJson(message));
     const temps = [];
@@ -1338,7 +1492,7 @@ export class SessionLogRecorder {
       // The legacy json is redacted beside the log (the one case it is ever
       // written): its new identity is the new base's, and `redactedFrom`
       // names the old one so a crash between the two swaps is no divergence.
-      const json = redaction?.jsonPath ? prepareRedactedJson(redaction, this.sessionId) : null;
+      const json = redaction?.jsonPath ? prepareRedactedJson(redaction, this.sessionId, this.legacy) : null;
       if (json) temps.push(json.tmpPath);
       const asides = redaction ? prepareRedactedAsides(this.logPath, redaction) : [];
       for (const aside of asides) temps.push(aside.tmpPath);
@@ -1390,6 +1544,7 @@ export class SessionLogRecorder {
     const { base, proven, legacy, messages } = job.plan;
     this._fd = openSync(this.logPath, 'r+');
     this.legacy = legacy;
+    this._jsonProven = null;
     this._reset(base.logId, 1, proven.size, proven.replay.header, messages);
   }
 
@@ -1403,6 +1558,14 @@ export class SessionLogRecorder {
   /** Waits for the queue, then closes the file. Pending failures reject. */
   async close() {
     if (this._closed) return;
+    // Nothing in flight and nothing left to write: the file closes before
+    // this returns, so a caller may rename over the log at once (a retired
+    // recorder whose session is rebased: Windows refuses a rename over an
+    // open file).
+    if (!this._rewriting && !this._draining && (this._stale || this._closedHard || !this.pending)) {
+      this.closeUnused();
+      return;
+    }
     // A rewrite in flight swaps the file under the recorder: it (and any
     // queued behind it) ends first.
     while (this._rewriting) await this._rewriting;

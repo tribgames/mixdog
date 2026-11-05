@@ -88,7 +88,8 @@ export function attachFailedTurnCompletion(messages, completion) {
   if (!message || message.role === 'system') return false;
   const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
   const transcript = meta.transcript && typeof meta.transcript === 'object' ? meta.transcript : {};
-  // A new object: the save worker detects changed messages by identity.
+  // A new object: the session log's recorder diffs messages by reference, so
+  // only a replaced message is recorded (recorded ones are never edited).
   messages[index] = { ...message, meta: { ...meta, transcript: { ...transcript, completion } } };
   return true;
 }

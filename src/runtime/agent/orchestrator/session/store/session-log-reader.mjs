@@ -336,22 +336,34 @@ function resolveLegacy(jsonPath, loadLegacy, file) {
   return { kind: 'legacy', session, legacy: legacyIdentity(file) };
 }
 
+/**
+ * What the json beside a log (`file`: { bytes } read, or null) is to that log,
+ * whose base names `logLegacy`: 'none' (absent or holding no data: the log
+ * speaks), 'anchor' (the json the log was built from), 'redaction-pending'
+ * (the json a redaction rewrite replaced, its own swap cut short: the log
+ * speaks, the json still waits for that redaction) or 'diverged' (any other
+ * json — an older build wrote it after a downgrade: the json is the record).
+ */
+export function legacyStanding(logLegacy, file) {
+  if (!holdsData(file)) return 'none';
+  const sha1 = sha1Hex(file.bytes);
+  if (logLegacy && sha1 === logLegacy.sha1) return 'anchor';
+  if (logLegacy?.redactedFrom && sha1 === logLegacy.redactedFrom) return 'redaction-pending';
+  return 'diverged';
+}
+
 // Sync and async callers share it: `readJson` returns the file or a promise of it.
 function resolveWithLog(log, jsonStat, readJson, loadLegacy) {
   const fromLog = () => ({ kind: 'log', log, session: log.messages ? sessionFromLog(log) : null });
   if (!jsonStat) return log.legacy ? { kind: 'orphan', log, session: fromLog().session } : fromLog();
   if (log.legacy && sameFingerprint(log.legacy, fileFingerprint(jsonStat))) return fromLog();
   const settle = (file) => {
-    if (!holdsData(file)) return log.legacy ? { kind: 'orphan', log, session: fromLog().session } : fromLog();
-    const legacy = legacyIdentity(file);
-    if (log.legacy && legacy.sha1 === log.legacy.sha1) return fromLog();
-    // The json a redaction rewrite replaced, its own swap cut short: the log
-    // is authoritative and the json still waits for that redaction.
-    if (log.legacy?.redactedFrom && legacy.sha1 === log.legacy.redactedFrom) {
-      return { ...fromLog(), redactionPending: true };
-    }
+    const standing = legacyStanding(log.legacy, file);
+    if (standing === 'none') return log.legacy ? { kind: 'orphan', log, session: fromLog().session } : fromLog();
+    if (standing === 'anchor') return fromLog();
+    if (standing === 'redaction-pending') return { ...fromLog(), redactionPending: true };
     const session = loadLegacy(file.bytes.toString('utf8'), log.sessionId);
-    return { kind: 'diverged', log, legacy, session };
+    return { kind: 'diverged', log, legacy: legacyIdentity(file), session };
   };
   const file = readJson();
   return typeof file?.then === 'function' ? file.then(settle) : settle(file);

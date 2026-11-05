@@ -10,6 +10,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -116,6 +117,87 @@ test('the copy this tenure wrote is refused once another writer appended, and th
   assert.deepEqual(
     outcome.session.messages.map((message) => message.content),
     ['go']
+  );
+});
+
+test('a save after an older build wrote the json is refused, and the session reads what that build wrote', async () => {
+  const id = 'sess_writers_older_build_json';
+  const doc = { id, owner: 'agent', messages: [{ role: 'user', content: 'go' }] };
+  writeFileSync(files(id).jsonPath, JSON.stringify(doc));
+  const session = structuredClone(doc);
+  session.messages = [...session.messages, { role: 'assistant', content: 'first' }];
+  assert.equal(await saveSessionDurably(session), SAVE_OUTCOME_SAVED);
+  // v1.4.5, which knows no log, writes the session's json while this process holds it.
+  const older = { ...doc, messages: [...doc.messages, { role: 'user', content: 'written by v1.4.5' }] };
+  writeFileSync(files(id).jsonPath, JSON.stringify(older));
+  session.messages = [...session.messages, { role: 'assistant', content: 'second' }];
+  await assert.rejects(saveSessionDurably(session), { code: 'ESESSIONCHANGED' });
+  assert.deepEqual(
+    stored(id).session.messages.map((message) => message.content),
+    ['go', 'written by v1.4.5']
+  );
+});
+
+test('a json touched with its bytes unchanged is read once, and every save after it is acknowledged', async (t) => {
+  const id = 'sess_writers_touched_json';
+  const doc = { id, owner: 'agent', messages: [{ role: 'user', content: 'go' }] };
+  const { jsonPath } = files(id);
+  writeFileSync(jsonPath, JSON.stringify(doc));
+  const session = structuredClone(doc);
+  assert.equal(await saveSessionDurably(session), SAVE_OUTCOME_SAVED);
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(jsonPath, later, later);
+  let reads = 0;
+  const { readFileSync: realSync } = fs;
+  const realAsync = fs.promises.readFile;
+  const counted = (path) => {
+    if (String(path) === jsonPath) reads += 1;
+  };
+  fs.readFileSync = function (path, ...rest) {
+    counted(path);
+    return realSync.call(this, path, ...rest);
+  };
+  fs.promises.readFile = function (path, ...rest) {
+    counted(path);
+    return realAsync.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.readFileSync = realSync;
+    fs.promises.readFile = realAsync;
+    syncBuiltinESMExports();
+  });
+  for (let i = 0; i < 20; i += 1) {
+    session.messages = [...session.messages, { role: 'assistant', content: `reply ${i}` }];
+    assert.equal(await saveSessionDurably(session), SAVE_OUTCOME_SAVED, `save ${i}`);
+  }
+  assert.equal(reads, 1, 'the touched json was read more than once');
+});
+
+test('a json rewritten in place with its touched mtime restored is not trusted: the save is refused, as the seam reads that json', async () => {
+  const id = 'sess_writers_restored_mtime';
+  const doc = (text) => ({ id, owner: 'agent', messages: [{ role: 'user', content: text }] });
+  const { jsonPath } = files(id);
+  writeFileSync(jsonPath, JSON.stringify(doc('aa')));
+  const session = doc('aa');
+  assert.equal(await saveSessionDurably(session), SAVE_OUTCOME_SAVED);
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(jsonPath, later, later);
+  session.messages = [...session.messages, { role: 'assistant', content: 'after the touch' }];
+  assert.equal(await saveSessionDurably(session), SAVE_OUTCOME_SAVED);
+  // Same length, same ino, the touched mtime set back.
+  const touched = statSync(jsonPath);
+  writeFileSync(jsonPath, JSON.stringify(doc('bb')));
+  utimesSync(jsonPath, touched.atime, touched.mtime);
+  assert.equal(statSync(jsonPath).mtimeMs, touched.mtimeMs);
+  assert.equal(statSync(jsonPath).size, touched.size);
+  session.messages = [...session.messages, { role: 'assistant', content: 'after the rewrite' }];
+  await assert.rejects(saveSessionDurably(session), { code: 'ESESSIONCHANGED' });
+  const outcome = stored(id);
+  assert.equal(outcome.kind, 'diverged');
+  assert.deepEqual(
+    outcome.session.messages.map((message) => message.content),
+    ['bb']
   );
 });
 
