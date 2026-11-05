@@ -134,7 +134,7 @@ async function signIn(t, identity) {
   const cfg = { loadConfig: () => ({ providers: {} }), saveConfig() {} };
   mockAnthropicExchange(t, identity);
   process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI ||= 'https://platform.claude.com/oauth/code/callback';
-  const login = await beginOAuthProviderLogin(cfg, 'anthropic-oauth', { addAccount: true, label: 'Dev' });
+  const login = await beginOAuthProviderLogin(cfg, 'anthropic-oauth', { addAccount: true, label: 'Dev', openBrowser: false });
   t.after(() => login.cancel?.());
   const state = new URL(login.url).searchParams.get('state');
   return login.completeCode(`code#${state}`);
