@@ -55,7 +55,7 @@ test('skipped sessions are listed with their reason and are not pending; message
     })
   );
   assert.equal(row.level, 'warn');
-  assert.equal(row.detail, 'complete · 1 session logs · 1 skipped: bad (unreadable)');
+  assert.equal(row.detail, 'complete · 1 session log · 1 skipped: bad (unreadable)');
   assert.ok(row.fix.hint);
   assert.doesNotMatch(JSON.stringify(row), /secret/);
 });
