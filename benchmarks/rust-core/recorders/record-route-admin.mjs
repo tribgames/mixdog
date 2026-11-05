@@ -456,6 +456,63 @@ for (let i = 0; i < 400; i += 1) {
   });
 }
 
+// refreshRouteEffort (route-resolution.mjs): the effort, Fast, context and display fields of the
+// live route. The effort ladders (coerceEffortFor, effortItemsFor) and fastCapableFor are recorded
+// per case as the facts the Rust function is given; Rust computes everything around them.
+const { createRouteResolution } = await importFrom(tree, 'src/session-runtime/route-resolution.mjs');
+const effortMod = await importFrom(tree, `${rc}effort.mjs`);
+const REFRESH_METAS = [
+  ...METAS,
+  { id: 'gpt-5', provider: 'openai', name: 'GPT 5', reasoningLevels: ['low', 'high'], contextWindow: 272000, maxContextWindow: 1000000 },
+  { id: 'gpt-5', provider: 'openai', name: 'gpt-5', display: 'GPT Five', contextWindow: 400000 },
+  { id: 'x', provider: 'gemini', displayName: 'Gem', reasoningLevels: ['minimal', 'medium'], maxContextWindow: 800000 },
+  { id: 'claude-opus', provider: 'anthropic', name: 'Opus', supportsFastMode: true, contextWindow: 200000, maxContextWindow: 1000000, modelParameterOptions: [{ id: 'context', options: [{ value: '1m', contextWindow: 1000000 }, { value: '200k', contextWindow: 200000 }] }] },
+];
+const refreshCases = [];
+for (let i = 0; i < 400; i += 1) {
+  const config = randomConfig();
+  const route = { ...routeLeaf(), provider: pick(KNOWN), model: pick(['gpt-5', 'claude-opus', 'x']) };
+  if (chance(0.4)) route.effectiveEffort = pick(['low', 'high']);
+  if (chance(0.4)) route.modelDisplay = pick(['Old Name', '']);
+  if (chance(0.4)) route.modelParameters = pick([{ context: '1m' }, { context: '200k' }, { context: ' 1m ' }, { serviceTier: 'priority' }, {}]);
+  if (chance(0.3)) route.selectedContextWindow = pick([300000, 0, 'x']);
+  if (chance(0.4)) route.fast = pick([true, false]);
+  const meta = pick(REFRESH_METAS);
+  const useOverride = chance(0.5);
+  const rt = { config: structuredClone(config), route: structuredClone(route) };
+  const expectedMode = pick(['none', 'same', 'other']);
+  const leaseMode = pick(['none', 'none', 'valid', 'ended']);
+  const target = expectedMode === 'same' ? rt.route : expectedMode === 'other' ? structuredClone(route) : null;
+  const resolution = createRouteResolution({
+    rt,
+    collectProviderModels: async () => [],
+    ensureProvidersReady: async () => {},
+    lookupModelMeta: async () => structuredClone(meta),
+  });
+  const lease = leaseMode === 'none' ? null : { valid: () => leaseMode === 'valid' };
+  const before = plain(rt.route);
+  let result;
+  try {
+    result = { value: plain(await resolution.refreshRouteEffort(useOverride ? structuredClone(meta) : null, target, null, lease)) };
+  } catch (error) {
+    result = { error: String(error?.message ?? error) };
+  }
+  const provider = route.provider;
+  const requested = Object.hasOwn(route, 'effort') ? route.effort : route.preset?.effort || null;
+  const resolved = meta && Object.keys(meta).some((k) => k !== 'id' && k !== 'provider');
+  const effective = resolved ? effortMod.coerceEffortFor(provider, meta, requested) : requested || null;
+  refreshCases.push({
+    config, route: before, meta, useOverride, expectedMode, leaseMode,
+    ladder: {
+      effective: plain(effective),
+      items: plain(effortMod.effortItemsFor(provider, meta, effective)),
+      fast: Boolean(caps.fastCapableFor(provider, meta, effective, route.modelParameters)),
+    },
+    ...result,
+    after: plain(rt.route),
+  });
+}
+
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'ai-admin');
 writeJson(join(outDir, 'route-admin-twin.json'), {
   domain: 'route-admin-twin',
@@ -470,6 +527,7 @@ writeJson(join(outDir, 'route-admin-twin.json'), {
   serviceCases,
   fastCases,
   agentCases,
+  refreshCases,
 });
 refreshAdminManifest(outDir, tree);
 console.log(`recorded ${resolveCases.length} resolve, ${normalizeCases.length} normalize, ${contextCases.length} context, ${textCases.length} text cases`);

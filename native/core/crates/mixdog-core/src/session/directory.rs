@@ -10,6 +10,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::atomic::Ordering::SeqCst;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::ThreadStartParams;
@@ -49,6 +50,7 @@ use super::actor::Inbox;
 use super::actor::Init;
 use super::actor::SessionActor;
 use super::control::ControlCell;
+use super::control::Ctl;
 use super::durability::DurabilityTask;
 use super::durability::LogInit;
 use super::handle::SessionHandle;
@@ -62,6 +64,9 @@ use super::view::SessionView;
 use crate::approvals::Lineage;
 
 const SHARDS: usize = 64;
+
+/// `INGEST_DEADLINE_MS` (`memory-ingest.mjs:4`): how long shutdown waits for the ingests.
+const SHUTDOWN_INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2500);
 
 type Loaded = Result<Arc<SessionHandle>, CoreError>;
 
@@ -114,6 +119,21 @@ impl SessionDirectory {
         self.inner.loaded(id)
     }
 
+    /// The ids of every loaded thread (the threads this process hosts).
+    pub fn loaded_ids(&self) -> Vec<ThreadId> {
+        self.inner
+            .shards
+            .iter()
+            .flat_map(|shard| {
+                lock(shard)
+                    .iter()
+                    .filter(|(_, slot)| matches!(slot, Slot_::Loaded(_)))
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not
     /// minted ids) with `header` as its first durable write.
     pub async fn create_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
@@ -128,6 +148,44 @@ impl SessionDirectory {
             })
             .await
             .map(|_| ())
+    }
+
+    /// A session's title, agent, owner session and source type, from the index without loading
+    /// it (today's `readStoredSessionMetadata`); `None` for a session the catalog does not list.
+    pub async fn session_meta(&self, id: &ThreadId) -> Result<Option<super::seams::SessionMeta>, CoreError> {
+        self.inner.deps.store.session_meta(id).await
+    }
+
+    /// Core shutdown (today's `teardown.mjs:192`): every loaded thread stops (a live run is
+    /// cancelled) and its memory ingest is awaited, all of them together bounded at 2500 ms.
+    pub async fn shutdown(&self) {
+        let handles: Vec<Arc<SessionHandle>> = self
+            .inner
+            .shards
+            .iter()
+            .flat_map(|shard| {
+                lock(shard)
+                    .drain()
+                    .filter_map(|(_, slot)| match slot {
+                        Slot_::Loaded(handle) => Some(handle),
+                        Slot_::Loading(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut ingests = Vec::new();
+        for handle in handles {
+            let (done, ingest) = tokio::sync::oneshot::channel();
+            if handle.cell.ctl_tx.send(Ctl::Shutdown(done)).await.is_ok() {
+                ingests.push(ingest);
+            }
+        }
+        let all = futures::future::join_all(ingests.into_iter().map(|ingest| async move {
+            if let Ok(ingest) = ingest.await {
+                ingest.await;
+            }
+        }));
+        let _ = tokio::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
     }
 
     /// Opens (single-flight) and returns the concrete handle.
@@ -172,6 +230,20 @@ impl DirInner {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut hasher);
         &self.shards[(hasher.finish() as usize) % SHARDS]
+    }
+
+    /// Drops the loaded thread whose cell is `cell` when it still has no subscriber, and
+    /// closes the cell under the shard lock. False when a subscriber came back meanwhile.
+    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
+        let mut shard = lock(self.shard(id));
+        let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
+        if !ours || cell.subscribers.load(SeqCst) != 0 {
+            return false;
+        }
+        // An attach that counts itself after the check sees `closed` and fails.
+        cell.closed.store(true, SeqCst);
+        shard.remove(id);
+        true
     }
 
     fn loaded(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
@@ -326,14 +398,20 @@ impl DirInner {
             None,
         ));
         let feed = deps.feeds.thread_feed(feed_id, epoch.clone(), view.clone());
+        let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = Arc::new(ControlCell {
             thread: id.clone(),
             run: Default::default(),
             queued: Default::default(),
             approvals: Default::default(),
             view: arc_swap::ArcSwap::new(view),
+            header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
+            surface: surface.subscribe(),
             ctl_tx,
             steer_cap: limits.steer_queue,
+            subscribers: Default::default(),
+            ever_subscribed: Default::default(),
+            closed: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -364,6 +442,7 @@ impl DirInner {
             log_id,
             next_ordinal,
             state,
+            surface,
             ActorChannels {
                 ctl_rx,
                 inbox_rx,
@@ -371,6 +450,7 @@ impl DirInner {
                 prod_rx,
                 dur_tx,
                 dur_rx,
+                directory: self.me.clone(),
             },
         );
         mixdog_rt::spawn("session-durability", TaskClass::Work, durability.run());

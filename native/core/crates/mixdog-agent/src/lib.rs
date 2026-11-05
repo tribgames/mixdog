@@ -8,6 +8,7 @@
 //! traits in [`env`]; providers and tools come in as the domain traits of
 //! `mixdog-core-api`.
 
+pub mod agent_tool;
 mod batch;
 pub mod coerce;
 pub mod boundary;

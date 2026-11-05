@@ -107,6 +107,47 @@ pub struct HeadRead(pub Box<dyn Any + Send>);
 /// Store-private result of open job J2 (window rows, open sets, checkpoint-state blob).
 pub struct WindowRead(pub Box<dyn Any + Send>);
 
+/// Today's `ingestSessionTurn` (`session-search-ingest.mjs:121`): the session-search copy of a
+/// completed turn's transcript, after its terminal record is durable.
+pub trait TurnIngest: Send + Sync + 'static {
+    /// Fire-and-forget; never fails the caller. `messages` is the model context.
+    fn ingest_turn(&self, id: &ThreadId, header: &Header, messages: Vec<Value>);
+}
+
+/// A session's stored metadata as today's `readStoredSessionMetadata` gives it
+/// (`store-summary-reader.mjs:386`): each field is `x || null`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SessionMeta {
+    /// `session.title || null`.
+    pub title: Option<String>,
+    /// `session.agent || null`.
+    pub agent: Value,
+    /// `session.ownerSessionId || session.parentSessionId || null`.
+    pub owner_session_id: Value,
+    /// `session.sourceType || null`.
+    pub source_type: Value,
+}
+
+impl SessionMeta {
+    /// From the index: the raw title and the list row's `summary` JSON.
+    pub fn of(title: Option<String>, summary: &str) -> Self {
+        let row: Value = serde_json::from_str(summary).unwrap_or(Value::Null);
+        let field = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
+        Self {
+            title: title.filter(|title| !title.is_empty()),
+            agent: field("agent"),
+            owner_session_id: field("ownerSessionId"),
+            source_type: field("sourceType"),
+        }
+    }
+}
+
+/// Today's `ingestSessionIntoMemory` (`memory-ingest.mjs:15`) when a session closes.
+pub trait CloseIngest: Send + Sync + 'static {
+    /// Best effort: never fails. `cwd` is the session's; `messages` its model context.
+    fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()>;
+}
+
 /// Store-private state of a model-context read between its lane steps.
 pub struct ContextRead(pub Box<dyn Any + Send>);
 
@@ -190,6 +231,9 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
         read: Option<ContextRead>,
     ) -> Result<ContextRead, CoreError>;
+
+    /// One index read of a session's metadata; `None` when the catalog does not list it.
+    fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
     /// The cpu step of a model-context read.
     fn context_cpu(
@@ -291,12 +335,6 @@ pub trait Transcript: Send + Sync + 'static {
     /// The history-row body of a user prompt (the model message the run reads back).
     fn user_message(&self, input: &TurnInput) -> Value;
 
-    /// The `item.prompt` fact of a row about to be committed: its display text as the user
-    /// row shows it (today's `createUserTextRestore().text` — paste and file chips, image
-    /// lines, feedback rewrites — trimmed), present only when the row counts for prompt
-    /// history (a user row or own room line; never a notice, card, skill or hook row).
-    fn prompt_fact(&self, role: Option<&str>, body: &Value) -> Option<String>;
-
     /// The thread's list row as the snapshot's `thread` field carries it.
     fn summary(&self, id: &ThreadId, header: &Header) -> ThreadSummary;
 }
@@ -323,6 +361,11 @@ pub struct RunStart {
     pub thread: ThreadId,
     pub turn: TurnId,
     pub input: TurnInput,
+    /// The input row the actor committed for `input`: its item id and `item.body`.
+    pub input_item: mixdog_core_api::ids::ItemId,
+    pub input_body: Value,
+    /// The session header (route, agent, effort, tool spec) as acked at turn start.
+    pub header: Header,
     pub port: RunPort,
     /// The model context before the input row (today's `session.messages` at ask start).
     pub context: super::run::ModelContext,

@@ -116,6 +116,11 @@ impl Outbox {
 
     /// Producers (runs, sections) are read only while the normal window and the release
     /// backlog have room; otherwise their lane fills and they wait (RL §6.2).
+    /// Every accepted record is released (durable or failed).
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     pub fn producer_room(&self) -> bool {
         self.entries.len() < self.limits.outbox_entries && self.has_room(Class::Normal)
     }

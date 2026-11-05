@@ -195,6 +195,13 @@ impl ThreadStore for MemStore {
         })
     }
 
+    fn session_meta(
+        &self,
+        _id: &ThreadId,
+    ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+        Box::pin(async { Ok(None) })
+    }
+
     fn context_io(
         &self,
         _lane: &InLane<InteractiveIo>,
@@ -326,17 +333,9 @@ impl Transcript for TextTranscript {
 
     fn user_message(&self, input: &TurnInput) -> Value {
         match &input.prompt {
-            PromptContent::Text(text) => json!({ "text": text }),
-            PromptContent::Parts(_) => json!({ "text": "" }),
+            PromptContent::Text(text) => json!({ "role": "user", "content": text }),
+            PromptContent::Parts(_) => json!({ "role": "user", "content": "" }),
         }
-    }
-
-    fn prompt_fact(&self, role: Option<&str>, body: &Value) -> Option<String> {
-        if role != Some("user") || body["meta"]["source"] == "task-notification" {
-            return None;
-        }
-        let text = body["text"].as_str()?.trim();
-        (!text.is_empty()).then(|| text.to_owned())
     }
 
     fn summary(&self, id: &ThreadId, header: &Header) -> ThreadSummary {
@@ -358,7 +357,7 @@ impl Transcript for TextTranscript {
 /// empty non-user text.
 fn text_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
     {
-        let text = body["text"].as_str().unwrap_or_default().to_owned();
+        let text = body["text"].as_str().or(body["content"].as_str()).unwrap_or_default().to_owned();
         if record.role.as_ref().map(|r| r.as_str()) != Some("user") && text.is_empty() {
             return None;
         }
@@ -540,6 +539,35 @@ pub(crate) struct Rig {
     pub clock: Arc<FixedClock>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
     pub prewarms: Arc<Prewarms>,
+    pub ingests: Arc<Ingests>,
+    pub closes: Arc<Closes>,
+}
+
+/// The close-time memory ingests, in order; each waits `delay` before it records.
+#[derive(Default)]
+pub(crate) struct Closes {
+    pub seen: Arc<Mutex<Vec<(ThreadId, Vec<Value>)>>>,
+    pub delay: Mutex<std::time::Duration>,
+}
+
+impl super::CloseIngest for Closes {
+    fn ingest(&self, id: &ThreadId, _cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
+        let (seen, id, delay) = (self.seen.clone(), id.clone(), *lock(&self.delay));
+        Box::pin(async move {
+            tokio::time::sleep(delay).await;
+            lock(&seen).push((id, messages));
+        })
+    }
+}
+
+/// The session-search ingests, in order: each thread and its messages.
+#[derive(Default)]
+pub(crate) struct Ingests(pub Mutex<Vec<(ThreadId, Vec<Value>)>>);
+
+impl super::TurnIngest for Ingests {
+    fn ingest_turn(&self, id: &ThreadId, _header: &Header, messages: Vec<Value>) {
+        lock(&self.0).push((id.clone(), messages));
+    }
 }
 
 /// The threads the effort judge was prewarmed for, in order.
@@ -569,6 +597,8 @@ impl Rig {
             clock: Arc::new(FixedClock(AtomicU64::new(1000))),
             wakes: mixdog_tools::exec::WakeHub::new(),
             prewarms: Arc::default(),
+            ingests: Arc::default(),
+            closes: Arc::default(),
         }
     }
 
@@ -592,6 +622,10 @@ impl Rig {
             surfaces: Arc::new(HeaderSurfaces),
             wakes: self.wakes.clone(),
             effort: self.prewarms.clone(),
+            search: self.ingests.clone(),
+            memory: self.closes.clone(),
+            user_cwd: super::UserCwd::new(self._data.path()),
+            attachments: Arc::new(super::user_facts::DataBlobs(self._data.path().to_path_buf())),
             feeds: self.feeds.clone(),
             server_requests: self.sink.clone(),
             approval_ids: Arc::new(Counter::default()),

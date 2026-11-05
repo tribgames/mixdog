@@ -368,6 +368,50 @@ impl StoreThreads {
     }
 }
 
+/// [`super::seams::TurnIngest`] over the session-search writer.
+pub struct SessionSearchTurns(pub Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>);
+
+impl super::seams::TurnIngest for SessionSearchTurns {
+    fn ingest_turn(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header, messages: Vec<Value>) {
+        self.0.ingest_turn(mixdog_services::memory::session_search::ingest::IngestSession {
+            id: id.as_str().to_owned(),
+            messages,
+            // `isAgentOnlySession` (store-summary-visibility.mjs).
+            agent_only: mixdog_store::summary::session_visibility(header) == "agent-only",
+        });
+    }
+}
+
+/// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
+/// memory was not started this run (today's `getMemoryModPromise()` returning null).
+pub struct MemoryCloseIngest(pub Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>);
+
+impl super::seams::CloseIngest for MemoryCloseIngest {
+    fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
+        let Some(memory) = self.0.clone() else {
+            return Box::pin(async {});
+        };
+        if std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
+            return Box::pin(async {});
+        }
+        // `session.cwd || getCurrentCwd()`.
+        let cwd = if cwd.is_empty() {
+            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
+        } else {
+            cwd.to_owned()
+        };
+        let args = serde_json::json!({
+            "action": "ingest_session",
+            "sessionId": id.as_str(),
+            "cwd": cwd,
+            "messages": messages,
+        });
+        Box::pin(async move {
+            memory.memory(args).await;
+        })
+    }
+}
+
 /// J2's reads, handed to decode.
 struct Window {
     window: Vec<(u64, ItemRecord)>,
@@ -533,6 +577,20 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("prompts", &e))?;
         // Oldest first, as the seam returns rows; only `prompt` is read by the caller.
         Ok(prompts.into_iter().rev().map(prompt_row).collect())
+    }
+
+    fn session_meta(
+        &self,
+        id: &ThreadId,
+    ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+        let (index, id) = (self.index.clone(), id.as_str().to_owned());
+        Box::pin(async move {
+            let Some(summary) = index.summary(&id).await.map_err(|e| internal("meta", &e))? else {
+                return Ok(None);
+            };
+            let title = index.title(&id).await.map_err(|e| internal("meta", &e))?;
+            Ok(Some(super::seams::SessionMeta::of(title, &summary)))
+        })
     }
 
     /// Pages run while the cursor holds; a page after a rewind or compaction restarts the

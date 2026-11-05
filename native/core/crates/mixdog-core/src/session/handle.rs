@@ -31,10 +31,12 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::thread::Decision;
 use mixdog_rt::LaneToken;
+use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 use super::SessionDeps;
 use super::actor::Inbox;
@@ -46,6 +48,7 @@ use super::run::ProducerMsg;
 use super::state::Section;
 use super::view::SnapshotParams;
 use crate::approvals::Lineage;
+use crate::ports::gate::LiveHeader;
 
 pub struct SessionHandle {
     pub(crate) id: ThreadId,
@@ -92,6 +95,29 @@ impl SessionHandle {
         self.cell.ctl_tx.try_send(Ctl::RetryStorage).map_err(|_| CoreError::QueueFull {
             queue: "control".into(),
         })
+    }
+
+    /// Today's `explicitSessionCwd()` inside this session's scope: its cwd, else
+    /// `MIXDOG_SESSION_CWD`, else `<data>/user-cwd.txt`.
+    pub async fn explicit_cwd(&self) -> Option<String> {
+        let header = self.cell.header.load_full();
+        let scoped = header.get("cwd").and_then(Value::as_str);
+        self.deps.user_cwd.explicit_cwd(scoped).await
+    }
+
+    /// Today's `readLastSessionCwd(keyPid)`.
+    pub async fn last_cwd(&self, key_pid: Option<&str>) -> Option<String> {
+        self.deps.user_cwd.last_cwd(key_pid).await
+    }
+
+    /// The session's latest acked header (`SessionGate`'s `LiveHeader`).
+    pub fn live_header(&self) -> Arc<dyn LiveHeader> {
+        self.cell.clone()
+    }
+
+    /// The session's tool-policy surface, republished by the actor whenever it changes.
+    pub fn surface(&self) -> watch::Receiver<Arc<SessionSurface>> {
+        self.cell.surface.clone()
     }
 
     /// A tool-policy input outside the thread changed: the actor re-derives the surface.
@@ -200,11 +226,17 @@ impl FeedSource for SessionHandle {
     }
 
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
-        self.feed.attach(req)
+        if !self.cell.subscribing() {
+            return Err(self.closing());
+        }
+        let decision = self.feed.attach(req);
+        self.cell.subscribed(decision.is_ok());
+        decision
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        self.feed.detach(sub)
+        self.feed.detach(sub);
+        self.cell.unsubscribed();
     }
 }
 
