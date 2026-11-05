@@ -47,11 +47,12 @@ function quietWaitText(parts: QuietProgressParts): string {
   return '';
 }
 
-/** "Quiet for 2 min · waiting on provider". */
+/** One short phrase, so the live status line keeps to one row (#326):
+ *  "waiting on provider for 2 min", or "No updates for 2 min" without a wait. */
 export function quietCueText(parts: QuietProgressParts): string {
-  const quiet = t('No updates for {{duration}}', { duration: uiTimeUnit(parts.minutes, 'minute') });
+  const duration = uiTimeUnit(parts.minutes, 'minute');
   const wait = quietWaitText(parts);
-  return wait ? `${quiet} · ${wait}` : quiet;
+  return wait ? t('{{wait}} for {{duration}}', { wait, duration }) : t('No updates for {{duration}}', { duration });
 }
 
 function stopSession(sessionId: string): void {

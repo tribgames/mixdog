@@ -544,7 +544,10 @@ export function LiveActivity({
     meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null,
     language
   );
-  const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
+  // While the quiet cue shows nothing counted moves, so the token readout
+  // yields its room to the cue and the line stays one row (#326).
+  const tokensLabel =
+    meta.showTokens && !quietParts ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
   // The token readout is its own span: where the pinned bot overlay stands
   // over the transcript's column (a narrow window) it hides, so the row ends
   // before the bot (html[data-pet-over-transcript], 14-live-activity.css).

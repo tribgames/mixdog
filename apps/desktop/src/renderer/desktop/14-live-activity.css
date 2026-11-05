@@ -19,6 +19,9 @@
   max-width: 100%;
   min-height: 24px;
   display: flex;
+  /* A column still too narrow for the line moves the quiet cue to a second
+     row: shrunk items would paint their unclipped text over the next (#326). */
+  flex-wrap: wrap;
   /* Same contract as the settled footer: verb and readout run at one size, so
      centring the boxes centres the text too. */
   align-items: center;
@@ -238,7 +241,8 @@
   display: inline-flex;
   align-items: center;
 }
-.live-activity-meta::before {
+.live-activity-meta::before,
+.live-activity-quiet::before {
   content: "\00B7";
   margin-right: 7px;
   color: var(--mx-text-faint);

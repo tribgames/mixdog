@@ -669,6 +669,9 @@ jobs:
           # Headless Linux Chrome has no hover pointer, so the hover-gated
           # reveal in this suite is only asserted here.
           npm run test:slow --prefix apps/desktop -- src/renderer/compact-chrome-layout.slow.test.mjs
+          # Electron needs a display, which the Linux slow leg lacks: the live
+          # status line layout regression (#326) is asserted here.
+          npm run test:slow --prefix apps/desktop -- src/renderer/live-activity-layout.slow.test.mjs
 
   # Every *.test.mjs in the relay package runs here by existing
   # (scripts/test.mjs). These suites guard pairing, transport, static serving
