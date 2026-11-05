@@ -218,6 +218,9 @@ function newState(dataDir) {
     engine,
     absent: false,
     backfill: null,
+    // A resync in progress whose starting rows answer listings meanwhile.
+    serving: false,
+    hintedWhileServing: false,
     generation: 0,
     shadowTimer: null,
     shadowDueAt: 0,
@@ -261,6 +264,7 @@ function ensure(dataDir, raw) {
 
 function off(s, reason, final, line) {
   closeConnection(s);
+  s.serving = false;
   s.phase = 'off';
   s.reason = reason;
   s.final = final;
@@ -370,13 +374,18 @@ function writeIds(s, ids, force = false) {
 }
 
 // ── Backfill ────────────────────────────────────────────────────────────────
-// A full scan of storage imported in batches (yielding between them, so
-// listings get an immediate "use JSON" meanwhile). Membership is the scan's
+// A full scan of storage imported in batches (yielding between them). While
+// it runs, a resync answers listings from the rows the DB already holds; any
+// other kind answers "use JSON". Membership is the scan's
 // own id set: at the end every DB row the scan does not contain is deleted, so an interrupted and resumed import never keeps a
 // session deleted in between. Unchanged rows are skipped by signature.
 
 function startBackfill(s, kind) {
   s.phase = kind === 'rebuild' ? 'rebuilding' : 'backfilling';
+  // A resync starts from a DB a completed backfill left: its rows answer
+  // listings until the resync has brought them up to date (see list).
+  s.serving = kind === 'resync';
+  s.hintedWhileServing = false;
   const generation = ++s.generation;
   const run = runBackfill(s, kind, generation).catch((error) => fail(s, error, 'backfill'));
   s.backfill = run;
@@ -388,9 +397,13 @@ function startBackfill(s, kind) {
 async function runBackfill(s, kind, generation) {
   const startedAt = performance.now();
   const current = () => s === state && generation === s.generation;
-  // A full rescan: the DB is rebuilt from what storage says now.
+  // A full rescan: the DB is rebuilt from what storage says now. Every stat
+  // and read is awaited, one file at a time: a scan that has to read every
+  // record (a cold start after an upgrade) never holds this thread, so
+  // listings keep being answered meanwhile.
   s.engine.clear();
-  const result = s.engine.refresh(s.engine.loadIndex(), { assemble: false });
+  const result = await s.engine.refreshAsync(await s.engine.loadIndexAsync(), { assemble: false });
+  if (!current()) return;
   if (!result.catalog && !result.absent) throw new Error('the sessions directory cannot be enumerated');
   s.absent = result.absent;
   const ids = result.catalog ? [...result.catalog.entries.keys()] : [];
@@ -430,6 +443,13 @@ async function runBackfill(s, kind, generation) {
       finished.removed
     } ms=${Math.round(s.lastBackfill.ms)}`
   );
+  postIndexMoves(s);
+  // Listings answered from the rows the resync started with: tell the
+  // listeners to list again when it changed them or a write landed meanwhile.
+  if (s.serving && (totals.written > 0 || finished.removed > 0 || s.hintedWhileServing)) {
+    postWorkerEvent({ type: 'changed' });
+  }
+  s.serving = false;
   // Every completed backfill is verified at once.
   if (s.shadowTimer) clearTimeout(s.shadowTimer);
   s.shadowTimer = null;
@@ -526,11 +546,25 @@ function answer(s, page) {
 
 const unavailable = (reason, final = false) => ({ status: 'unavailable', reason, final });
 
+/** Hands the engine's index fingerprint moves to the store (index.mjs). */
+function postIndexMoves(s) {
+  const moves = s.engine.takeIndexMoves();
+  if (moves.length > 0) postWorkerEvent({ type: 'index-moves', dataDir: s.dataDir, moves });
+}
+
 function list({ dataDir, page, settings }) {
   const s = ensure(dataDir, settings);
   if (s.phase === 'off') return unavailable(s.reason, s.final);
   if (switchedOff(s)) return unavailable('switch-off');
-  if (s.phase !== 'ready') return unavailable(s.phase);
+  if (s.phase !== 'ready') {
+    if (!s.serving) return unavailable(s.phase);
+    try {
+      return { status: 'ok', ...answer(s, page) };
+    } catch (error) {
+      fail(s, error, 'listing');
+      return unavailable('error');
+    }
+  }
   try {
     const result = s.engine.refresh(s.engine.loadIndex(), { assemble: false });
     if (!result.catalog && !result.absent) return unavailable('storage');
@@ -542,6 +576,7 @@ function list({ dataDir, page, settings }) {
     if (ids.size > 0) {
       transaction(s.db, () => writeIds(s, ids));
       scheduleShadow(s);
+      postIndexMoves(s);
     }
     return { status: 'ok', ...answer(s, page) };
   } catch (error) {
@@ -556,6 +591,7 @@ function list({ dataDir, page, settings }) {
 function hint({ dataDir, ids }) {
   if (state?.dataDir !== dataDir) return { hinted: 0 };
   state.engine.hint(ids);
+  if (state.serving) state.hintedWhileServing = true;
   return { hinted: ids.length };
 }
 

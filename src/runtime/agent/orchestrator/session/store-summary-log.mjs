@@ -12,9 +12,15 @@
  * Line format (one JSON object per line):
  *   {"u": <summary row>}    upsert the row keyed by its id
  *   {"r": ["id", ...]}      remove these ids
+ *   {"m": {id, from, to}}   the row of `id`, when it describes the record
+ *                           file `from` ({ mtimeMs, size }), describes `to`
+ *                           ({ mtimeMs, size, legacy }: a session log proven
+ *                           to hold exactly that record, and its log proof,
+ *                           session-record.mjs logLegacyProof); any other
+ *                           row is left as it is
  * Replay is last-writer-wins per id, so re-applying a log that a crashed
  * compaction already folded into the base is harmless. Unparseable lines (a
- * torn tail) are skipped.
+ * torn tail) and unknown ops (an older build ignores `m`) are skipped.
  */
 import { dirname, join } from 'node:path';
 import { runFsStepsSync } from './store/fs-steps.mjs';
@@ -27,12 +33,28 @@ export function summaryLogPath(indexPath) {
 
 // The leading newline terminates a torn tail left by a crashed append, so it
 // can never fuse with (and corrupt) the first record of this one.
-export function encodeSummaryOps(upserts, removals) {
+export function encodeSummaryOps(upserts, removals, moves = []) {
   let text = '\n';
   for (const row of upserts) text += `${JSON.stringify({ u: row })}\n`;
   const ids = [...removals];
   if (ids.length > 0) text += `${JSON.stringify({ r: ids })}\n`;
+  // Last: a move only re-points a row that still describes `from`, so an
+  // upsert of the same batch is never undone by it.
+  for (const move of moves) text += `${JSON.stringify({ m: move })}\n`;
   return text;
+}
+
+const isFingerprint = (value) => Number(value?.mtimeMs) > 0 && Number(value?.size) > 0;
+
+/** The row a move op (`{ id, from, to }`) makes of `row`, or null when it
+ *  does not apply (no row, or the row describes another file). */
+export function movedSummaryRow(row, move) {
+  if (!row || !isFingerprint(move?.from) || !isFingerprint(move?.to)) return null;
+  if (row.storageMtimeMs !== move.from.mtimeMs || row.storageSize !== move.from.size) return null;
+  const moved = { ...row, storageMtimeMs: move.to.mtimeMs, storageSize: move.to.size };
+  if (typeof move.to.legacy === 'string') moved.storageLegacy = move.to.legacy;
+  else delete moved.storageLegacy;
+  return moved;
 }
 
 /** The log text, or '' when it is absent/unreadable. Read it BEFORE the base:
@@ -103,6 +125,10 @@ export function applySummaryLogText(raw, logText) {
     }
     if (op?.u && typeof op.u.id === 'string') byId.set(op.u.id, op.u);
     else if (Array.isArray(op?.r)) for (const id of op.r) byId.delete(id);
+    else if (typeof op?.m?.id === 'string') {
+      const moved = movedSummaryRow(byId.get(op.m.id), op.m);
+      if (moved) byId.set(op.m.id, moved);
+    }
   }
   return { ...raw, rows: [...byId.values()] };
 }

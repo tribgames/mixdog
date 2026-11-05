@@ -5,22 +5,30 @@ import { probePathAsync, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import { STORED_SESSION_UNREADABLE } from './serialize.mjs';
 import {
   ABSENT_RECORD_STAMP,
+  logLegacyProof,
+  parseSessionRecordStamp,
   recordStampFingerprint,
   sessionIdsOfNames,
   sessionRecordStampOf,
   sessionRecordStampOfSync,
 } from './session-record.mjs';
-import { storedSessionAsync } from './stored-session.mjs';
+import { storedSessionRecordAsync } from './stored-session.mjs';
 import {
   _sessionSummary,
   _normalizeSummaryIndex,
   _upsertSessionSummaryRow,
   _removeSessionSummary,
   _pruneSummaryIndexIds,
+  _moveSessionSummaryFingerprints,
 } from '../store-summary-index.mjs';
 // In the daemon, ids whose file a write just changed are hinted to the
 // session catalog DB (a no-op in any other process).
-import { hintSessionCatalogStorage } from '../catalog-db/index.mjs';
+import { hintSessionCatalogStorage, onSessionCatalogIndexMoves } from '../catalog-db/index.mjs';
+
+// The catalog DB worker found index rows that describe a session log through
+// its conversion base: re-pointed in the index, the next start stats them
+// instead of reading every log again.
+onSessionCatalogIndexMoves(_moveSessionSummaryFingerprints);
 
 // Listing is much hotter than writing, especially while the desktop session
 // browser is open. Keep the compact sidecar in memory after the first read;
@@ -138,15 +146,15 @@ export function _queueSessionSummaryUpsert(session, version = null) {
  * (since-mutated) live session — the row always describes the bytes that
  * actually reached disk.
  */
-export function _queueSessionSummaryUpsertRow(row, version = null) {
+export function _queueSessionSummaryUpsertRow(row, version = null, { logLegacy } = {}) {
   if (!row) return;
-  let fingerprint = null;
+  let stamp = null;
   try {
-    fingerprint = recordStampFingerprint(sessionRecordStampOfSync(getStoreDir(), row.id));
+    stamp = sessionRecordStampOfSync(getStoreDir(), row.id);
   } catch {
     /* unreadable stat: the row carries no fingerprint, as before */
   }
-  const durableRow = fingerprint ? { ...row, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size } : row;
+  const durableRow = durableSummaryRow(row, stamp, logLegacy);
   _setCachedBaseSummary(durableRow);
   if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
     _summaryCacheUpserts.delete(row.id);
@@ -158,6 +166,18 @@ export function _queueSessionSummaryUpsertRow(row, version = null) {
   }
   _upsertSessionSummaryRow(durableRow);
   hintSessionCatalogStorage([row.id]);
+}
+
+/** `row` with the fingerprint of the record file `stamp` shows and, for a
+ *  log whose base `legacy` the caller knows (undefined: unknown), its log
+ *  proof; without one a reader settles the json beside the log by a read. */
+function durableSummaryRow(row, stamp, legacy) {
+  const fingerprint = stamp ? recordStampFingerprint(stamp) : null;
+  if (!fingerprint) return row;
+  const { storageLegacy: _stale, ...rest } = row;
+  const durable = { ...rest, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size };
+  if (legacy !== undefined && parseSessionRecordStamp(stamp).log) durable.storageLegacy = logLegacyProof(legacy);
+  return durable;
 }
 
 export function _queueSessionSummaryRemoval(id) {
@@ -297,7 +317,7 @@ export async function _scanStoredSessionSummaryRowsAsync() {
       keepRow(storageId, cached.row);
       continue;
     }
-    const session = await storedSessionAsync(dir, storageId);
+    const { session, logLegacy } = await storedSessionRecordAsync(dir, storageId);
     if (session === STORED_SESSION_UNREADABLE) {
       // Stat said PRESENT, the READ failed: identical contract to an
       // unreadable stat. Retain the last known row, leave `changed`
@@ -307,8 +327,7 @@ export async function _scanStoredSessionSummaryRowsAsync() {
       continue;
     }
     const summary = session ? _sessionSummary(session) : null;
-    const fingerprint = recordStampFingerprint(stamp);
-    const row = summary ? { ...summary, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size } : null;
+    const row = summary ? durableSummaryRow(summary, stamp, logLegacy) : null;
     scanCache.set(storageId, { stamp, row });
     changed = true;
     keepRow(storageId, row);

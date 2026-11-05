@@ -179,8 +179,34 @@ export function recordStampFingerprint(stamp) {
   const { log, json } = parseSessionRecordStamp(stamp);
   const file = log ?? json;
   if (!file) return null;
-  const mtimeMs = Number(file.mtimeNs / 1_000_000_000n) * 1e3 + Number(file.mtimeNs % 1_000_000_000n) / 1e6;
-  return { mtimeMs, size: Number(file.size) };
+  return { mtimeMs: mtimeMsOf(file), size: Number(file.size) };
+}
+
+// `stat().mtimeMs` of a stamp part.
+function mtimeMsOf(file) {
+  return Number(file.mtimeNs / 1_000_000_000n) * 1e3 + Number(file.mtimeNs % 1_000_000_000n) / 1e6;
+}
+
+/** The log proof an index row of a log carries (`storageLegacy`): the
+ *  `<mtimeMs>:<size>` of the json the log was built from (its base's
+ *  `legacy`), '-' for a log built from none. */
+export function logLegacyProof(legacy) {
+  return Number(legacy?.mtimeMs) > 0 && Number(legacy?.size) > 0 ? `${legacy.mtimeMs}:${legacy.size}` : '-';
+}
+
+/**
+ * Whether record `stamp` lets a row whose fingerprint is its record file's
+ * stand for the record by stats alone, `proof` being the row's log proof:
+ * there is no log (the json is the record), no json beside the log, or the
+ * json still has the stat of the one the log was built from — the seam's own
+ * stat rule (session-log-reader.mjs resolveWithLog). Any other json beside a
+ * log (rewritten by an older build, or a row without a proof) is for a read
+ * to settle: it may be the record.
+ */
+export function stampKeepsLogRecord(stamp, proof) {
+  const { log, json } = parseSessionRecordStamp(stamp);
+  if (!log || !json) return true;
+  return proof !== '-' && proof === `${mtimeMsOf(json)}:${Number(json.size)}`;
 }
 
 // The text readers of a whole record digest and project (transcripts): the
