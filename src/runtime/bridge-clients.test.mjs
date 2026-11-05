@@ -1920,7 +1920,7 @@ test('computer errors return one deterministic recovery instead of permission gu
     code: 'computer_user_control_active',
     next: 'wait_for_user',
     guidance:
-      "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. Physical input alone never pauses the session; only an explicit Pause/Stop or uncertain cleanup/observation does, and those require the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
+      "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
   });
   assert.match(
     formatComputerToolError('foreground_changed: user switched windows'),
