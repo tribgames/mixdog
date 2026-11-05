@@ -74,7 +74,7 @@ export function listStoredSessions(options = {}) {
 
 function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {
   const sessionsById = new Map(stored.map((session) => [session.id, session]));
-  const addIfUnpersisted = (id, session, opts) => {
+  const addIfUnpersisted = (id, session) => {
     // A valid on-disk record is authoritative for refresh/resume. In
     // particular, a long-lived runtime object must never replace a
     // tombstone or changed desktop authorization metadata. Only active
@@ -98,7 +98,7 @@ function _forEachUnpersistedWrite(visit) {
 // saves that have no disk record yet (read-your-writes for brand-new sessions).
 function _overlayUnpersistedSummaryRows(rows, invalidStorageIds = new Set()) {
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const addIfUnpersisted = (id, session, opts) => {
+  const addIfUnpersisted = (id, session) => {
     if (!id || byId.has(id) || invalidStorageIds.has(id)) return;
     if (session?.id !== id) return;
     const row = _sessionSummary(_ensureLifecycleFields(session));

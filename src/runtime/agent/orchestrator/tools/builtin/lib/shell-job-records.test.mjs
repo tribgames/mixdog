@@ -438,7 +438,7 @@ test('a session closed and loaded again owns its new jobs as an open owner; only
   }
 });
 
-test('a hold the reloaded owner registers cannot be released by another session; a closed incarnation\'s can', async () => {
+test("a hold the reloaded owner registers cannot be released by another session; a closed incarnation's can", async () => {
   const owner = 'sess-hold-owner';
   const folder = process.cwd();
   const released = [];

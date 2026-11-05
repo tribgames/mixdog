@@ -6,7 +6,9 @@
   padding: 0 28px 0 10px;
   border: 0;
   border-radius: 6px;
-  background: var(--mx-hover) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23a8a8a8' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 11px center;
+  background: var(--mx-hover)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23a8a8a8' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E")
+    no-repeat right 11px center;
   color: var(--mx-text);
   font: inherit;
   cursor: pointer;
@@ -29,7 +31,7 @@
 .network-proxy-input::placeholder {
   color: var(--mx-text-muted, var(--mx-text-faint));
 }
-.network-proxy-input[aria-invalid='true'] {
+.network-proxy-input[aria-invalid="true"] {
   outline-color: var(--mx-danger);
 }
 .network-proxy-button {

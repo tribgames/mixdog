@@ -3,7 +3,7 @@
 // provably came from, and a replacement (another writer's rename, a foreign
 // record) is always read strictly again.
 import assert from 'node:assert/strict';
-import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -166,4 +166,3 @@ test('a live session released from the document budget is reloaded without a rea
   const after = held.slice(1).reduce((sum, id) => sum + reads(id), 0);
   assert.ok(after > before, 'released documents without an owner were collected');
 });
-

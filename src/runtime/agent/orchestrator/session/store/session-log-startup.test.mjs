@@ -39,5 +39,8 @@ test('a migration start that hits a full disk making the store folder is logged 
     started = startSessionLogMigration();
   });
   assert.equal(await started, null);
-  assert.ok(lines.some((line) => /\[session-log-migration\] failed: ENOSPC/.test(line)), lines.join(''));
+  assert.ok(
+    lines.some((line) => /\[session-log-migration\] failed: ENOSPC/.test(line)),
+    lines.join('')
+  );
 });

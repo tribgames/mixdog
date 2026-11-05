@@ -63,7 +63,10 @@ function snapshot(suffix) {
   return Object.fromEntries(
     readdirSync(storeDir)
       .filter((name) => name.endsWith(suffix))
-      .map((name) => [name, { bytes: readFileSync(join(storeDir, name)), mtimeMs: statSync(join(storeDir, name)).mtimeMs }])
+      .map((name) => [
+        name,
+        { bytes: readFileSync(join(storeDir, name)), mtimeMs: statSync(join(storeDir, name)).mtimeMs },
+      ])
   );
 }
 
@@ -83,7 +86,9 @@ const IDS = SEEDS.map((session) => session.id);
 const jsonPath = (id) => join(storeDir, `${id}.json`);
 const logPath = (id) => join(storeDir, `${id}.log.jsonl`);
 
-test('a downgrade to v1.4.5 sees sessions as at the upgrade, and its write is rebased from the json', { timeout: 600_000 }, async (t) => {
+test('a downgrade to v1.4.5 sees sessions as at the upgrade, and its write is rebased from the json', {
+  timeout: 600_000,
+}, async (t) => {
   const tree = v145Tree();
   if (!tree) return t.skip(`tag ${TAG} is not in this clone (fetch tags to run the downgrade test)`);
   assert.equal(JSON.parse(readFileSync(join(tree, 'package.json'), 'utf8')).version, TAG.slice(1));
@@ -98,7 +103,10 @@ test('a downgrade to v1.4.5 sees sessions as at the upgrade, and its write is re
   const seeded = runV145(storeUrl, 'seed', { sessions: SEEDS });
   if (seeded.status !== 0) assert.fail(`seed failed (${seeded.status}): ${seeded.stderr}`);
   const jsonAtUpgrade = snapshot('.json');
-  assert.deepEqual(Object.keys(jsonAtUpgrade).sort(), IDS.map((id) => `${id}.json`));
+  assert.deepEqual(
+    Object.keys(jsonAtUpgrade).sort(),
+    IDS.map((id) => `${id}.json`)
+  );
   const atUpgrade = runV145(storeUrl, 'view', { ids: IDS });
   assert.equal(atUpgrade.status, 0, atUpgrade.stderr);
   assert.deepEqual(atUpgrade.json.listed, IDS);
@@ -115,7 +123,10 @@ test('a downgrade to v1.4.5 sees sessions as at the upgrade, and its write is re
   assert.equal(report.complete, true);
   assert.deepEqual(snapshot('.json'), jsonAtUpgrade);
   const logsAtUpgrade = snapshot('.log.jsonl');
-  assert.deepEqual(Object.keys(logsAtUpgrade).sort(), IDS.map((id) => `${id}.log.jsonl`));
+  assert.deepEqual(
+    Object.keys(logsAtUpgrade).sort(),
+    IDS.map((id) => `${id}.log.jsonl`)
+  );
 
   // v1.4.5 sees exactly what it saw before, and leaves every file alone.
   const afterMigration = runV145(storeUrl, 'view', { ids: IDS });
@@ -145,7 +156,11 @@ test('a downgrade to v1.4.5 sees sessions as at the upgrade, and its write is re
   const oldLog = readFileSync(logPath(target));
   const oldMessages = before.log.messages;
   for (const id of others) {
-    assert.equal((await resolveSessionRecord({ jsonPath: jsonPath(id), logPath: logPath(id), loadLegacy })).kind, 'log', id);
+    assert.equal(
+      (await resolveSessionRecord({ jsonPath: jsonPath(id), logPath: logPath(id), loadLegacy })).kind,
+      'log',
+      id
+    );
   }
 
   const rebased = await convertLegacySession({
@@ -159,7 +174,10 @@ test('a downgrade to v1.4.5 sees sessions as at the upgrade, and its write is re
   const now = await resolveSessionRecord({ jsonPath: jsonPath(target), logPath: logPath(target), loadLegacy });
   assert.equal(now.kind, 'log');
   assert.ok(jsonEqual(now.session, fromJson), 'the new log replays to the v1.4.5 json');
-  assert.ok(jsonEqual(now.session.messages.slice(0, oldMessages.length), oldMessages), 'every message of the old log is still there');
+  assert.ok(
+    jsonEqual(now.session.messages.slice(0, oldMessages.length), oldMessages),
+    'every message of the old log is still there'
+  );
   assert.equal(now.session.messages.at(-1).content, 'written by v1.4.5');
   assert.deepEqual(snapshot('.json'), jsonAfterWrite, 'the rebase does not touch the json');
 

@@ -185,7 +185,9 @@ test('background focus guards and foreground work never overlap in either order'
       return { text: 'done' };
     },
   });
-  t.after(() => Object.values(releases).forEach((release) => release()));
+  t.after(() => {
+    for (const release of Object.values(releases)) release();
+  });
   const pointer = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer' });
   await turn();
   const guard = f.host.executeSerialized({ action: 'invoke', ref: 's1:e0', session_id: 'guard' });
@@ -605,7 +607,11 @@ test('a foreground action the user input interrupts yields only its own session 
           releaseOther = resolve;
         });
       }
-      if (command.session_id === 'a' && command.action === 'click' && dispatched.filter((row) => row === 'a:click').length === 1) {
+      if (
+        command.session_id === 'a' &&
+        command.action === 'click' &&
+        dispatched.filter((row) => row === 'a:click').length === 1
+      ) {
         throw new Error('user_input_active: external input interrupted this action');
       }
       return { text: `${command.session_id}:${command.action}` };
@@ -641,8 +647,14 @@ test('a foreground action the user input interrupts yields only its own session 
   releaseOther();
   assert.equal((await other).text, 'b:capture');
   assert.equal(
-    (await f.host.executeSerialized({ action: 'click', session_id: 'b', window_id: 'hwnd:0x2', delivery: 'foreground' }))
-      .text,
+    (
+      await f.host.executeSerialized({
+        action: 'click',
+        session_id: 'b',
+        window_id: 'hwnd:0x2',
+        delivery: 'foreground',
+      })
+    ).text,
     'b:click'
   );
   // The yielded session sends nothing, but may still look.
@@ -658,15 +670,25 @@ test('a foreground action the user input interrupts yields only its own session 
   );
   assert.equal(held.yielded, true);
   assert.equal(held.input_may_have_executed, false);
-  assert.equal(dispatched.filter((row) => row === 'a:click').length, 1, 'nothing is dispatched or replayed while yielded');
+  assert.equal(
+    dispatched.filter((row) => row === 'a:click').length,
+    1,
+    'nothing is dispatched or replayed while yielded'
+  );
   assert.equal(
     (await f.host.executeSerialized({ action: 'capture', session_id: 'a', window_id: 'hwnd:0x1' })).text,
     'a:capture'
   );
   f.coordinator.resumeYielded(['a']);
   assert.equal(
-    (await f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1', delivery: 'foreground' }))
-      .text,
+    (
+      await f.host.executeSerialized({
+        action: 'click',
+        session_id: 'a',
+        window_id: 'hwnd:0x1',
+        delivery: 'foreground',
+      })
+    ).text,
     'a:click'
   );
 });

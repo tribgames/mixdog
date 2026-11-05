@@ -310,7 +310,8 @@ async function cancelShellTask(task, taskId, options) {
 // restart, so a record still reading running is not stoppable here.
 async function stopJobKnownByRecord(id, options) {
   const recovered = await readShellJobRecord(id);
-  if (!recovered || !recoveredTaskMatches(recovered, options)) return { stopped: false, error: `task not found: ${id}` };
+  if (!recovered || !recoveredTaskMatches(recovered, options))
+    return { stopped: false, error: `task not found: ${id}` };
   if (recovered.terminal) return { stopped: false, finished: true, error: `task already ${recovered.status}: ${id}` };
   return { stopped: false, error: `task process control is unavailable after restart: ${id}` };
 }

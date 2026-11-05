@@ -12,7 +12,8 @@ dom.window.mixdogDesktop = {};
 const { subscribeTurnReviewRereads } = await import('./use-turn-review-reads.ts');
 const { installRemoteSync } = await import('./remote-shim-sync.ts');
 
-const setVisibility = (state) => Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+const setVisibility = (state) =>
+  Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
 
 test('a reconnect re-reads a visible review; a hidden one waits for its visibility event', (t) => {
   let rereads = 0;

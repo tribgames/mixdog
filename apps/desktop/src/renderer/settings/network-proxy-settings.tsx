@@ -19,7 +19,7 @@ import type { PanelContext } from './capability-data';
 import './network-proxy-settings.css';
 
 const EXCEPTIONS_PLACEHOLDER = ['localhost', '*.company.local'].join(', ');
-const OPEN_EVENT ='mixdog:open-network-proxy';
+const OPEN_EVENT = 'mixdog:open-network-proxy';
 let focusPending = false;
 
 /** Asks Settings to show the System page's Network proxy group (a failed provider check links here). */
@@ -54,7 +54,10 @@ export function routeDescription(mode: NetworkProxyMode, route: NetworkProxyRout
     return route.error ? t('Enter a proxy address below to use it.') : t('Connecting only through the proxy below.');
   }
   if (mode === 'off') {
-    const ignored = [...(route.ignored.system ? [t('{{system}} proxy', { system: systemName(route) })] : []), ...route.ignored.env];
+    const ignored = [
+      ...(route.ignored.system ? [t('{{system}} proxy', { system: systemName(route) })] : []),
+      ...route.ignored.env,
+    ];
     if (ignored.length === 0) return t('Connecting directly, without a proxy.');
     const list = ignored.map((name) => (route.ignored.env.includes(name) ? `\`${name}\`` : name));
     if (list.length === 1) return t('Connecting directly, without a proxy. Ignoring {{a}}.', { a: list[0] });

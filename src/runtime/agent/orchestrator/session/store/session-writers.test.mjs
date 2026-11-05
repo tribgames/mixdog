@@ -2,7 +2,16 @@
 // log are never diffed away: the next save of a copy built here is recorded on
 // top of them, and the copy this tenure wrote is refused.
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import fs from 'node:fs';
@@ -43,7 +52,11 @@ const { rememberSensitiveValues } = await import('../sensitive-values.mjs');
 
 test("redaction keeps v1.4.5's scope: message text and tool-call arguments, in the json and the log alike; header fields, ids and numbers stay", async () => {
   const id = 'sess_writers_redaction_scope';
-  const fill = { id: 'call-123456', name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: '123456' } } };
+  const fill = {
+    id: 'call-123456',
+    name: 'browser',
+    arguments: { action: 'fill', input: { sensitive: true, text: '123456' } },
+  };
   const doc = {
     id,
     owner: 'agent',

@@ -83,7 +83,8 @@ export function createComputerUserWait(options: {
     value.sequence >= 0 &&
     Number.isFinite(value.idleMs) &&
     value.idleMs >= 0;
-  const eligible = () => !disposed && seconds > 0 && options.enabled() && isIdleResumable(options.coordinator.snapshot());
+  const eligible = () =>
+    !disposed && seconds > 0 && options.enabled() && isIdleResumable(options.coordinator.snapshot());
   /** A new takeover or a new yield starts a new quiet interval. */
   const round = () => `${generation}:${yieldGeneration}`;
   const same = (a: IdleObservation, b: IdleObservation) => a.monitor === b.monitor && a.sequence === b.sequence;
@@ -212,7 +213,11 @@ export function createComputerUserWait(options: {
       if (disposed || signal?.aborted) return Promise.resolve('cancelled');
       const current = options.coordinator.snapshot();
       if (current.userControlActive && current.takeoverReason === 'user_stop') return Promise.resolve('cancelled');
-      if (!current.userControlActive && current.cleanupState === 'ready' && !current.yieldedSessionIds?.includes(sessionId))
+      if (
+        !current.userControlActive &&
+        current.cleanupState === 'ready' &&
+        !current.yieldedSessionIds?.includes(sessionId)
+      )
         return Promise.resolve('resumed');
       if (waiters.has(sessionId) || waiters.size >= 16) {
         return Promise.reject(new Error('computer_capacity_exhausted: user wait already active or full'));

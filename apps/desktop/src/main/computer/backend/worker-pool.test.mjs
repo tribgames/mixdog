@@ -126,20 +126,30 @@ function grantingLeaseThread() {
 
 test('a lease request is answered on the asking worker’s stdin, and the lease facts join its reply', async (t) => {
   const thread = grantingLeaseThread();
-  const foregroundLock = createHostForegroundLock({ startThread: thread.start, fallbackUnlock: () => ({ outcome: 'released' }) });
+  const foregroundLock = createHostForegroundLock({
+    startThread: thread.start,
+    fallbackUnlock: () => ({ outcome: 'released' }),
+  });
   t.after(() => foregroundLock.dispose());
   const { pool, spawns } = await fakePool(t, { foregroundLock });
   const pending = pool.callPowerShell({ action: 'invoke', ref: 's1:e1', delivery: 'background', session_id: 'a' });
   const child = pool.powerShellBySession.get('a');
   const sent = sentRequest(child);
   lockLine(child, { op: 'acquire', action: sent.id, seq: 1, hold_ms: 250, answer_by: 99.5 });
-  assert.deepEqual(thread.posted.map(({ type, action, pid }) => [type, action, pid]), [['acquire', sent.id, child.pid]]);
+  assert.deepEqual(
+    thread.posted.map(({ type, action, pid }) => [type, action, pid]),
+    [['acquire', sent.id, child.pid]]
+  );
   assert.equal(child.stdin.read().toString(), `${FOREGROUND_LOCK_REPLY_PREFIX}ack ${sent.id} 1 3 locked 1234.500\n`);
   reply(child, { id: sent.id, ok: true, result: { delivery_accepted: true, foreground_lock: { holder: 'host' } } });
   const { result } = await pending;
   assert.equal(result.foreground_lock.holder, 'host');
   assert.deepEqual(
-    [result.foreground_lock.host.answer, result.foreground_lock.host.worker_pid, result.foreground_lock.host.foreground_pid],
+    [
+      result.foreground_lock.host.answer,
+      result.foreground_lock.host.worker_pid,
+      result.foreground_lock.host.foreground_pid,
+    ],
     ['locked', child.pid, 4242]
   );
   if (process.platform === 'win32') assert.equal(spawns[0].options.env.MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK, '1');
@@ -147,7 +157,10 @@ test('a lease request is answered on the asking worker’s stdin, and the lease 
 
 test('a null, malformed or foreign lease line is ignored and the worker is kept', async (t) => {
   const thread = grantingLeaseThread();
-  const foregroundLock = createHostForegroundLock({ startThread: thread.start, fallbackUnlock: () => ({ outcome: 'released' }) });
+  const foregroundLock = createHostForegroundLock({
+    startThread: thread.start,
+    fallbackUnlock: () => ({ outcome: 'released' }),
+  });
   t.after(() => foregroundLock.dispose());
   const { pool, retired } = await fakePool(t, { foregroundLock });
   const pending = pool.callPowerShell({ action: 'invoke', ref: 's1:e1', delivery: 'background', session_id: 'a' });

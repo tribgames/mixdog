@@ -310,7 +310,12 @@ function ownerClosedSince(sessionId, epoch) {
 export function registerTerminationHold(jobId, { ownerSessionId = null, cwd = null, release, ownerEpoch = null }) {
   const key = String(jobId || '').trim();
   if (key && typeof release === 'function') {
-    terminationHolds.set(key, { ownerSessionId, cwd, release, ownerEpoch: ownerEpoch ?? shellOwnerEpoch(ownerSessionId) });
+    terminationHolds.set(key, {
+      ownerSessionId,
+      cwd,
+      release,
+      ownerEpoch: ownerEpoch ?? shellOwnerEpoch(ownerSessionId),
+    });
   }
 }
 

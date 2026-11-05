@@ -188,4 +188,3 @@ test('phone Visualize sheet: a page pinched below 1x never scrolls into empty sp
   assert.ok(!fit.layer, 'back at 1x');
   assert.ok(Math.abs(fit.frameWidth - fit.clientWidth) < 1 && Math.abs(fit.frameHeight - fit.clientHeight) < 1);
 });
-

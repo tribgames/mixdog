@@ -24,7 +24,9 @@ const { recordObservation } = await import('./capture-delta.ts');
 const { createSessionState } = await import('../session/state.ts');
 const { createExecutionState } = await import('../host/execution-state.ts');
 const { DEFAULT_CAPTURE_MAX_ELEMENTS } = await import('../shared/common.ts');
-const { canonicalComputerResultText } = await import('../../../../../../src/runtime/computer-bridge/result-canonical.mjs');
+const { canonicalComputerResultText } = await import(
+  '../../../../../../src/runtime/computer-bridge/result-canonical.mjs'
+);
 
 const WINDOW = 'hwnd:0x1';
 const PERMISSIONS = {
@@ -32,7 +34,20 @@ const PERMISSIONS = {
   accessibility: 'not_required_on_windows',
   input: 'target_integrity_dependent',
 };
-const WORDS = ['File', 'Edit', 'View', 'Save', 'Open', 'Close', 'Search', 'Settings', 'Help', 'Refresh', 'Share', 'Copy'];
+const WORDS = [
+  'File',
+  'Edit',
+  'View',
+  'Save',
+  'Open',
+  'Close',
+  'Search',
+  'Settings',
+  'Help',
+  'Refresh',
+  'Share',
+  'Copy',
+];
 const ROLES = ['Button', 'MenuItem', 'ListItem', 'CheckBox', 'Hyperlink', 'TabItem'];
 
 /** A tree the way the worker reports it: refs are `s<generation>:e<index>`. */
@@ -127,7 +142,7 @@ function expandRuns(runs) {
   for (const run of runs) {
     const [held, live] = run.split('=').map(range);
     assert.equal(held.length, live.length, run);
-    held.forEach((ref, index) => pairs.set(ref, live[index]));
+    for (const [index, ref] of held.entries()) pairs.set(ref, live[index]);
   }
   return pairs;
 }
@@ -415,7 +430,10 @@ test('each delta addresses the refs the previous reply published, and rebuilds t
     assert.deepEqual(model, expected(), 'the rebuilt list is the full list');
   }
   // The second and third deltas name the refs of the reply before them, not the first list.
-  assert.equal([...published[2]].every((ref) => ref.startsWith(`s${f.world.generation - 2}:`)), true);
+  assert.equal(
+    [...published[2]].every((ref) => ref.startsWith(`s${f.world.generation - 2}:`)),
+    true
+  );
 });
 
 test('OCR rows, failed reads and unsettled captures never form a baseline', () => {
@@ -483,7 +501,11 @@ test('the payload sent after an action shrinks to the change', async (t) => {
     const full = render((await f.after()).metadata);
     // One toggled control and one dialog button: the usual result of an action.
     const rows = treeRows(count);
-    f.world.rows = [{ ...rows[0], state: 'checked' }, ...rows.slice(1, count - 1), { role: 'Button', name: 'Done', y: 999 }];
+    f.world.rows = [
+      { ...rows[0], state: 'checked' },
+      ...rows.slice(1, count - 1),
+      { role: 'Button', name: 'Done', y: 999 },
+    ];
     const delta = render((await f.after()).metadata);
     const unchanged = render((await f.after()).metadata);
 

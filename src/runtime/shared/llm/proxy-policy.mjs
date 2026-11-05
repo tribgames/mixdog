@@ -178,7 +178,10 @@ export function canonicalExceptions(text) {
 
 /** True when `url`'s host (and port) is covered by the list `text`; unparsable entries match nothing. */
 export function exceptionsCover(text, url) {
-  const hostname = url.hostname.replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '').toLowerCase();
+  const hostname = url.hostname
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .toLowerCase();
   const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
   const family = isIP(hostname);
   return parseList(String(text ?? '')).some((entry) => entryMatches(entry, hostname, port, family));

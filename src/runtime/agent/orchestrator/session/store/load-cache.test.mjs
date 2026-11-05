@@ -292,7 +292,8 @@ test('a delete whose unlink fails leaves the recorder, the live copy and its deb
   saveSession(live);
   const realUnlink = fs.unlinkSync;
   fs.unlinkSync = function (path, ...rest) {
-    if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+    if (String(path).includes(f.id))
+      throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
     return realUnlink.call(this, path, ...rest);
   };
   syncBuiltinESMExports();
@@ -320,7 +321,8 @@ test('a fresh save made during a delete that fails lands on the intact session',
   assert.equal(await saveSessionAsync(live), 'saved');
   const realUnlink = fs.unlinkSync;
   fs.unlinkSync = function (path, ...rest) {
-    if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+    if (String(path).includes(f.id))
+      throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
     return realUnlink.call(this, path, ...rest);
   };
   syncBuiltinESMExports();
@@ -357,7 +359,8 @@ for (const awaited of [true, false]) {
     assert.equal(await saveSessionAsync(live), 'saved');
     const realUnlink = fs.unlinkSync;
     fs.unlinkSync = function (path, ...rest) {
-      if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+      if (String(path).includes(f.id))
+        throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
       return realUnlink.call(this, path, ...rest);
     };
     syncBuiltinESMExports();

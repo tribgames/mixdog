@@ -255,7 +255,13 @@ export async function verifyInputRecovery(
     // on the desktop, which refuses this action. It is not a lost observer,
     // which would hand the whole desktop over to the user.
     if (current?.inputObserverReady !== true && current?.inputObserverReason === INPUT_GAP_REASON) {
-      return { ok: false, recovery_skipped: true, user_control: true, code: 'user_input_active', ...withReadback(check) };
+      return {
+        ok: false,
+        recovery_skipped: true,
+        user_control: true,
+        code: 'user_input_active',
+        ...withReadback(check),
+      };
     }
     if (!current || !inputKnown(current, inputRecovery)) {
       return {

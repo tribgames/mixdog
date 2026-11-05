@@ -3,9 +3,8 @@
 // other process's records and silently discard its messages.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -206,7 +205,10 @@ test('a copy of the session another process recreated after a local delete is re
   await creator.exit();
   // Read here from the record the other process created, not the one deleted here.
   const copy = loadSession(f.id);
-  assert.deepEqual(copy.messages.map((m) => m.content), ['peer-1']);
+  assert.deepEqual(
+    copy.messages.map((m) => m.content),
+    ['peer-1']
+  );
   const deleter = startPeer(t, f.root);
   assert.deepEqual(await deleter.send({ op: 'delete', id: f.id }), { deleted: true, code: null });
   await deleter.exit();
@@ -221,7 +223,8 @@ test('a copy saved again behind a delete is judged by the session it was first t
   // A save accepted behind a delete that fails: its accepted copy becomes the live session.
   const realUnlink = fs.unlinkSync;
   fs.unlinkSync = function (path, ...rest) {
-    if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+    if (String(path).includes(f.id))
+      throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
     return realUnlink.call(this, path, ...rest);
   };
   syncBuiltinESMExports();
@@ -236,7 +239,10 @@ test('a copy saved again behind a delete is judged by the session it was first t
   }
   const accepted = loadSession(f.id);
   assert.notEqual(accepted, f.session, 'the live session is not the accepted copy');
-  assert.deepEqual(accepted.messages.map((m) => m.content), ['parent-1', 'parent-2']);
+  assert.deepEqual(
+    accepted.messages.map((m) => m.content),
+    ['parent-1', 'parent-2']
+  );
   // This process lets go; the session's binding stays with the original.
   assert.equal(await releaseIdleSessionWriter(f.id), true);
   const deleter = startPeer(t, f.root);

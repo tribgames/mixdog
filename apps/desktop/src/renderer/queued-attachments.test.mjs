@@ -47,7 +47,11 @@ async function mount(item, named) {
   const root = createRoot(host);
   await act(async () =>
     root.render(
-      React.createElement(MarkdownSessionContext.Provider, { value: 's1' }, React.createElement(TranscriptRow, { item }))
+      React.createElement(
+        MarkdownSessionContext.Provider,
+        { value: 's1' },
+        React.createElement(TranscriptRow, { item })
+      )
     )
   );
   return { host, calls, unmount: () => act(async () => root.unmount()) };
@@ -69,7 +73,11 @@ async function saveEach(host) {
   return cards.length;
 }
 
-const images = REFS.map((attachmentRef, index) => ({ name: `photo-${index}.png`, mimeType: 'image/png', attachmentRef }));
+const images = REFS.map((attachmentRef, index) => ({
+  name: `photo-${index}.png`,
+  mimeType: 'image/png',
+  attachmentRef,
+}));
 
 test('a queued message whose original this pane holds saves it, with no host read and no error toast', async (t) => {
   const [item] = steerPromptItems([{ id: 'q1', text: '', images }], []);

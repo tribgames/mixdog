@@ -743,7 +743,10 @@ test('model editor sends only touched fields: chips, explicit [], reset null', a
   // One row with a summary trigger; the menu lists every level with a check on the chosen ones.
   assert.equal(levelsTrigger().textContent, 'low · high');
   await click(levelsTrigger());
-  assert.equal(document.querySelector('[role=listbox][aria-label="Reasoning levels"]').getAttribute('aria-multiselectable'), 'true');
+  assert.equal(
+    document.querySelector('[role=listbox][aria-label="Reasoning levels"]').getAttribute('aria-multiselectable'),
+    'true'
+  );
   assert.equal(levelOption('low').getAttribute('aria-selected'), 'true');
   assert.equal(levelOption('medium').getAttribute('aria-selected'), 'false');
   await toggleLevel('medium');
@@ -980,7 +983,6 @@ test('reopening a discovered model after a save shows the saved values, not the 
   assert.equal(input('contextWindow').value, '12345');
   assert.equal(input('name').value, 'Saved name');
   assert.equal(levelsTrigger().textContent, 'high');
-
 });
 
 test('refresh with an empty model list shows the empty-result message', async (t) => {
@@ -1229,7 +1231,10 @@ test('HTTP headers: a credential header is flagged inline and blocks save, test 
 
 test('Advanced request options: JSON is saved with the provider; app-owned keys block Save inline', async (t) => {
   const calls = [];
-  const { render } = mount(t, { calls, handlers: { saveCustomProvider: (i) => i, discoverCustomProviderModels: () => ({ models: [{ id: 'found' }] }) } });
+  const { render } = mount(t, {
+    calls,
+    handlers: { saveCustomProvider: (i) => i, discoverCustomProviderModels: () => ({ models: [{ id: 'found' }] }) },
+  });
   await render();
   await fillNew();
   const area = field('Advanced request options');
@@ -1297,7 +1302,9 @@ test('model editor placeholders show the true inherited value after Reset, not t
   };
   const { render } = mount(t, {
     calls,
-    api: [withRows({ models: [row, ROWS[1]], modelOverrides: { 'acme-1': { name: 'Saved alias', contextWindow: 5000 } } })],
+    api: [
+      withRows({ models: [row, ROWS[1]], modelOverrides: { 'acme-1': { name: 'Saved alias', contextWindow: 5000 } } }),
+    ],
     handlers: { updateCustomProviderModel: () => ({}) },
   });
   await render();

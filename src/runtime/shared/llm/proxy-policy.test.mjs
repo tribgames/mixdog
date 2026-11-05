@@ -56,7 +56,10 @@ test('a stored manual address never carries a password', () => {
 });
 
 test('exception lists accept names, wildcards, addresses and ranges, and reject anything else', () => {
-  assert.equal(exceptionsError('localhost, 127.0.0.1, ::1, *.company.local, .corp, 10.0.0.0/8, [::1]:8080, host:443'), null);
+  assert.equal(
+    exceptionsError('localhost, 127.0.0.1, ::1, *.company.local, .corp, 10.0.0.0/8, [::1]:8080, host:443'),
+    null
+  );
   assert.equal(exceptionsError(''), null);
   assert.match(exceptionsError('local host, http://x'), /not an address/);
   const covers = (list, url) => exceptionsCover(list, new URL(url));
@@ -108,7 +111,11 @@ test('a patch is strict: unknown keys, bad values and a manual mode without an a
     url: '',
     exceptions: DEFAULT_PROXY_EXCEPTIONS,
   });
-  const manual = applyNetworkProxyPatch(null, { mode: 'manual', url: PROXY, exceptions: 'Localhost,  *.Corp.local ,localhost' });
+  const manual = applyNetworkProxyPatch(null, {
+    mode: 'manual',
+    url: PROXY,
+    exceptions: 'Localhost,  *.Corp.local ,localhost',
+  });
   assert.deepEqual(manual, { mode: 'manual', url: PROXY, exceptions: 'localhost, *.corp.local' });
   assert.equal(applyNetworkProxyPatch(manual, { mode: 'system' }).url, PROXY, 'the address is kept for later');
   for (const patch of [
@@ -142,8 +149,14 @@ test('system mode: an ALL_PROXY-only environment is followed for http(s), HTTPS_
   assert.deepEqual(decide('https://api.example.com', { env }), { proxy: PROXY, via: 'env', envVar: 'ALL_PROXY' });
   assert.equal(decide('http://api.example.com', { env }).proxy, PROXY);
   assert.equal(decide('wss://api.example.com/ws', { env }).proxy, PROXY);
-  assert.equal(decide('https://api.example.com', { env: { ...env, HTTPS_PROXY: 'http://specific:1' } }).proxy, 'http://specific:1');
-  assert.equal(decide('wss://api.example.com', { env: { ...env, HTTP_PROXY: 'http://plain:2' } }).proxy, 'http://plain:2');
+  assert.equal(
+    decide('https://api.example.com', { env: { ...env, HTTPS_PROXY: 'http://specific:1' } }).proxy,
+    'http://specific:1'
+  );
+  assert.equal(
+    decide('wss://api.example.com', { env: { ...env, HTTP_PROXY: 'http://plain:2' } }).proxy,
+    'http://plain:2'
+  );
   assert.equal(decide('https://api.example.com', { env: { ...env, NO_PROXY: 'example.com' } }).proxy, null);
   assert.equal(decide('https://api.other.org', { env: { ...env, NO_PROXY: 'example.com' } }).proxy, PROXY);
   // ALL_PROXY is only followed when it is an http(s) address.
@@ -154,7 +167,10 @@ test('system mode: an ALL_PROXY-only environment is followed for http(s), HTTPS_
 
 test('system mode falls to the OS proxy only without a proxy variable, awaiting its lookup', async () => {
   const system = (origin) => Promise.resolve({ proxy: origin.includes('direct') ? null : 'http://os.corp:3128' });
-  assert.deepEqual(await decide('https://api.example.com', { system }), { proxy: 'http://os.corp:3128', via: 'system' });
+  assert.deepEqual(await decide('https://api.example.com', { system }), {
+    proxy: 'http://os.corp:3128',
+    via: 'system',
+  });
   assert.deepEqual(await decide('https://direct.example.com', { system }), { proxy: null, via: 'direct' });
   assert.equal(decide('https://api.example.com', { env: { HTTPS_PROXY: PROXY }, system }).proxy, PROXY);
 });

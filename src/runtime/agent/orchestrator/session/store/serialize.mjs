@@ -36,7 +36,11 @@ export function _messageForDisk(m, sessionId) {
 }
 
 /** Top-level keys of a session that are never stored (in-flight aliases). */
-export const TRANSIENT_SESSION_KEYS = Object.freeze(['liveTurnMessages', 'toolApprovalHook', '_providerPrefixGuardState']);
+export const TRANSIENT_SESSION_KEYS = Object.freeze([
+  'liveTurnMessages',
+  'toolApprovalHook',
+  '_providerPrefixGuardState',
+]);
 
 /** The session's header as it is stored, messages aside (the session log
  *  drops TRANSIENT_SESSION_KEYS and `messages` itself). */

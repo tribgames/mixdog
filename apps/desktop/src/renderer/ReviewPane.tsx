@@ -182,48 +182,45 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       /* persistence only */
     }
   }, [diffStyle]);
-  const refresh = useCallback(
-    async () => {
-      if (!cwd) {
-        setStatus(null);
-        return;
-      }
-      if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
-        setReadError(t('Review needs an app restart to finish updating.'));
-        return;
-      }
-      try {
-        const [next, nextReview] = await Promise.all([
-          window.mixdogDesktop.gitStatus(cwd),
-          window.mixdogDesktop.gitReview(cwd),
-        ]);
-        setStatus(next ?? null);
-        setReview(nextReview ?? null);
-        const prev = reviewRef.current;
-        reviewRef.current = nextReview ?? null;
-        if (prev && nextReview) {
-          const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}`;
-          const before = new Map(prev.files.map((file) => [file.path, signature(file)]));
-          setDiffs((current) => {
-            let dirty = false;
-            const draft = { ...current };
-            for (const file of nextReview.files) {
-              if (draft[file.path] !== undefined && before.get(file.path) !== signature(file)) {
-                delete draft[file.path];
-                dirty = true;
-              }
+  const refresh = useCallback(async () => {
+    if (!cwd) {
+      setStatus(null);
+      return;
+    }
+    if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
+      setReadError(t('Review needs an app restart to finish updating.'));
+      return;
+    }
+    try {
+      const [next, nextReview] = await Promise.all([
+        window.mixdogDesktop.gitStatus(cwd),
+        window.mixdogDesktop.gitReview(cwd),
+      ]);
+      setStatus(next ?? null);
+      setReview(nextReview ?? null);
+      const prev = reviewRef.current;
+      reviewRef.current = nextReview ?? null;
+      if (prev && nextReview) {
+        const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}`;
+        const before = new Map(prev.files.map((file) => [file.path, signature(file)]));
+        setDiffs((current) => {
+          let dirty = false;
+          const draft = { ...current };
+          for (const file of nextReview.files) {
+            if (draft[file.path] !== undefined && before.get(file.path) !== signature(file)) {
+              delete draft[file.path];
+              dirty = true;
             }
-            return dirty ? draft : current;
-          });
-        }
-        setReadError('');
-      } catch {
-        setStatus(null);
-        setReadError(t('Review is temporarily unavailable.'));
+          }
+          return dirty ? draft : current;
+        });
       }
-    },
-    [cwd]
-  );
+      setReadError('');
+    } catch {
+      setStatus(null);
+      setReadError(t('Review is temporarily unavailable.'));
+    }
+  }, [cwd]);
   useEffect(() => {
     if (!cwd) return undefined;
     const scheduler = createGitRefreshScheduler(refresh, {

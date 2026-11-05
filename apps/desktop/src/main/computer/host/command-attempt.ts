@@ -97,8 +97,7 @@ function userInputReply(
   payload: Record<string, unknown>
 ): ComputerCommandResult {
   const { command, state } = attempt;
-  const yielded =
-    drivesForeground(command) && !observesOnly(command) && deps.coordinator.yieldSession(state.sessionId);
+  const yielded = drivesForeground(command) && !observesOnly(command) && deps.coordinator.yieldSession(state.sessionId);
   return { text: JSON.stringify(yielded ? yieldedUserInputPayload(payload, manualResume(deps)) : payload) };
 }
 

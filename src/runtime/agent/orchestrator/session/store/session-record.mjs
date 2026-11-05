@@ -109,7 +109,11 @@ export function readSessionRecord(dir, id, { loadLegacy = loadLegacySession, mes
 }
 
 /** readSessionRecord as a store-read step (store/fs-steps.mjs). */
-export function* readSessionRecordStep(dir, id, { loadLegacy = loadLegacySession, messages = true, stamp = null } = {}) {
+export function* readSessionRecordStep(
+  dir,
+  id,
+  { loadLegacy = loadLegacySession, messages = true, stamp = null } = {}
+) {
   return yield ['sessionRecord', { ...sessionRecordFiles(dir, id), loadLegacy, messages, stamp }];
 }
 
@@ -202,7 +206,11 @@ function recordTextOf(outcome, sessionId) {
   }
 }
 
-const failedText = (err) => ({ state: isAbsentReadError(err) ? PROBE_ABSENT : PROBE_UNREADABLE, text: null, legacy: false });
+const failedText = (err) => ({
+  state: isAbsentReadError(err) ? PROBE_ABSENT : PROBE_UNREADABLE,
+  text: null,
+  legacy: false,
+});
 
 /**
  * `{ state, text, legacy }` of session `sessionId` at `files` ({ jsonPath,

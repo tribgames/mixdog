@@ -34,8 +34,21 @@ test('parseRequestBody: blank is none; bad JSON, non-objects and reserved keys b
 });
 
 test('the UI refuses the same top-level keys as the runtime, unsafe prototype keys included', () => {
-  const config = { type: 'custom', schemaVersion: 2, name: 'P', protocol: 'openai-chat', baseURL: 'https://llm.example.com/v1' };
-  for (const key of [...CUSTOM_RESERVED_BODY_KEYS, '__proto__', 'constructor', 'prototype', 'temperature', 'provider']) {
+  const config = {
+    type: 'custom',
+    schemaVersion: 2,
+    name: 'P',
+    protocol: 'openai-chat',
+    baseURL: 'https://llm.example.com/v1',
+  };
+  for (const key of [
+    ...CUSTOM_RESERVED_BODY_KEYS,
+    '__proto__',
+    'constructor',
+    'prototype',
+    'temperature',
+    'provider',
+  ]) {
     const runtimeRefuses = (() => {
       try {
         normalizeCustomProviderConfig({ ...config, requestBody: JSON.parse(`{${JSON.stringify(key)}: 1}`) });

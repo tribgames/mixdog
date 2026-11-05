@@ -21,20 +21,17 @@ const operationTails = new WeakMap<WebContents, Promise<unknown>>();
 
 /** Run `work` with the window's debugger attached, releasing it only if this call attached it.
  *  Whole operations (attach, work, detach) run one at a time per window. */
-async function withDebugger<T>(
-  contents: WebContents,
-  work: (send: SendBrowserInput) => Promise<T>
-): Promise<T> {
+async function withDebugger<T>(contents: WebContents, work: (send: SendBrowserInput) => Promise<T>): Promise<T> {
   const previous = operationTails.get(contents) ?? Promise.resolve();
   const run = previous.then(() => attachedOperation(contents, work));
-  operationTails.set(contents, run.catch(() => undefined));
+  operationTails.set(
+    contents,
+    run.catch(() => undefined)
+  );
   return run;
 }
 
-async function attachedOperation<T>(
-  contents: WebContents,
-  work: (send: SendBrowserInput) => Promise<T>
-): Promise<T> {
+async function attachedOperation<T>(contents: WebContents, work: (send: SendBrowserInput) => Promise<T>): Promise<T> {
   const cdp = contents.debugger;
   const attachedHere = !cdp.isAttached();
   if (attachedHere) cdp.attach('1.3');
@@ -114,7 +111,11 @@ export async function dispatchElectronInput(input: ElectronTextDispatch): Promis
         await pressKey(contents, press);
       }
     });
-    return delivered(input, `sent ${presses.length} key press(es) to app-owned Electron renderer`, 'electron_key_event');
+    return delivered(
+      input,
+      `sent ${presses.length} key press(es) to app-owned Electron renderer`,
+      'electron_key_event'
+    );
   }
   const point = wheelPoint(input);
   const { deltaX, deltaY } = wheelDeltas(command);
@@ -132,7 +133,14 @@ export async function dispatchElectronInput(input: ElectronTextDispatch): Promis
     mode: 'background',
   });
   await withDebugger(contents, async (send) => {
-    await send(contents, 'Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX, deltaY, modifiers, button: 'none' });
+    await send(contents, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      ...point,
+      deltaX,
+      deltaY,
+      modifiers,
+      button: 'none',
+    });
   });
   return delivered(input, 'sent a wheel event to app-owned Electron renderer', 'electron_wheel_event');
 }

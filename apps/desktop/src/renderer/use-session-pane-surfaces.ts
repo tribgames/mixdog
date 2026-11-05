@@ -263,7 +263,8 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
       setSessionPanelViews((current) => withSessionPanelView(current, sessionId, view));
       // Another view (or none, unless the dock only folds) leaves the agent
       // session view: its sub-agent goes.
-      if (view !== 'agent-session' && !options?.fold) setAgentSessionPanels((current) => withAgentSessionPanel(current, sessionId, null));
+      if (view !== 'agent-session' && !options?.fold)
+        setAgentSessionPanels((current) => withAgentSessionPanel(current, sessionId, null));
     },
     [setPanelViewFront]
   );

@@ -136,7 +136,12 @@ export function useRouteLayout({
     (triggerRect: { left: number; right: number; top: number; bottom: number }) => {
       const lane = trigger.current?.parentElement?.getBoundingClientRect();
       return lane && lane.width > 0
-        ? { left: triggerRect.left, right: Math.max(lane.right, triggerRect.right), top: triggerRect.top, bottom: triggerRect.bottom }
+        ? {
+            left: triggerRect.left,
+            right: Math.max(lane.right, triggerRect.right),
+            top: triggerRect.top,
+            bottom: triggerRect.bottom,
+          }
         : triggerRect;
     },
     [trigger]

@@ -70,11 +70,7 @@ export function customAvatarPayload(draft: AvatarStatesDraft): RecordValue {
 }
 
 /** A draft state's image, falling back to idle's. */
-function draftImage(
-  draft: AvatarStatesDraft,
-  images: AvatarImages,
-  state: AgentAvatarState
-): AvatarImage | undefined {
+function draftImage(draft: AvatarStatesDraft, images: AvatarImages, state: AgentAvatarState): AvatarImage | undefined {
   const entry = draft[state] ?? draft.idle;
   if (!entry) return undefined;
   return 'file' in entry ? images[entry.file] : { url: entry.data, poster: entry.poster ?? '' };
