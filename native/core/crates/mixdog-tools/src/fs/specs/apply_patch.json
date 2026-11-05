@@ -1,0 +1,28 @@
+{
+ "src": "patch",
+ "name": "apply_patch",
+ "annotations": {
+  "title": "Apply Patch",
+  "readOnlyHint": false,
+  "destructiveHint": true,
+  "idempotentHint": false,
+  "openWorldHint": false,
+  "compressible": false,
+  "compressibleLossless": true
+ },
+ "schema": {
+  "type": "object",
+  "properties": {
+   "patch": {
+    "type": "string",
+    "minLength": 1,
+    "description": "Complete V4A patch text."
+   }
+  },
+  "required": [
+   "patch"
+  ],
+  "additionalProperties": false
+ },
+ "descLen": 397
+}

@@ -26,11 +26,12 @@ use crate::feed::AttachRequest;
 use crate::feed::FeedSource;
 use crate::handle::CoreHandle;
 use crate::handle::CoreState;
+use crate::host::HostCapability;
 use crate::host::HostChannel;
+use crate::host::HostError;
 use crate::host::HostMediaSink;
 use crate::ids::ConnectionId;
 use crate::ids::FeedId;
-use crate::ids::HostId;
 use crate::ids::Method;
 use crate::ids::OpId;
 use crate::ids::ServerRequestId;
@@ -447,36 +448,51 @@ impl StatePublisher for MockStatePublisher {
     }
 }
 
-/// A desktop host: hosts that claimed a scope answer from `replies` (by method), others fail
-/// `capabilityUnavailable{desktopHost}`.
+/// A desktop host: capabilities that were claimed answer from `replies` (by method), others
+/// fail `capabilityUnavailable{desktopHost}`.
 #[derive(Default)]
 pub struct MockHostChannel {
-    claimed: Mutex<Vec<HostId>>,
-    replies: Mutex<HashMap<&'static str, Value>>,
-    sent: Mutex<Vec<(HostId, Method, Value)>>,
+    claimed: Mutex<Vec<HostCapability>>,
+    replies: Mutex<HashMap<&'static str, Result<Value, HostError>>>,
+    sent: Mutex<Vec<(HostCapability, Method, Value)>>,
 }
 
 impl MockHostChannel {
-    pub fn claim(&self, host: HostId) {
-        lock(&self.claimed).push(host);
+    pub fn claim(&self, capability: HostCapability) {
+        lock(&self.claimed).push(capability);
     }
 
     pub fn reply(&self, method: Method, result: Value) {
-        lock(&self.replies).insert(method.as_str(), result);
+        lock(&self.replies).insert(method.as_str(), Ok(result));
     }
 
-    pub fn sent(&self) -> Vec<(HostId, Method, Value)> {
+    /// The claimant answers `method` with this JSON-RPC error.
+    pub fn fail(&self, method: Method, code: i64, message: &str, data: Option<Value>) {
+        let error = HostError::Rpc {
+            code,
+            message: message.to_owned(),
+            data,
+        };
+        lock(&self.replies).insert(method.as_str(), Err(error));
+    }
+
+    pub fn sent(&self) -> Vec<(HostCapability, Method, Value)> {
         lock(&self.sent).clone()
     }
 
-    fn route(&self, host: &HostId, method: Method, params: Value) -> Result<(), CoreError> {
-        if !lock(&self.claimed).contains(host) {
+    fn route(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+    ) -> Result<(), CoreError> {
+        if !lock(&self.claimed).contains(&capability) {
             return Err(CoreError::CapabilityUnavailable {
                 capability: "desktopHost".into(),
                 detail: "noClaimant".into(),
             });
         }
-        lock(&self.sent).push((host.clone(), method, params));
+        lock(&self.sent).push((capability, method, params));
         Ok(())
     }
 }
@@ -485,19 +501,24 @@ impl MockHostChannel {
 impl HostChannel for MockHostChannel {
     async fn request(
         &self,
-        host: &HostId,
+        capability: HostCapability,
         method: Method,
         params: Value,
-    ) -> Result<Value, CoreError> {
-        self.route(host, method, params)?;
-        Ok(lock(&self.replies)
+    ) -> Result<Value, HostError> {
+        self.route(capability, method, params)?;
+        lock(&self.replies)
             .get(method.as_str())
             .cloned()
-            .unwrap_or(Value::Null))
+            .unwrap_or(Ok(Value::Null))
     }
 
-    fn notify(&self, host: &HostId, method: Method, params: Value) -> Result<(), CoreError> {
-        self.route(host, method, params)
+    fn notify(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+    ) -> Result<(), CoreError> {
+        self.route(capability, method, params)
     }
 }
 

@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { installTestDom } from '../test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from '../test-support/test-dom.mjs';
 
 installTestDom(null, {
   html: '<!doctype html><html><body><main></main></body></html>',
@@ -14,6 +14,9 @@ installTestDom(null, {
 });
 
 window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+// The built-in cards read the core's `toolModules` section; the fake daemon below publishes it as the core would.
+const section = toolModulesSource();
+window.mixdogDesktop = { sections: section.sections };
 
 const { CapabilitySettings, preloadCapabilitySettings } = await import('./CapabilitySettings.tsx');
 const { invalidateCapabilitySettings } = await import('./capability-data.ts');
@@ -74,6 +77,7 @@ test('a hidden prewarmed settings panel re-reads only once it is shown', async (
 function toolModuleApi(initial) {
   const modules = structuredClone(initial);
   const held = [];
+  section.publish(structuredClone(modules));
   const api = {
     hold: false,
     modules,
@@ -92,6 +96,7 @@ function toolModuleApi(initial) {
       if (capability === 'setBuiltinToolEnabled') {
         const [id, enabled] = args;
         modules[id] = { ...modules[id], enabled };
+        section.publish(structuredClone(modules));
         return { value: structuredClone(modules), snapshot: null };
       }
       return { value: null, snapshot: null };

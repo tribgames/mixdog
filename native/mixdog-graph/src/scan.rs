@@ -62,17 +62,17 @@ pub enum ScanError {
 /// Zero-based row and character column, as `--scan` and `--outline` report
 /// them.
 #[derive(Serialize)]
-pub(crate) struct PositionJson {
-    pub(crate) line: usize,
-    pub(crate) column: usize,
+pub struct PositionJson {
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Serialize)]
-pub(crate) struct RangeJson {
-    pub(crate) start: PositionJson,
-    pub(crate) end: PositionJson,
+pub struct RangeJson {
+    pub start: PositionJson,
+    pub end: PositionJson,
     #[serde(rename = "byteOffset")]
-    pub(crate) byte_offset: [usize; 2],
+    pub byte_offset: [usize; 2],
 }
 
 #[derive(Serialize)]

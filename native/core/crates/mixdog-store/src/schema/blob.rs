@@ -6,7 +6,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde::Serializer;
 
-use super::bounded::Digest;
 
 /// Digest text form, everywhere a digest is written: `sha256:` + 64 lowercase hex.
 pub const DIGEST_PREFIX: &str = "sha256:";
@@ -45,9 +44,6 @@ impl TryFrom<BlobDescriptor> for BodyBlob {
     type Error = String;
 
     fn try_from(value: BlobDescriptor) -> Result<Self, Self::Error> {
-        if !Digest::is_valid(value.digest.as_str()) {
-            return Err(format!("not a sha256 digest: {:?}", value.digest.as_str()));
-        }
         if value.media_type != BODY_MEDIA_TYPE {
             return Err(format!("body blob media type {:?}", value.media_type));
         }

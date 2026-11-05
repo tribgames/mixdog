@@ -1,0 +1,23 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>",
+    "<ROOT>/reg/other",
+    "<ROOT>/reg/other/x.mjs"
+  ],
+  "input": {
+    "files": [
+      "<ROOT>/reg/other/x.mjs"
+    ],
+    "mode": "symbols"
+  },
+  "isError": false,
+  "registered": [
+    "reg/outer",
+    "reg/outer/inner",
+    "reg/other"
+  ],
+  "text": "# symbols <ROOT>/reg/other/x.mjs\n# project other [<ROOT>/reg/other]\nexport function otherFn (L1-3)  function otherFn()",
+  "tool": "code_graph"
+}

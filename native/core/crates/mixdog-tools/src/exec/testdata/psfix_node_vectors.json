@@ -1,0 +1,194 @@
+{
+ "wmic": [
+  {
+   "command": "wmic process get name,processid",
+   "result": {
+    "command": "powershell.exe -NoProfile -EncodedCommand JABmAGkAZQBsAGQAcwAgAD0AIABAACgAJwBOAGEAbQBlACcALAAgACcAUAByAG8AYwBlAHMAcwBJAGQAJwApADsAIAAkAEUAcgByAG8AcgBBAGMAdABpAG8AbgBQAHIAZQBmAGUAcgBlAG4AYwBlACAAPQAgACcAUwB0AG8AcAAnADsAIABHAGUAdAAtAEMAaQBtAEkAbgBzAHQAYQBuAGMAZQAgAFcAaQBuADMAMgBfAFAAcgBvAGMAZQBzAHMAIAB8ACAAUwBlAGwAZQBjAHQALQBPAGIAagBlAGMAdAAgAC0AUAByAG8AcABlAHIAdAB5ACAAJABmAGkAZQBsAGQAcwAgAHwAIABGAG8AcgBtAGEAdAAtAEwAaQBzAHQA",
+    "timeoutMs": 30000,
+    "note": "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]"
+   }
+  },
+  {
+   "command": "wmic process where \"name='node.exe'\" get processid,commandline",
+   "result": {
+    "command": "powershell.exe -NoProfile -EncodedCommand JABmAGkAZQBsAGQAcwAgAD0AIABAACgAJwBQAHIAbwBjAGUAcwBzAEkAZAAnACwAIAAnAEMAbwBtAG0AYQBuAGQATABpAG4AZQAnACkAOwAgACQAbgBhAG0AZQBzACAAPQAgAEAAKAAnAG4AbwBkAGUALgBlAHgAZQAnACkAOwAgACQARQByAHIAbwByAEEAYwB0AGkAbwBuAFAAcgBlAGYAZQByAGUAbgBjAGUAIAA9ACAAJwBTAHQAbwBwACcAOwAgAEcAZQB0AC0AQwBpAG0ASQBuAHMAdABhAG4AYwBlACAAVwBpAG4AMwAyAF8AUAByAG8AYwBlAHMAcwAgAHwAIABXAGgAZQByAGUALQBPAGIAagBlAGMAdAAgAHsAIAAoACQAbgBhAG0AZQBzACAALQBjAG8AbgB0AGEAaQBuAHMAIAAkAF8ALgBOAGEAbQBlACkAIAB9ACAAfAAgAFMAZQBsAGUAYwB0AC0ATwBiAGoAZQBjAHQAIAAtAFAAcgBvAHAAZQByAHQAeQAgACQAZgBpAGUAbABkAHMAIAB8ACAARgBvAHIAbQBhAHQALQBMAGkAcwB0AA==",
+    "timeoutMs": 30000,
+    "note": "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]"
+   }
+  },
+  {
+   "command": "wmic process where processid=1234 get name",
+   "result": {
+    "command": "powershell.exe -NoProfile -EncodedCommand JABmAGkAZQBsAGQAcwAgAD0AIABAACgAJwBOAGEAbQBlACcAKQA7ACAAJABwAGkAZABzACAAPQAgAEAAKAAxADIAMwA0ACkAOwAgACQARQByAHIAbwByAEEAYwB0AGkAbwBuAFAAcgBlAGYAZQByAGUAbgBjAGUAIAA9ACAAJwBTAHQAbwBwACcAOwAgAEcAZQB0AC0AQwBpAG0ASQBuAHMAdABhAG4AYwBlACAAVwBpAG4AMwAyAF8AUAByAG8AYwBlAHMAcwAgAHwAIABXAGgAZQByAGUALQBPAGIAagBlAGMAdAAgAHsAIAAoACQAcABpAGQAcwAgAC0AYwBvAG4AdABhAGkAbgBzACAAWwBpAG4AdABdACQAXwAuAFAAcgBvAGMAZQBzAHMASQBkACkAIAB9ACAAfAAgAFMAZQBsAGUAYwB0AC0ATwBiAGoAZQBjAHQAIAAtAFAAcgBvAHAAZQByAHQAeQAgACQAZgBpAGUAbABkAHMAIAB8ACAARgBvAHIAbQBhAHQALQBMAGkAcwB0AA==",
+    "timeoutMs": 30000,
+    "note": "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]"
+   }
+  },
+  {
+   "command": "WMIC.EXE process list",
+   "result": {
+    "error": "wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead."
+   }
+  },
+  {
+   "command": "wmic process",
+   "result": {
+    "error": "wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead."
+   }
+  },
+  {
+   "command": "cmd /c \"wmic process where name='a.exe' get ProcessId /format:list\"",
+   "result": {
+    "command": "powershell.exe -NoProfile -EncodedCommand JABmAGkAZQBsAGQAcwAgAD0AIABAACgAJwBQAHIAbwBjAGUAcwBzAEkAZAAnACkAOwAgACQAbgBhAG0AZQBzACAAPQAgAEAAKAAnAGEALgBlAHgAZQAnACkAOwAgACQARQByAHIAbwByAEEAYwB0AGkAbwBuAFAAcgBlAGYAZQByAGUAbgBjAGUAIAA9ACAAJwBTAHQAbwBwACcAOwAgAEcAZQB0AC0AQwBpAG0ASQBuAHMAdABhAG4AYwBlACAAVwBpAG4AMwAyAF8AUAByAG8AYwBlAHMAcwAgAHwAIABXAGgAZQByAGUALQBPAGIAagBlAGMAdAAgAHsAIAAoACQAbgBhAG0AZQBzACAALQBjAG8AbgB0AGEAaQBuAHMAIAAkAF8ALgBOAGEAbQBlACkAIAB9ACAAfAAgAFMAZQBsAGUAYwB0AC0ATwBiAGoAZQBjAHQAIAAtAFAAcgBvAHAAZQByAHQAeQAgACQAZgBpAGUAbABkAHMAIAB8ACAARgBvAHIAbQBhAHQALQBMAGkAcwB0AA==",
+    "timeoutMs": 30000,
+    "note": "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]"
+   }
+  },
+  {
+   "command": "& C:\\Windows\\System32\\wbem\\wmic.exe process get executablepath",
+   "result": null
+  },
+  {
+   "command": "wmic process get name | findstr node",
+   "result": null
+  },
+  {
+   "command": "echo wmic process get name",
+   "result": null
+  },
+  {
+   "command": "wmic process get bogus",
+   "result": {
+    "command": "powershell.exe -NoProfile -EncodedCommand JABmAGkAZQBsAGQAcwAgAD0AIABAACgAJwBQAHIAbwBjAGUAcwBzAEkAZAAnACwAIAAnAE4AYQBtAGUAJwAsACAAJwBDAHIAZQBhAHQAaQBvAG4ARABhAHQAZQAnACwAIAAnAEUAeABlAGMAdQB0AGEAYgBsAGUAUABhAHQAaAAnACwAIAAnAEMAbwBtAG0AYQBuAGQATABpAG4AZQAnACkAOwAgACQARQByAHIAbwByAEEAYwB0AGkAbwBuAFAAcgBlAGYAZQByAGUAbgBjAGUAIAA9ACAAJwBTAHQAbwBwACcAOwAgAEcAZQB0AC0AQwBpAG0ASQBuAHMAdABhAG4AYwBlACAAVwBpAG4AMwAyAF8AUAByAG8AYwBlAHMAcwAgAHwAIABTAGUAbABlAGMAdAAtAE8AYgBqAGUAYwB0ACAALQBQAHIAbwBwAGUAcgB0AHkAIAAkAGYAaQBlAGwAZABzACAAfAAgAEYAbwByAG0AYQB0AC0ATABpAHMAdAA=",
+    "timeoutMs": 30000,
+    "note": "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]"
+   }
+  },
+  {
+   "command": "wmic process where (name=\"a.exe\" or name=\"b.exe\") get handlecount, threadcount",
+   "result": {
+    "command": "powershell.exe -NoProfile -EncodedCommand JABmAGkAZQBsAGQAcwAgAD0AIABAACgAJwBIAGEAbgBkAGwAZQBDAG8AdQBuAHQAJwAsACAAJwBUAGgAcgBlAGEAZABDAG8AdQBuAHQAJwApADsAIAAkAG4AYQBtAGUAcwAgAD0AIABAACgAJwBhAC4AZQB4AGUAJwAsACAAJwBiAC4AZQB4AGUAJwApADsAIAAkAEUAcgByAG8AcgBBAGMAdABpAG8AbgBQAHIAZQBmAGUAcgBlAG4AYwBlACAAPQAgACcAUwB0AG8AcAAnADsAIABHAGUAdAAtAEMAaQBtAEkAbgBzAHQAYQBuAGMAZQAgAFcAaQBuADMAMgBfAFAAcgBvAGMAZQBzAHMAIAB8ACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAKAAkAG4AYQBtAGUAcwAgAC0AYwBvAG4AdABhAGkAbgBzACAAJABfAC4ATgBhAG0AZQApACAAfQAgAHwAIABTAGUAbABlAGMAdAAtAE8AYgBqAGUAYwB0ACAALQBQAHIAbwBwAGUAcgB0AHkAIAAkAGYAaQBlAGwAZABzACAAfAAgAEYAbwByAG0AYQB0AC0ATABpAHMAdAA=",
+    "timeoutMs": 30000,
+    "note": "[auto-rewrite: deprecated wmic process query -> PowerShell Get-CimInstance; timeout capped at 30000ms]"
+   }
+  },
+  {
+   "command": "wmic os get caption",
+   "result": null
+  }
+ ],
+ "hints": [
+  {
+   "command": "cat x </dev/null",
+   "stderr": "ParserError: nope",
+   "hint": "hint: PowerShell has no `<` redirection; drop </dev/null."
+  },
+  {
+   "command": "cat <<EOF\nx\nEOF",
+   "stderr": "ParserError: nope",
+   "hint": "hint: PowerShell has no heredoc; use @'\\n…\\n'@ | python - (or node -)."
+  },
+  {
+   "command": "cat <<EOF\nx\nEOF",
+   "stderr": "other error",
+   "hint": ""
+  },
+  {
+   "command": "ls 2>/dev/null",
+   "stderr": "Out-File : Could not find a part of the path 'C:\\dev\\null'.",
+   "hint": "hint: use 2>$null in PowerShell."
+  },
+  {
+   "command": "ls | head -5",
+   "stderr": "head: The term 'head' is not recognized as a name of a cmdlet.\nCommandNotFoundException\n",
+   "hint": "hint: no `head` in PowerShell; use Select-Object -First N."
+  },
+  {
+   "command": "wc -l f",
+   "stderr": "wc: \n The term 'wc' is not recognized\n",
+   "hint": "hint: no `wc` in PowerShell; use Measure-Object -Line."
+  },
+  {
+   "command": "x | grep y",
+   "stderr": "CommandNotFoundException\n ObjectNotFound: (grep:String)",
+   "hint": "hint: no `grep` in PowerShell; use the grep tool."
+  },
+  {
+   "command": "pgrep node",
+   "stderr": "ObjectNotFound: (pgrep:String) CommandNotFoundException",
+   "hint": "hint: no `pgrep` in PowerShell; use Get-Process -Name <name>."
+  },
+  {
+   "command": "foo | head",
+   "stderr": "ObjectNotFound: (bar:String) CommandNotFoundException",
+   "hint": ""
+  },
+  {
+   "command": "echo hi",
+   "stderr": "",
+   "hint": ""
+  }
+ ],
+ "diagnostics": [
+  {
+   "code": 0,
+   "text": ""
+  },
+  {
+   "code": 1,
+   "text": ""
+  },
+  {
+   "code": 2,
+   "text": ""
+  },
+  {
+   "code": 126,
+   "text": " — 126: command found but not executable (permission or format)"
+  },
+  {
+   "code": 127,
+   "text": ""
+  },
+  {
+   "code": 129,
+   "text": " — 128+1: terminated by SIGHUP"
+  },
+  {
+   "code": 130,
+   "text": " — 128+2: terminated by SIGINT"
+  },
+  {
+   "code": 134,
+   "text": ""
+  },
+  {
+   "code": 137,
+   "text": " — 128+9: terminated by SIGKILL"
+  },
+  {
+   "code": 139,
+   "text": " — 128+11: terminated by SIGSEGV"
+  },
+  {
+   "code": 143,
+   "text": " — 128+15: terminated by SIGTERM"
+  },
+  {
+   "code": 160,
+   "text": ""
+  },
+  {
+   "code": 164,
+   "text": ""
+  },
+  {
+   "code": 165,
+   "text": ""
+  },
+  {
+   "code": 200,
+   "text": ""
+  }
+ ]
+}

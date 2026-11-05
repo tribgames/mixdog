@@ -38,7 +38,7 @@ const hooks = registerHooks({
     }
     if (specifier === './editor-disk-watch') {
       return fake(`
-        export const startEditorDiskWatch = (win, check) => {
+        export const startEditorDiskWatch = (host, projectPath, relPath, check) => {
           globalThis.__fakeMonaco.tick = check;
           return () => { globalThis.__fakeMonaco.tick = null; };
         };`);

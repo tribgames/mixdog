@@ -307,10 +307,9 @@ test('server logins: a server that disconnects mid-login closes the steps and sh
   await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
   await settle();
   assert.ok(document.querySelector('.ssh-login-codebox'));
-  // The first status poll runs after a second.
-  for (let waited = 0; document.querySelector('.ssh-login-codebox') && waited < 5_000; waited += 50) {
-    await act(async () => new Promise((done) => setTimeout(done, 50)));
-  }
+  // Returning from the browser reads the login once; nothing reads it on a clock.
+  const view = document.defaultView;
+  await act(async () => void view.dispatchEvent(new view.Event('focus')));
   await settle();
   assert.equal(document.querySelector('.ssh-login-codebox'), null, 'the steps close');
   assert.equal(document.querySelector('.ssh-login-list'), null, 'no provider list or Log in buttons');

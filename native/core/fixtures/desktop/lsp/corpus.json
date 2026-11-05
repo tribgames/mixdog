@@ -30,11 +30,12 @@
           "version": 1
         }
       ],
-      "error": {
-        "message": "recorder timeout after 20s",
-        "name": "Error"
-      },
-      "op": "lspDocument"
+      "op": "lspDocument",
+      "result": {
+        "available": false,
+        "server": "rust-analyzer",
+        "status": "missing"
+      }
     },
     {
       "args": [
@@ -63,6 +64,384 @@
       ],
       "op": "lspDisposeUnder",
       "result": []
+    },
+    {
+      "args": [
+        "<WORK>\\project-lsp",
+        "<WORK>\\project-lsp",
+        {
+          "languageId": "rust",
+          "relPath": "a.rs",
+          "text": "fn main(){}",
+          "version": 1
+        }
+      ],
+      "op": "lspDocument",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": false,
+          "codeAction": false,
+          "codeActionKinds": [],
+          "codeActionResolve": false,
+          "codeLens": false,
+          "codeLensResolve": false,
+          "completion": true,
+          "completionResolve": false,
+          "completionTriggerCharacters": [
+            ".",
+            ":"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": false,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": false,
+          "foldingRange": false,
+          "formatting": false,
+          "hover": true,
+          "implementation": false,
+          "inlayHint": false,
+          "inlayHintResolve": false,
+          "linkedEditingRange": false,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": false,
+          "rangeFormatting": false,
+          "references": false,
+          "rename": false,
+          "selectionRange": false,
+          "semanticTokens": false,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [],
+            "tokenTypes": []
+          },
+          "semanticTokensRange": false,
+          "signatureHelp": false,
+          "signatureHelpRetriggerCharacters": [],
+          "signatureHelpTriggerCharacters": [],
+          "typeDefinition": false,
+          "workspaceSymbol": false
+        },
+        "server": "rust-analyzer",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project-lsp",
+        "<WORK>\\project-lsp",
+        "a.rs",
+        "rust",
+        "textDocument/hover",
+        {
+          "position": {
+            "character": 3,
+            "line": 0
+          }
+        }
+      ],
+      "op": "lspRequest",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": false,
+          "codeAction": false,
+          "codeActionKinds": [],
+          "codeActionResolve": false,
+          "codeLens": false,
+          "codeLensResolve": false,
+          "completion": true,
+          "completionResolve": false,
+          "completionTriggerCharacters": [
+            ".",
+            ":"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": false,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": false,
+          "foldingRange": false,
+          "formatting": false,
+          "hover": true,
+          "implementation": false,
+          "inlayHint": false,
+          "inlayHintResolve": false,
+          "linkedEditingRange": false,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": false,
+          "rangeFormatting": false,
+          "references": false,
+          "rename": false,
+          "selectionRange": false,
+          "semanticTokens": false,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [],
+            "tokenTypes": []
+          },
+          "semanticTokensRange": false,
+          "signatureHelp": false,
+          "signatureHelpRetriggerCharacters": [],
+          "signatureHelpTriggerCharacters": [],
+          "typeDefinition": false,
+          "workspaceSymbol": false
+        },
+        "result": {
+          "contents": {
+            "kind": "markdown",
+            "value": "stub hover"
+          }
+        },
+        "server": "rust-analyzer",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project-lsp",
+        "<WORK>\\project-lsp",
+        "a.rs",
+        "rust",
+        "textDocument/definition",
+        {
+          "position": {
+            "character": 3,
+            "line": 0
+          }
+        }
+      ],
+      "op": "lspRequest",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": false,
+          "codeAction": false,
+          "codeActionKinds": [],
+          "codeActionResolve": false,
+          "codeLens": false,
+          "codeLensResolve": false,
+          "completion": true,
+          "completionResolve": false,
+          "completionTriggerCharacters": [
+            ".",
+            ":"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": false,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": false,
+          "foldingRange": false,
+          "formatting": false,
+          "hover": true,
+          "implementation": false,
+          "inlayHint": false,
+          "inlayHintResolve": false,
+          "linkedEditingRange": false,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": false,
+          "rangeFormatting": false,
+          "references": false,
+          "rename": false,
+          "selectionRange": false,
+          "semanticTokens": false,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [],
+            "tokenTypes": []
+          },
+          "semanticTokensRange": false,
+          "signatureHelp": false,
+          "signatureHelpRetriggerCharacters": [],
+          "signatureHelpTriggerCharacters": [],
+          "typeDefinition": false,
+          "workspaceSymbol": false
+        },
+        "result": {
+          "range": {
+            "end": {
+              "character": 7,
+              "line": 0
+            },
+            "start": {
+              "character": 3,
+              "line": 0
+            }
+          },
+          "uri": "file:///<WORK>/project-lsp/a.rs"
+        },
+        "server": "rust-analyzer",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project-lsp",
+        "<WORK>\\project-lsp",
+        "a.rs",
+        "rust",
+        "textDocument/completion",
+        {
+          "position": {
+            "character": 3,
+            "line": 0
+          }
+        }
+      ],
+      "op": "lspRequest",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": false,
+          "codeAction": false,
+          "codeActionKinds": [],
+          "codeActionResolve": false,
+          "codeLens": false,
+          "codeLensResolve": false,
+          "completion": true,
+          "completionResolve": false,
+          "completionTriggerCharacters": [
+            ".",
+            ":"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": false,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": false,
+          "foldingRange": false,
+          "formatting": false,
+          "hover": true,
+          "implementation": false,
+          "inlayHint": false,
+          "inlayHintResolve": false,
+          "linkedEditingRange": false,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": false,
+          "rangeFormatting": false,
+          "references": false,
+          "rename": false,
+          "selectionRange": false,
+          "semanticTokens": false,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [],
+            "tokenTypes": []
+          },
+          "semanticTokensRange": false,
+          "signatureHelp": false,
+          "signatureHelpRetriggerCharacters": [],
+          "signatureHelpTriggerCharacters": [],
+          "typeDefinition": false,
+          "workspaceSymbol": false
+        },
+        "result": [
+          {
+            "kind": 3,
+            "label": "stub_item"
+          }
+        ],
+        "server": "rust-analyzer",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project-lsp",
+        "<WORK>\\project-lsp",
+        "a.rs",
+        "rust",
+        "textDocument/rename",
+        {
+          "newName": "x",
+          "position": {
+            "character": 3,
+            "line": 0
+          }
+        }
+      ],
+      "op": "lspRequest",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": false,
+          "codeAction": false,
+          "codeActionKinds": [],
+          "codeActionResolve": false,
+          "codeLens": false,
+          "codeLensResolve": false,
+          "completion": true,
+          "completionResolve": false,
+          "completionTriggerCharacters": [
+            ".",
+            ":"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": false,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": false,
+          "foldingRange": false,
+          "formatting": false,
+          "hover": true,
+          "implementation": false,
+          "inlayHint": false,
+          "inlayHintResolve": false,
+          "linkedEditingRange": false,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": false,
+          "rangeFormatting": false,
+          "references": false,
+          "rename": false,
+          "selectionRange": false,
+          "semanticTokens": false,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [],
+            "tokenTypes": []
+          },
+          "semanticTokensRange": false,
+          "signatureHelp": false,
+          "signatureHelpRetriggerCharacters": [],
+          "signatureHelpTriggerCharacters": [],
+          "typeDefinition": false,
+          "workspaceSymbol": false
+        },
+        "detail": "rust-analyzer does not support textDocument/rename.",
+        "server": "rust-analyzer",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project-lsp"
+      ],
+      "op": "lspDisposeUnder",
+      "result": [
+        "<WORK>\\project-lsp"
+      ]
     },
     {
       "args": [
@@ -156,24 +535,107 @@
           }
         },
         {
-          "name": "terminal-data",
+          "name": "lsp-status",
           "value": {
-            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[H\u001b]0;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\u0007\u001b[?25h",
-            "id": "term_54960_1"
+            "available": false,
+            "languageId": "rust",
+            "projectPath": "<WORK>\\project",
+            "server": "rust-analyzer",
+            "status": "missing"
           }
         },
         {
-          "name": "terminal-data",
+          "name": "lsp-status",
           "value": {
-            "data": "\u001b[?9001l\u001b[?1004l",
-            "id": "term_54960_1"
+            "available": false,
+            "languageId": "rust",
+            "projectPath": "<WORK>\\project-lsp",
+            "server": "rust-analyzer",
+            "status": "starting"
           }
         },
         {
-          "name": "terminal-data",
+          "name": "lsp-status",
           "value": {
-            "data": "\r\n[process exited with code -1073741510]\r\n",
-            "id": "term_54960_1"
+            "available": true,
+            "capabilities": {
+              "callHierarchy": false,
+              "codeAction": false,
+              "codeActionKinds": [],
+              "codeActionResolve": false,
+              "codeLens": false,
+              "codeLensResolve": false,
+              "completion": true,
+              "completionResolve": false,
+              "completionTriggerCharacters": [
+                ".",
+                ":"
+              ],
+              "declaration": false,
+              "definition": true,
+              "documentColor": false,
+              "documentHighlight": false,
+              "documentLink": false,
+              "documentLinkResolve": false,
+              "documentSymbol": true,
+              "executeCommand": false,
+              "foldingRange": false,
+              "formatting": false,
+              "hover": true,
+              "implementation": false,
+              "inlayHint": false,
+              "inlayHintResolve": false,
+              "linkedEditingRange": false,
+              "onTypeFormatting": false,
+              "onTypeFormattingTriggerCharacters": [],
+              "prepareRename": false,
+              "rangeFormatting": false,
+              "references": false,
+              "rename": false,
+              "selectionRange": false,
+              "semanticTokens": false,
+              "semanticTokensDelta": false,
+              "semanticTokensLegend": {
+                "tokenModifiers": [],
+                "tokenTypes": []
+              },
+              "semanticTokensRange": false,
+              "signatureHelp": false,
+              "signatureHelpRetriggerCharacters": [],
+              "signatureHelpTriggerCharacters": [],
+              "typeDefinition": false,
+              "workspaceSymbol": false
+            },
+            "languageId": "rust",
+            "projectPath": "<WORK>\\project-lsp",
+            "server": "rust-analyzer",
+            "status": "ready"
+          }
+        },
+        {
+          "name": "lsp-diagnostics",
+          "value": {
+            "diagnostics": [
+              {
+                "message": "stub diagnostic",
+                "range": {
+                  "end": {
+                    "character": 2,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 0,
+                    "line": 0
+                  }
+                },
+                "severity": 2,
+                "source": "scripted-stub"
+              }
+            ],
+            "projectPath": "<WORK>\\project-lsp",
+            "relPath": "a.rs",
+            "server": "rust-analyzer",
+            "uri": "file:///<WORK>/project-lsp/a.rs"
           }
         }
       ],

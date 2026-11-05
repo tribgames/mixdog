@@ -5,7 +5,7 @@ import { fileAccessError } from './editor-pane-session-errors';
 
 /** While the tab is active, a newer mtime on disk reloads a clean buffer and
  *  flags a dirty one as changed on disk. Binary and oversized files are
- *  skipped; previews poll separately. */
+ *  skipped. Changes are pushed by the core's file watch. */
 export function useEditorDiskWatch({
   api,
   projectPath,
@@ -40,7 +40,7 @@ export function useEditorDiskWatch({
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge restarts the watch.
   useEffect(() => {
     if (!active || !load || load.binary || load.tooLarge) return undefined;
-    return startEditorDiskWatch(window, () => {
+    return startEditorDiskWatch(api, projectPath, relPath, () => {
       if (document.body.dataset.tabDragging) return;
       void api
         ?.statProjectFile?.(projectPath, relPath, accessToken)

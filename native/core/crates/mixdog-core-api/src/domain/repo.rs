@@ -112,6 +112,8 @@ pub struct ReviewFile {
 pub struct ReviewSummary {
     pub key: InspectorKey,
     pub files: Vec<ReviewFile>,
+    /// Untracked files past the review's untracked cap (256), not listed.
+    pub omitted: u32,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

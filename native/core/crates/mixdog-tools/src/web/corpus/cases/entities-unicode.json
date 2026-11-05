@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/entities",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Café & Crème",
+  "content": "Tom & Jerry <tag> © 2024 non‑breaking, 한국어 텍스트, emoji 😀 and nbsp chars.\n\nspaced out text",
+  "extractor": "dom-markdown"
+ }
+}

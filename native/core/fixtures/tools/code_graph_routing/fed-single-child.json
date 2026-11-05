@@ -1,0 +1,14 @@
+{
+  "complete": true,
+  "cwd": "one",
+  "dependencyRoots": [
+    "<ROOT>/one",
+    "<ROOT>/one/solo"
+  ],
+  "input": {
+    "mode": "overview"
+  },
+  "isError": false,
+  "text": "# project solo [<ROOT>/one/solo]\nfiles\t1\nedges\t0\njavascript\t1",
+  "tool": "code_graph"
+}

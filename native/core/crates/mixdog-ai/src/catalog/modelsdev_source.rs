@@ -1,0 +1,440 @@
+//! Fetch and cache of models.dev's `api.json`, as Node's
+//! `createCatalogSource` does it (`model-catalog.mjs`):
+//!
+//! - `GET https://models.dev/api.json`, 10 s for the whole fetch;
+//! - cached verbatim in `modelsdev-catalog.json` of the plugin data directory
+//!   as `{"fetchedAt":<ms>,"data":<body>}\n`, written atomically under a lock
+//!   and best-effort;
+//! - a remote copy younger than 6 h is served as is; after a failed fetch the
+//!   next try waits 60 s and the cached file (however old) is the fallback;
+//! - a copy warmed from disk at boot is stale-ok and never counts as fetched,
+//!   so the first refresh still goes to the network;
+//! - a forced refresh ignores both windows; concurrent loads share one fetch.
+//!
+//! Nothing here runs on a read path: catalog reads load an `ArcSwap`
+//! snapshot, and the layer is applied when the catalog refreshes.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
+use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+
+use mixdog_rt::LaneToken;
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
+use mixdog_core_api::domain::keepalive::TransportKind;
+use mixdog_core_api::domain::provider::WireRequest;
+use serde_json::value::RawValue;
+use tokio_util::sync::CancellationToken;
+
+use super::modelsdev::ModelsDev;
+use crate::oauth::CredentialIo;
+use crate::oauth::write_atomic_locked;
+use crate::transport::http::HttpSend;
+
+pub const MODELS_DEV_URL: &str = "https://models.dev/api.json";
+pub const MODELS_DEV_CACHE_FILE: &str = "modelsdev-catalog.json";
+pub const REFRESH_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
+pub const RETRY_AFTER: Duration = Duration::from_secs(60);
+const FETCH_DEADLINE: Duration = Duration::from_secs(10);
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CacheFile<'a> {
+    #[serde(default)]
+    fetched_at: u64,
+    #[serde(borrow)]
+    data: &'a RawValue,
+}
+
+#[derive(Default)]
+struct State {
+    layer: Option<Arc<ModelsDev>>,
+    cache_at: u64,
+    fetched_remote: bool,
+    retry_at: u64,
+    flight: Option<Shared<BoxFuture<'static, ()>>>,
+}
+
+pub struct ModelsDevSource {
+    http: Arc<dyn HttpSend>,
+    url: String,
+    path: PathBuf,
+    io: CredentialIo,
+    state: Mutex<State>,
+}
+
+impl ModelsDevSource {
+    /// `data_dir` is the plugin data directory.
+    pub fn new(http: Arc<dyn HttpSend>, data_dir: PathBuf, io: CredentialIo) -> Arc<Self> {
+        Self::with_url(http, MODELS_DEV_URL.to_owned(), data_dir, io)
+    }
+
+    pub fn with_url(
+        http: Arc<dyn HttpSend>,
+        url: String,
+        data_dir: PathBuf,
+        io: CredentialIo,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            http,
+            url,
+            path: data_dir.join(MODELS_DEV_CACHE_FILE),
+            io,
+            state: Mutex::new(State::default()),
+        })
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The resident layer; no I/O.
+    pub fn current(&self) -> Option<Arc<ModelsDev>> {
+        self.lock().layer.clone()
+    }
+
+    pub fn retry_pending(&self) -> bool {
+        self.lock().retry_at != 0
+    }
+
+    /// Reads and parses the cache file as a lane job; the parse of the whole
+    /// document stays off the runtime threads.
+    async fn read_disk(&self) -> Option<(Arc<ModelsDev>, u64)> {
+        let path = self.path.clone();
+        let job = self
+            .io
+            .read
+            .submit(&CancellationToken::new(), move |_| {
+                let bytes = read_file(&path)?;
+                let file: CacheFile<'_> = serde_json::from_slice(&bytes).ok()?;
+                let layer = ModelsDev::parse(file.data.get().as_bytes())?;
+                Some((Arc::new(layer), file.fetched_at))
+            })
+            .ok()?;
+        job.await.ok().flatten()
+    }
+
+    /// Boot: a stale-ok copy from disk; never replaces a layer a fetch
+    /// already produced, and stays cold when no usable file exists.
+    pub async fn warm_from_disk(&self) {
+        if self.current().is_some() {
+            return;
+        }
+        if let Some((layer, fetched_at)) = self.read_disk().await {
+            let mut state = self.lock();
+            if state.layer.is_none() {
+                state.layer = Some(layer);
+                state.cache_at = if fetched_at == 0 { now_ms() } else { fetched_at };
+            }
+        }
+    }
+
+    /// The layer to apply now: the resident one when it is fresh or a retry
+    /// is pending, else the result of one shared fetch. Never fails: a failed
+    /// fetch falls back to the disk copy, then to whatever is resident.
+    pub async fn load(self: &Arc<Self>, force: bool) -> Option<Arc<ModelsDev>> {
+        let flight = {
+            let mut state = self.lock();
+            let now = now_ms();
+            let fresh = state.fetched_remote
+                && state.layer.is_some()
+                && now.saturating_sub(state.cache_at) < REFRESH_AFTER.as_millis() as u64;
+            if !force && (fresh || now < state.retry_at) {
+                return state.layer.clone();
+            }
+            state
+                .flight
+                .get_or_insert_with(|| {
+                    let this = self.clone();
+                    async move {
+                        this.fetch_once().await;
+                        this.lock().flight = None;
+                    }
+                    .boxed()
+                    .shared()
+                })
+                .clone()
+        };
+        flight.await;
+        self.current()
+    }
+
+    async fn fetch_once(&self) {
+        match self.fetch().await {
+            Ok((layer, body)) => {
+                let fetched_at = now_ms();
+                self.store_best_effort(fetched_at, body).await;
+                let mut state = self.lock();
+                state.layer = Some(layer);
+                state.cache_at = fetched_at;
+                state.fetched_remote = true;
+                state.retry_at = 0;
+            }
+            Err(reason) => {
+                tracing::warn!("[model-catalog] models.dev fetch failed: {reason}");
+                let disk = self.read_disk().await;
+                let mut state = self.lock();
+                state.fetched_remote = false;
+                state.retry_at = now_ms() + RETRY_AFTER.as_millis() as u64;
+                if let Some((layer, fetched_at)) = disk {
+                    state.layer = Some(layer);
+                    state.cache_at = if fetched_at == 0 { now_ms() } else { fetched_at };
+                }
+            }
+        }
+    }
+
+    async fn fetch(&self) -> Result<(Arc<ModelsDev>, Vec<u8>), String> {
+        let request = WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".into(),
+            url: self.url.clone(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        let exchange = async {
+            let response = self.http.send(request).await.map_err(|e| e.message)?;
+            if !response.is_success() {
+                return Err(format!("HTTP {}", response.status));
+            }
+            response.read_all().await.map(|r| r.body).map_err(|e| e.message)
+        };
+        let body = tokio::time::timeout(FETCH_DEADLINE, exchange)
+            .await
+            .map_err(|_| "timed out".to_owned())??;
+        // The parse of ~8 MB runs as a lane job.
+        let job = self
+            .io
+            .read
+            .submit(&CancellationToken::new(), move |_| {
+                ModelsDev::parse(&body).map(|layer| (Arc::new(layer), body))
+            })
+            .map_err(|e| e.to_string())?;
+        job.await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "not the models.dev document".to_owned())
+    }
+
+    /// The body is stored verbatim: it already parsed.
+    async fn store_best_effort(&self, fetched_at: u64, body: Vec<u8>) {
+        let path = self.path.clone();
+        let Ok(job) = self.io.write.submit(&CancellationToken::new(), move |_| {
+            let mut out = format!("{{\"fetchedAt\":{fetched_at},\"data\":").into_bytes();
+            out.extend_from_slice(&body);
+            out.extend_from_slice(b"}\n");
+            write_atomic_locked(&path, &out)
+        }) else {
+            return;
+        };
+        if let Ok(Err(error)) = job.await {
+            tracing::debug!("[model-catalog] models.dev cache not written: {error}");
+        }
+    }
+}
+
+
+#[allow(clippy::disallowed_methods, reason = "the body of a lane job")]
+fn read_file(path: &std::path::Path) -> Option<Vec<u8>> {
+    std::fs::read(path).ok()
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "fixture files are written and read directly")]
+mod tests {
+    use super::*;
+    use crate::catalog::CatalogSnapshot;
+    use crate::catalog::ModelRecord;
+    use crate::catalog::ModelSource;
+    use crate::catalog::ModelTraits;
+    use crate::catalog::CatalogTraits;
+    use crate::catalog::ProviderCatalog;
+    use crate::providers::compat::profile::Wire;
+    use crate::transport::http::BodyStream;
+    use crate::transport::http::HttpResponse;
+    use async_trait::async_trait;
+    use bytes::Bytes;
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_core_api::domain::provider::ProviderError;
+    use mixdog_core_api::domain::provider::TransportFault;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    const API: &str = r#"{"anthropic":{"npm":"@ai-sdk/anthropic","models":{"claude-x":{"modalities":{"output":["text"]}},"tts-x":{"modalities":{"output":["audio"]}}}}}"#;
+
+    struct Body(Option<Bytes>);
+    #[async_trait]
+    impl BodyStream for Body {
+        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+            self.0.take().map(Ok)
+        }
+    }
+
+    struct Fake {
+        calls: AtomicUsize,
+        body: Mutex<Option<&'static str>>,
+    }
+    #[async_trait]
+    impl HttpSend for Fake {
+        async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+            assert_eq!(request.method, "GET");
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let Some(body) = *self.body.lock().unwrap() else {
+                return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent));
+            };
+            Ok(HttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: Box::new(Body(Some(Bytes::from_static(body.as_bytes())))),
+            })
+        }
+    }
+
+    struct Gateway;
+    #[async_trait]
+    impl ModelSource for Gateway {
+        fn provider(&self) -> &mixdog_protocol::ProviderId {
+            static ID: std::sync::LazyLock<mixdog_protocol::ProviderId> =
+                std::sync::LazyLock::new(|| "gateway".into());
+            &ID
+        }
+        async fn list(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+            Ok(["claude-x", "tts-x"]
+                .map(|id| ModelRecord::new("gateway".into(), id))
+                .to_vec())
+        }
+    }
+
+    fn fixture(body: Option<&'static str>) -> (tempfile::TempDir, Arc<Fake>, Arc<ModelsDevSource>) {
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let fake = Arc::new(Fake {
+            calls: AtomicUsize::new(0),
+            body: Mutex::new(body),
+        });
+        let source = ModelsDevSource::new(
+            fake.clone(),
+            dir.path().to_owned(),
+            CredentialIo {
+                read: tokens.interactive_io,
+                write: tokens.durability_io,
+            },
+        );
+        (dir, fake, source)
+    }
+
+    fn cache_text(dir: &tempfile::TempDir) -> String {
+        std::fs::read_to_string(dir.path().join(MODELS_DEV_CACHE_FILE)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn cold_start_with_a_cached_file_serves_metadata_without_the_network() {
+        let (dir, fake, source) = fixture(None);
+        std::fs::write(
+            dir.path().join(MODELS_DEV_CACHE_FILE),
+            format!("{{\"fetchedAt\":1,\"data\":{API}}}\n"),
+        )
+        .unwrap();
+        source.warm_from_disk().await;
+        let layer = source.current().expect("warmed from disk");
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default());
+        catalog.refresh(&[Arc::new(Gateway)]).await;
+        let before = catalog.snapshot();
+        let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new((*before).clone())), "gateway".into());
+        assert_eq!(traits.catalog_wire("claude-x"), None, "no layer applied yet");
+        catalog.apply_metadata(&layer);
+        let after = catalog.snapshot();
+        assert_eq!(after.generation, before.generation + 1);
+        assert_eq!(
+            after.models_of(&"gateway".into())[0].npm.as_deref(),
+            Some("@ai-sdk/anthropic")
+        );
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
+        // A disk warm is stale-ok and does not count as fetched.
+        *fake.body.lock().unwrap() = Some(API);
+        source.load(false).await;
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn refresh_fetches_caches_and_swaps_the_snapshot_atomically() {
+        let (dir, fake, source) = fixture(Some(API));
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default());
+        let held = catalog.snapshot();
+        let sources: Vec<Arc<dyn ModelSource>> = vec![Arc::new(Gateway)];
+        catalog.refresh_with_metadata(&sources, &source).await;
+        let fresh = catalog.snapshot();
+        // A reader that held the old snapshot is unaffected.
+        assert!(held.models_of(&"gateway".into()).is_empty());
+        let rows = fresh.models_of(&"gateway".into());
+        assert!(rows.iter().all(|r| r.npm.as_deref() == Some("@ai-sdk/anthropic")));
+        let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new((*fresh).clone())), "gateway".into());
+        assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
+        assert!(!traits.outputs_text("tts-x"));
+        // Cached verbatim in Node's shape.
+        let text = cache_text(&dir);
+        assert!(text.starts_with("{\"fetchedAt\":") && text.ends_with(&format!("\"data\":{API}}}\n")));
+        // Younger than 6 h and fetched remotely: served without a fetch.
+        catalog.refresh_with_metadata(&sources, &source).await;
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+        // A forced refresh ignores the window.
+        source.load(true).await;
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn the_service_applies_the_cached_file_at_start_and_a_fresh_layer_on_refresh() {
+        let (dir, fake, source) = fixture(Some(API));
+        std::fs::write(
+            dir.path().join(MODELS_DEV_CACHE_FILE),
+            format!("{{\"fetchedAt\":1,\"data\":{API}}}\n"),
+        )
+        .unwrap();
+        let sources: Vec<Arc<dyn ModelSource>> = vec![Arc::new(Gateway)];
+        let service =
+            super::super::CatalogService::cold_start(CatalogSnapshot::default(), sources, source).await;
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0, "cold start never touches the network");
+        let outcome = service.refresh().await;
+        assert!(outcome.failed.is_empty());
+        let traits = CatalogTraits::new(service.catalog(), "gateway".into());
+        assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "the disk copy was stale, so the refresh fetched");
+    }
+
+    #[tokio::test]
+    async fn a_failed_fetch_falls_back_to_the_cached_file_and_waits_a_minute() {
+        let (dir, fake, source) = fixture(None);
+        std::fs::write(
+            dir.path().join(MODELS_DEV_CACHE_FILE),
+            format!("{{\"fetchedAt\":5,\"data\":{API}}}\n"),
+        )
+        .unwrap();
+        let layer = source.load(false).await.expect("disk fallback");
+        assert!(layer.find(&"anthropic".into(), "claude-x").is_some());
+        assert!(source.retry_pending());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+        source.load(false).await;
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "no retry inside 60 s");
+        assert!(source.load(true).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 2, "force ignores the retry window");
+    }
+
+    #[tokio::test]
+    async fn concurrent_loads_share_one_fetch() {
+        let (_dir, fake, source) = fixture(Some(API));
+        let (a, b) = tokio::join!(source.load(false), source.load(false));
+        assert!(a.is_some() && b.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+    }
+}

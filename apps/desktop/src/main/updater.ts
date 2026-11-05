@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopUpdaterState } from '../shared/contract';
 import { createUpdaterController, startUnattendedInstall, type UpdaterReadyRecord } from './updater-controller';
+import { createCoreUpdateGate, ctlWaitExit } from './updater-core';
 import { normalizeUpdaterDevFeed } from './updater-feed';
 
 const UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -66,12 +67,8 @@ export const desktopUpdater = {
   },
 };
 
-export function startAutoUpdater(
-  stop: () => Promise<void> = async () => {},
-  report?: UpdaterLog,
-  busy?: () => Promise<number | null>,
-  barrier?: { close(): Promise<number | null>; release(): Promise<void> }
-): void {
+/** `stop` disposes the app's own resources after the local core has exited. */
+export function startAutoUpdater(stop: () => Promise<void> = async () => {}, report?: UpdaterLog): void {
   if (controller || checkInterval || startPromise) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
     // Dev/unpackaged builds silently disable updates; the state is already
@@ -114,8 +111,10 @@ export function startAutoUpdater(
       service: autoUpdater,
       persistence: readyPersistence(join(app.getPath('userData'), 'updater-ready.json')),
       stop,
-      busy,
-      barrier,
+      // The packaged app's own core (extraResources `core/`) reports the old core's exit.
+      core: createCoreUpdateGate({
+        waitExit: ctlWaitExit(join(process.resourcesPath, 'core', process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd')),
+      }),
       log(message, data) {
         console.info(`Mixdog ${message}`, data ?? '');
         report?.(message, data as Readonly<Record<string, unknown>> | undefined);

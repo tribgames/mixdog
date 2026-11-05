@@ -33,7 +33,8 @@ async fn mock_core_serves_every_seam() {
     let thread = mock.directory().insert(ThreadId::from("t1"));
     thread.set_active_turn(Some(TurnId::from("u1")));
     let core: &dyn CoreHandle = &mock;
-    let ctx = CallContext::connection(ConnectionId(1), Default::default());
+    let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, Default::default());
+    assert_eq!(ctx.origin, mixdog_protocol::Origin::Local);
 
     let handle = core
         .threads()
@@ -96,5 +97,32 @@ async fn mock_core_serves_every_seam() {
     assert_eq!(
         *core.lifecycle().borrow(),
         mixdog_core_api::CoreState::Serving
+    );
+}
+
+#[tokio::test]
+async fn host_requests_keep_the_host_json_rpc_error() {
+    use mixdog_core_api::HostChannel;
+    use mixdog_core_api::HostError;
+    use mixdog_core_api::HostCapability;
+    use mixdog_core_api::mock::MockHostChannel;
+
+    const COMMAND: Method = Method("host/browser/command");
+    let host = MockHostChannel::default();
+    let browser = HostCapability::Browser;
+    assert!(matches!(
+        host.request(browser, COMMAND, json!({})).await,
+        Err(HostError::Core(CoreError::CapabilityUnavailable { .. }))
+    ));
+    host.claim(browser);
+    let data = json!({ "timing": { "ms": 12 } });
+    host.fail(COMMAND, -32000, "Error: no tab", Some(data.clone()));
+    assert_eq!(
+        host.request(browser, COMMAND, json!({})).await,
+        Err(HostError::Rpc {
+            code: -32000,
+            message: "Error: no tab".into(),
+            data: Some(data),
+        })
     );
 }

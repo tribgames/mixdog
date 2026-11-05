@@ -18,15 +18,13 @@ import {
 import type { RecordValue } from './desktop-types';
 import { record } from './record-utils';
 import { timeMs } from './transcript-primitives';
-
-export const AGENT_POOL_RECONCILE_MS = 2_000;
+import { sectionStoreFor } from './section-store';
 
 interface AgentPoolStore {
   host?: DesktopApi;
   rows: DesktopAgentPoolRow[] | null;
   revision: number;
   started: boolean;
-  inFlight?: Promise<void>;
   /** Cancelled identities survive here, so a later pool snapshot cannot
    *  republish a stopped agent as working. */
   cancellations: DesktopAgentCancellationLedger;
@@ -128,39 +126,30 @@ function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
   for (const listener of store.listeners) listener();
 }
 
-export function refreshAgentPool(store: AgentPoolStore): Promise<void> {
-  if (store.inFlight) return store.inFlight;
-  const listAgentPool = store.host?.listAgentPool;
-  if (typeof listAgentPool !== 'function') {
-    publishAgentPool(store, []);
-    return Promise.resolve();
-  }
-  const revision = store.revision;
-  const request = Promise.resolve(listAgentPool())
-    .then((rows) => {
-      if (revision === store.revision) publishAgentPool(store, rows);
-    })
-    .catch(() => {
-      if (revision === store.revision && store.rows === null) publishAgentPool(store, []);
-    })
-    .finally(() => {
-      if (store.inFlight === request) store.inFlight = undefined;
-    });
-  store.inFlight = request;
-  return request;
-}
-
+/** The pool is the core's `agentPool` section (desktop-services.md §9, §15 P6): every change is pushed, so
+ *  there is no reconcile read. A host without sections has no pool. */
 export function startAgentPool(store: AgentPoolStore): void {
   if (store.started) return;
   store.started = true;
-  const subscribeAgentPool = store.host?.subscribeAgentPool;
-  if (typeof subscribeAgentPool === 'function') {
-    subscribeAgentPool((rows) => {
-      store.revision += 1;
-      publishAgentPool(store, rows);
-    });
+  const sections = sectionStoreFor(store.host);
+  if (!sections) {
+    publishAgentPool(store, []);
+    return;
   }
-  void refreshAgentPool(store);
+  const publish = (): void => {
+    const entry = sections.get('agentPool');
+    if (!entry) return;
+    store.revision += 1;
+    publishAgentPool(store, entry.value);
+  };
+  sections.subscribe('agentPool', publish);
+  // A store that already holds the pool (this consumer started late) announces nothing: read it now.
+  publish();
+  void sections.ready().then(() => {
+    publish();
+    // A core without a pool entry yet shows an empty pool, as a failed first read did.
+    if (store.rows === null) publishAgentPool(store, []);
+  });
 }
 
 export function preloadAgentPool(host: DesktopApi | undefined = window.mixdogDesktop): void {

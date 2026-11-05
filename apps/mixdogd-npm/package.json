@@ -1,0 +1,23 @@
+{
+  "name": "@mixdog/mixdogd",
+  "version": "0.0.0",
+  "description": "The Mixdog core (mixdogd). The binary comes from the platform package npm selects for this machine.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tribgames/mixdog.git",
+    "directory": "apps/mixdogd-npm"
+  },
+  "type": "module",
+  "bin": {
+    "mixdogd": "bin/mixdogd.mjs"
+  },
+  "files": [
+    "bin/",
+    "platform.mjs"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "optionalDependencies": {}
+}

@@ -77,13 +77,11 @@ import { MixyEmptyState, useMixyFirstPane } from './mixy-first';
 import { isAgentChatSession } from './agent-chat-mode';
 import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
-  AGENT_POOL_RECONCILE_MS,
   agentActivityGroups,
   agentPoolStore,
   agentRoleLabel,
   flattenAgentActivityNodes,
   poolRowKey,
-  refreshAgentPool,
   startAgentPool,
   stickyGroupOrder,
   visibleAgentTreeRows,
@@ -91,7 +89,6 @@ import {
 import type { AgentActivityNode } from './agent-activity-model';
 
 export {
-  AGENT_POOL_RECONCILE_MS,
   agentActivityGroups,
   flattenAgentActivityNodes,
   liveAgentRows,
@@ -466,38 +463,11 @@ function AgentActivityTree({
   );
 }
 
-/** Pool reconciliation cadence. A hidden surface (phone screen off, app in the
- *  background, another tab) reconciles rows nobody can see while still paying
- *  for the request every two seconds over a metered link. Pause there and
- *  resume with ONE immediate refresh, so the first visible frame is current. */
-function useAgentPoolCadence(poolStore: ReturnType<typeof agentPoolStore>, active: boolean): void {
+/** The pool is pushed (section `agentPool`): the surface only starts listening. */
+function useAgentPoolCadence(poolStore: ReturnType<typeof agentPoolStore>): void {
   useEffect(() => {
     startAgentPool(poolStore);
-    if (!active) return undefined;
-    let reconcileTimer = 0;
-    const stop = (): void => {
-      if (!reconcileTimer) return;
-      window.clearInterval(reconcileTimer);
-      reconcileTimer = 0;
-    };
-    const start = (): void => {
-      if (reconcileTimer) return;
-      void refreshAgentPool(poolStore);
-      reconcileTimer = window.setInterval(() => {
-        void refreshAgentPool(poolStore);
-      }, AGENT_POOL_RECONCILE_MS);
-    };
-    const syncCadence = (): void => {
-      if (document.visibilityState === 'visible') start();
-      else stop();
-    };
-    syncCadence();
-    document.addEventListener('visibilitychange', syncCadence);
-    return () => {
-      document.removeEventListener('visibilitychange', syncCadence);
-      stop();
-    };
-  }, [active, poolStore]);
+  }, [poolStore]);
 }
 
 /** Groups whose owner session still exists, newest first. Rebuilt each pass so
@@ -1074,7 +1044,7 @@ export function AgentActivityPane({
   );
   const { hiddenOwnerIds, hideGroup } = useHiddenAgentGroups();
   const orderRef = useRef<Map<string, number>>(new Map());
-  useAgentPoolCadence(poolStore, active);
+  useAgentPoolCadence(poolStore);
   const allGroups = useMemo(() => agentActivitySessionGroups(agents, sessions, orderRef), [agents, sessions]);
   const { expandedSessionIds, setSessionExpanded } = useAgentSessionExpansion(allGroups, hiddenOwnerIds);
   // A home thread's work belongs to its contact row, not to the work sessions.

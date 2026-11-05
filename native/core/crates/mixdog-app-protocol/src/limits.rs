@@ -17,6 +17,16 @@ const MIB: u64 = 1024 * 1024;
 pub const LIVE_VIEW_MAX_WIDTH: u64 = 4096;
 pub const LIVE_VIEW_MAX_HEIGHT: u64 = 4096;
 
+/// Room kept in an inbound frame for the `blob/put` request around its base64 data
+/// (JSON-RPC envelope, `opId`, `digest`, `offset`).
+const BLOB_PUT_ENVELOPE_BYTES: u64 = 4 * KIB;
+
+/// The largest raw `blob/put` chunk whose base64 (4 bytes per 3, no padding because
+/// the result is a multiple of 3) and envelope still fit `max_inbound_frame_bytes`.
+fn blob_put_chunk_for(max_inbound_frame_bytes: u64) -> u64 {
+    (max_inbound_frame_bytes - BLOB_PUT_ENVELOPE_BYTES) / 4 * 3
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassLimits {
@@ -93,8 +103,9 @@ impl Default for Limits {
         let queue_bytes = 8 * MIB;
         let control_reserve_bytes = 512 * KIB;
         let inline_max = INLINE_MAX as u64;
+        let max_inbound_frame_bytes = 256 * KIB;
         Self {
-            max_inbound_frame_bytes: 256 * KIB,
+            max_inbound_frame_bytes,
             max_media_frame_bytes: LIVE_VIEW_MAX_WIDTH * LIVE_VIEW_MAX_HEIGHT * 4,
             max_item_field_bytes: inline_max,
             max_frame_bytes: inline_max + 64 * KIB,
@@ -106,7 +117,7 @@ impl Default for Limits {
             app_ring_bytes: MIB,
             terminal_ring_chars: 200_000,
             max_blob_page_bytes: MIB,
-            max_blob_put_chunk_bytes: 192 * KIB,
+            max_blob_put_chunk_bytes: blob_put_chunk_for(max_inbound_frame_bytes),
             inflight: ClassLimits {
                 c0: 64,
                 c1: 16,
@@ -148,7 +159,9 @@ impl Limits {
             return Err(LimitsViolation("maxFrameBytes <= eventBudgetBytes / 4"));
         }
         // base64 of the raw chunk plus the request's schema-bounded fields.
-        if self.max_blob_put_chunk_bytes.div_ceil(3) * 4 + 4 * KIB > self.max_inbound_frame_bytes {
+        if self.max_blob_put_chunk_bytes.div_ceil(3) * 4 + BLOB_PUT_ENVELOPE_BYTES
+            > self.max_inbound_frame_bytes
+        {
             return Err(LimitsViolation(
                 "base64(maxBlobPutChunkBytes) fits maxInboundFrameBytes",
             ));

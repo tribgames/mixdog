@@ -5,7 +5,7 @@ import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
 import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
 import { record } from '../record-utils';
-import { startVisibleRefreshCadence } from '../visible-refresh-cadence';
+import { sectionStoreFor } from '../section-store';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
@@ -237,9 +237,8 @@ export function credentialNote(provider: RecordValue): string | undefined {
   return undefined;
 }
 
-/** Poll while mounted: the daemon re-checks the keyring (without prompting) on
- *  every ready read, so the alert appears/disappears live, including when the
- *  keyring locks or is unlocked while this page is open. */
+/** Follow the pushed provider setup while mounted: the alert appears/disappears
+ *  live, including when the keyring locks or is unlocked while this page is open. */
 function useKeychainRefresh(run: PanelContext['run']) {
   const runRef = useRef(run);
   runRef.current = run;
@@ -254,16 +253,10 @@ function useKeychainRefresh(run: PanelContext['run']) {
       );
     const poll = refresh(false);
     const onFocus = refresh(true);
-    // Visible-only cadence; an unfocused window skips ticks (the focus event
-    // below refreshes as soon as it returns).
-    const stopCadence = startVisibleRefreshCadence({
-      win: window,
-      intervalMs: 7000,
-      refresh: (reason) => {
-        if (reason === 'interval' && !window.document.hasFocus()) return;
-        poll();
-      },
-    });
+    // The core publishes the `providerSetup` section whenever the setup (keyring state included) changes
+    // (desktop-services.md §15 P8); a change reads it into the panel. No timer.
+    const sections = sectionStoreFor(window.mixdogDesktop);
+    const stopCadence = sections?.subscribe('providerSetup', poll) ?? (() => undefined);
     // Returning to the window re-snapshots the keyring right away instead of
     // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
     window.addEventListener('focus', onFocus);

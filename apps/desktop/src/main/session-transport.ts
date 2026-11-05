@@ -269,8 +269,8 @@ export class SessionTransport implements DesktopTransport {
     this.viewSyncSupported = false;
     const remote = this.remote;
     let discovery: Record<string, unknown>;
-    let moduleUrl = this.moduleUrl;
-    let initOptions = options;
+    const moduleUrl = this.moduleUrl;
+    const initOptions = options;
     let cwd = this.cwd;
     if (remote) {
       const endpoint = await this.measureBootPhase(
@@ -280,8 +280,6 @@ export class SessionTransport implements DesktopTransport {
       );
       await this.checkRemoteCompatibility(daemonModule, remote, endpoint, attempt);
       discovery = { ...endpoint.discovery };
-      moduleUrl = endpoint.moduleUrl;
-      initOptions = endpoint.remapOptions(options);
       cwd = endpoint.cwd;
     } else {
       discovery = await this.ensureLocalDaemon(daemonModule, attempt);
@@ -409,14 +407,14 @@ export class SessionTransport implements DesktopTransport {
       this.emit('diagnostic', 'remote-daemon-older', {
         attempt,
         daemonVersion: String(compatibility.version || ''),
-        packageVersion: endpoint.packageVersion,
+        coreVersion: endpoint.coreVersion,
       });
       return;
     }
     // Retrying reaches the same daemon: stop until the server is updated.
     const mismatch = new RemoteBootstrapError(
       'protocol-mismatch',
-      `The Mixdog daemon on ${remote.display} (mixdog ${compatibility.version || endpoint.packageVersion || 'unknown'}, ` +
+      `The Mixdog daemon on ${remote.display} (mixdog ${compatibility.version || endpoint.coreVersion || 'unknown'}, ` +
         `session protocol ${compatibility.protocol ?? 'unknown'}) is incompatible with this desktop. ` +
         'Reconnect: Mixdog installs the version that matches this desktop on the server.'
     );

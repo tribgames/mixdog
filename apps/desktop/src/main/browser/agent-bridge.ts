@@ -44,7 +44,7 @@ export async function guardBrowserSecrets(
   }
 }
 
-export function createBrowserAgentBridge(options: {
+export interface BrowserCommandRunnerOptions {
   chains: Map<string, Promise<unknown>>;
   pendingReads: Map<string, Set<Promise<unknown>>>;
   execute: (command: BrowserCommand, signal: AbortSignal) => Promise<unknown>;
@@ -70,7 +70,12 @@ export function createBrowserAgentBridge(options: {
   onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
   /** Test seam: the session's filled-secret redaction (secretInputs by default). */
   redactSecrets?: (sessionId: string, text: string) => string;
-}) {
+}
+
+/** The one command path of the `browser` tool: lifecycle messages, secret
+ *  handoffs, schema validation and the secret-redacting guard. The loopback
+ *  server and the host channel (`host/browser/command`) both run commands here. */
+export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions) {
   const { chains, pendingReads, lifecycle } = options;
   const guarded = (
     command: BrowserCommand,
@@ -79,9 +84,20 @@ export function createBrowserAgentBridge(options: {
   ) => guardBrowserSecrets(command, signal, run, options.redactSecrets);
   let backgroundReclaimTimer: NodeJS.Timeout | null = null;
   let startedAt = 0;
-  const server = new BrowserBridgeServer<BrowserCommand>({
-    dataDirectory: bridgeDiscoveryDirectory,
-    execute: (command, signal) =>
+  const stopReclaimTimer = (): void => {
+    if (backgroundReclaimTimer) clearInterval(backgroundReclaimTimer);
+    backgroundReclaimTimer = null;
+  };
+  const ready = (): void => {
+    options.onDiagnostic?.('browser-bridge-ready', {
+      durationMs: startedAt > 0 ? Date.now() - startedAt : 0,
+    });
+    stopReclaimTimer();
+    backgroundReclaimTimer = setInterval(() => lifecycle.reclaimIdleBackgroundPages(), BACKGROUND_RECLAIM_INTERVAL_MS);
+    backgroundReclaimTimer.unref?.();
+  };
+  const runner = {
+    execute: (command: BrowserCommand, signal: AbortSignal): Promise<unknown> =>
       guarded(command, signal, (command, signal) => {
         const {
           session_id,
@@ -146,40 +162,46 @@ export function createBrowserAgentBridge(options: {
           signal
         );
       }),
-    redactError: redactBrowserText,
-    onReady: () => {
-      options.onDiagnostic?.('browser-bridge-ready', {
-        durationMs: startedAt > 0 ? Date.now() - startedAt : 0,
-      });
-      backgroundReclaimTimer = setInterval(
-        () => lifecycle.reclaimIdleBackgroundPages(),
-        BACKGROUND_RECLAIM_INTERVAL_MS
-      );
-      backgroundReclaimTimer.unref?.();
-    },
-    onInactive: () => {
-      if (backgroundReclaimTimer) clearInterval(backgroundReclaimTimer);
-      backgroundReclaimTimer = null;
-    },
-  });
-
-  return {
-    start(): void {
+    /** Begin serving: attach debuggers to visible pages; `ready` arms the idle reclaim. */
+    begin(): void {
       startedAt = Date.now();
       options.onDiagnostic?.('browser-bridge-start', {});
       for (const guest of options.visibleGuests()) {
         lifecycle.attachDebuggerEagerly(guest);
       }
-      server.start();
     },
-    async stop(): Promise<void> {
-      await server.stop();
+    ready,
+    inactive: stopReclaimTimer,
+    end(): void {
       chains.clear();
       pendingReads.clear();
       // Agent-only surfaces die with the bridge; visible pane tabs belong to
       // the user and stay open — with their debugger, which is what keeps their
       // page dialogs in the pane rather than in OS dialog boxes.
       lifecycle.destroyAllBackgroundPages();
+    },
+  };
+  return runner;
+}
+
+export function createBrowserAgentBridge(options: BrowserCommandRunnerOptions) {
+  const runner = createBrowserCommandRunner(options);
+  const server = new BrowserBridgeServer<BrowserCommand>({
+    dataDirectory: bridgeDiscoveryDirectory,
+    execute: runner.execute,
+    redactError: redactBrowserText,
+    onReady: runner.ready,
+    onInactive: runner.inactive,
+  });
+  return {
+    runner,
+    start(): void {
+      runner.begin();
+      server.start();
+    },
+    async stop(): Promise<void> {
+      await server.stop();
+      runner.end();
     },
   };
 }

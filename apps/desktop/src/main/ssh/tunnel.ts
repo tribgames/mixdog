@@ -83,6 +83,8 @@ export class SshTunnel {
   private generation = 0;
   private remotePort = 0;
   private localPort = 0;
+  private companionRemotePort = 0;
+  private companionLocalPort = 0;
   private readyAt = 0;
   private restartTimer: NodeJS.Timeout | null = null;
   private terminalError: SshError | null = null;
@@ -108,13 +110,18 @@ export class SshTunnel {
   }
 
   /** Local port forwarding to 127.0.0.1:`remotePort` on the server, once
-   *  ready. Waits through supervised restarts up to `timeoutMs`. */
-  ensure(remotePort: number, timeoutMs: number): Promise<number> {
+   *  ready. Waits through supervised restarts up to `timeoutMs`. A
+   *  `companionPort` rides the same ssh child (the core's control listener,
+   *  whose unauthenticated /health proves who answers before a token is sent
+   *  to the RPC listener); its local end is `companionBoundPort`. */
+  ensure(remotePort: number, timeoutMs: number, companionPort = 0): Promise<number> {
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (this.closed) return Promise.reject(new Error('The ssh tunnel is closed.'));
-    if (remotePort !== this.remotePort) {
+    if (remotePort !== this.remotePort || companionPort !== this.companionRemotePort) {
       // The daemon moved: forward to its new port from scratch.
       this.remotePort = remotePort;
+      this.companionRemotePort = companionPort;
+      if (!companionPort) this.companionLocalPort = 0;
       this.backoff.reset();
       this.stopChild();
       this.clearRestart();
@@ -143,6 +150,11 @@ export class SshTunnel {
    *  when a restart finds it taken. */
   get boundPort(): number {
     return this.localPort;
+  }
+
+  /** The local end of the companion forward (0 without one). */
+  get companionBoundPort(): number {
+    return this.companionLocalPort;
   }
 
   /** A child is running and has accepted connections. */
@@ -205,16 +217,20 @@ export class SshTunnel {
 
   private async start(): Promise<void> {
     const generation = ++this.generation;
-    if (!this.localPort) {
-      try {
-        this.localPort = await this.freePort();
-      } catch (error) {
-        this.onExit(generation, '', `no free local port: ${error instanceof Error ? error.message : String(error)}`);
-        return;
-      }
+    try {
+      if (!this.localPort) this.localPort = await this.freePort();
+      if (this.companionRemotePort && !this.companionLocalPort) this.companionLocalPort = await this.freePort();
+    } catch (error) {
+      this.onExit(generation, '', `no free local port: ${error instanceof Error ? error.message : String(error)}`);
+      return;
     }
     if (generation !== this.generation || this.closed) return;
-    const args = sshTunnelArgs(this.target, this.localPort, this.remotePort);
+    const args = sshTunnelArgs(
+      this.target,
+      this.localPort,
+      this.remotePort,
+      this.companionRemotePort ? { localPort: this.companionLocalPort, remotePort: this.companionRemotePort } : undefined
+    );
     let child: ChildProcess;
     try {
       child = this.spawnImpl('ssh', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -283,7 +299,10 @@ export class SshTunnel {
       this.fatal(new SshError(`ssh tunnel to ${this.target.display} failed:\n${tail || status}`, 'terminal', tail));
       return;
     }
-    if (isLocalForwardBindFailure(stderr)) this.localPort = 0;
+    if (isLocalForwardBindFailure(stderr)) {
+      this.localPort = 0;
+      this.companionLocalPort = 0;
+    }
     if (!this.autoRestart && healthyFor > 0) {
       // A link that was up dropped: the host does not redial on its own.
       this.log(`ssh tunnel exited (${status}); automatic reconnection is off`);

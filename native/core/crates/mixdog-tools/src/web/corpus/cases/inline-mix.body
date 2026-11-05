@@ -1,0 +1,2 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Inline</title></head><body><main><p>Text <b>bold <i>both</i></b> <strong></strong> <em> padded </em> tail<br>next line<span> span </span>end</p>
+<h3> Heading <a href="/h">linked</a> </h3><dl><dt>Term</dt><dd>Definition</dd></dl><figure><img src="/f.png" alt="fig"><figcaption>Caption</figcaption></figure></main></body></html>

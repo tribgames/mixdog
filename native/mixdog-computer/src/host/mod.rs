@@ -385,7 +385,7 @@ impl Host {
 
     /// Whether `candidate` is `surface` itself or drawn inside it.
     fn is_contained(&self, candidate: Wid, surface: Wid) -> bool {
-        candidate != 0 && candidate == surface
+        self.desktop.is_contained(candidate, surface)
     }
 
     fn allowed_point_target(&self, candidate: Wid, selected: Wid, allowed: &[String]) -> bool {

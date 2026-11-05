@@ -1,0 +1,1414 @@
+{
+  "name": "setup",
+  "description": "Read or change this Mixdog installation's settings through the runtime. Load the setup skill first (local-provider for managed local-model installation). status reads one domain; open navigates the attached app to a settings surface; list_models returns a provider index, then one provider's paged compact rows, then one model's full options (catalog.model). Results are compact JSON. Secrets (API keys, OAuth) are never accepted. Changes apply to new sessions unless the result says otherwise.",
+  "annotations": {
+    "title": "Setup",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "agentHidden": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "action"
+    ],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "status",
+          "open",
+          "set_route",
+          "set_agent_route",
+          "set_web_search_route",
+          "set_workflow",
+          "set_output_style",
+          "set_profile",
+          "set_autoclear",
+          "set_compaction",
+          "set_memory_enabled",
+          "set_recap_enabled",
+          "set_web_search_enabled",
+          "set_instruction_files",
+          "set_auto_effort_base",
+          "set_builtin_enabled",
+          "install_builtin",
+          "install_local_model",
+          "start_local_installation",
+          "cancel_local_installation",
+          "set_local_idle_ttl",
+          "search_local_models",
+          "inspect_hf_model",
+          "register_hf_model",
+          "local_model_details",
+          "maintain_local_model",
+          "delete_local_model",
+          "set_system_shell",
+          "set_auto_update",
+          "set_ai_session_titles",
+          "set_quota_auto_resume",
+          "set_model_preferences",
+          "set_heartbeat_enabled",
+          "set_heartbeat_interval",
+          "set_reactions_enabled",
+          "forget_provider_auth",
+          "set_provider_account",
+          "add_mcp_server",
+          "save_mcp_server",
+          "remove_mcp_server",
+          "set_mcp_enabled",
+          "reconnect_mcp",
+          "set_disabled_skills",
+          "set_extension_scope",
+          "add_plugin",
+          "update_plugin",
+          "set_plugin_enabled",
+          "remove_plugin",
+          "enable_plugin_mcp",
+          "connect_connector",
+          "set_worktree_settings",
+          "set_network_proxy",
+          "reset_route_fallback",
+          "continue_in_model",
+          "schedule_quota_resume",
+          "cancel_quota_resume",
+          "set_cache_warming_enabled",
+          "read_agent_settings",
+          "read_project_connectors",
+          "set_agent_permission",
+          "set_agent_connector",
+          "set_agent_connector_tool",
+          "set_project_connector",
+          "restore_definition",
+          "set_bot_order",
+          "list_models",
+          "set_local_context",
+          "set_orchestration_mode",
+          "get_mcp_server",
+          "read_definition",
+          "create_definition",
+          "save_definition",
+          "delete_definition",
+          "save_automation",
+          "delete_automation",
+          "set_automation_enabled",
+          "run_automation",
+          "set_webhook_config",
+          "set_desktop_settings",
+          "set_appearance",
+          "save_project",
+          "remove_project",
+          "revoke_linked_device",
+          "set_activity_rail_pins",
+          "set_developer_option",
+          "add_hook_rule",
+          "set_hook_rule_enabled",
+          "delete_hook_rule",
+          "set_media_default"
+        ],
+        "description": "Pass only fields for this action."
+      },
+      "domain": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "model",
+          "agents",
+          "workflow",
+          "websearch",
+          "output-style",
+          "profile",
+          "autoclear",
+          "compaction",
+          "memory",
+          "features",
+          "local-provider",
+          "shell",
+          "providers",
+          "mcp",
+          "skills",
+          "plugins",
+          "update",
+          "onboarding",
+          "worktree",
+          "network-proxy",
+          "capabilities",
+          "developer",
+          "desktop",
+          "appearance",
+          "projects",
+          "connection",
+          "schedules",
+          "webhooks",
+          "hooks",
+          "media"
+        ],
+        "description": "status: which domain to read; default summary."
+      },
+      "detail": {
+        "type": "boolean",
+        "description": "status providers: full rows for every provider (key URLs, expiry, account ids) instead of configured providers only."
+      },
+      "target": {
+        "type": "string",
+        "enum": [
+          "settings",
+          "providers",
+          "model",
+          "websearch",
+          "workflow",
+          "agents",
+          "outputstyle",
+          "theme",
+          "profile",
+          "autoclear",
+          "memory",
+          "mcp",
+          "skills",
+          "plugins",
+          "update",
+          "usage",
+          "doctor",
+          "context",
+          "developer",
+          "voice",
+          "connection"
+        ],
+        "description": "open: settings surface, named by its slash command or settings section."
+      },
+      "route": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "fast": {
+            "type": "boolean"
+          },
+          "autoEffort": {
+            "type": "boolean",
+            "description": "Main and agent routes only: Auto reasoning for this route; omitted = preserved."
+          },
+          "modelParameters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "contextPercent": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 100,
+            "description": "A multiple of 10."
+          },
+          "contextTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact context window in tokens; overrides contextPercent, clamped to 10%-100% of the model window."
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Agent routes only: true disables without losing the route; false re-enables."
+          },
+          "fallbacks": {
+            "type": "array",
+            "description": "Lead (set_route), agent (bots included) and Web Search routes only: ordered fallback models tried when the model hits its usage limit or is unavailable, each on another provider; [] clears the list. Running sessions on that route read it at their next hop.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "provider",
+                "model"
+              ],
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string"
+                },
+                "fast": {
+                  "type": "boolean"
+                },
+                "autoEffort": {
+                  "type": "boolean",
+                  "description": "Main and agent routes only: Auto reasoning for this route; omitted = preserved."
+                },
+                "modelParameters": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "contextPercent": {
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 100,
+                  "description": "A multiple of 10."
+                },
+                "contextTokens": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Exact context window in tokens; overrides contextPercent, clamped to 10%-100% of the model window."
+                }
+              }
+            }
+          }
+        },
+        "description": "Partial route update; omitted fields are preserved. Agent or Web Search provider \"\" restores Main inheritance. contextPercent and contextTokens apply to Main and agent routes only."
+      },
+      "agent": {
+        "type": "string",
+        "description": "Agent or bot id (lead = Mixy): set_agent_route, read_agent_settings, set_agent_permission, set_agent_connector(_tool); reset_route_fallback: every chat of that bot."
+      },
+      "workflow": {
+        "type": "string",
+        "description": "set_workflow: pack id."
+      },
+      "style": {
+        "type": "string",
+        "description": "set_output_style: style id."
+      },
+      "profile": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "experienceLevel": {
+            "type": "string"
+          }
+        },
+        "description": "set_profile: only the given fields change. language and experienceLevel take ids from status profile; experienceLevel \"\" clears it."
+      },
+      "autoclear": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Idle window such as \"45m\" or \"2h\" (minimum 1m), or \"unlimited\"/\"never\" to stop idle clearing. Without provider, \"unlimited\" applies to the current route provider."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Scope the duration to one provider; \"default\" is the fallback for providers without a built-in window."
+          },
+          "reset": {
+            "type": "boolean",
+            "description": "Restore the global idle duration default."
+          },
+          "resetProvider": {
+            "type": "boolean",
+            "description": "Restore the given provider idle duration default."
+          },
+          "minContextPercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      },
+      "compaction": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mainBufferTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mainBufferPercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "onModelChange": {
+            "type": "boolean",
+            "description": "Auto-compact a conversation on its current model before it switches to another one."
+          },
+          "summaryMode": {
+            "type": "string",
+            "enum": [
+              "smart",
+              "maintainer",
+              "self"
+            ],
+            "description": "Which model writes compaction summaries: smart (default), maintainer (the Maintainer), self (the conversation model)."
+          }
+        },
+        "description": "set_compaction: reserved Main context budget (give tokens OR percent, not both), onModelChange and summaryMode; read back with status compaction."
+      },
+      "enabled": {
+        "type": "boolean",
+        "description": "Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_heartbeat_enabled, set_mcp_enabled, set_plugin_enabled, set_agent_connector, set_project_connector)."
+      },
+      "provider": {
+        "type": "string",
+        "description": "set_model_preferences: provider id."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "set_model_preferences: false lists the model in /model, true hides it; omitted = unchanged."
+      },
+      "favorite": {
+        "type": "boolean",
+        "description": "set_model_preferences: favorite star on or off; omitted = unchanged."
+      },
+      "instructionFiles": {
+        "type": "string",
+        "enum": [
+          "all",
+          "agents",
+          "claude",
+          "off"
+        ],
+        "description": "set_instruction_files: which user instruction files new sessions load (global ~/.codex/AGENTS.md, ~/.claude/CLAUDE.md, then the Project root's AGENTS.md/CLAUDE.md)."
+      },
+      "autoEffortBase": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "description": "set_auto_effort_base: the reasoning effort Auto works around (global; default medium). Auto moves one step down to two steps up from it, within the model's supported efforts."
+      },
+      "name": {
+        "type": "string",
+        "description": "set_builtin_enabled: git|office|tidy|localProvider|autoEffort|browser|computer|voice|visualize|media; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; reconnect_mcp: optional MCP server name (omit for all); set_agent_connector(_tool)/set_project_connector: connector (MCP server) id from read_agent_settings; restore_definition: archived agent id; else MCP/plugin/provider id."
+      },
+      "accountId": {
+        "type": "string",
+        "description": "forget_provider_auth: OAuth account id from status providers with detail:true; required when the provider has several accounts. set_media_default: optional account of the OAuth lane to pin; omitted = the lane provider's selected account."
+      },
+      "providerAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "selectedId": {
+            "type": "string",
+            "description": "Account to use now."
+          },
+          "auto": {
+            "type": "boolean",
+            "description": "Automatic switching to another account when one is exhausted."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "limit",
+              "headroom"
+            ],
+            "description": "Account switching: manual = selected account only; limit = switch when it reaches a limit; headroom = each new session starts on the account with the most headroom."
+          },
+          "useCredits": {
+            "type": "boolean",
+            "description": "Allow paid credits once plan limits are reached."
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every connected account id exactly once."
+          },
+          "rename": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              }
+            }
+          }
+        },
+        "description": "set_provider_account: OAuth account change; account ids from status providers with detail:true."
+      },
+      "modelId": {
+        "type": "string",
+        "description": "install_local_model: exact model id from status domain local-provider; runtime must already be installed."
+      },
+      "phase": {
+        "type": "string",
+        "enum": [
+          "runtime",
+          "model"
+        ],
+        "description": "start_local_installation: which managed asset to install or resume. Model phase requires modelId."
+      },
+      "jobId": {
+        "type": "string",
+        "description": "cancel_local_installation: current jobId from local-provider status."
+      },
+      "idleTtlSeconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 86400,
+        "description": "set_local_idle_ttl: unload after this many idle seconds, 0 disables; default 3600."
+      },
+      "minutes": {
+        "type": "integer",
+        "enum": [
+          30,
+          60,
+          120,
+          240
+        ],
+        "description": "set_heartbeat_interval: minutes between Mixy's heartbeat checks; default 60."
+      },
+      "query": {
+        "type": "string",
+        "description": "search_local_models: Hugging Face GGUF search query."
+      },
+      "repository": {
+        "type": "string",
+        "description": "inspect_hf_model: public Hugging Face owner/model repository."
+      },
+      "filename": {
+        "type": "string",
+        "description": "inspect_hf_model: exact GGUF filename from the repository listing; omit to list files."
+      },
+      "contextWindow": {
+        "type": "integer",
+        "minimum": 16384,
+        "maximum": 32768,
+        "description": "inspect_hf_model: runtime context allocation; default 32768 when the GPU holds it, else 16384."
+      },
+      "previewId": {
+        "type": "string",
+        "description": "register_hf_model: unexpired read-only inspection receipt."
+      },
+      "licenseAccepted": {
+        "type": "boolean",
+        "description": "register_hf_model: explicit acceptance of the inspected license and installation plan."
+      },
+      "operation": {
+        "type": "string",
+        "enum": [
+          "verify",
+          "repair"
+        ],
+        "description": "maintain_local_model: verify SHA-256 or redownload the pinned model; returns a background job."
+      },
+      "confirmationToken": {
+        "type": "string",
+        "description": "delete_local_model: unexpired token from local_model_details."
+      },
+      "command": {
+        "type": "string",
+        "description": "set_system_shell: required shell command; \"\" restores automatic selection."
+      },
+      "server": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Server name. For edits, omit to keep originalName."
+          },
+          "originalName": {
+            "type": "string",
+            "description": "Existing server identity when editing or renaming; defaults to name."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "http",
+              "streamable-http",
+              "sse",
+              "ws"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "description": "stdio executable. Never include credentials in command or args."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP(S)/WS(S) endpoint without embedded credentials."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": "Patch non-secret environment values; null removes a key. Omitted keys, including credentials, are preserved."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": "Patch non-secret HTTP headers; null removes a header. Omitted headers are preserved."
+          },
+          "env_vars": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of existing environment variables to forward; never their secrets."
+          },
+          "bearer_token_env_var": {
+            "type": "string",
+            "description": "Name of an existing environment variable containing the bearer token."
+          },
+          "env_http_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": "HTTP header names mapped to existing environment variable names."
+          },
+          "startupTimeoutSec": {
+            "type": "number",
+            "description": "Connect/handshake timeout in seconds (>0, default 30)."
+          },
+          "toolTimeoutSec": {
+            "type": "number",
+            "description": "Per tool-call timeout in seconds (>0, default 120)."
+          }
+        },
+        "description": "Add: name plus command or url. Save: name (or originalName) plus changed fields; omitted settings and credentials are preserved."
+      },
+      "skills": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "set_disabled_skills: full list of disabled skill names."
+      },
+      "source": {
+        "type": "string",
+        "description": "add_plugin: Git URL, owner/repo, or local path."
+      },
+      "connector": {
+        "type": "string",
+        "enum": [
+          "airtable",
+          "confluence",
+          "dropbox",
+          "gmail",
+          "google-calendar",
+          "google-drive",
+          "hugging-face",
+          "jira",
+          "linear",
+          "notion",
+          "postgres",
+          "sentry",
+          "stripe",
+          "supabase",
+          "trello",
+          "vercel"
+        ],
+        "description": "connect_connector: catalog service to connect. Shows the user a connect card in this conversation (one-click sign-in or a key sheet in Desktop); it never connects by itself."
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "skills",
+          "mcp",
+          "plugins",
+          "image",
+          "video"
+        ],
+        "description": "set_extension_scope: which extension list `name` belongs to (skills|mcp|plugins). set_media_default: media kind."
+      },
+      "projects": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": "set_extension_scope: required project roots; [] = every project."
+      },
+      "worktree": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "newTaskDefault": {
+            "type": "string",
+            "enum": [
+              "branch",
+              "worktree"
+            ],
+            "description": "branch = new tasks use the current branch (default); worktree = a new worktree."
+          },
+          "branchPrefix": {
+            "type": "string",
+            "description": "Optional ref prefix ending with \"/\", e.g. \"mixdog/\"; \"\" (default) names branches after the task alone."
+          },
+          "sizeWarnBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Repository size that asks for confirmation first; 0 never asks."
+          },
+          "autoCleanup": {
+            "type": "boolean",
+            "description": "Remove clean, merged worktrees when their task ends."
+          },
+          "maxWorktrees": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "With autoCleanup: keep at most this many worktrees, least recently used cleaned first; 0 = no limit. Default 15."
+          },
+          "unusedDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3650,
+            "description": "With autoCleanup: clean up worktrees unused this many days; 0 = never. Default 30."
+          },
+          "cleanupArchived": {
+            "type": "boolean",
+            "description": "With autoCleanup: archiving a session cleans up its worktrees. Default true."
+          },
+          "deleteBranch": {
+            "type": "boolean",
+            "description": "With autoCleanup: also delete the cleaned-up worktree's branch when Mixdog created it and git considers it merged (its commits stay reachable). Default false: the branch stays."
+          }
+        },
+        "description": "set_worktree_settings: only the given fields change."
+      },
+      "networkProxy": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "system",
+              "manual",
+              "off"
+            ],
+            "description": "system = follow the proxy variables and the Windows/macOS proxy (default); manual = the url below for everything except the exceptions; off = always direct, ignoring both."
+          },
+          "url": {
+            "type": "string",
+            "description": "Proxy address with its scheme: http://, https:// or socks5://, e.g. http://proxy.company.com:8080. Required for manual; \"\" forgets it."
+          },
+          "exceptions": {
+            "type": "string",
+            "description": "Comma-separated hosts that connect without the proxy in manual mode: names (with subdomains), .domain / *.domain, IPs, CIDR ranges. Default \"localhost, 127.0.0.1, ::1\"."
+          }
+        },
+        "description": "set_network_proxy: only the given fields change; takes effect on the next request: pooled connections opened under the old route are closed, and a request already in flight finishes on its connection. A manual proxy that fails fails the request; it never falls back to a direct connection."
+      },
+      "sessionId": {
+        "type": "string",
+        "description": "reset_route_fallback (default: this session), continue_in_model, schedule_quota_resume, cancel_quota_resume: session id from status model/agents or the session tool. The last three take another session."
+      },
+      "actionKind": {
+        "type": "string",
+        "enum": [
+          "comment",
+          "review",
+          "message",
+          "email",
+          "publish",
+          "form",
+          "payment",
+          "delete",
+          "trash",
+          "browser_submit",
+          "browser_post",
+          "browser_upload"
+        ],
+        "description": "set_agent_permission: the action kind row of the agent's permission table."
+      },
+      "permissionMode": {
+        "type": "string",
+        "enum": [
+          "ask",
+          "allow",
+          "block"
+        ],
+        "description": "set_agent_permission: block or ask; allow (and any change that lets an agent do more without asking) is made by the person in the desktop app."
+      },
+      "tool": {
+        "type": "string",
+        "description": "set_agent_connector_tool: tool name within the connector `name`."
+      },
+      "permission": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "needs_approval",
+          "disabled"
+        ],
+        "description": "set_agent_connector_tool: a narrowing (toward disabled) applies at once; a widening (disabled → needs_approval/auto, needs_approval → auto) waits on an approval card the user answers (needs_approval, auto or deny, whatever was asked) and the result says what was applied."
+      },
+      "botOrder": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "maxItems": 500,
+        "description": "set_bot_order: bot ids in display order (Mixy is always first and not listed); [] = default order."
+      },
+      "catalog": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "list_models: omit for the provider index; set for that provider's compact model rows."
+          },
+          "model": {
+            "type": "string",
+            "description": "list_models: one model id; returns its full options (efforts, fast, service tiers, modelParameterOptions, parameterVariants) for set_route. Add provider when several offer the id."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "list_models with provider: 1-based page; default 1."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "list_models with provider: rows per page; default 25."
+          },
+          "webSearch": {
+            "type": "boolean",
+            "description": "list_models: native-search capable models only."
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "list_models: refresh the catalog first."
+          }
+        }
+      },
+      "localContextWindow": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 16384,
+        "description": "Managed local model context tokens (32768+ recommended for agent work); null restores automatic allocation. Maximum comes from the model status."
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "focused",
+          "balanced",
+          "swarm"
+        ],
+        "description": "set_orchestration_mode: execution mode; independent of workflow instructions."
+      },
+      "definitionKind": {
+        "type": "string",
+        "enum": [
+          "workflow",
+          "agent",
+          "skill"
+        ],
+        "description": "Definition owner. Skill deletion is not supported; disable it instead."
+      },
+      "definition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "originalName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "bot",
+              "agent"
+            ],
+            "description": "Agent create only: \"bot\" (a contact the user chats with) or \"agent\" (a workflow sub-agent). Omitted: a bot when created from the representative bot's chat, else a workflow agent. Fixed after creation."
+          },
+          "whenToUse": {
+            "type": "string",
+            "description": "Skill only: the SKILL.md when_to_use trigger line shown in the model's skill listing; \"\" clears it."
+          },
+          "toolDependencies": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "tool",
+                    "mcp"
+                  ]
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ]
+            }
+          }
+        }
+      },
+      "automationKind": {
+        "type": "string",
+        "enum": [
+          "schedule",
+          "webhook"
+        ]
+      },
+      "entry": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "newName": {
+            "type": "string",
+            "description": "Schedule only, with overwrite: rename the schedule `name` to this; its history is kept."
+          },
+          "description": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string",
+            "description": "Schedule cron expression. Mutually exclusive with at."
+          },
+          "at": {
+            "type": "string",
+            "description": "One-shot schedule datetime. Mutually exclusive with time."
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "days": {
+            "type": "string",
+            "description": "Schedule day selector, e.g. weekdays or mon,wed,fri."
+          },
+          "parser": {
+            "type": "string",
+            "enum": [
+              "github",
+              "generic",
+              "stripe",
+              "sentry"
+            ]
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "text",
+                    "pdf"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "mimeType": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "string",
+                  "description": "Plain text for text attachments; base64 for image/PDF. Prefer existing attachments when editing."
+                }
+              },
+              "required": [
+                "kind",
+                "data"
+              ]
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "string",
+            "description": "The bot id that owns the schedule or webhook; each run is a turn in that bot's chat, where it replies with the result. The bot must exist (no representative bot yet = refused). New entries default to the bot of the calling thread (the representative bot = lead); on overwrite, omission keeps the owner."
+          },
+          "executorAgentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The workflow sub-agent id (Worker, …) that carries out each run first, on its own model; only its final report goes to the owner bot, which relays it in its own words. Must be an enabled workflow sub-agent: never a bot (the representative bot included); unknown or turned-off ids are refused. Set it for recurring work that suits a sub-agent; leave it unset for trivial chat-only routines (the owner bot then does the work itself). null or \"\" clears it; on overwrite, omission keeps it."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "Explicitly update an existing entry; omitted fields are preserved."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "webhook": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "domain": {
+            "type": "string"
+          }
+        }
+      },
+      "desktop": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "keepAwake": {
+            "type": "boolean"
+          },
+          "runInBackground": {
+            "type": "boolean"
+          },
+          "usagePinned": {
+            "type": "boolean"
+          },
+          "usageRailShortLong": {
+            "type": "boolean"
+          },
+          "usageAccountsExpanded": {
+            "type": "boolean"
+          },
+          "usageRailSlotsThree": {
+            "type": "boolean"
+          },
+          "usageRailSlotsAll": {
+            "type": "boolean"
+          },
+          "computerObserveOnly": {
+            "type": "boolean"
+          },
+          "browserAutoSignIn": {
+            "type": "boolean"
+          },
+          "browserHidDevices": {
+            "type": "boolean"
+          },
+          "saveChatLogins": {
+            "type": "boolean"
+          },
+          "notificationVolume": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 400,
+            "description": "Windows only: notification sound volume percent."
+          },
+          "sessionAutoArchiveDays": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              7,
+              14,
+              30,
+              90
+            ],
+            "description": "Days without conversation before a session is archived; 0 = never (default 7)."
+          },
+          "sessionAutoDeleteDays": {
+            "type": "integer",
+            "enum": [
+              0,
+              7,
+              30,
+              90
+            ],
+            "description": "Days archived before a session is deleted; 0 = never (default 90)."
+          },
+          "botOverlay": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Show the representative bot overlay; refused while no representative bot exists."
+              },
+              "position": {
+                "type": "string",
+                "enum": [
+                  "pinned",
+                  "pinnedHere",
+                  "free",
+                  "onScreen"
+                ],
+                "description": "pinned = pin above the message box (default); pinnedHere = pin here; free = free in the app window; onScreen = free on screen."
+              },
+              "keepAbove": {
+                "type": "boolean",
+                "description": "Keep above other windows (default off)."
+              },
+              "collapsed": {
+                "type": "boolean",
+                "description": "Collapse the bubble so only the bot shows (default off)."
+              },
+              "autoAdvance": {
+                "type": "boolean",
+                "description": "Auto-advance long replies (default on)."
+              },
+              "autoClose": {
+                "type": "boolean",
+                "description": "Close replies automatically once read (default on)."
+              },
+              "scale": {
+                "type": "integer",
+                "enum": [
+                  50,
+                  60,
+                  70,
+                  80,
+                  90,
+                  100,
+                  110,
+                  120,
+                  130,
+                  140,
+                  150,
+                  160,
+                  170,
+                  180,
+                  190,
+                  200
+                ],
+                "description": "Bot size in percent (default 100)."
+              }
+            }
+          }
+        }
+      },
+      "appearance": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "theme": {
+            "type": "string",
+            "enum": [
+              "system",
+              "dark",
+              "white"
+            ]
+          },
+          "displayLanguage": {
+            "type": "string",
+            "description": "Desktop UI language id from status appearance; independent of profile language."
+          },
+          "sidePanels": {
+            "type": "string",
+            "enum": [
+              "close-left",
+              "close-right",
+              "close-both",
+              "keep-open"
+            ]
+          },
+          "sidePanelPosition": {
+            "type": "string",
+            "enum": [
+              "right",
+              "bottom",
+              "auto"
+            ],
+            "description": "Where the side dock sits on desktop: beside the chat, below it, or by window shape (default right)."
+          },
+          "timeFormat": {
+            "type": "string",
+            "enum": [
+              "system",
+              "12h",
+              "24h"
+            ],
+            "description": "Clock style for every time of day shown (default system = the UI language own clock)."
+          },
+          "uiScale": {
+            "type": "number",
+            "minimum": 0.85,
+            "maximum": 1.5,
+            "description": "UI size multiplier, 0.85-1.5 in steps of 0.05 (default 1)."
+          },
+          "codeSize": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 20,
+            "description": "Code text size in px, 10-20 (default 13)."
+          },
+          "codeLigatures": {
+            "type": "boolean",
+            "description": "Join symbols such as => into one glyph in code (default on)."
+          },
+          "chatTextSize": {
+            "type": "string",
+            "enum": [
+              "small",
+              "default",
+              "large",
+              "extra-large"
+            ],
+            "description": "Conversation and composer text size (default default)."
+          },
+          "markdownDefaultView": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "rich",
+              "source"
+            ]
+          },
+          "linkPreview": {
+            "type": "boolean"
+          },
+          "toolActivityExpansion": {
+            "type": "string",
+            "enum": [
+              "collapsed",
+              "commands",
+              "all"
+            ]
+          },
+          "composerStyle": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "basic",
+              "detail"
+            ],
+            "description": "How much the composer shows: simple = the model only; basic (UI label \"Normal\") = plus usage; detail = plus workflow and delegation (default detail)."
+          },
+          "questionAnswerConfirm": {
+            "type": "boolean",
+            "description": "On: picking a single-choice question option only selects it until Send/Next; off: the pick answers at once (default off)."
+          },
+          "uiFont": {
+            "type": "string",
+            "description": "Installed font family for the UI; \"\" restores the built-in font."
+          },
+          "codeFont": {
+            "type": "string",
+            "description": "Installed font family for code; \"\" restores the built-in font."
+          },
+          "skinTransparency": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Sets both skin transparency sliders at once, 0-100 (defaults: outer 20, main 40)."
+          },
+          "skinOuterTransparency": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "How much of the skin picture shows through the outer panels (window frame, titlebar, rail, sidebar, side dock), 0-100 (default 20)."
+          },
+          "skinMainTransparency": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "How much of the skin picture shows through the main panel (conversation area, composer card, status island), 0-100 (default 40)."
+          },
+          "colorTheme": {
+            "type": "string",
+            "description": "Imported JSON color theme id from status appearance colorThemes; \"builtin\" turns themes off."
+          }
+        }
+      },
+      "hookRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Tool name, prefix* pattern, or * (default)."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny",
+              "block",
+              "modify",
+              "rewrite",
+              "ask"
+            ]
+          },
+          "match": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Substring the tool arguments or cwd must contain."
+          },
+          "cwd": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Substring the working directory must contain."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "patch": {
+            "type": "object",
+            "description": "modify/rewrite: fields merged into the tool arguments."
+          },
+          "args": {
+            "type": "object",
+            "description": "modify/rewrite: arguments that replace the tool arguments."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "ruleIndex": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "set_hook_rule_enabled/delete_hook_rule: rule index from status hooks."
+      },
+      "lane": {
+        "type": "string",
+        "description": "set_media_default: lane id from the media catalog to pin as the default generator for the kind; \"\" clears the pin (back to Auto)."
+      },
+      "model": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S",
+        "description": "set_media_default: model id offered by the lane for the kind; omitted = the lane default. set_model_preferences: model id of the provider."
+      },
+      "project": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "alias": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "projectPath": {
+        "type": "string",
+        "description": "Exact registered Project root."
+      },
+      "activityRailPins": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "sessions",
+            "agents",
+            "schedules",
+            "workflows",
+            "projects",
+            "extensions",
+            "skills",
+            "source-control",
+            "search",
+            "webhooks",
+            "studio"
+          ]
+        },
+        "description": "set_activity_rail_pins: complete ordered list of pinned activity rail items; it replaces the current list."
+      },
+      "riskAccepted": {
+        "type": "boolean",
+        "description": "set_developer_option: the user's explicit acceptance of the option warning; required to enable an option that has one. Exception: allowAllActions (allow all actions except payments and permanent deletes) can only be turned on by the person in the desktop app; it is rejected regardless of riskAccepted, and remote enablement is rejected too."
+      }
+    }
+  }
+}

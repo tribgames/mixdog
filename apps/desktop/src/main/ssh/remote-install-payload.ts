@@ -1,203 +1,151 @@
-// The server payload: the EXACT runtime this desktop runs (its bundled
-// mixdog `src/` and package.json), the desktop service bundle, and the npm
-// lockfile scripts/build-daemon.mjs generated for the server's modules.
-// Every file is hashed; the manifest digest is the build hash that names the
-// immutable version directory on the server.
-import { existsSync, readdirSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+// The server payload: the `mixdogd` binary built for the server's platform
+// with its JS runtime, in one `bundle.tgz`. A desktop ships one bundle per
+// supported server platform next to a manifest (`servers.json`, written by
+// scripts/stage-core.mjs); the manifest's `build`
+// is one value for the whole release, so the version directory name
+// `<version>-<build>` is known before the server's platform is.
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 
-import { packagedRuntimeSourceRoot } from '../runtime-layout';
 import { RemoteBootstrapError } from './remote-install-errors';
-import { encodePayloadArchive, manifestBuildHash, sha256Hex, type PayloadFile } from './remote-install-manifest';
+import type { RemotePlatform } from './remote-install-platform';
+import { manifestBuild, SERVER_MANIFEST_FILE } from './server-manifest.mjs';
 
-const REMOTE_BUNDLE_PATH = 'apps/desktop/out/main/daemon.cjs';
-/** out/server/deps file → its name under the payload's server-deps/. The
- *  lockfile is not built as `package-lock.json`: electron-builder drops that
- *  name from the packaged app by default (scripts/remote-server-deps.mjs). */
-export const SERVER_DEPS_FILES = [
-  { local: 'package.json', remote: 'package.json' },
-  { local: 'server-package-lock.json', remote: 'package-lock.json' },
-] as const;
+export { manifestBuild, SERVER_MANIFEST_FILE };
+const SAFE_SEGMENT = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/;
 
-export interface RemoteServerPayload {
-  /** The runtime's package version. */
+export interface ServerBinaryEntry {
+  /** sha256 and size of the `mixdogd` binary. */
+  sha256: string;
+  size: number;
+  /** `bundle.tgz`: that binary and the JS runtime (node, package root, js-runtime.json) it runs with. */
+  bundle: { file: string; sha256: string; size: number; content: string };
+}
+
+/** `servers.json`: the release version, its build and one entry per `<os>-<arch>`. */
+export interface ServerManifest {
   version: string;
-  buildHash: string;
-  /** `<version>-<buildHash>`: the version directory name. */
+  build: string;
+  binaries: Record<string, ServerBinaryEntry>;
+}
+
+export interface ServerIdentity {
+  version: string;
+  build: string;
+  /** `<version>-<build>`: the version directory name on the server. */
   installId: string;
-  files: readonly PayloadFile[];
-  /** The gzip wire archive (built on demand: only an install uploads it). */
+}
+
+export interface ServerBinary {
+  /** sha256 of the `mixdogd` binary inside the bundle; the server checks it again when it installs. */
+  sha256: string;
+  /** sha256 of the wire form, which the bootstrap checks before it unpacks anything. */
+  bundleSha256: string;
+  /** The wire form (a gzip tar of `mixdogd` and `payload/`), read on demand: only an install uploads it. */
   archive(): Promise<Buffer>;
 }
 
-export interface LocalPayloadLayout {
-  /** Directory holding the runtime's package.json and src/. */
-  runtimePackageDir: string;
-  /** Directory holding the generated server package.json / server-package-lock.json. */
-  serverDepsDir: string;
+export interface ServerPayloads {
+  identity: ServerIdentity;
+  binary(platform: RemotePlatform): Promise<ServerBinary>;
 }
 
-/** Where this desktop's runtime and generated server lockfile live: inside
- *  the packaged app (resources/…) or the source checkout. */
-export function localPayloadLayout(
-  moduleDir: string,
-  exists: (path: string) => boolean = existsSync
-): LocalPayloadLayout {
-  const asar = moduleDir.indexOf(`${sep}app.asar`);
-  if (asar >= 0) {
-    const resourcesPath = moduleDir.slice(0, asar);
-    return {
-      runtimePackageDir: dirname(packagedRuntimeSourceRoot(resourcesPath, exists)),
-      serverDepsDir: join(resourcesPath, 'app.asar', 'out', 'server', 'deps'),
-    };
+const platformKey = (platform: RemotePlatform): string => `${platform.os}-${platform.arch}`;
+
+function validManifest(value: unknown): ServerManifest {
+  const manifest = value as Partial<ServerManifest> | null;
+  const binaries = manifest?.binaries;
+  if (
+    !manifest ||
+    typeof manifest.version !== 'string' ||
+    !SAFE_SEGMENT.test(manifest.version) ||
+    typeof manifest.build !== 'string' ||
+    !SAFE_SEGMENT.test(manifest.build) ||
+    !binaries ||
+    typeof binaries !== 'object'
+  ) {
+    throw new RemoteBootstrapError('local-payload', 'The server runtime manifest is malformed.');
   }
-  for (let dir = moduleDir; ; dir = dirname(dir)) {
-    if (exists(join(dir, 'src', 'standalone', 'daemon.mjs'))) {
-      // The checkout's apps/desktop, or an isolated dev instance's app/desktop
-      // (scripts/dev-isolated.mjs), whose out/ holds its own server deps.
-      for (const app of [join('apps', 'desktop'), join('app', 'desktop')]) {
-        if (exists(join(dir, app, 'package.json'))) {
-          return { runtimePackageDir: dir, serverDepsDir: join(dir, app, 'out', 'server', 'deps') };
-        }
+  if (manifestBuild(binaries) !== manifest.build) {
+    throw new RemoteBootstrapError('local-payload', 'The server runtime manifest does not match its binaries.');
+  }
+  return manifest as ServerManifest;
+}
+
+/** The payloads of the release staged in `dir`. */
+export async function loadServerPayloads(dir: string): Promise<ServerPayloads> {
+  const manifest = validManifest(JSON.parse(await readFile(join(dir, SERVER_MANIFEST_FILE), 'utf8')));
+  const archives = new Map<string, Promise<Buffer>>();
+  return {
+    identity: {
+      version: manifest.version,
+      build: manifest.build,
+      installId: `${manifest.version}-${manifest.build}`,
+    },
+    async binary(platform) {
+      const key = platformKey(platform);
+      const entry = manifest.binaries[key];
+      if (!entry) {
+        throw new RemoteBootstrapError('local-payload', `This desktop ships no Mixdog server runtime for ${key}.`);
       }
-    }
+      if (!SAFE_SEGMENT.test(entry.bundle?.file ?? '') || !entry.bundle?.sha256) {
+        throw new RemoteBootstrapError('local-payload', `The server runtime manifest has no bundle for ${key}.`);
+      }
+      const file = join(dir, key, entry.bundle.file);
+      const expected = entry.bundle.sha256;
+      return {
+        sha256: entry.sha256,
+        bundleSha256: expected,
+        archive() {
+          let archive = archives.get(key);
+          if (!archive) {
+            archive = (async () => {
+              const data = await readFile(file);
+              if (createHash('sha256').update(data).digest('hex') !== expected) {
+                throw new RemoteBootstrapError('local-payload', `${file} does not match the server runtime manifest.`);
+              }
+              return data;
+            })();
+            archives.set(key, archive);
+          }
+          return archive;
+        },
+      };
+    },
+  };
+}
+
+/** Where the staged server runtimes live: `resources/server-cores` of the
+ *  packaged app, `apps/desktop/.runtime/server-cores` of a source checkout. */
+export function localServerCoresDir(moduleDir: string, exists: (path: string) => boolean = existsSync): string {
+  const asar = moduleDir.indexOf(`${sep}app.asar`);
+  if (asar >= 0) return join(moduleDir.slice(0, asar), 'server-cores');
+  for (let dir = moduleDir; ; dir = dirname(dir)) {
+    const staged = join(dir, 'apps', 'desktop', '.runtime', 'server-cores');
+    if (exists(join(staged, SERVER_MANIFEST_FILE))) return staged;
     if (dirname(dir) === dir) {
       throw new RemoteBootstrapError(
         'local-payload',
-        `The Mixdog runtime to install on the server was not found above ${moduleDir}.`
+        `The Mixdog server runtimes to install were not found above ${moduleDir}; stage them (scripts/stage-core.mjs) first.`
       );
     }
   }
 }
 
-/** Shipped runtime files: what `npm pack` keeps of src/ (no tests, no TUI dev tree). */
-function isRuntimeFile(relative: string): boolean {
-  return (
-    !/\.test\.(?:mjs|cjs|js|jsx|ts)$/.test(relative) &&
-    !relative.startsWith('src/tui/dev/') &&
-    !relative.endsWith('.DS_Store')
-  );
-}
+export type ServerPayloadResolver = () => Promise<ServerPayloads>;
 
-function listTree(root: string, prefix: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const relative = `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) files.push(...listTree(join(root, entry.name), relative));
-    else if (entry.isFile() && isRuntimeFile(relative)) files.push(relative);
-  }
-  return files;
-}
+const resolveLocalServerPayloads: ServerPayloadResolver = () =>
+  loadServerPayloads(localServerCoresDir(import.meta.dirname));
 
-interface PayloadSource {
-  path: string;
-  /** Local file, or the bytes themselves. */
-  source: string | Buffer;
-}
-
-async function readSource(source: string | Buffer): Promise<Buffer> {
-  return typeof source === 'string' ? readFile(source) : source;
-}
-
-// Local file → digest, revalidated by size and mtime: a packaged runtime is
-// hashed once per process, a source checkout again only where it changed.
-const fileDigests = new Map<string, { size: number; mtimeMs: number; sha256: string }>();
-
-async function hashSources(sources: readonly PayloadSource[]): Promise<PayloadFile[]> {
-  const files: PayloadFile[] = [];
-  for (const entry of sources) {
-    if (typeof entry.source === 'string') {
-      const stats = await stat(entry.source);
-      const known = fileDigests.get(entry.source);
-      if (known && known.size === stats.size && known.mtimeMs === stats.mtimeMs) {
-        files.push({ path: entry.path, size: known.size, sha256: known.sha256 });
-        continue;
-      }
-      const data = await readFile(entry.source);
-      const digest = { size: data.length, mtimeMs: stats.mtimeMs, sha256: sha256Hex(data) };
-      fileDigests.set(entry.source, digest);
-      files.push({ path: entry.path, size: digest.size, sha256: digest.sha256 });
-      continue;
-    }
-    files.push({ path: entry.path, size: entry.source.length, sha256: sha256Hex(entry.source) });
-  }
-  return files;
-}
-
-/** Hash the sources and name the build. */
-export async function createServerPayload(
-  sources: readonly PayloadSource[],
-  version: string
-): Promise<RemoteServerPayload> {
-  if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]*$/.test(version)) {
-    throw new RemoteBootstrapError('install-failed', `The runtime version is not a safe path segment: ${version}`);
-  }
-  const ordered = [...sources].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-  const files = await hashSources(ordered);
-  const bySource = new Map(ordered.map((entry) => [entry.path, entry.source]));
-  const buildHash = manifestBuildHash(files);
-  let archive: Promise<Buffer> | null = null;
-  return {
-    version,
-    buildHash,
-    installId: `${version}-${buildHash}`,
-    files,
-    archive() {
-      archive ??= encodePayloadArchive(files, (path) => {
-        const source = bySource.get(path);
-        if (source === undefined)
-          throw new RemoteBootstrapError('install-failed', `No source for payload file ${path}`);
-        return readSource(source);
-      });
-      return archive;
-    },
-  };
-}
-
-export function runtimeSources(layout: LocalPayloadLayout): PayloadSource[] {
-  const deps = SERVER_DEPS_FILES.map(({ local }) => join(layout.serverDepsDir, local));
-  if (!deps.every((path) => existsSync(path))) {
-    throw new RemoteBootstrapError(
-      'local-payload',
-      `The server module lockfile is missing (${layout.serverDepsDir}); build the desktop (scripts/build-daemon.mjs) first.`
-    );
-  }
-  return [
-    { path: 'package.json', source: join(layout.runtimePackageDir, 'package.json') },
-    ...SERVER_DEPS_FILES.map(({ local, remote }) => ({
-      path: `server-deps/${remote}`,
-      source: join(layout.serverDepsDir, local),
-    })),
-    ...listTree(join(layout.runtimePackageDir, 'src'), 'src').map((path) => ({
-      path,
-      source: join(layout.runtimePackageDir, ...path.split('/')),
-    })),
-  ];
-}
-
-export type ServerPayloadResolver = (bundle: Buffer) => Promise<RemoteServerPayload>;
-
-/** This desktop's payload: its runtime plus the given desktop service bundle. */
-const resolveLocalServerPayload: ServerPayloadResolver = async (bundle) => {
-  const layout = localPayloadLayout(import.meta.dirname);
-  const sources = runtimeSources(layout);
-  const manifest = JSON.parse(await readFile(join(layout.runtimePackageDir, 'package.json'), 'utf8')) as {
-    version?: unknown;
-  };
-  return createServerPayload(
-    [...sources, { path: REMOTE_BUNDLE_PATH, source: bundle }],
-    String(manifest.version || '')
-  );
-};
-
-let payloadResolver: ServerPayloadResolver = resolveLocalServerPayload;
+let payloadResolver: ServerPayloadResolver = resolveLocalServerPayloads;
 
 /** Tests swap in a fixture payload; null restores the local one. */
 export function setServerPayloadResolver(resolver: ServerPayloadResolver | null): void {
-  payloadResolver = resolver ?? resolveLocalServerPayload;
+  payloadResolver = resolver ?? resolveLocalServerPayloads;
 }
 
-export function resolveServerPayload(bundle: Buffer): Promise<RemoteServerPayload> {
-  return payloadResolver(bundle);
+export function resolveServerPayloads(): Promise<ServerPayloads> {
+  return payloadResolver();
 }

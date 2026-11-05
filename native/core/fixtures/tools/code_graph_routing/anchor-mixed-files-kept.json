@@ -1,0 +1,19 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj",
+    "<ROOT>/proj/src/a.mjs"
+  ],
+  "input": {
+    "files": [
+      ".",
+      "src/a.mjs"
+    ],
+    "mode": "symbol_search",
+    "symbol": "alpha"
+  },
+  "isError": false,
+  "text": "# file .\n# search keyword=alpha matches=1 shown=1\nalpha\tsrc/a.mjs:1-3:8\texport function\tfunction alpha()\n\n# file src/a.mjs\n# search keyword=alpha matches=1 shown=1\nalpha\tsrc/a.mjs:1-3:8\texport function\tfunction alpha()",
+  "tool": "code_graph"
+}

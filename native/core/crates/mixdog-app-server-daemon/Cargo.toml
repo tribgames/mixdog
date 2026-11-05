@@ -8,7 +8,57 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
 mixdog-core = { workspace = true }
 mixdog-migrate = { workspace = true }
+mixdog-remote = { workspace = true }
+mixdog-tools = { workspace = true }
+mixdog-workspace = { workspace = true }
+mixdog-scm = { workspace = true }
+mixdog-exthost = { workspace = true }
+mixdog-services = { workspace = true }
+mixdog-ai = { workspace = true }
+reqwest = { workspace = true }
+tokio-util = { workspace = true }
+bytes = { workspace = true }
+mixdog-mcp = { workspace = true }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-store = { workspace = true }
+async-trait = { workspace = true }
+mixdog-protocol = { workspace = true }
+# The mock seams stay linked until the real core, transport and server replace them.
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+arc-swap = { workspace = true }
+base64 = { workspace = true }
+rand = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "signal", "rt"] }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Wdk_System_Threading",
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

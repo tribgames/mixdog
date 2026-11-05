@@ -20,8 +20,14 @@ use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
 
+pub mod exec;
 pub mod lanes;
+pub mod ticker;
 pub mod tokens;
+
+pub use ticker::Ticker;
+pub use ticker::TimerHandle;
+pub use ticker::ticker;
 
 pub use lanes::JobDropped;
 pub use lanes::JobHandle;
@@ -29,6 +35,7 @@ pub use lanes::JobRun;
 pub use lanes::LaneFull;
 pub use lanes::LaneKind;
 pub use lanes::QueuedJob;
+pub use lanes::SubmitWaitError;
 pub use lanes::ThreadKind;
 pub use tokens::ComputerThread;
 pub use tokens::ControlThread;
@@ -83,6 +90,12 @@ pub trait Backend: Send + Sync + 'static {
     /// Called first on every thread started through a [`ThreadToken`]: sets the OS priority
     /// of `kind` and registers the thread with the instrumentation.
     fn enter_thread(&self, kind: ThreadKind);
+    /// Notified (`notify_waiters`) every time `lane` frees a queue or thread slot; backs
+    /// [`LaneToken::submit_wait`]. `None` (the default) means the backend never refuses a job
+    /// for lack of room, or cannot signal it, so `submit_wait` answers [`LaneFull`] at once.
+    fn capacity_notify(&self, _lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
+        None
+    }
 }
 
 static BACKEND: OnceLock<Arc<dyn Backend>> = OnceLock::new();

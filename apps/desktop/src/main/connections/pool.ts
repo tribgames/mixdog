@@ -1,4 +1,5 @@
 import type { ConnectionKind } from './contract';
+import { notifyHostListsChanged } from '../host-lists-changed';
 import { ConnectionError } from './errors';
 
 export interface PooledConnection {
@@ -14,6 +15,7 @@ export class ConnectionPool<T extends PooledConnection> {
   add(connection: T): void {
     if (this.entries.has(connection.id)) throw new Error(`Connection "${connection.id}" is already open.`);
     this.entries.set(connection.id, connection);
+    notifyHostListsChanged();
     for (const listener of [...this.addedListeners]) {
       try {
         listener(connection);
@@ -46,6 +48,7 @@ export class ConnectionPool<T extends PooledConnection> {
   remove(id: string): T | undefined {
     const connection = this.entries.get(id);
     this.entries.delete(id);
+    if (connection) notifyHostListsChanged();
     return connection;
   }
 

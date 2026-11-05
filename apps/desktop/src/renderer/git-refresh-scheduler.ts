@@ -1,4 +1,4 @@
-import { subscribeProjectFileChanges } from './project-file-changes';
+import { sectionStoreFor } from './section-store';
 
 interface GitRefreshScheduler {
   resume(): void;
@@ -8,87 +8,32 @@ interface GitRefreshScheduler {
   dispose(): void;
 }
 
-/** Cadence for the surfaces that follow one file's diff (editor gutter, diff pane). */
-export const FILE_DIFF_REFRESH_OPTIONS = {
-  activityDebounceMs: 125,
-  activityMinGapMs: 1_000,
-} as const;
-
 /**
- * Runs `task` only on Git evidence — a change event (`signal`, debounced), a
- * refresh request or a resume (`refreshNow`). Nothing re-reads on a clock:
- * the one timer waits for the next allowed run of an event already seen
- * (the debounce, and a gap after the last run at least as long as that run
- * took, so a slow read is not repeated back to back). Single-flight: events
- * during a run leave one trailing run. A failed run is retried by the next
- * event, like any other.
+ * Runs `task` only on pushed Git evidence — the core's `gitStatus` / `reviewDiff` sections (desktop-services.md §5,
+ * §15 P1) or an explicit request (`signal`, `refreshNow`, a resume). Nothing re-reads on a clock and nothing is
+ * debounced by a timer: coalescing is single-flight, so events during a run leave exactly one trailing run. A
+ * failed run is retried by the next event, like any other.
  */
-export function createGitRefreshScheduler(
-  task: () => Promise<void>,
-  options: {
-    activityDebounceMs: number;
-    activityMinGapMs: number;
-  }
-): GitRefreshScheduler {
+export function createGitRefreshScheduler(task: () => Promise<void>): GitRefreshScheduler {
   let disposed = false;
   let enabled = false;
   let inFlight = false;
-  let pendingActivity = false;
-  let activityTimer = 0;
-  let activityFiresAt = Infinity;
-  let lastRunEndedAt = -Infinity;
-  let lastRunDurationMs = 0;
+  let dirty = false;
 
-  const clearActivity = () => {
-    if (activityTimer) globalThis.clearTimeout(activityTimer);
-    activityTimer = 0;
-    activityFiresAt = Infinity;
-  };
-  const requiredIdleMs = () => Math.max(options.activityMinGapMs, lastRunDurationMs);
-  const scheduleActivity = (minimumDelayMs: number) => {
+  const start = (): void => {
     if (!enabled || disposed) return;
     if (inFlight) {
-      pendingActivity = true;
+      dirty = true;
       return;
     }
-    const now = Date.now();
-    const delay = Math.max(minimumDelayMs, lastRunEndedAt + requiredIdleMs() - now);
-    if (delay <= 0) {
-      start();
-      return;
-    }
-    const firesAt = now + delay;
-    if (activityTimer && firesAt >= activityFiresAt) return;
-    clearActivity();
-    activityFiresAt = firesAt;
-    activityTimer = globalThis.setTimeout(() => {
-      activityTimer = 0;
-      activityFiresAt = Infinity;
-      start();
-    }, delay);
-  };
-  const start = () => {
-    if (!enabled || disposed || inFlight) return;
-    clearActivity();
     inFlight = true;
-    const startedAt = Date.now();
-    let failed = false;
+    dirty = false;
     void Promise.resolve()
       .then(() => task())
-      .catch(() => {
-        failed = true;
-      })
+      .catch(() => undefined)
       .finally(() => {
-        lastRunEndedAt = Date.now();
-        // A rejected run (a read cut off at its deadline, a failed git) timed
-        // no work: the gap keeps the last good run's duration.
-        if (!failed) lastRunDurationMs = Math.max(0, lastRunEndedAt - startedAt);
         inFlight = false;
-        if (!enabled || disposed) return;
-        if (pendingActivity) {
-          pendingActivity = false;
-          scheduleActivity(0);
-        }
+        if (dirty) start();
       });
   };
 
@@ -96,49 +41,43 @@ export function createGitRefreshScheduler(
     resume() {
       if (disposed || enabled) return;
       enabled = true;
-      scheduleActivity(0);
+      start();
     },
     pause() {
       enabled = false;
-      pendingActivity = false;
-      clearActivity();
+      dirty = false;
     },
-    signal() {
-      scheduleActivity(options.activityDebounceMs);
-    },
-    refreshNow() {
-      scheduleActivity(0);
-    },
+    signal: start,
+    refreshNow: start,
     dispose() {
       disposed = true;
       enabled = false;
-      pendingActivity = false;
-      clearActivity();
+      dirty = false;
     },
   };
 }
 
-/** Drives a scheduler from Git evidence: project file changes (the folder
- *  watch also follows the checkout's git dirs outside it) and explicit
- *  `mixdog:git-changed` events signal it, window focus refreshes at once, and
- *  a hidden document pauses it. The returned teardown disposes the scheduler. */
-export function watchGitRefreshEvidence(projectPath: string, scheduler: GitRefreshScheduler): () => void {
+/** Drives a scheduler from Git evidence: the core's pushed `gitStatus` and `reviewDiff` sections and explicit
+ *  `mixdog:git-changed` events signal it, and a hidden document pauses it. The returned teardown disposes the
+ *  scheduler. */
+export function watchGitRefreshEvidence(_projectPath: string, scheduler: GitRefreshScheduler): () => void {
   const signal = () => scheduler.signal();
-  const refreshNow = () => scheduler.refreshNow();
   const visibilityChanged = () => {
     if (document.visibilityState === 'hidden') scheduler.pause();
     else scheduler.resume();
   };
-  const unsubscribeProject = subscribeProjectFileChanges(projectPath, signal);
-  window.addEventListener('focus', refreshNow);
+  const sections = sectionStoreFor(typeof window === 'undefined' ? undefined : window.mixdogDesktop);
+  const stops = [sections?.subscribe('gitStatus', signal), sections?.subscribe('reviewDiff', signal)];
+  const refreshNow = () => scheduler.refreshNow();
   window.addEventListener('mixdog:git-changed', signal);
+  window.addEventListener('focus', refreshNow);
   document.addEventListener('visibilitychange', visibilityChanged);
   if (document.visibilityState !== 'hidden') scheduler.resume();
   return () => {
     scheduler.dispose();
-    unsubscribeProject();
-    window.removeEventListener('focus', refreshNow);
+    for (const stop of stops) stop?.();
     window.removeEventListener('mixdog:git-changed', signal);
+    window.removeEventListener('focus', refreshNow);
     document.removeEventListener('visibilitychange', visibilityChanged);
   };
 }

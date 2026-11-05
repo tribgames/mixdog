@@ -11,6 +11,7 @@ import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import type { DesktopRemoteHost } from '../shared/contract';
 import { nativeT } from './native-i18n';
 import { REMOTE_HOST_ARGUMENT, REMOTE_WINDOW_IPC, type RemoteWindowHostEntry } from '../shared/remote-window';
+import { notifyHostListsChanged } from './host-lists-changed';
 import {
   externalLinkTarget,
   fetchHostPresence,
@@ -138,12 +139,14 @@ export function createRemoteHostWindows(
       },
     });
     windows.set(id, window);
+    notifyHostListsChanged();
     window.setMenuBarVisibility(false);
     // The page sets its own <title>; the window must keep saying which
     // computer it is driving.
     window.on('page-title-updated', (event) => event.preventDefault());
     window.on('closed', () => {
       if (windows.get(id) === window) windows.delete(id);
+      notifyHostListsChanged();
     });
     const contents = window.webContents;
     // The page's theme-color is its window band (desktop-theme.ts): follow it
@@ -187,6 +190,7 @@ export function createRemoteHostWindows(
       const parsed = parseRemoteHostLink(`${relayOrigin}/d/${redeemed.deviceId}/`);
       if (!parsed) throw new Error(nativeT('Codes are not available on this connection server yet. Use the QR code.'));
       const saved = await store.save(parsed, redeemed.name);
+      notifyHostListsChanged();
       // The fresh ticket has to reach a freshly loaded page, so an open window
       // for this host is replaced.
       const existing = windows.get(saved.id);
@@ -200,6 +204,7 @@ export function createRemoteHostWindows(
     },
     async rename(id, name) {
       await store.rename(id, name);
+      notifyHostListsChanged();
     },
     async forget(id) {
       const window = windows.get(id);
@@ -209,6 +214,7 @@ export function createRemoteHostWindows(
       await ses.clearStorageData();
       await ses.clearCache();
       await store.remove(id);
+      notifyHostListsChanged();
       return snapshot();
     },
   };

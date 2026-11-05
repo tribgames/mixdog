@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/tables",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Nested tables",
+  "content": "| outer<br>\\| inner \\|<br>\\| --- \\| | x |\n| --- | --- |",
+  "extractor": "dom-markdown"
+ }
+}

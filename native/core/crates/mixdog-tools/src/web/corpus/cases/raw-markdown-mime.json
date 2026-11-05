@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/readme",
+ "contentType": "text/markdown",
+ "expected": {
+  "ok": true,
+  "title": "",
+  "content": "# Title\n\nSome *markdown*.\n",
+  "extractor": "raw"
+ }
+}

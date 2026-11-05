@@ -1,6 +1,7 @@
 import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 import type { FileDownloadApi } from './file-downloads';
 import type { DesktopNotice } from './desktop-notice';
+import type { DesktopSectionsApi } from './contract-sections';
 import type { ProjectRecoveryRequest, ProjectRecoveryResponse } from './project-recovery';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
@@ -624,6 +625,10 @@ export interface DesktopApi {
   /** Starts a subscription login on the server and opens it in this PC's browser. */
   sshServerLoginBegin?(id: string, provider: string): Promise<import('./contract-ssh').DesktopSshServerLoginFlow>;
   sshServerLoginStatus?(id: string, flowId: string): Promise<import('./contract-ssh').DesktopSshServerLoginFlow>;
+  /** A server login's later states, pushed by the server's core as it progresses (`login:<flowId>` feed). */
+  subscribeSshServerLoginUpdated?(
+    listener: (update: { id: string; flow: import('./contract-ssh').DesktopSshServerLoginFlow }) => void
+  ): () => void;
   /** Completes a pending login with the address the browser was redirected to. */
   sshServerLoginComplete?(
     id: string,
@@ -661,8 +666,10 @@ export interface DesktopApi {
   ): () => void;
   /** The reopenings still running or failed when this window subscribed. */
   getServerRestoreProgress?(): Promise<import('./contract-connection-link').DesktopServerRestoreProgress[]>;
-  /** Server window's Ports panel; `rescan` false returns the last scan. */
-  listServerPorts?(rescan?: boolean): Promise<import('./contract-server-ports').DesktopServerPortsView>;
+  /** Server window's Ports panel: the view as last pushed. */
+  listServerPorts?(): Promise<import('./contract-server-ports').DesktopServerPortsView>;
+  /** The saved SSH servers or remote PCs, or which of them are open, changed: read the lists again. */
+  subscribeHostListsChanged?(listener: () => void): () => void;
   subscribeServerPorts?(listener: (view: import('./contract-server-ports').DesktopServerPortsView) => void): () => void;
   /** Forwards a server port to 127.0.0.1 on this PC (the same number when free, unless `localPort` is given). */
   forwardServerPort?(
@@ -971,6 +978,8 @@ export interface DesktopApi {
   subscribeSettingsChanged?(listener: (change: SettingsChange) => void): () => void;
   /** A turn review may read differently now (TURN_REVIEW_CHANGED_EVENT). */
   subscribeTurnReviewChanged?(listener: () => void): () => void;
+  /** Pushed sections of the core this window drives, and the detail calls the pushed state does not carry. */
+  readonly sections?: DesktopSectionsApi;
   /** The configured orchestration default changed (any writer; only when its value differs).
    *  An older host never emits it. */
   subscribeOrchestrationModeChanged?(listener: (change: OrchestrationModeChange) => void): () => void;

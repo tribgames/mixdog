@@ -165,15 +165,33 @@ pub enum ProcessError {
     ReplayUnavailable {
         oldest: u64,
     },
+    /// An admission queue is full; nothing was started or written. An admission fact, never
+    /// an I/O failure.
+    Overloaded {
+        queue: ProcessQueue,
+    },
     Io {
         os_code: Option<i32>,
     },
 }
 
+/// The full queue of [`ProcessError::Overloaded`]. Callers act differently: a full spawn
+/// queue answers the spawning request (`queueFull`), while a full input queue pauses the
+/// sending connection's reader for `process/input` notifications (`Admit::Pause`) and
+/// answers `queueFull` only to a `write_stdin` request.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProcessQueue {
+    /// The io-spawn lane queue (`spawn`).
+    Spawn,
+    /// The process's bounded stdin queue (`write_stdin`).
+    Input,
+}
+
 #[async_trait]
 pub trait ProcessManager: Send + Sync {
-    /// Waits for spawn admission (per-session and global permits), then
-    /// creates the process on io-spawn; dropping the future abandons the wait.
+    /// Admits the spawn to the io-spawn lane queue (full: `Overloaded{Spawn}`; at
+    /// `limits.maxProcesses` live processes: `LimitReached`), then creates the process on
+    /// io-spawn; dropping the future abandons the wait. There is no per-session spawn limit.
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError>;
     /// Events from `from_seq` (replayed from the ring) or from the next one.
     fn subscribe(

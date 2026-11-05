@@ -46,6 +46,7 @@ import { createDiagnosticsHandlers } from './ssh/ssh-ipc-diagnostics';
 import { createHostListHandlers } from './ssh/ssh-ipc-host-list';
 import { createServerLoginHandlers, type ServerLoginDeps } from './ssh/ssh-ipc-server-logins';
 import { text } from './ssh/ssh-ipc-input';
+import { notifyHostListsChanged } from './host-lists-changed';
 
 export interface SshHostIpcDeps {
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
@@ -83,6 +84,18 @@ export interface SshHostIpcDeps {
    *  PC's browser and the callback forward; without it no server is attached. */
   serverLogins?: Omit<ServerLoginDeps, 'store'>;
 }
+
+/** Channels that only read; every other SSH channel may change the saved servers or which are open. */
+const SSH_READ_CHANNELS: ReadonlySet<string> = new Set([
+  DESKTOP_IPC.sshListHosts,
+  DESKTOP_IPC.sshConfigHosts,
+  DESKTOP_IPC.sshInspectHostKey,
+  DESKTOP_IPC.sshServerLogins,
+  DESKTOP_IPC.sshServerLoginStatus,
+  DESKTOP_IPC.sshDiagnosticsLog,
+  DESKTOP_IPC.sshDiagnosticsCopy,
+  DESKTOP_IPC.sshServerLog,
+]);
 
 const NO_SERVER_LOGINS: Omit<ServerLoginDeps, 'store'> = {
   connection: () => null,
@@ -195,7 +208,13 @@ export function registerSshHostIpc(deps: SshHostIpcDeps): () => void {
     [DESKTOP_IPC.sshRenameHost, (_event, id, name) => hostList.rename(id, name)],
     [DESKTOP_IPC.sshUpdateHostSettings, (_event, id, settings) => hostList.updateSettings(id, settings)],
     [DESKTOP_IPC.sshServerLogins, (_event, id) => serverLogins.logins(id)],
-    [DESKTOP_IPC.sshServerLoginBegin, (_event, id, provider) => serverLogins.begin(id, provider)],
+    [
+      DESKTOP_IPC.sshServerLoginBegin,
+      (event, id, provider) =>
+        serverLogins.begin(id, provider, (flow) => {
+          if (!event.sender.isDestroyed()) event.sender.send(DESKTOP_IPC.sshServerLoginUpdated, { id, flow });
+        }),
+    ],
     [DESKTOP_IPC.sshServerLoginStatus, (_event, id, flowId) => serverLogins.status(id, flowId)],
     [
       DESKTOP_IPC.sshServerLoginComplete,
@@ -243,7 +262,12 @@ export function registerSshHostIpc(deps: SshHostIpcDeps): () => void {
     ipcMain.handle(channel, async (event, ...args) => {
       if (anyWindow) senderRoute(event);
       else authorize(event);
-      return handler(event, ...args);
+      try {
+        return await handler(event, ...args);
+      } finally {
+        // Saving, renaming, forgetting, connecting or cleaning up a server changes the lists the windows show.
+        if (!SSH_READ_CHANNELS.has(channel)) notifyHostListsChanged();
+      }
     });
   }
   return () => {

@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "file": "<ROOT>/proj",
+    "mode": "find_symbol",
+    "symbol": "alpha"
+  },
+  "isError": false,
+  "text": "# best declaration candidate\nsrc/a.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function alpha() {\n2:   return 1;\n3: }",
+  "tool": "code_graph"
+}

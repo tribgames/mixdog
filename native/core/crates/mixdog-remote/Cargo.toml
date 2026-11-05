@@ -10,3 +10,42 @@ workspace = true
 [dependencies]
 mixdog-rt = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
+# WP-WEBRTC (src/webrtc/**)
+mixdog-core-api = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true, features = ["std", "async-await"] }
+jpeg-decoder = { workspace = true }
+rtc = { workspace = true }
+shiguredo_libvpx = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net", "io-util"] }
+tracing = { workspace = true }
+webrtc = { workspace = true }
+# WP-REMOTE (e2ee)
+aes-gcm = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+p256 = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+# WP-REMOTE (identity, leg, clients, media, push, ice, bridge)
+mixdog-store = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-protocol = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+# WP-WEBRTC tests
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
+tempfile = { workspace = true }
+mixdog-app-protocol = { workspace = true }
+

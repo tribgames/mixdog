@@ -108,6 +108,7 @@ fn window(
         width: rect.2,
         height: rect.3,
         client: rect,
+        content_pid: 0,
     }
 }
 

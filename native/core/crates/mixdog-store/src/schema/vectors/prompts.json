@@ -1,0 +1,28 @@
+{
+ "keys": [
+  {
+   "text": "fix the build",
+   "key": "fix the build"
+  },
+  {
+   "text": "  fix   the\tbuild \n",
+   "key": "fix the build"
+  },
+  {
+   "text": "　전각　공백　",
+   "key": "전각 공백"
+  },
+  {
+   "text": "keepnext-line and\u001cfile-sep",
+   "key": "keepnext-line and\u001cfile-sep"
+  },
+  {
+   "text": "﻿bom nbsp ls",
+   "key": "bom nbsp ls"
+  },
+  {
+   "text": " \t\n ",
+   "key": ""
+  }
+ ]
+}

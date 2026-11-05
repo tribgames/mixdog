@@ -1,0 +1,16 @@
+{
+  "complete": true,
+  "cwd": "multi",
+  "dependencyRoots": [
+    "<ROOT>/multi",
+    "<ROOT>/multi/alpha",
+    "<ROOT>/multi/beta"
+  ],
+  "input": {
+    "mode": "symbol_search",
+    "symbol": "shared"
+  },
+  "isError": false,
+  "text": "# project alpha [<ROOT>/multi/alpha]\n# search keyword=shared matches=1 shown=1\nshared\tsrc/a.mjs:1-3:8\texport function\tfunction shared()\n\n# project beta [<ROOT>/multi/beta]\n# search keyword=shared matches=1 shown=1\nshared\tlib/b.mjs:1-3:8\texport function\tfunction shared()",
+  "tool": "code_graph"
+}

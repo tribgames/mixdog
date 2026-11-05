@@ -1,0 +1,159 @@
+{
+  "dirty_choice": {
+    "error": {
+      "code": "WORKTREE_DIRTY_CHOICE",
+      "message": "The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree.",
+      "details": {
+        "count": 1,
+        "paths": [
+          "f.txt"
+        ]
+      }
+    }
+  },
+  "stale_revision": {
+    "error": {
+      "code": "WORKTREE_REVISION_CONFLICT",
+      "message": "The session workspace changed; reload and try again.",
+      "details": {
+        "expectedRevision": 5,
+        "revision": 0
+      }
+    }
+  },
+  "turn_running": {
+    "error": {
+      "code": "WORKTREE_BUSY_JOBS",
+      "message": "The session is running a turn; wait for it to finish.",
+      "details": {
+        "reason": "turn"
+      }
+    }
+  },
+  "dirty_worktree_remove": {
+    "error": {
+      "code": "WORKTREE_DIRTY",
+      "message": "The worktree has uncommitted changes.",
+      "details": {
+        "entryId": "feat",
+        "files": [
+          "new.txt"
+        ],
+        "count": 1
+      }
+    }
+  },
+  "merge_cleanup_refused": {
+    "merged": true,
+    "cleanup": {
+      "removed": false,
+      "reason": "WORKTREE_BUSY_JOBS",
+      "code": "WORKTREE_BUSY_JOBS",
+      "message": "Sessions or workers still use an affected folder. Finish or move them before continuing."
+    }
+  },
+  "merge_cleanup_off": {
+    "merged": true,
+    "cleanup": {
+      "removed": false,
+      "reason": "auto-cleanup-off",
+      "message": "Auto cleanup is off; the worktree is kept."
+    }
+  },
+  "remove_branch_not_owned": {
+    "error": {
+      "code": null,
+      "message": "git worktree remove: this session owns no managed worktree of branch other; git worktree list shows them",
+      "details": null
+    }
+  },
+  "remove_path_unmanaged": {
+    "error": {
+      "code": null,
+      "message": "git worktree remove: <REPO>/nowhere is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool",
+      "details": null
+    }
+  },
+  "unattended_session": {
+    "enter": {
+      "error": {
+        "code": null,
+        "message": "git worktree enter changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them",
+        "details": null
+      }
+    },
+    "return": {
+      "error": {
+        "code": null,
+        "message": "git worktree return changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them",
+        "details": null
+      }
+    },
+    "merge": {
+      "error": {
+        "code": null,
+        "message": "git worktree merge changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them",
+        "details": null
+      }
+    },
+    "remove": {
+      "error": {
+        "code": null,
+        "message": "git worktree remove changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them",
+        "details": null
+      }
+    }
+  },
+  "worktree_missing_turn": {
+    "error": {
+      "code": "WORKTREE_MISSING",
+      "message": "The worktree for this session no longer exists; pick a branch or remove the worktree to continue.",
+      "details": {
+        "worktreeId": "feat",
+        "path": "<WT>"
+      }
+    }
+  },
+  "project_folder_in_use": {
+    "error": {
+      "code": "WORKTREE_BUSY_JOBS",
+      "message": "Sessions or workers still use an affected folder. Finish or move them before continuing.",
+      "details": {
+        "sessions": [
+          "other"
+        ],
+        "reason": "folder-in-use"
+      }
+    }
+  },
+  "input_validation": {
+    "invalid_name": {
+      "error": {
+        "code": null,
+        "message": "worktree name is invalid: use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit",
+        "details": null
+      }
+    },
+    "bad_carry": {
+      "error": {
+        "code": null,
+        "message": "carryChanges must be one of leave, carry.",
+        "details": null
+      }
+    },
+    "empty_branch": {
+      "error": {
+        "code": null,
+        "message": "workspace target branch must be a non-empty string.",
+        "details": null
+      }
+    },
+    "bad_branch": {
+      "error": {
+        "code": null,
+        "message": "Invalid branch name.",
+        "details": null
+      }
+    }
+  }
+}

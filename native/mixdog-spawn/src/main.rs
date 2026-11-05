@@ -1834,10 +1834,20 @@ mod tests {
             assert!(drain_output(Duration::from_secs(5)));
             output::replace_writer(std::io::stdout());
             let written = stdout.lines.lock().unwrap().clone();
-            let at = |needle: &str| written.find(needle).unwrap_or(usize::MAX);
-            let probe = at(r#""event":"probe""#);
-            let released_a = at(r#"{"event":"tree_released","id":64}"#);
-            let released_b = at(r#"{"event":"tree_released","id":65}"#);
+            // By content, not by key order: a build that unifies serde_json's `preserve_order`
+            // (the monorepo's) writes the same events with their keys in another order.
+            let at = |event: &str, id: u64| {
+                written
+                    .lines()
+                    .position(|line| {
+                        serde_json::from_str::<serde_json::Value>(line)
+                            .is_ok_and(|v| v["event"] == event && v["id"] == id)
+                    })
+                    .unwrap_or(usize::MAX)
+            };
+            let probe = at("probe", 64);
+            let released_a = at("tree_released", 64);
+            let released_b = at("tree_released", 65);
             assert!(
                 probe < released_a && released_a < released_b && released_b < usize::MAX,
                 "{written}"

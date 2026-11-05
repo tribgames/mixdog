@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/tool-running-icon-proposal.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "실행 중 도구 아이콘 시안",
+  "content": "# 실행 중 도구 아이콘 시안\n\n\"명령어 실행 31초\" 줄에서 점 세 개 대신 아이콘 자체가 움직이는 후보입니다. 모든 시안은 실제 속도로 움직이며, 시스템의 \"애니메이션 줄이기\" 설정을 켜면 멈춥니다.\n\n## A. 지금 (점 세 개) 현재\n\n아이콘은 멈춰 있고 시간 뒤에 점 세 개가 깜빡입니다.\n\n명령어 실행31초\n\n실행 **Start-Sleep -Seconds 75; Write-Output done** 31초\n\n퍼즐 맞추는 중… · 34초 · 62 tokens\n\n## B. 별 반짝임 + 목록 차례로 적용됨 · 추천\n\n별이 커졌다 작아지며 1/4 바퀴 돌고, 목록 세 줄이 위에서부터 차례로 밝아집니다. 펼친 명령 줄은 같은 별 하나.\n\n명령어 실행31초\n\n실행 **Start-Sleep -Seconds 75; Write-Output done** 31초\n\n퍼즐 맞추는 중… · 34초 · 62 tokens\n\ndeepseek-harness: 실행 중 머리줄 자체가 움직임 · 우리 아이콘의 별 모양을 살림\n\n## C. 목록 줄이 그려짐\n\n별은 강조색으로 고정, 목록 줄이 왼쪽에서 오른쪽으로 차례로 그려졌다 사라집니다.\n\n명령어 실행31초\n\n퍼즐 맞추는 중… · 34초 · 62 tokens\n\n진행 중이라는 느낌이 가장 직접적이지만 움직임이 큼\n\n## D. 아이콘 둘레 회전 링\n\n아이콘은 그대로, 바깥에 얇은 링이 돕니다. 흔한 로딩 표시와 같음.\n\n명령어 실행31초\n\n퍼즐 맞추는 중… · 34초 · 62 tokens\n\n아이콘이 작아 링이 글자와 붙어 보일 수 있음\n\n## E. 별 깜빡임\n\n별만 켜졌다 꺼집니다. 맨 앞 표시가 깜빡이는 방식.\n\n명령어 실행31초\n\n퍼즐 맞추는 중… · 34초 · 62 tokens\n\nClaude Code: 도구 줄 맨 앞 ⏺ 깜빡임\n\n## F. 별 숨쉬기 (은은하게)\n\n별이 천천히 밝아졌다 어두워지며 살짝 빛납니다. 가장 조용한 안.\n\n명령어 실행31초\n\n퍼즐 맞추는 중… · 34초 · 62 tokens\n\nCodex: 맨 앞 표시 자리만 움직임",
+  "extractor": "dom-markdown"
+ }
+}

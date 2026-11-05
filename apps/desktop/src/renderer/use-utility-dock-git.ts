@@ -50,19 +50,13 @@ export function useUtilityDockGit({
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
     let first = true;
-    const scheduler = createGitRefreshScheduler(
-      async () => {
-        // A cached snapshot paints at once and revalidates in place; only a
-        // cold project shows the loading state.
-        const showLoading = first && !readCachedDockGitState(dockProjectPath).ready;
-        first = false;
-        await refreshDockGitStatus(showLoading);
-      },
-      {
-        activityDebounceMs: 125,
-        activityMinGapMs: 3_000,
-      }
-    );
+    const scheduler = createGitRefreshScheduler(async () => {
+      // A cached snapshot paints at once and revalidates in place; only a
+      // cold project shows the loading state.
+      const showLoading = first && !readCachedDockGitState(dockProjectPath).ready;
+      first = false;
+      await refreshDockGitStatus(showLoading);
+    });
     const signal = () => scheduler.signal();
     const refreshNow = () => scheduler.refreshNow();
     const visibilityChanged = () => {

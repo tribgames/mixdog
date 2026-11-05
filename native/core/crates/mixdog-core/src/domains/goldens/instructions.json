@@ -1,0 +1,304 @@
+[
+  {
+    "name": "list",
+    "ok": [
+      {
+        "group": "delegation",
+        "id": "none",
+        "label": "Solo",
+        "body": "# Orchestration Mode: Solo\n\nLead executes all work directly and never delegates on its own judgment.\nOnly when the user explicitly asks for delegation, load the deferred `agent`\ntool and brief each agent as the Lead rules describe.",
+        "defaultBody": "# Orchestration Mode: Solo\n\nLead executes all work directly and never delegates on its own judgment.\nOnly when the user explicitly asks for delegation, load the deferred `agent`\ntool and brief each agent as the Lead rules describe.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "80bbf274a2ee413c05b104d8"
+      },
+      {
+        "group": "delegation",
+        "id": "focused",
+        "label": "Focused",
+        "body": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "defaultBody": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "819e79a16376aca75ea7cd1e"
+      },
+      {
+        "group": "delegation",
+        "id": "balanced",
+        "label": "Balanced",
+        "body": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "defaultBody": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "e13eb86d402c015cd2a9f3ca"
+      },
+      {
+        "group": "delegation",
+        "id": "swarm",
+        "label": "Swarm",
+        "body": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "defaultBody": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "1e3528f8b56b6e1e9afbeb5e"
+      },
+      {
+        "group": "outputStyle",
+        "id": "detailed",
+        "label": "Detailed",
+        "body": "## Depth\n\n- Lead with the answer using the shared layout, then go clearly beyond\n  simple: the mechanism step by step, the evidence (exact values, commands, file\n  references, quoted errors), trade-offs and edge cases, what was not\n  verified, and the recommended next steps.\n- Use the shared layout where the content calls for it, and add `###`\n  headings once the answer has several distinct sections.\n- Omit speculation or detail that does not improve understanding.",
+        "defaultBody": "## Depth\n\n- Lead with the answer using the shared layout, then go clearly beyond\n  simple: the mechanism step by step, the evidence (exact values, commands, file\n  references, quoted errors), trade-offs and edge cases, what was not\n  verified, and the recommended next steps.\n- Use the shared layout where the content calls for it, and add `###`\n  headings once the answer has several distinct sections.\n- Omit speculation or detail that does not improve understanding.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "5907be830a630228ff496159"
+      },
+      {
+        "group": "outputStyle",
+        "id": "simple",
+        "label": "Simple",
+        "body": "## Depth\n\n- Give a self-contained summary: the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.",
+        "defaultBody": "## Depth\n\n- Give a self-contained summary: the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "8b8a6cb1a9368d7af1bb3125"
+      },
+      {
+        "group": "outputStyle",
+        "id": "minimal",
+        "label": "Minimal",
+        "body": "## Depth\n\n- Give the conclusion, the determining cause, and the decisive facts the\n  reader needs to act, including any failure, caveat, or unverified area, in\n  a few sentences, clearly shorter than simple: no background, no\n  second-order points, no alternatives beyond the pick. Do not drop the facts\n  above to stay short.\n- For a choice between options, name the pick and the main reason; show the\n  options themselves only if the reader must weigh them.\n- Omit intermediate reasoning, additional evidence, examples, and broader\n  implications unless requested.",
+        "defaultBody": "## Depth\n\n- Give the conclusion, the determining cause, and the decisive facts the\n  reader needs to act, including any failure, caveat, or unverified area, in\n  a few sentences, clearly shorter than simple: no background, no\n  second-order points, no alternatives beyond the pick. Do not drop the facts\n  above to stay short.\n- For a choice between options, name the pick and the main reason; show the\n  options themselves only if the reader must weigh them.\n- Omit intermediate reasoning, additional evidence, examples, and broader\n  implications unless requested.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "76ed471e1ca11f3cadbbeb71"
+      },
+      {
+        "group": "outputStyle",
+        "id": "extreme-minimal",
+        "label": "Extreme Minimal",
+        "body": "## Depth\n\n- Give the direct answer or result; for a cause question, give the\n  determining cause.\n- Omit supporting explanation and secondary consequences unless requested.\n- Usually use one or two short sentences. Summarize rather than packing\n  a report into long sentences.",
+        "defaultBody": "## Depth\n\n- Give the direct answer or result; for a cause question, give the\n  determining cause.\n- Omit supporting explanation and secondary consequences unless requested.\n- Usually use one or two short sentences. Summarize rather than packing\n  a report into long sentences.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "6ead54c70186d5b52eb96683"
+      }
+    ]
+  },
+  {
+    "name": "get balanced",
+    "ok": {
+      "group": "delegation",
+      "id": "balanced",
+      "label": "Balanced",
+      "body": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "defaultBody": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "userOverride": false,
+      "modified": false,
+      "revision": "e13eb86d402c015cd2a9f3ca"
+    }
+  },
+  {
+    "name": "save crlf",
+    "ok": {
+      "group": "delegation",
+      "id": "balanced",
+      "label": "Balanced",
+      "body": "Hello\nWorld",
+      "defaultBody": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "userOverride": true,
+      "modified": true,
+      "path": "<DATA>\\orchestration\\balanced.md",
+      "revision": "0773f6d0f45c7039cce23d48"
+    }
+  },
+  {
+    "name": "save style",
+    "ok": {
+      "group": "outputStyle",
+      "id": "simple",
+      "label": "Simple",
+      "body": "Short answers only.",
+      "defaultBody": "## Depth\n\n- Give a self-contained summary: the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.",
+      "userOverride": true,
+      "modified": true,
+      "path": "<DATA>\\output-styles\\simple.md",
+      "revision": "05892f4b7a314b3ff53dcd4a"
+    }
+  },
+  {
+    "name": "save equal to shipped",
+    "ok": {
+      "group": "delegation",
+      "id": "balanced",
+      "label": "Balanced",
+      "body": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "defaultBody": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "userOverride": false,
+      "modified": false,
+      "revision": "e13eb86d402c015cd2a9f3ca"
+    }
+  },
+  {
+    "name": "save stale revision",
+    "error": "INSTRUCTION_FILE_CONFLICT: \"swarm\" changed since it was loaded",
+    "code": "INSTRUCTION_FILE_CONFLICT"
+  },
+  {
+    "name": "save current revision",
+    "ok": {
+      "group": "delegation",
+      "id": "swarm",
+      "label": "Swarm",
+      "body": "Swarm text",
+      "defaultBody": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "userOverride": true,
+      "modified": true,
+      "path": "<DATA>\\orchestration\\swarm.md",
+      "revision": "511ed5d2c1149f8fc5e9a015"
+    }
+  },
+  {
+    "name": "save empty",
+    "error": "instruction text must not be empty",
+    "code": null
+  },
+  {
+    "name": "save nul",
+    "error": "instruction text must be plain text",
+    "code": null
+  },
+  {
+    "name": "reset without override",
+    "error": "\"none\" has no user override to reset",
+    "code": null
+  },
+  {
+    "name": "reset",
+    "ok": {
+      "group": "delegation",
+      "id": "swarm",
+      "label": "Swarm",
+      "body": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "defaultBody": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "userOverride": false,
+      "modified": false,
+      "revision": "1e3528f8b56b6e1e9afbeb5e"
+    }
+  },
+  {
+    "name": "reset stale",
+    "error": "INSTRUCTION_FILE_CONFLICT: \"simple\" changed since it was loaded",
+    "code": "INSTRUCTION_FILE_CONFLICT"
+  },
+  {
+    "name": "bad mode",
+    "error": "orchestration mode must be one of none, focused, balanced, swarm",
+    "code": null
+  },
+  {
+    "name": "bad style",
+    "error": "output style must be one of detailed, simple, minimal, extreme-minimal",
+    "code": null
+  },
+  {
+    "name": "bad group",
+    "error": "instruction group must be one of delegation, outputStyle",
+    "code": null
+  },
+  {
+    "name": "list with problems",
+    "ok": [
+      {
+        "group": "delegation",
+        "id": "none",
+        "label": "Solo",
+        "body": "# Orchestration Mode: Solo\n\nLead executes all work directly and never delegates on its own judgment.\nOnly when the user explicitly asks for delegation, load the deferred `agent`\ntool and brief each agent as the Lead rules describe.",
+        "defaultBody": "# Orchestration Mode: Solo\n\nLead executes all work directly and never delegates on its own judgment.\nOnly when the user explicitly asks for delegation, load the deferred `agent`\ntool and brief each agent as the Lead rules describe.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "80bbf274a2ee413c05b104d8"
+      },
+      {
+        "group": "delegation",
+        "id": "focused",
+        "label": "Focused",
+        "body": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "defaultBody": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "userOverride": true,
+        "modified": false,
+        "problem": "empty",
+        "path": "<DATA>\\orchestration\\focused.md",
+        "revision": "08a3cabd842000335f7b36d0"
+      },
+      {
+        "group": "delegation",
+        "id": "balanced",
+        "label": "Balanced",
+        "body": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "defaultBody": "# Orchestration Mode: Balanced\n\nDelegate independent work by coherent feature or module, one agent per\nscope; a scope is one verifiable deliverable. Batch related tasks within the\nsame change scope rather than splitting every file or step.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "e13eb86d402c015cd2a9f3ca"
+      },
+      {
+        "group": "delegation",
+        "id": "swarm",
+        "label": "Swarm",
+        "body": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "defaultBody": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "1e3528f8b56b6e1e9afbeb5e"
+      },
+      {
+        "group": "outputStyle",
+        "id": "detailed",
+        "label": "Detailed",
+        "body": "My detailed\nbody",
+        "defaultBody": "## Depth\n\n- Lead with the answer using the shared layout, then go clearly beyond\n  simple: the mechanism step by step, the evidence (exact values, commands, file\n  references, quoted errors), trade-offs and edge cases, what was not\n  verified, and the recommended next steps.\n- Use the shared layout where the content calls for it, and add `###`\n  headings once the answer has several distinct sections.\n- Omit speculation or detail that does not improve understanding.",
+        "userOverride": true,
+        "modified": true,
+        "path": "<DATA>\\output-styles\\detailed.md",
+        "revision": "2060aec4abce1eef0414c3f5"
+      },
+      {
+        "group": "outputStyle",
+        "id": "simple",
+        "label": "Simple",
+        "body": "Short answers only.",
+        "defaultBody": "## Depth\n\n- Give a self-contained summary: the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.",
+        "userOverride": true,
+        "modified": true,
+        "path": "<DATA>\\output-styles\\simple.md",
+        "revision": "05892f4b7a314b3ff53dcd4a"
+      },
+      {
+        "group": "outputStyle",
+        "id": "minimal",
+        "label": "Minimal",
+        "body": "## Depth\n\n- Give the conclusion, the determining cause, and the decisive facts the\n  reader needs to act, including any failure, caveat, or unverified area, in\n  a few sentences, clearly shorter than simple: no background, no\n  second-order points, no alternatives beyond the pick. Do not drop the facts\n  above to stay short.\n- For a choice between options, name the pick and the main reason; show the\n  options themselves only if the reader must weigh them.\n- Omit intermediate reasoning, additional evidence, examples, and broader\n  implications unless requested.",
+        "defaultBody": "## Depth\n\n- Give the conclusion, the determining cause, and the decisive facts the\n  reader needs to act, including any failure, caveat, or unverified area, in\n  a few sentences, clearly shorter than simple: no background, no\n  second-order points, no alternatives beyond the pick. Do not drop the facts\n  above to stay short.\n- For a choice between options, name the pick and the main reason; show the\n  options themselves only if the reader must weigh them.\n- Omit intermediate reasoning, additional evidence, examples, and broader\n  implications unless requested.",
+        "userOverride": true,
+        "modified": false,
+        "problem": "invalid",
+        "path": "<DATA>\\output-styles\\minimal.md",
+        "revision": "3c1cc5138461b796bf6be64a"
+      },
+      {
+        "group": "outputStyle",
+        "id": "extreme-minimal",
+        "label": "Extreme Minimal",
+        "body": "## Depth\n\n- Give the direct answer or result; for a cause question, give the\n  determining cause.\n- Omit supporting explanation and secondary consequences unless requested.\n- Usually use one or two short sentences. Summarize rather than packing\n  a report into long sentences.",
+        "defaultBody": "## Depth\n\n- Give the direct answer or result; for a cause question, give the\n  determining cause.\n- Omit supporting explanation and secondary consequences unless requested.\n- Usually use one or two short sentences. Summarize rather than packing\n  a report into long sentences.",
+        "userOverride": false,
+        "modified": false,
+        "revision": "6ead54c70186d5b52eb96683"
+      }
+    ]
+  },
+  {
+    "name": "save too large",
+    "error": "instruction text is larger than 256 KB",
+    "code": null
+  }
+]

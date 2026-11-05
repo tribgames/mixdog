@@ -1,0 +1,702 @@
+[
+ {
+  "command": "node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"console.log('it')\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log('it')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"console.log('it')\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log('it')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node --no-warnings -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node --no-warnings \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node --no-warnings -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node --no-warnings \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node --input-type=module -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".mjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node --input-type=module -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".mjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node.exe -e \"console.log(1)\" | cat",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node.exe \"C:/tmp/x.file\" | cat"
+  }
+ },
+ {
+  "command": "node.exe -e \"console.log(1)\" | cat",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node.exe \"C:/tmp/x.file\" | cat"
+  }
+ },
+ {
+  "command": "node -p \"1+1\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -p \"1+1\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node --eval \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node --eval \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "cd x && node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "cd x && node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "cd x && node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "cd x && node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "cd x; node -e \"console.log(1)\"; ls",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "cd x; node \"C:/tmp/x.file\"; ls"
+  }
+ },
+ {
+  "command": "cd x; node -e \"console.log(1)\"; ls",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "cd x; node \"C:/tmp/x.file\"; ls"
+  }
+ },
+ {
+  "command": "FOO=1 node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "FOO=1 node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "FOO=1 node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "FOO=1 node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "xnode -e \"console.log(1)\" && node -e \"console.log(2)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(2)",
+   "replaced": "xnode -e \"console.log(1)\" && node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "xnode -e \"console.log(1)\" && node -e \"console.log(2)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(2)",
+   "replaced": "xnode -e \"console.log(1)\" && node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "docker run img node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "docker run img node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "echo node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "echo node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "echo 'node -e \"console.log(1)\"'",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "echo 'node -e \"console.log(1)\"'",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "# node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "# node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log($x)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log($x)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(\\\"a\\\")\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(\\\"a\\\")\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(1)\" arg",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(1)\" arg",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(1)\" > out",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\" > out"
+  }
+ },
+ {
+  "command": "node -e \"console.log(1)\" > out",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\" > out"
+  }
+ },
+ {
+  "command": "node -e \"console.log(1)\" 2>&1",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\" 2>&1"
+  }
+ },
+ {
+  "command": "node -e \"console.log(1)\" 2>&1",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\" 2>&1"
+  }
+ },
+ {
+  "command": "node -e \"require('fs').readFileSync('x')\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "require('fs').readFileSync('x')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"require('fs').readFileSync('x')\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "require('fs').readFileSync('x')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"require('node:fs')\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "require('node:fs')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"require('node:fs')\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "require('node:fs')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"require('lodash')\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"require('lodash')\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"require(x)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"require(x)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"require('./local')\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"require('./local')\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(__dirname)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(__dirname)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(process.argv[1])\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log(process.argv[1])\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"import('fs').then(console.log)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "import('fs').then(console.log)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"import('fs').then(console.log)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "import('fs').then(console.log)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"(async()=>{await 1})()\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "(async()=>{await 1})()",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"(async()=>{await 1})()\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "(async()=>{await 1})()",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"await 1\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"await 1\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"const a = await import('fs')\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"const a = await import('fs')\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"import fs from 'fs'\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "node -e \"import fs from 'fs'\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"const s = 'async'; console.log(s)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "const s = 'async'; console.log(s)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"const s = 'async'; console.log(s)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "const s = 'async'; console.log(s)",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"print(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".py",
+   "body": "print(1)",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"print(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".py",
+   "body": "print(1)",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python3 -c \"import os; print(os.name)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".py",
+   "body": "import os; print(os.name)",
+   "replaced": "python3 \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python3 -c \"import os; print(os.name)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".py",
+   "body": "import os; print(os.name)",
+   "replaced": "python3 \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"import numpy\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "python -c \"import numpy\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "python -c \"from . import x\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "python -c \"from . import x\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "python -c \"import os, sys, json as j\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".py",
+   "body": "import os, sys, json as j",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"import os, sys, json as j\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".py",
+   "body": "import os, sys, json as j",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"exec('x')\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "python -c \"exec('x')\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "python -c \"print(__file__)\"",
+  "shellType": "posix",
+  "result": null
+ },
+ {
+  "command": "python -c \"print(__file__)\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "py -u -c \"print(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".py",
+   "body": "print(1)",
+   "replaced": "py -u \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "py -u -c \"print(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".py",
+   "body": "print(1)",
+   "replaced": "py -u \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"print('a')\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".py",
+   "body": "print('a')",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"print('a')\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".py",
+   "body": "print('a')",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"print('“quoted”')\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".py",
+   "body": "print('“quoted”')",
+   "replaced": "python \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "python -c \"print('“quoted”')\"",
+  "shellType": "powershell",
+  "result": null
+ },
+ {
+  "command": "node -e \"console.log('héllo 한글')\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log('héllo 한글')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"console.log('héllo 한글')\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log('héllo 한글')",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"console.log(1)\"\nnode -e \"console.log(2)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\"\nnode -e \"console.log(2)\""
+  }
+ },
+ {
+  "command": "node -e \"console.log(1)\"\nnode -e \"console.log(2)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "node \"C:/tmp/x.file\"\nnode -e \"console.log(2)\""
+  }
+ },
+ {
+  "command": "ls | node -e \"console.log(1)\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "ls | node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "ls | node -e \"console.log(1)\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "ls | node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "(node -e \"console.log(1)\")",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "(node \"C:/tmp/x.file\")"
+  }
+ },
+ {
+  "command": "(node -e \"console.log(1)\")",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "console.log(1)",
+   "replaced": "(node \"C:/tmp/x.file\")"
+  }
+ },
+ {
+  "command": "node -e \"\"",
+  "shellType": "posix",
+  "result": {
+   "extension": ".cjs",
+   "body": "",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ },
+ {
+  "command": "node -e \"\"",
+  "shellType": "powershell",
+  "result": {
+   "extension": ".cjs",
+   "body": "",
+   "replaced": "node \"C:/tmp/x.file\""
+  }
+ }
+]

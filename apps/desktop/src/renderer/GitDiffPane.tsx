@@ -22,7 +22,7 @@ import type { WorkspaceSelection } from './nav-types';
 import { SCM_DIFF_STYLE_KEY, SESSION_DIFF_STYLE_KEY } from './desktop-types';
 import { ProgressSpinner } from './ProgressSpinner';
 import { createSingleFlightRefresh } from './git-diff-refresh';
-import { createGitRefreshScheduler, FILE_DIFF_REFRESH_OPTIONS, watchGitRefreshEvidence } from './git-refresh-scheduler';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { prefetchDiffView } from './lazy-widgets';
 import { navigationKey } from './text-format';
 import { fetchSessionDiffFilePatch } from './session-diff-cache';
@@ -167,7 +167,7 @@ export function GitDiffPane({
     }
     return watchGitRefreshEvidence(
       selection.project,
-      createGitRefreshScheduler(() => load(), FILE_DIFF_REFRESH_OPTIONS)
+      createGitRefreshScheduler(() => load())
     );
   }, [active, load, metricKey, selection.source]);
   // Hunk staging exists for the index/worktree sources only: a commit or a

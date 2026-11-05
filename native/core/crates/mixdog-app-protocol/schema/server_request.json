@@ -148,13 +148,46 @@
       ],
       "type": "object"
     },
-    "HostFileParams": {
+    "HostFileSnapshotParams": {
+      "description": "Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.",
+      "properties": {
+        "grant": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rel",
+        "root"
+      ],
+      "type": "object"
+    },
+    "HostLocalPageUrlParams": {
+      "description": "Params of `host/localPage/url` (core → host); the result is the URL string.",
       "properties": {
         "rel": {
           "type": "string"
         },
         "root": {
           "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalPageScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -185,6 +218,35 @@
         "action"
       ],
       "type": "object"
+    },
+    "HostVisualizeCommandParams": {
+      "description": "Params of `host/visualize/command` (core → host): the loopback bridge's request body. The result is the service's object (`{text, tabs?, path?, …}`), `{}` when it returns nothing.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/VisualizeAction"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "input": true,
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "cwd",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "LocalPageScope": {
+      "description": "What a `host/localPage/url` lease covers; absent means `project`.",
+      "enum": [
+        "file",
+        "project"
+      ],
+      "type": "string"
     },
     "ModelProxyExecuteParams": {
       "description": "Server core → a connection with `capabilities.modelProxy`: run one model call with this machine's accounts. Completion is the response; losing the connection resolves the call `cancelled`.",
@@ -440,6 +502,20 @@
         "threadId"
       ],
       "type": "object"
+    },
+    "VisualizeAction": {
+      "description": "The visualize service's actions (`host/visualize/command`).",
+      "enum": [
+        "open",
+        "close",
+        "annotate",
+        "capture",
+        "export",
+        "check",
+        "inspect",
+        "act"
+      ],
+      "type": "string"
     }
   },
   "description": "Request from the core to a client.",
@@ -593,7 +669,7 @@
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/HostCommandParams"
+          "$ref": "#/definitions/HostVisualizeCommandParams"
         }
       },
       "required": [
@@ -659,7 +735,7 @@
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/HostFileParams"
+          "$ref": "#/definitions/HostFileSnapshotParams"
         }
       },
       "required": [
@@ -681,7 +757,7 @@
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/HostFileParams"
+          "$ref": "#/definitions/HostLocalPageUrlParams"
         }
       },
       "required": [

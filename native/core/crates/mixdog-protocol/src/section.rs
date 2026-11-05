@@ -78,6 +78,11 @@ sections! {
     Workflows => "workflows", "workflow/list/updated", App, keyed: false;
     /// Web-search route (today's `getWebSearchRoute`).
     WebSearch => "webSearch", "webSearch/updated", App, keyed: false;
+    /// Tool-module settings, the value `getToolModuleSettings` answers today: `instructionFiles`,
+    /// `autoEffortBase`, `webSearch`, `memory`, `git`, `office`, `tidy`, `visualize`, `media`,
+    /// `localProvider` (with `installations`) and `autoEffort`. Pushed on change, replacing the
+    /// desktop's status polls. Value: `ToolModuleSettings`.
+    ToolModules => "toolModules", "toolModules/updated", App, keyed: false;
     /// Provider setup view (today's `getProviderSetup`, `listProviders`).
     ProviderSetup => "providerSetup", "account/updated", App, keyed: false;
     /// Provider accounts; key = provider id.
@@ -90,7 +95,8 @@ sections! {
     TerminalActivity => "terminalActivity", "terminal/activity/updated", App, keyed: false;
     /// Terminal tab list.
     TerminalTabs => "terminalTabs", "terminal/tabs/updated", App, keyed: false;
-    /// Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys}`.
+    /// Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode}`;
+    /// `pairCode` is a `RemotePairCode`, or `null` while no live code is held.
     Remote => "remote", "remote/state/updated", App, keyed: false;
     /// In-app notices; key = notice id.
     Notice => "notice", "notice/updated", App, keyed: true;
@@ -158,6 +164,19 @@ pub struct SectionUpdate {
 pub trait Section {
     const NAME: SectionName;
     type Value: Serialize;
+}
+
+/// The `pairCode` member of the `remote` section (today's `DesktopRemotePairCode`):
+/// the relay code of an open Settings → Connection screen. `remoteAccess/pairCode`
+/// issues or renews it; the section carries it, `null` once it expires or is released.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePairCode {
+    /// Six digits, no separator.
+    pub code: String,
+    /// Epoch ms.
+    #[ts(type = "number")]
+    pub expires_at: i64,
 }
 
 /// Section value of `computer` (SPEC R40).

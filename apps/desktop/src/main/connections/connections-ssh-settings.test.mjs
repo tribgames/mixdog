@@ -1,23 +1,17 @@
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
 import test, { after } from 'node:test';
 
-import { createServerPayload, setServerPayloadResolver } from '../ssh/remote-install-payload.ts';
+import { setServerPayloadResolver } from '../ssh/remote-install-payload.ts';
 import { currentSshContext, runWithSshContext } from '../ssh/ssh-context.ts';
 import { createDesktopConnection } from './index.ts';
 
 // The bootstrap resolves the runtime payload before its first ssh. The real
 // one needs the desktop build's generated server lockfile (out/server/deps),
 // which a checkout that was not built (CI's test job) does not have.
-setServerPayloadResolver((bundle) =>
-  createServerPayload(
-    [
-      { path: 'package.json', source: Buffer.from('{"name":"mixdog","version":"1.1.2"}') },
-      { path: 'apps/desktop/out/main/daemon.cjs', source: bundle },
-    ],
-    '1.1.2'
-  )
-);
+setServerPayloadResolver(async () => ({
+  identity: { version: '1.1.2', build: 'test', installId: '1.1.2-test' },
+  binary: async () => ({ sha256: '0'.repeat(64), archive: async () => Buffer.alloc(0) }),
+}));
 after(() => setServerPayloadResolver(null));
 
 const deps = {
@@ -35,8 +29,6 @@ const deps = {
     throw new Error('unused');
   },
   appVersion: '0.0.0',
-  // Any readable file: the bootstrap reads the bundle before its first ssh.
-  bundlePath: fileURLToPath(import.meta.url),
 };
 
 /** The settings ssh runs under when the transport dials a connection made under `made`, from a caller running under `again` (none: a reconnect the user or the link ladder starts). */

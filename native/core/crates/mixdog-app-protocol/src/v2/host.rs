@@ -96,11 +96,72 @@ impl crate::common::HasOpId for UpdateDesktopCommandParams {
     }
 }
 
+/// Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct HostFileParams {
+#[ts(optional_fields)]
+pub struct HostFileSnapshotParams {
     pub root: String,
     pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<bool>,
+}
+
+/// Result of `host/capture/fileSnapshot`: the picture of the file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HostFileSnapshot {
+    /// `data:image/png;base64,…` or `data:image/jpeg;base64,…`.
+    pub data_url: String,
+    pub mtime_ms: f64,
+    #[ts(type = "number")]
+    pub size: u64,
+}
+
+/// What a `host/localPage/url` lease covers; absent means `project`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalPageScope {
+    File,
+    Project,
+}
+
+/// Params of `host/localPage/url` (core → host); the result is the URL string.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct HostLocalPageUrlParams {
+    pub root: String,
+    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<LocalPageScope>,
+}
+
+/// The visualize service's actions (`host/visualize/command`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum VisualizeAction {
+    Open,
+    Close,
+    Annotate,
+    Capture,
+    Export,
+    Check,
+    Inspect,
+    Act,
+}
+
+/// Params of `host/visualize/command` (core → host): the loopback bridge's request body.
+/// The result is the service's object (`{text, tabs?, path?, …}`), `{}` when it returns nothing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct HostVisualizeCommandParams {
+    pub session_id: String,
+    pub cwd: String,
+    pub action: VisualizeAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -165,23 +226,17 @@ pub struct ClientPerfLogParams {
     pub line: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-pub enum OpenKind {
-    Browser,
-    Terminal,
-    Visualize,
-}
-
-/// App-feed event: a UI should open a pane (today's `*-open-requested` events).
+/// App-feed event: a web URL the agent opened is handed to the session's browser panel.
+/// Node's `openUrl` visualize event (`visualize/open-actions.ts` `openUrl`), field for field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(optional_fields)]
 pub struct UiOpenRequestedParams {
-    pub kind: OpenKind,
+    pub session_id: String,
+    pub open_url: String,
+    /// Names the request, so the browser tab the pane creates reports back to the agent's open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<ThreadId>,
-    pub target: JsonValue,
+    pub open_request_id: Option<String>,
 }
 
 /// App-feed event: remote pointer position (today's `notify` remote pointer).

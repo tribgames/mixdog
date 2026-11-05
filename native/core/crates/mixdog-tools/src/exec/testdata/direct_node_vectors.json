@@ -1,0 +1,992 @@
+{
+ "syntax": [
+  {
+   "command": "git status",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "git",
+    "status"
+   ],
+   "argvStrict": [
+    "git",
+    "status"
+   ]
+  },
+  {
+   "command": "git log --oneline -5",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "git",
+    "log",
+    "--oneline",
+    "-5"
+   ],
+   "argvStrict": [
+    "git",
+    "log",
+    "--oneline",
+    "-5"
+   ]
+  },
+  {
+   "command": "node -e \"console.log(1)\"",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "node",
+    "-e",
+    "console.log(1)"
+   ],
+   "argvStrict": [
+    "node",
+    "-e",
+    "console.log(1)"
+   ]
+  },
+  {
+   "command": "node -e 'console.log(1)'",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "node",
+    "-e",
+    "console.log(1)"
+   ],
+   "argvStrict": [
+    "node",
+    "-e",
+    "console.log(1)"
+   ]
+  },
+  {
+   "command": "ls -la",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "ls",
+    "-la"
+   ],
+   "argvStrict": [
+    "ls",
+    "-la"
+   ]
+  },
+  {
+   "command": "Get-Process",
+   "needsShell": false,
+   "psOnly": true,
+   "argv": [
+    "Get-Process"
+   ],
+   "argvStrict": [
+    "Get-Process"
+   ]
+  },
+  {
+   "command": "git log | head",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "git",
+    "log",
+    "|",
+    "head"
+   ],
+   "argvStrict": [
+    "git",
+    "log",
+    "|",
+    "head"
+   ]
+  },
+  {
+   "command": "a && b",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "a",
+    "&&",
+    "b"
+   ],
+   "argvStrict": [
+    "a",
+    "&&",
+    "b"
+   ]
+  },
+  {
+   "command": "a; b",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "a;",
+    "b"
+   ],
+   "argvStrict": [
+    "a;",
+    "b"
+   ]
+  },
+  {
+   "command": "echo $HOME",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "$HOME"
+   ],
+   "argvStrict": [
+    "echo",
+    "$HOME"
+   ]
+  },
+  {
+   "command": "echo \"$HOME\"",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "$HOME"
+   ],
+   "argvStrict": [
+    "echo",
+    "$HOME"
+   ]
+  },
+  {
+   "command": "echo '$HOME'",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "$HOME"
+   ],
+   "argvStrict": [
+    "echo",
+    "$HOME"
+   ]
+  },
+  {
+   "command": "echo \"a`b\"",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "a`b"
+   ],
+   "argvStrict": [
+    "echo",
+    "a`b"
+   ]
+  },
+  {
+   "command": "echo ~",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "~"
+   ],
+   "argvStrict": [
+    "echo",
+    "~"
+   ]
+  },
+  {
+   "command": "echo a~b",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "a~b"
+   ],
+   "argvStrict": [
+    "echo",
+    "a~b"
+   ]
+  },
+  {
+   "command": "echo @args",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "@args"
+   ],
+   "argvStrict": [
+    "echo",
+    "@args"
+   ]
+  },
+  {
+   "command": "echo # c",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "#",
+    "c"
+   ],
+   "argvStrict": [
+    "echo",
+    "#",
+    "c"
+   ]
+  },
+  {
+   "command": "echo a#b",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "echo",
+    "a#b"
+   ],
+   "argvStrict": [
+    "echo",
+    "a#b"
+   ]
+  },
+  {
+   "command": "tool *.txt",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "*.txt"
+   ],
+   "argvStrict": [
+    "tool",
+    "*.txt"
+   ]
+  },
+  {
+   "command": "tool [ab]",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "[ab]"
+   ],
+   "argvStrict": [
+    "tool",
+    "[ab]"
+   ]
+  },
+  {
+   "command": "tool a?b",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a?b"
+   ],
+   "argvStrict": [
+    "tool",
+    "a?b"
+   ]
+  },
+  {
+   "command": "tool \"a b\" c",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a b",
+    "c"
+   ],
+   "argvStrict": [
+    "tool",
+    "a b",
+    "c"
+   ]
+  },
+  {
+   "command": "tool 'a b' c",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a b",
+    "c"
+   ],
+   "argvStrict": [
+    "tool",
+    "a b",
+    "c"
+   ]
+  },
+  {
+   "command": "tool \"a \"\"b\"\" c\"",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a \"b\" c"
+   ],
+   "argvStrict": [
+    "tool",
+    "a \"b\" c"
+   ]
+  },
+  {
+   "command": "tool 'it''s'",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "it's"
+   ],
+   "argvStrict": [
+    "tool",
+    "it's"
+   ]
+  },
+  {
+   "command": "tool \"x\\\"y\"",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "x\"y"
+   ],
+   "argvStrict": null
+  },
+  {
+   "command": "tool \"x\"y",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "xy"
+   ],
+   "argvStrict": null
+  },
+  {
+   "command": "tool x\"y z\"w",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "xy zw"
+   ],
+   "argvStrict": [
+    "tool",
+    "xy zw"
+   ]
+  },
+  {
+   "command": "tool \"a\"  \"b\"",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a",
+    "b"
+   ],
+   "argvStrict": [
+    "tool",
+    "a",
+    "b"
+   ]
+  },
+  {
+   "command": "tool \"unterminated",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": null,
+   "argvStrict": null
+  },
+  {
+   "command": "tool 'unterminated",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": null,
+   "argvStrict": null
+  },
+  {
+   "command": "C:\\Program Files\\x\\y.exe a",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "C:\\Program",
+    "Files\\x\\y.exe",
+    "a"
+   ],
+   "argvStrict": [
+    "C:\\Program",
+    "Files\\x\\y.exe",
+    "a"
+   ]
+  },
+  {
+   "command": "\"C:\\Program Files\\x\\y.exe\" a",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "C:\\Program Files\\x\\y.exe",
+    "a"
+   ],
+   "argvStrict": [
+    "C:\\Program Files\\x\\y.exe",
+    "a"
+   ]
+  },
+  {
+   "command": "& tool",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "&",
+    "tool"
+   ],
+   "argvStrict": [
+    "&",
+    "tool"
+   ]
+  },
+  {
+   "command": "tool --% raw",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "--%",
+    "raw"
+   ],
+   "argvStrict": [
+    "tool",
+    "--%",
+    "raw"
+   ]
+  },
+  {
+   "command": "$x = 1",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "$x",
+    "=",
+    "1"
+   ],
+   "argvStrict": [
+    "$x",
+    "=",
+    "1"
+   ]
+  },
+  {
+   "command": "$null",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "$null"
+   ],
+   "argvStrict": [
+    "$null"
+   ]
+  },
+  {
+   "command": "$env:PATH",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "$env:PATH"
+   ],
+   "argvStrict": [
+    "$env:PATH"
+   ]
+  },
+  {
+   "command": "tool -eq 1",
+   "needsShell": false,
+   "psOnly": true,
+   "argv": [
+    "tool",
+    "-eq",
+    "1"
+   ],
+   "argvStrict": [
+    "tool",
+    "-eq",
+    "1"
+   ]
+  },
+  {
+   "command": "tool -Path x",
+   "needsShell": false,
+   "psOnly": true,
+   "argv": [
+    "tool",
+    "-Path",
+    "x"
+   ],
+   "argvStrict": [
+    "tool",
+    "-Path",
+    "x"
+   ]
+  },
+  {
+   "command": "tool -Force",
+   "needsShell": false,
+   "psOnly": true,
+   "argv": [
+    "tool",
+    "-Force"
+   ],
+   "argvStrict": [
+    "tool",
+    "-Force"
+   ]
+  },
+  {
+   "command": "Get-ChildItem",
+   "needsShell": false,
+   "psOnly": true,
+   "argv": [
+    "Get-ChildItem"
+   ],
+   "argvStrict": [
+    "Get-ChildItem"
+   ]
+  },
+  {
+   "command": "a-b",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "a-b"
+   ],
+   "argvStrict": [
+    "a-b"
+   ]
+  },
+  {
+   "command": "path/get-thing",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "path/get-thing"
+   ],
+   "argvStrict": [
+    "path/get-thing"
+   ]
+  },
+  {
+   "command": "x | % { $_ }",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "x",
+    "|",
+    "%",
+    "{",
+    "$_",
+    "}"
+   ],
+   "argvStrict": [
+    "x",
+    "|",
+    "%",
+    "{",
+    "$_",
+    "}"
+   ]
+  },
+  {
+   "command": "@'\nh\n'@",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "@\nh\n@"
+   ],
+   "argvStrict": [
+    "@\nh\n@"
+   ]
+  },
+  {
+   "command": "tool 2>$null",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "tool",
+    "2>$null"
+   ],
+   "argvStrict": [
+    "tool",
+    "2>$null"
+   ]
+  },
+  {
+   "command": "tool 2>&1",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "2>&1"
+   ],
+   "argvStrict": [
+    "tool",
+    "2>&1"
+   ]
+  },
+  {
+   "command": "[System.IO.Path]::GetTempPath()",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "[System.IO.Path]::GetTempPath()"
+   ],
+   "argvStrict": [
+    "[System.IO.Path]::GetTempPath()"
+   ]
+  },
+  {
+   "command": "tool `\nnext",
+   "needsShell": true,
+   "psOnly": true,
+   "argv": [
+    "tool",
+    "`",
+    "next"
+   ],
+   "argvStrict": [
+    "tool",
+    "`",
+    "next"
+   ]
+  },
+  {
+   "command": "tool a\nb",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a",
+    "b"
+   ],
+   "argvStrict": [
+    "tool",
+    "a",
+    "b"
+   ]
+  },
+  {
+   "command": "tool a\rb",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a",
+    "b"
+   ],
+   "argvStrict": [
+    "tool",
+    "a",
+    "b"
+   ]
+  },
+  {
+   "command": "tool (a)",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "(a)"
+   ],
+   "argvStrict": [
+    "tool",
+    "(a)"
+   ]
+  },
+  {
+   "command": "tool {a}",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "{a}"
+   ],
+   "argvStrict": [
+    "tool",
+    "{a}"
+   ]
+  },
+  {
+   "command": "tool a>b",
+   "needsShell": true,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a>b"
+   ],
+   "argvStrict": [
+    "tool",
+    "a>b"
+   ]
+  },
+  {
+   "command": "",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [],
+   "argvStrict": []
+  },
+  {
+   "command": "   ",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [],
+   "argvStrict": []
+  },
+  {
+   "command": "tool a\tb",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "a",
+    "b"
+   ],
+   "argvStrict": [
+    "tool",
+    "a",
+    "b"
+   ]
+  },
+  {
+   "command": "tool 한글 \"한 글\"",
+   "needsShell": false,
+   "psOnly": false,
+   "argv": [
+    "tool",
+    "한글",
+    "한 글"
+   ],
+   "argvStrict": [
+    "tool",
+    "한글",
+    "한 글"
+   ]
+  }
+ ],
+ "resolve": {
+  "files": [
+   "d1/a.exe",
+   "d2/b.exe",
+   "d2/b.cmd",
+   "d3/c.exe",
+   "d3/c.ps1",
+   "d4/e.bat",
+   "d5/e.exe",
+   "d6/f.com",
+   "d6/f.exe",
+   "d7/g.cmd",
+   "d8/g.exe",
+   "d9/h.exe",
+   "d9/sub/i.exe",
+   "d10/j.cmd",
+   "d10/k.txt"
+  ],
+  "cases": [
+   {
+    "token": "a",
+    "path": [
+     "d1"
+    ],
+    "result": "d1/a.exe"
+   },
+   {
+    "token": "a.exe",
+    "path": [
+     "d1"
+    ],
+    "result": "d1/a.exe"
+   },
+   {
+    "token": "A",
+    "path": [
+     "d1"
+    ],
+    "result": "d1/A.exe"
+   },
+   {
+    "token": "b",
+    "path": [
+     "d2"
+    ],
+    "result": "d2/b.exe"
+   },
+   {
+    "token": "c",
+    "path": [
+     "d3"
+    ],
+    "result": null
+   },
+   {
+    "token": "e",
+    "path": [
+     "d4",
+     "d5"
+    ],
+    "result": null
+   },
+   {
+    "token": "e",
+    "path": [
+     "d5",
+     "d4"
+    ],
+    "result": "d5/e.exe"
+   },
+   {
+    "token": "f",
+    "path": [
+     "d6"
+    ],
+    "result": null
+   },
+   {
+    "token": "g",
+    "path": [
+     "d7",
+     "d8"
+    ],
+    "result": null
+   },
+   {
+    "token": "g",
+    "path": [
+     "d8",
+     "d7"
+    ],
+    "result": "d8/g.exe"
+   },
+   {
+    "token": "h",
+    "path": [
+     "d9"
+    ],
+    "result": "d9/h.exe"
+   },
+   {
+    "token": "h",
+    "path": [
+     "d1",
+     "d9"
+    ],
+    "result": "d9/h.exe"
+   },
+   {
+    "token": "x",
+    "path": [
+     "d1"
+    ],
+    "result": null
+   },
+   {
+    "token": "a",
+    "path": [],
+    "result": null
+   },
+   {
+    "token": "a",
+    "path": [
+     "d1",
+     "d1",
+     "D1"
+    ],
+    "result": "d1/a.exe"
+   },
+   {
+    "token": "d9/h.exe",
+    "path": [
+     "d1"
+    ],
+    "result": "d9/h.exe"
+   },
+   {
+    "token": "d9\\h.exe",
+    "path": [],
+    "result": "d9/h.exe"
+   },
+   {
+    "token": "D9/H.EXE",
+    "path": [],
+    "result": "D9/H.EXE"
+   },
+   {
+    "token": "d9/sub/i.exe",
+    "path": [],
+    "result": "d9/sub/i.exe"
+   },
+   {
+    "token": "d9/../d1/a.exe",
+    "path": [],
+    "result": "d1/a.exe"
+   },
+   {
+    "token": "d9/h",
+    "path": [],
+    "result": null
+   },
+   {
+    "token": "a.cmd",
+    "path": [
+     "d1"
+    ],
+    "result": null
+   },
+   {
+    "token": "b.cmd",
+    "path": [
+     "d2"
+    ],
+    "result": null
+   },
+   {
+    "token": "c.ps1",
+    "path": [
+     "d3"
+    ],
+    "result": null
+   },
+   {
+    "token": "j",
+    "path": [
+     "d10"
+    ],
+    "result": null
+   },
+   {
+    "token": "k.txt",
+    "path": [
+     "d10"
+    ],
+    "result": null
+   },
+   {
+    "token": "",
+    "path": [
+     "d1"
+    ],
+    "result": null
+   },
+   {
+    "token": "  a  ",
+    "path": [
+     "d1"
+    ],
+    "result": "d1/a.exe"
+   },
+   {
+    "token": "./d1/a.exe",
+    "path": [],
+    "result": "d1/a.exe"
+   }
+  ]
+ }
+}

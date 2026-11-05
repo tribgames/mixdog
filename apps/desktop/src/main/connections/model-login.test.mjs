@@ -35,7 +35,6 @@ const deps = (loads) => ({
     throw new Error('not in this test');
   },
   appVersion: '0.0.0',
-  bundlePath: 'daemon.cjs',
 });
 
 /** A server connection whose daemon operations are recorded, never sent. */

@@ -92,6 +92,30 @@ test("a changed host key stops supervision with ssh's own words", async () => {
   await tunnel.close();
 });
 
+test('a companion port rides the same ssh child and keeps its own local port', async () => {
+  const ssh = fakeSsh();
+  let nextPort = 50123;
+  const tunnel = new SshTunnel(parseSshTarget('devbox'), {
+    spawnImpl: ssh.spawnImpl,
+    portAccepts: async () => ssh.children.at(-1)?.exitCode === null,
+    freePort: async () => nextPort++,
+    backoff: new TunnelBackoff([10]),
+  });
+  assert.equal(await tunnel.ensure(41001, 2_000, 41002), 50123);
+  assert.equal(tunnel.companionBoundPort, 50124);
+  assert.equal(ssh.children.length, 1);
+  const forwards = ssh.children[0].args.filter((_, index, all) => all[index - 1] === '-L');
+  assert.deepEqual(forwards, ['127.0.0.1:50123:127.0.0.1:41001', '127.0.0.1:50124:127.0.0.1:41002']);
+  // The same pair again reuses the running child.
+  assert.equal(await tunnel.ensure(41001, 2_000, 41002), 50123);
+  assert.equal(ssh.children.length, 1);
+  // A moved control listener is a fresh forward.
+  await tunnel.ensure(41001, 2_000, 41009);
+  assert.equal(ssh.children.length, 2);
+  assert.ok(ssh.children[1].args.includes('127.0.0.1:50124:127.0.0.1:41009'));
+  await tunnel.close();
+});
+
 test('a daemon on a new remote port gets a fresh forward', async () => {
   const ssh = fakeSsh();
   const tunnel = tunnelWith(ssh, { accepts: () => ssh.children.at(-1)?.exitCode === null });

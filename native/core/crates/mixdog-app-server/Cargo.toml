@@ -10,3 +10,16 @@ workspace = true
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }

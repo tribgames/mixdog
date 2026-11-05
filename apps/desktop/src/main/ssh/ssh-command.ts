@@ -127,7 +127,12 @@ export function sshExecArgs(target: SshTarget, remoteCommand: string): string[] 
 }
 
 /** Long-lived local forward to the daemon's loopback session port. ClearAllForwardings cannot be used here: ssh would drop this `-L` with the forwards of the config (checked with `ssh -G`), so forwards a config defines for the host are found beforehand (host-key.ts `forwards`) and the connection refuses them. */
-export function sshTunnelArgs(target: SshTarget, localPort: number, remotePort: number): string[] {
+export function sshTunnelArgs(
+  target: SshTarget,
+  localPort: number,
+  remotePort: number,
+  companion?: { localPort: number; remotePort: number }
+): string[] {
   return [
     ...baseArgs(target),
     '-N',
@@ -136,6 +141,7 @@ export function sshTunnelArgs(target: SshTarget, localPort: number, remotePort: 
     'ExitOnForwardFailure=yes',
     '-L',
     `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
+    ...(companion ? ['-L', `127.0.0.1:${companion.localPort}:127.0.0.1:${companion.remotePort}`] : []),
     '--',
     target.destination,
   ];

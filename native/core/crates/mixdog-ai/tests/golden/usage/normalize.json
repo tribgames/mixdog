@@ -1,0 +1,432 @@
+[
+ {
+  "name": "wham-plain",
+  "input": {
+   "plan_type": "plus",
+   "rate_limit": {
+    "primary_window": {
+     "used_percent": 42.567,
+     "limit_window_seconds": 18000,
+     "reset_at": 1900000000
+    },
+    "secondary_window": {
+     "used_percent": "10",
+     "limit_window_seconds": 604800,
+     "reset_at": 1900000050
+    }
+   },
+   "credits": {
+    "balance": "12.34567",
+    "unlimited": false,
+    "has_credits": true
+   }
+  },
+  "fn": "wham",
+  "output": {
+   "provider": "openai-oauth",
+   "source": "openai-codex-wham",
+   "planType": "plus",
+   "quotaWindows": [
+    {
+     "label": "5H",
+     "source": "openai-codex-oauth",
+     "usedPct": 42.57,
+     "resetAt": 1900000000000,
+     "limit": "codex"
+    },
+    {
+     "label": "7D",
+     "source": "openai-codex-oauth",
+     "usedPct": 10,
+     "resetAt": 1900000050000,
+     "limit": "codex"
+    }
+   ],
+   "balance": {
+    "source": "openai-codex-credits",
+    "unit": "credits",
+    "remainingCredits": 12.3457,
+    "unlimited": false,
+    "hasCredits": true
+   },
+   "rawKeys": [
+    "credits",
+    "plan_type",
+    "rate_limit"
+   ]
+  }
+ },
+ {
+  "name": "wham-additional",
+  "input": {
+   "plan_type": " pro ",
+   "rate_limit": {
+    "primary": {
+     "used_percent": 100,
+     "window_minutes": 300,
+     "resets_at": "2030-01-02T03:04:05Z"
+    }
+   },
+   "additional_rate_limits": [
+    {
+     "metered_feature": "Codex-Spark",
+     "limit_name": "GPT-5-Codex-Spark",
+     "rate_limit": {
+      "primary_window": {
+       "used_percent": 5,
+       "limit_window_seconds": 18000,
+       "reset_at": 1900000100
+      },
+      "secondary_window": {
+       "used_percent": 7.005,
+       "limit_window_seconds": 604800,
+       "reset_at": 1900000200
+      }
+     }
+    },
+    {
+     "limit_name": "",
+     "rate_limit": {}
+    },
+    {
+     "metered_feature": "empty",
+     "rate_limit": {}
+    }
+   ]
+  },
+  "fn": "wham",
+  "output": {
+   "provider": "openai-oauth",
+   "source": "openai-codex-wham",
+   "planType": "pro",
+   "quotaWindows": [
+    {
+     "label": "5H",
+     "source": "openai-codex-oauth",
+     "usedPct": 100,
+     "resetAt": 1893553445000,
+     "limit": "codex",
+     "except": [
+      "gpt-5-codex-spark"
+     ]
+    },
+    {
+     "label": "5H GPT-5-Codex-Spark",
+     "source": "openai-codex-oauth",
+     "usedPct": 5,
+     "resetAt": 1900000100000,
+     "limit": "codex_spark",
+     "models": [
+      "gpt-5-codex-spark"
+     ]
+    },
+    {
+     "label": "7D GPT-5-Codex-Spark",
+     "source": "openai-codex-oauth",
+     "usedPct": 7.01,
+     "resetAt": 1900000200000,
+     "limit": "codex_spark",
+     "models": [
+      "gpt-5-codex-spark"
+     ]
+    }
+   ],
+   "balance": null,
+   "rawKeys": [
+    "additional_rate_limits",
+    "plan_type",
+    "rate_limit"
+   ]
+  }
+ },
+ {
+  "name": "wham-no-rate",
+  "input": {
+   "plan_type": "x"
+  },
+  "fn": "wham",
+  "output": null
+ },
+ {
+  "name": "wham-no-windows",
+  "input": {
+   "rate_limit": {
+    "primary_window": {}
+   }
+  },
+  "fn": "wham",
+  "output": null
+ },
+ {
+  "name": "anth-basic",
+  "input": {
+   "five_hour": {
+    "utilization": 12.5,
+    "resets_at": "2030-01-02T03:04:05.123Z"
+   },
+   "seven_day": {
+    "utilization": 80,
+    "resets_at": "2030-01-09T00:00:00Z"
+   },
+   "seven_day_opus": {
+    "utilization": 100,
+    "resets_at": "2030-01-09T00:00:00Z"
+   },
+   "seven_day_oauth_apps": null,
+   "extra_usage": {
+    "is_enabled": true,
+    "monthly_limit": 5000,
+    "used_credits": 1250,
+    "utilization": 25,
+    "currency": "EUR"
+   }
+  },
+  "fn": "anthropic",
+  "output": {
+   "provider": "anthropic-oauth",
+   "source": "anthropic-oauth",
+   "quotaWindows": [
+    {
+     "label": "5H",
+     "source": "anthropic-oauth",
+     "usedPct": 12.5,
+     "resetAt": 1893553445123
+    },
+    {
+     "label": "7D",
+     "source": "anthropic-oauth",
+     "usedPct": 80,
+     "resetAt": 1894147200000
+    },
+    {
+     "label": "7D Opus",
+     "source": "anthropic-oauth",
+     "usedPct": 100,
+     "resetAt": 1894147200000
+    },
+    {
+     "label": "EXTRA",
+     "source": "anthropic-oauth-extra",
+     "usedPct": 25,
+     "limitUsd": 50,
+     "usedUsd": 12.5,
+     "remainingUsd": 37.5,
+     "models": []
+    }
+   ],
+   "balance": {
+    "source": "anthropic-oauth-extra",
+    "period": "monthly",
+    "budgetUsd": 50,
+    "spentUsd": 12.5,
+    "remainingUsd": 37.5,
+    "currency": "EUR"
+   },
+   "rawKeys": [
+    "extra_usage",
+    "five_hour",
+    "seven_day",
+    "seven_day_oauth_apps",
+    "seven_day_opus"
+   ]
+  }
+ },
+ {
+  "name": "anth-limits",
+  "input": {
+   "limits": [
+    {
+     "kind": "session",
+     "percent": 33,
+     "resets_at": "2030-01-02T03:04:05Z"
+    },
+    {
+     "kind": "weekly_all",
+     "percent": 44,
+     "resets_at": "2030-01-09T00:00:00Z"
+    },
+    {
+     "group": "monthly",
+     "percent": 1
+    },
+    {
+     "kind": "weekly_x",
+     "percent": 66,
+     "scope": {
+      "model": {
+       "display_name": "Fable",
+       "id": "fable"
+      }
+     },
+     "resets_at": "2030-01-09T00:00:00Z"
+    }
+   ],
+   "spend": {
+    "used": {
+     "amount_minor": 1234,
+     "exponent": 2,
+     "currency": "USD"
+    },
+    "cap": {
+     "credits": {
+      "amount_minor": 5000,
+      "exponent": 2
+     }
+    }
+   }
+  },
+  "fn": "anthropic",
+  "output": {
+   "provider": "anthropic-oauth",
+   "source": "anthropic-oauth",
+   "quotaWindows": [
+    {
+     "label": "5H",
+     "source": "anthropic-oauth",
+     "usedPct": 33,
+     "resetAt": 1893553445000
+    },
+    {
+     "label": "7D",
+     "source": "anthropic-oauth",
+     "usedPct": 44,
+     "resetAt": 1894147200000
+    },
+    {
+     "label": "MONTHLY",
+     "source": "anthropic-oauth",
+     "usedPct": 1
+    },
+    {
+     "label": "7D Fable",
+     "source": "anthropic-oauth",
+     "usedPct": 66,
+     "resetAt": 1894147200000
+    }
+   ],
+   "balance": {
+    "source": "anthropic-oauth-spend",
+    "remainingUsd": 37.66,
+    "spentUsd": 12.34,
+    "currency": "USD"
+   },
+   "rawKeys": [
+    "limits",
+    "spend"
+   ]
+  }
+ },
+ {
+  "name": "anth-spend-balance",
+  "input": {
+   "five_hour": {
+    "utilization": 1
+   },
+   "spend": {
+    "balance": {
+     "amount_minor": 2500,
+     "exponent": 2
+    },
+    "used": {
+     "amount_minor": 500
+    }
+   }
+  },
+  "fn": "anthropic",
+  "output": {
+   "provider": "anthropic-oauth",
+   "source": "anthropic-oauth",
+   "quotaWindows": [
+    {
+     "label": "5H",
+     "source": "anthropic-oauth",
+     "usedPct": 1
+    }
+   ],
+   "balance": {
+    "source": "anthropic-oauth-spend",
+    "remainingUsd": 25,
+    "spentUsd": 5,
+    "currency": "USD"
+   },
+   "rawKeys": [
+    "five_hour",
+    "spend"
+   ]
+  }
+ },
+ {
+  "name": "anth-spend-limit",
+  "input": {
+   "five_hour": {
+    "utilization": 1
+   },
+   "spend": {
+    "limit": {
+     "amount_minor": 10000,
+     "currency": "GBP"
+    },
+    "used": {
+     "amount_minor": 2500
+    }
+   }
+  },
+  "fn": "anthropic",
+  "output": {
+   "provider": "anthropic-oauth",
+   "source": "anthropic-oauth",
+   "quotaWindows": [
+    {
+     "label": "5H",
+     "source": "anthropic-oauth",
+     "usedPct": 1
+    }
+   ],
+   "balance": {
+    "source": "anthropic-oauth-spend",
+    "remainingUsd": 75,
+    "spentUsd": 25,
+    "currency": "GBP"
+   },
+   "rawKeys": [
+    "five_hour",
+    "spend"
+   ]
+  }
+ },
+ {
+  "name": "anth-extra-only",
+  "input": {
+   "extra_usage": {
+    "is_enabled": false,
+    "monthly_limit": 100,
+    "used_credits": 10
+   }
+  },
+  "fn": "anthropic",
+  "output": {
+   "provider": "anthropic-oauth",
+   "source": "anthropic-oauth",
+   "quotaWindows": [],
+   "balance": {
+    "source": "anthropic-oauth-extra",
+    "period": "monthly",
+    "budgetUsd": 1,
+    "spentUsd": 0.1,
+    "remainingUsd": 0.9,
+    "currency": "USD"
+   },
+   "rawKeys": [
+    "extra_usage"
+   ]
+  }
+ },
+ {
+  "name": "anth-empty",
+  "input": {
+   "foo": 1
+  },
+  "fn": "anthropic",
+  "output": null
+ }
+]

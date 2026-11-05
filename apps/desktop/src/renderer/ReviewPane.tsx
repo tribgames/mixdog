@@ -14,8 +14,7 @@ import { parseUnifiedDiff } from './renderer-logic.mjs';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { DownloadSessionContext, startProjectFileDownload } from './project-file-download';
 import { copyTextToClipboard } from './text-format';
-import { createGitRefreshScheduler } from './git-refresh-scheduler';
-import { subscribeProjectFileChanges } from './project-file-changes';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { describeSourceControlError, SourceControlErrorNotice } from './SourceControlErrorNotice';
 
 // ── Dock Git panel ───────────────────────
@@ -223,28 +222,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   }, [cwd]);
   useEffect(() => {
     if (!cwd) return undefined;
-    const scheduler = createGitRefreshScheduler(refresh, {
-      activityDebounceMs: 125,
-      activityMinGapMs: 3_000,
-    });
-    const signal = () => scheduler.signal();
-    const refreshNow = () => scheduler.refreshNow();
-    const visibilityChanged = () => {
-      if (document.hidden) scheduler.pause();
-      else scheduler.resume();
-    };
-    const unsubscribeFiles = subscribeProjectFileChanges(cwd, signal);
-    window.addEventListener('focus', refreshNow);
-    window.addEventListener('mixdog:git-changed', signal);
-    document.addEventListener('visibilitychange', visibilityChanged);
-    visibilityChanged();
-    return () => {
-      scheduler.dispose();
-      unsubscribeFiles();
-      window.removeEventListener('focus', refreshNow);
-      window.removeEventListener('mixdog:git-changed', signal);
-      document.removeEventListener('visibilitychange', visibilityChanged);
-    };
+    return watchGitRefreshEvidence(cwd, createGitRefreshScheduler(refresh));
   }, [cwd, refresh]);
   // Lazy diff loads for open files that are not cached yet.
   useEffect(() => {

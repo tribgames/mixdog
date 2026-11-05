@@ -7,9 +7,84 @@ edition = "2021"
 name = "mixdog-spawn"
 path = "src/main.rs"
 
+# The library half is the core's `ProcessManager`, PTY, terminal tabs, `TaskRegistry` and ports
+# sampler. It exists only with the `core` feature, so the default build (the stdio-server binary
+# that ships today) compiles an empty library and none of its dependencies.
+[lib]
+name = "mixdog_spawn"
+path = "src/lib.rs"
+
+[features]
+default = []
+core = [
+    "dep:async-trait",
+    "dep:base64",
+    "dep:bytes",
+    "dep:mixdog-app-protocol",
+    "dep:mixdog-core-api",
+    "dep:mixdog-js",
+    "dep:mixdog-protocol",
+    "dep:mixdog-rt",
+    "dep:tokio",
+    "dep:tokio-util",
+    # Tool arguments list their unknown fields in the order the model wrote them.
+    "serde_json/preserve_order",
+    "tokio/time",
+    "windows-sys/Win32_System_IO",
+    "windows-sys/Win32_System_Console",
+    "windows-sys/Win32_System_Pipes",
+    "windows-sys/Win32_NetworkManagement_IpHelper",
+    "windows-sys/Win32_Networking_WinSock",
+]
+
+# The tests of the library half run with `--features core-test`; the binary's own tests do not
+# see them.
+core-test = [
+    "core",
+    "mixdog-rt/test-support",
+    "tokio/rt-multi-thread",
+    "tokio/macros",
+    "tokio/time",
+    "windows-sys/Win32_System_Diagnostics_ToolHelp",
+]
+
+[[test]]
+name = "process_manager"
+required-features = ["core-test"]
+
+[[test]]
+name = "survivors"
+required-features = ["core-test"]
+
+[[test]]
+name = "exit_window"
+required-features = ["core-test"]
+
+[[test]]
+name = "adoption_failure"
+required-features = ["core-test"]
+
+[[test]]
+name = "terminal"
+required-features = ["core-test"]
+
+[[test]]
+name = "tasks_ports"
+required-features = ["core-test"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+async-trait = { version = "0.1", optional = true }
+base64 = { version = "0.22", optional = true }
+bytes = { version = "1", optional = true }
+mixdog-app-protocol = { path = "../core/crates/mixdog-app-protocol", optional = true }
+mixdog-core-api = { path = "../core/crates/mixdog-core-api", optional = true }
+mixdog-js = { path = "../core/crates/mixdog-js", optional = true }
+mixdog-protocol = { path = "../core/crates/mixdog-protocol", optional = true }
+mixdog-rt = { path = "../core/crates/mixdog-rt", optional = true }
+tokio = { version = "1", features = ["sync"], optional = true }
+tokio-util = { version = "0.7", optional = true }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

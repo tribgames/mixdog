@@ -1,0 +1,156 @@
+//! Streamed file download: the response is written to a partial file, counted
+//! against a byte limit and an expected size, flushed to disk and reported as
+//! progress. A 4xx answer is terminal; any other failure is retried a few
+//! times at once (no sleeps: nothing here waits on a clock).
+
+use std::path::Path;
+
+use mixdog_rt::CpuBulk;
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+use tokio::io::AsyncWriteExt;
+use tokio_util::sync::CancellationToken;
+
+use crate::model_install::{Progress, ProgressSink, run_on_lane};
+
+const RETRIES: usize = 3;
+const MIN_PROGRESS_STEP: u64 = 64 * 1024;
+
+#[derive(Debug, Clone, Error)]
+pub enum DownloadError {
+    #[error("{label} HTTP {status}{note} — {url}")]
+    Http { status: u16, label: String, url: String, note: &'static str },
+    #[error("{0}")]
+    Size(String),
+    #[error("{0}")]
+    Network(String),
+    #[error("{0}")]
+    Io(String),
+    #[error("cancelled")]
+    Cancelled,
+}
+
+impl DownloadError {
+    fn terminal(&self) -> bool {
+        match self {
+            Self::Http { status, .. } => (400..500).contains(status),
+            Self::Cancelled => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Spec<'a> {
+    pub url: &'a str,
+    pub dest: &'a Path,
+    /// Largest accepted body.
+    pub max_bytes: u64,
+    /// The exact size, when known (0 otherwise).
+    pub expected_bytes: u64,
+    pub label: &'a str,
+}
+
+async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<u64, DownloadError> {
+    let label = spec.label;
+    let mut response = tokio::select! {
+        () = cancel.cancelled() => return Err(DownloadError::Cancelled),
+        sent = reqwest::get(spec.url) => sent.map_err(|e| DownloadError::Network(format!("{label}: {e}")))?,
+    };
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let note = if (400..500).contains(&status) { " (terminal)" } else { "" };
+        return Err(DownloadError::Http { status, label: label.to_owned(), url: spec.url.to_owned(), note });
+    }
+    let advertised = response.content_length().unwrap_or(0);
+    if advertised > spec.max_bytes {
+        return Err(DownloadError::Size(format!("{label}: response exceeds the {} byte limit", spec.max_bytes)));
+    }
+    if spec.expected_bytes != 0 && advertised != 0 && advertised != spec.expected_bytes {
+        return Err(DownloadError::Size(format!(
+            "{label}: expected {} bytes, server advertised {advertised}",
+            spec.expected_bytes
+        )));
+    }
+    let total = if advertised != 0 { advertised } else { spec.expected_bytes };
+    if let Some(parent) = spec.dest.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| DownloadError::Io(e.to_string()))?;
+    }
+    let mut file = tokio::fs::File::create(spec.dest).await.map_err(|e| DownloadError::Io(e.to_string()))?;
+    let step = (total / 100).max(MIN_PROGRESS_STEP);
+    let (mut downloaded, mut reported) = (0u64, 0u64);
+    let emit = |downloaded: u64| {
+        if let Some(sink) = progress {
+            sink(Progress { label: label.to_owned(), downloaded, total });
+        }
+    };
+    loop {
+        let chunk = tokio::select! {
+            () = cancel.cancelled() => return Err(DownloadError::Cancelled),
+            next = response.chunk() => next.map_err(|e| DownloadError::Network(format!("{label}: {e}")))?,
+        };
+        let Some(chunk) = chunk else { break };
+        downloaded += chunk.len() as u64;
+        if downloaded > spec.max_bytes {
+            return Err(DownloadError::Size(format!("{label}: response exceeds the {} byte limit", spec.max_bytes)));
+        }
+        file.write_all(&chunk).await.map_err(|e| DownloadError::Io(e.to_string()))?;
+        if downloaded - reported >= step {
+            reported = downloaded;
+            emit(downloaded);
+        }
+    }
+    emit(downloaded);
+    let expected = if spec.expected_bytes != 0 { spec.expected_bytes } else { advertised };
+    if expected != 0 && downloaded != expected {
+        return Err(DownloadError::Size(format!("{label}: expected {expected} bytes, received {downloaded}")));
+    }
+    // The bytes reach disk before the caller installs the file, so a crash
+    // cannot leave an installed model that is all NUL.
+    file.sync_all().await.map_err(|e| DownloadError::Io(e.to_string()))?;
+    Ok(downloaded)
+}
+
+/// Downloads `spec.url` to `spec.dest`; a failed download leaves no file.
+pub async fn download_to_file(
+    spec: &Spec<'_>,
+    progress: Option<&ProgressSink>,
+    cancel: &CancellationToken,
+) -> Result<u64, DownloadError> {
+    let mut last = DownloadError::Cancelled;
+    for _ in 0..=RETRIES {
+        match attempt(spec, progress, cancel).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(spec.dest).await;
+                if error.terminal() {
+                    return Err(error);
+                }
+                last = error;
+            }
+        }
+    }
+    Err(last)
+}
+
+/// Hex sha256 of a file, read on the CPU bulk lane.
+pub async fn sha256_file(lane: CpuBulk, path: &Path) -> Result<String, DownloadError> {
+    use std::io::Read;
+    let path = path.to_owned();
+    run_on_lane(lane, move || -> std::io::Result<String> {
+        let mut file = std::fs::File::open(path)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; 1 << 20];
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    })
+    .await
+    .map_err(DownloadError::Io)?
+    .map_err(|e| DownloadError::Io(e.to_string()))
+}

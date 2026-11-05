@@ -1,0 +1,231 @@
+//! Voice status and the on/off toggle. Turning voice on installs only the missing runtime
+//! components, then persists `voice.enabled`; turning it off never waits for an install.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+use async_trait::async_trait;
+use serde_json::{Value, json};
+
+use super::pipeline::VoicePipeline;
+use super::runtime::voice_runtime_info;
+
+/// Which managed components an install must fetch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Missing {
+    pub whisper: bool,
+    pub model: bool,
+    pub ffmpeg: bool,
+}
+
+/// Fetches and verifies runtime components. Installing nothing that is already present.
+#[async_trait]
+pub trait VoiceInstaller: Send + Sync {
+    async fn install(&self, missing: Missing) -> Result<(), String>;
+}
+
+/// Persists `voice.enabled` under the config lock.
+#[async_trait]
+pub trait VoiceEnabledStore: Send + Sync {
+    /// Writes `enabled` unless `proceed` (evaluated inside the lock) says the write was
+    /// superseded. Returns whether it wrote.
+    async fn write_enabled(&self, enabled: bool, proceed: &(dyn Fn() -> bool + Send + Sync)) -> Result<bool, String>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToggleResult {
+    Enabled(bool),
+    Failed(String),
+    /// Persisting `enabled: false` failed; the reply carries the bare message, the notice adds a lead-in.
+    OffFailed(String),
+    /// An install is already running.
+    Busy,
+}
+
+impl ToggleResult {
+    /// The `result` member of the toggle reply.
+    pub fn to_json(&self) -> Value {
+        match self {
+            Self::Enabled(enabled) => json!({"ok": true, "enabled": enabled}),
+            Self::Failed(error) | Self::OffFailed(error) => json!({"ok": false, "error": error}),
+            Self::Busy => json!({"ok": false}),
+        }
+    }
+
+    /// The last `warn`/`error` notice the toggle pushed (what `setVoiceEnabled` reports as `error`).
+    pub fn notice_error(&self) -> Option<String> {
+        match self {
+            Self::Enabled(_) => None,
+            Self::Failed(error) => Some(error.clone()),
+            Self::OffFailed(error) => Some(format!("Voice OFF failed: {error}")),
+            Self::Busy => Some("Voice install is already running".to_owned()),
+        }
+    }
+}
+
+pub struct VoiceSetup {
+    pipeline: Arc<VoicePipeline>,
+    store: Arc<dyn VoiceEnabledStore>,
+    installer: Arc<dyn VoiceInstaller>,
+    busy: AtomicBool,
+    /// Bumped by every accepted OFF; an install that started earlier must not enable voice once
+    /// a later OFF superseded it.
+    off_generation: Arc<AtomicU64>,
+}
+
+struct BusyGuard<'a>(&'a AtomicBool);
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+impl VoiceSetup {
+    pub fn new(pipeline: Arc<VoicePipeline>, store: Arc<dyn VoiceEnabledStore>, installer: Arc<dyn VoiceInstaller>) -> Self {
+        Self {
+            pipeline,
+            store,
+            installer,
+            busy: AtomicBool::new(false),
+            off_generation: Arc::default(),
+        }
+    }
+
+    /// Reads the managed runtime state without installing or cleaning up anything.
+    pub fn status(&self) -> Value {
+        let runtime = self.pipeline.runtime();
+        let settings = self.pipeline.settings();
+        json!({
+            "enabled": settings.enabled,
+            "busy": self.busy.load(Ordering::SeqCst),
+            "installed": runtime.installed,
+            "modelId": runtime.model_id,
+            "info": voice_runtime_info(&runtime, self.pipeline.manifest()),
+            "components": {
+                "whisper": runtime.binary && runtime.server_cmd.is_some(),
+                "model": runtime.model,
+                "ffmpeg": runtime.ffmpeg,
+            },
+        })
+    }
+
+    /// `enabled: None` flips the current state.
+    pub async fn toggle(&self, enabled: Option<bool>) -> ToggleResult {
+        let requested_at = self.off_generation.load(Ordering::SeqCst);
+        let runtime = self.pipeline.runtime();
+        let current = self.pipeline.settings().enabled;
+        let target = enabled.unwrap_or(!current);
+        if !target {
+            self.off_generation.fetch_add(1, Ordering::SeqCst);
+            return match self.store.write_enabled(false, &|| true).await {
+                Ok(_) => ToggleResult::Enabled(false),
+                Err(error) => ToggleResult::OffFailed(error),
+            };
+        }
+        if current && runtime.installed {
+            return ToggleResult::Enabled(true);
+        }
+        if self.busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            return ToggleResult::Busy;
+        }
+        let _busy = BusyGuard(&self.busy);
+        let missing = Missing {
+            whisper: !runtime.binary || runtime.server_cmd.is_none() || runtime.stale,
+            model: !runtime.model,
+            ffmpeg: !runtime.ffmpeg,
+        };
+        if !runtime.installed || runtime.stale {
+            if let Err(error) = self.installer.install(missing).await {
+                return ToggleResult::Failed(format!("Voice setup failed: {error}"));
+            }
+            if !self.pipeline.runtime().installed {
+                return ToggleResult::Failed(
+                    "Voice setup failed: voice runtime install did not complete (still missing a required component)".into(),
+                );
+            }
+        }
+        let generation = self.off_generation.clone();
+        let proceed = move || generation.load(Ordering::SeqCst) == requested_at;
+        match self.store.write_enabled(true, &proceed).await {
+            Ok(wrote) => ToggleResult::Enabled(wrote),
+            Err(error) => ToggleResult::Failed(format!("Voice setup failed: {error}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::super::pipeline::tests::{FakeEngine, FakeTools, Fixed, install, manifest};
+    use super::*;
+
+    struct Store(Mutex<Vec<bool>>);
+    #[async_trait]
+    impl VoiceEnabledStore for Store {
+        async fn write_enabled(&self, enabled: bool, proceed: &(dyn Fn() -> bool + Send + Sync)) -> Result<bool, String> {
+            if !proceed() {
+                return Ok(false);
+            }
+            self.0.lock().unwrap().push(enabled);
+            Ok(true)
+        }
+    }
+
+    struct Installer {
+        dir: std::path::PathBuf,
+        seen: Mutex<Vec<Missing>>,
+        off_during: Option<Arc<VoiceSetupSlot>>,
+    }
+    type VoiceSetupSlot = Mutex<Option<Arc<VoiceSetup>>>;
+
+    #[async_trait]
+    impl VoiceInstaller for Installer {
+        async fn install(&self, missing: Missing) -> Result<(), String> {
+            self.seen.lock().unwrap().push(missing);
+            install(&self.dir);
+            if let Some(slot) = &self.off_during {
+                let setup = slot.lock().unwrap().clone().unwrap();
+                setup.toggle(Some(false)).await;
+            }
+            Ok(())
+        }
+    }
+
+    fn setup(dir: &std::path::Path, off_during: Option<Arc<VoiceSetupSlot>>) -> (Arc<VoiceSetup>, Arc<Store>, Arc<Installer>) {
+        let pipeline = Arc::new(VoicePipeline::new(
+            dir.to_owned(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            Arc::new(FakeEngine::default()),
+            Arc::new(FakeTools::default()),
+        ));
+        let store = Arc::new(Store(Mutex::default()));
+        let installer = Arc::new(Installer { dir: dir.to_owned(), seen: Mutex::default(), off_during });
+        (Arc::new(VoiceSetup::new(pipeline, store.clone(), installer.clone())), store, installer)
+    }
+
+    #[tokio::test]
+    async fn turning_on_installs_only_what_is_missing_then_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let (setup, store, installer) = setup(dir.path(), None);
+        assert_eq!(setup.status()["installed"], false);
+        assert_eq!(setup.toggle(Some(true)).await, ToggleResult::Enabled(true));
+        assert_eq!(*installer.seen.lock().unwrap(), vec![Missing { whisper: true, model: true, ffmpeg: true }]);
+        assert_eq!(*store.0.lock().unwrap(), vec![true]);
+        assert_eq!(setup.status()["components"], json!({"whisper": true, "model": true, "ffmpeg": true}));
+    }
+
+    #[tokio::test]
+    async fn an_off_accepted_during_install_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let slot: Arc<VoiceSetupSlot> = Arc::default();
+        let (setup, store, _) = setup(dir.path(), Some(slot.clone()));
+        *slot.lock().unwrap() = Some(setup.clone());
+        // The nested OFF runs inside the install; the ON write must then be skipped.
+        assert_eq!(setup.toggle(Some(true)).await, ToggleResult::Enabled(false));
+        assert_eq!(*store.0.lock().unwrap(), vec![false]);
+        assert_eq!(setup.status()["busy"], false);
+    }
+}

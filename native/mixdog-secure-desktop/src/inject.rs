@@ -420,6 +420,11 @@ impl<S: InputSink> Injector<S> {
         true
     }
 
+    /// How many buttons and keys this connection holds down.
+    pub fn held_count(&self) -> usize {
+        self.buttons.len() + self.keys.len()
+    }
+
     /// Release every button (in place) and key this connection still holds.
     /// Safe to call repeatedly; a no-op when nothing is held.
     pub fn release_all(&mut self) {

@@ -8,4 +8,33 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+mixdog-protocol = { workspace = true }
+mixdog-app-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-js = { workspace = true }
 mixdog-workspace = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
+gix = { workspace = true, features = ["revision", "index", "status", "blob-diff", "dirwalk"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+tokio-util = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tempfile = { workspace = true }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+tokio = { workspace = true, features = ["rt", "macros", "io-util", "fs"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Storage_FileSystem"] }

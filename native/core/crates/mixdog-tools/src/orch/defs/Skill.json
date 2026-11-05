@@ -1,0 +1,25 @@
+{
+  "name": "Skill",
+  "description": "Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update.",
+  "annotations": {
+    "title": "Skill",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "agentHidden": false
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Exact name from available-skills."
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "additionalProperties": false
+  }
+}

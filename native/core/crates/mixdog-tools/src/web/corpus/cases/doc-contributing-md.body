@@ -1,0 +1,57 @@
+<!doctype html><html><head><title>CONTRIBUTING.md</title></head><body><div class="top"><a href="/">Home</a> <a href="/docs">Docs</a></div><div class="page"><div class="body"><h1>Contributing to Mixdog</h1>
+<p>Thanks for helping make Mixdog better. Bug reports, reproductions, and root-cause
+analysis are as valuable as code. Everyone taking part follows our
+<a href="CODE_OF_CONDUCT.md">Code of Conduct</a>.</p>
+<h2>Every change starts with an issue</h2>
+<p><strong>Bug fixes and features from an outside contributor must link an issue.</strong>
+Small changes — typo and wording fixes, documentation, and small type or
+formatting fixes that don&#39;t change behavior — can go straight to a pull
+request. Maintainers and automated dependency updates are always exempt.</p>
+<ol>
+<li>Search <a href="https://github.com/tribgames/mixdog/issues?q=is%3Aissue">open and closed issues</a>
+and <a href="https://github.com/tribgames/mixdog/pulls?q=is%3Apr">pull requests</a> first.
+If one already covers your problem, add what you know there instead.</li>
+<li>Open an issue with the bug or feature form and describe the problem.</li>
+<li>For a feature, wait for a maintainer to confirm the issue before you write
+code; pull requests for unconfirmed features may be closed. A bug fix with
+a clear reproduction need not wait.</li>
+<li>Open your pull request and write <code>Fixes #123</code> (or <code>Refs #123</code>) in its
+description. For bug fixes and features a check requires that link; docs,
+refactors, and the small changes above are exempt. A pull request that
+changes only documentation passes by its files; for any other small change,
+a maintainer adds the <code>small-change</code> label, which passes the check. The
+check only sees the link; a maintainer confirms the issue.</li>
+</ol>
+<h2>What we merge</h2>
+<ul>
+<li><strong>One problem per pull request.</strong> Unrelated fixes, refactors, and formatting
+go in separate pull requests. Several small test fixes for the same cause go
+in one pull request, not one each.</li>
+<li><strong>A test that fails before your change and passes after it.</strong> Changes
+without such a test are not merged unless a test is genuinely impossible;
+then explain how you verified it.</li>
+<li><strong>The smallest change that fixes the problem.</strong> Extra abstraction, defensive
+branches for cases nobody hits, and broad rewrites are not merged.</li>
+<li><strong>Land one pull request before opening the next.</strong> Don&#39;t open many at once;
+submit them in your order of preference and wait for each to land. If you
+must have several open, keep it to a handful so reviews don&#39;t pile up.</li>
+</ul>
+<h2>AI-assisted work</h2>
+<p>Using AI tools is fine, but you are responsible for the final code:
+understand the direction and logic of your change well enough to explain it,
+and run it yourself before opening the pull request. Write the issue and the
+pull request description briefly, in your own words; walls of generated text
+may be ignored, and submissions that obviously skip your own review are closed.</p>
+<h2>Before you open a pull request</h2>
+<p>While you work, <code>npm test -- --changed</code> (and the same after
+<code>npm test --prefix apps/desktop</code>) runs only the tests your edits reach. Run the
+full commands below once, at the end:</p>
+<pre><code class="language-sh">npm test
+npm test --prefix apps/desktop
+npm run typecheck --prefix apps/desktop
+</code></pre>
+<p>For visible changes, attach before/after screenshots or a short recording.</p>
+<h2>Security</h2>
+<p>Do not report vulnerabilities in public issues. Follow the
+<a href="SECURITY.md">security policy</a>.</p>
+</div><div class="side"><ul><li><a href="/x">X</a></li><li><a href="/y">Y</a></li></ul></div></div></body></html>

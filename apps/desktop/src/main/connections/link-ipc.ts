@@ -4,6 +4,7 @@
 // pushes go to that connection's windows only.
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 
+import { onHostListsChanged } from '../host-lists-changed';
 import { DESKTOP_IPC } from '../../shared/contract-ipc';
 import type { DesktopConnectionLinkView, DesktopConnectionNotice } from '../../shared/contract-connection-link';
 import type { DesktopServerPortsView } from '../../shared/contract-server-ports';
@@ -117,7 +118,7 @@ export function forwardConnectionLink(
 ): () => void {
   const send = (
     channel: string,
-    value: DesktopConnectionLinkView | DesktopConnectionNotice | DesktopServerPortsView
+    value: DesktopConnectionLinkView | DesktopConnectionNotice | DesktopServerPortsView | null
   ): void => {
     if (!target.isDestroyed()) target.send(channel, value);
   };
@@ -125,6 +126,8 @@ export function forwardConnectionLink(
     connection.link?.subscribe((view) => send(DESKTOP_IPC.connectionLinkState, view)) ?? (() => {}),
     connection.subscribeNotices((notice) => send(DESKTOP_IPC.connectionNotice, notice)),
     connection.ports?.subscribe((view) => send(DESKTOP_IPC.serverPortsChanged, view)) ?? (() => {}),
+    // The saved servers and PCs this window lists changed: it reads them again (no timer).
+    onHostListsChanged(() => send(DESKTOP_IPC.hostListsChanged, null)),
   ];
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe();

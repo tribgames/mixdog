@@ -30,7 +30,14 @@ function setup({ modelLogin = 'server', answers = {}, attached = true, forward, 
       endListeners.add(listener);
       return () => endListeners.delete(listener);
     },
+    onLoginUpdated(listener) {
+      loginListeners.add(listener);
+      return () => loginListeners.delete(listener);
+    },
   };
+  const loginListeners = new Set();
+  /** The server's core pushes a login's state on its scoped feed. */
+  const push = (update) => loginListeners.forEach((listener) => listener(update));
   const link = { attached, reachable: true };
   const attachListeners = new Set();
   /** The attachment ends (disconnect, quit, a changed model login); settles
@@ -77,7 +84,21 @@ function setup({ modelLogin = 'server', answers = {}, attached = true, forward, 
       }),
     ...(maxForwardMs ? { maxForwardMs } : {}),
   });
-  return { handlers, calls, opened, forwards, server, end, reattach, endListeners, attachListeners, link, clock };
+  return {
+    handlers,
+    calls,
+    opened,
+    forwards,
+    server,
+    end,
+    reattach,
+    endListeners,
+    attachListeners,
+    link,
+    clock,
+    push,
+    loginListeners,
+  };
 }
 
 const cancelCalls = (s) => s.calls.filter(([capability]) => capability === 'cancelOAuthProviderLogin');
@@ -164,6 +185,25 @@ test("a subscription login runs on the server, opens in this PC's browser and fo
   assert.equal(s.forwards[0].closed, 1, 'closed once the login ended');
   await s.handlers.status('h1', 'f1');
   assert.equal(s.forwards[0].closed, 1, 'closed only once');
+});
+
+test('the server pushes a login that ends: the dialog is told, the forward closes, and no status read is made', async () => {
+  const s = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  const updates = [];
+  await s.handlers.begin('h1', 'openai-oauth', (flow) => updates.push(flow));
+  s.push({ flowId: 'other', state: { state: 'complete' } });
+  s.push({ flowId: 'f1', state: { state: 'pending' } });
+  await tick();
+  assert.deepEqual(updates.map((flow) => [flow.flowId, flow.state, flow.forwarded]), [['f1', 'pending', true]]);
+  s.push({ flowId: 'f1', state: { state: 'complete' } });
+  await tick();
+  assert.deepEqual(updates.at(-1), { flowId: 'f1', provider: 'openai-oauth', state: 'complete', url: null, error: null, forwarded: false });
+  assert.equal(s.forwards[0].closed, 1, 'the forward closed with the login');
+  assert.equal(s.loginListeners.size, 0, 'the feed is released');
+  assert.deepEqual(
+    s.calls.map(([capability]) => capability),
+    ['beginOAuthProviderLogin']
+  );
 });
 
 test('the pasted redirect address completes a login on the server and closes its forward', async () => {

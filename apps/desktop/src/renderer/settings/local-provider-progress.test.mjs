@@ -19,7 +19,28 @@ globalThis.React = React;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Windows' } });
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
+// Tool-module state reaches the panel as the core's `toolModules` section; a test pushes it through this source.
+let pushSections = () => {};
+let sectionRevision = 0;
+window.mixdogDesktop = {
+  setTitleBarDimmed() {},
+  rendererDiagnostic() {},
+  sections: {
+    snapshot: async () => ({ status: 'ready', entries: [] }),
+    subscribe: (listener) => ((pushSections = listener), () => {}),
+  },
+};
+const { sectionStoreFor } = await import('../section-store.ts');
+sectionStoreFor(window.mixdogDesktop);
+const pushToolModules = (value) =>
+  act(async () =>
+    pushSections({
+      kind: 'sections',
+      changes: [
+        { section: 'toolModules', key: null, entry: { section: 'toolModules', key: null, revision: ++sectionRevision, value } },
+      ],
+    })
+  );
 
 const { createRoot } = await import('react-dom/client');
 const { BuiltInFeaturesPanel } = await import('./built-in-features-panel.tsx');
@@ -48,56 +69,52 @@ async function mount(api, initial, run) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const render = async (localProvider) =>
-    act(async () =>
+  // The core's section is the card's only source: the status a test shows is pushed before it renders.
+  const render = async (localProvider) => {
+    await pushToolModules({ localProvider });
+    await act(async () =>
       root.render(
         React.createElement(BuiltInFeaturesPanel, {
           api,
-          data: { toolModules: { localProvider } },
+          data: { toolModules: {} },
           snapshot: {},
           pending: '',
           run,
         })
       )
     );
+  };
   await render(initial);
   await act(async () => document.querySelector('[data-built-in-feature="localProvider"]').click());
   return {
     render,
     async dispose() {
       await act(async () => root.unmount());
+      await act(async () => {
+        pushSections({ kind: 'replace', stage: 'begin' });
+        pushSections({ kind: 'replace', stage: 'commit' });
+      });
       host.remove();
     },
   };
 }
 
 test('runtime progress from a chat installation stays live without a UI install command', async () => {
-  const read = deferred();
   let current = status();
-  let firstRead = true;
-  const api = {
-    readCapabilities: async () => {
-      if (firstRead) {
-        firstRead = false;
-        return read.promise;
-      }
-      return [{ ok: true, value: { localProvider: current } }];
-    },
-  };
   const calls = [];
-  const mounted = await mount(api, current, async (capability, args) => {
+  const mounted = await mount({}, current, async (capability, args) => {
     calls.push([capability, args]);
     assert.fail('installation belongs to chat');
   });
   try {
     assert.match(document.querySelector('[data-feature-id="localProvider"]').textContent, /Install through chat/);
     assert.deepEqual(calls, []);
-    current = status({ installations: [{ phase: 'runtime', state: 'running', percent: 42 }] });
-    await act(async () => read.resolve([{ ok: true, value: { localProvider: current } }]));
+    await pushToolModules({ localProvider: status({ installations: [{ phase: 'runtime', state: 'running', percent: 42 }] }) });
     const progress = document.querySelector('[data-feature-id="localProvider"] [role="progressbar"]');
     assert.equal(progress?.getAttribute('aria-valuenow'), '42');
     assert.equal(document.querySelector('[data-feature-id="localProvider"] input'), null);
     current = status({ installed: true, enabled: true, runtime: { installed: true } });
+    await pushToolModules({ localProvider: current });
     await mounted.render(current);
     assert.ok(document.querySelector('[data-feature-id="localProvider"] input'));
     assert.equal(document.querySelector('[data-feature-id="localProvider"] [role="progressbar"]'), null);
@@ -105,7 +122,6 @@ test('runtime progress from a chat installation stays live without a UI install 
     await mounted.dispose();
   }
 });
-
 const contextPicker = (name) => document.querySelector(`[role="combobox"][aria-label="${name} · Context size"]`);
 const pickOption = async (trigger, label) => {
   await act(async () => trigger.click());
@@ -207,20 +223,14 @@ test('changing idle release keeps context controls stable while the request is p
   }
 });
 
-test('reopened settings recover model progress from runtime state without issuing another install', async () => {
+test('reopened settings recover model progress from the pushed runtime state without issuing another install', async () => {
   const current = status({
     installed: true,
     enabled: true,
     runtime: { installed: true },
     installations: [{ phase: 'model', modelId: 'test-model', state: 'running', stage: 'verifying', percent: 99 }],
   });
-  const mounted = await mount(
-    {
-      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-    },
-    status(),
-    () => assert.fail('must not restart the installation')
-  );
+  const mounted = await mount({}, current, () => assert.fail('must not restart the installation'));
   try {
     const progress = document.querySelector('[data-feature-id="localProvider"] [role="progressbar"]');
     assert.equal(progress?.getAttribute('aria-valuenow'), '99');
@@ -229,7 +239,6 @@ test('reopened settings recover model progress from runtime state without issuin
     await mounted.dispose();
   }
 });
-
 test('late status responses do not resurrect an unmounted settings panel', async () => {
   const read = deferred();
   const mounted = await mount({ readCapabilities: async () => read.promise }, status(), async () => ({}));
@@ -467,3 +476,4 @@ test('background hardware checks stay silent while real hardware failures remain
     await mounted.dispose();
   }
 });
+

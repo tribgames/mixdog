@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/comments",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Comments",
+  "content": "Text more",
+  "extractor": "dom-markdown"
+ }
+}

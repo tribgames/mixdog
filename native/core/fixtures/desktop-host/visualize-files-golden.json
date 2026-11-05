@@ -1,0 +1,220 @@
+{
+  "version": 1,
+  "visualize": [
+    {
+      "name": "open-page",
+      "request": {
+        "sessionId": "s1",
+        "cwd": "<CWD>",
+        "action": "open",
+        "input": {
+          "targets": [
+            "site/index.html"
+          ]
+        }
+      },
+      "result": {
+        "text": "Showing site/index.html (html) in the side panel as tab v1. The tab reloads when the file changes.",
+        "tabs": [
+          {
+            "id": "v1",
+            "label": "site",
+            "kind": "html",
+            "target": "site/index.html"
+          }
+        ],
+        "ok": true
+      }
+    },
+    {
+      "name": "open-outside-cwd",
+      "request": {
+        "sessionId": "s1",
+        "cwd": "<CWD>",
+        "action": "open",
+        "input": {
+          "targets": [
+            "../secret.html"
+          ]
+        }
+      },
+      "result": {
+        "text": "Showing <ROOT>\\secret.html (html) in the side panel as tab v2. The tab reloads when the file changes.",
+        "tabs": [
+          {
+            "id": "v2",
+            "label": "secret.html",
+            "kind": "html",
+            "target": "../secret.html"
+          }
+        ],
+        "ok": true
+      }
+    },
+    {
+      "name": "open-missing",
+      "request": {
+        "sessionId": "s1",
+        "cwd": "<CWD>",
+        "action": "open",
+        "input": {
+          "targets": [
+            "../missing.html"
+          ]
+        }
+      },
+      "result": {
+        "ok": false,
+        "error": "target not found: ../missing.html"
+      }
+    },
+    {
+      "name": "open-too-many",
+      "request": {
+        "sessionId": "s1",
+        "cwd": "<CWD>",
+        "action": "open",
+        "input": {
+          "targets": [
+            "a",
+            "b",
+            "c",
+            "d"
+          ]
+        }
+      },
+      "result": {
+        "ok": false,
+        "error": "targets must list 1-3 files or URLs (or pass input.content instead)"
+      }
+    },
+    {
+      "name": "unknown-action",
+      "request": {
+        "sessionId": "s1",
+        "cwd": "<CWD>",
+        "action": "zap"
+      },
+      "result": {
+        "ok": false,
+        "error": "action must be one of open, close, annotate, capture, export, check, inspect, act"
+      }
+    },
+    {
+      "name": "bad-session",
+      "request": {
+        "sessionId": "../x",
+        "cwd": "<CWD>",
+        "action": "open"
+      },
+      "result": {
+        "ok": false,
+        "error": "sessionId is invalid"
+      }
+    }
+  ],
+  "files": [
+    {
+      "name": "snapshot-html",
+      "request": {
+        "root": "<CWD>",
+        "rel": "site/index.html",
+        "grant": false
+      },
+      "result": {
+        "ok": true,
+        "value": {
+          "dataUrl": "data:image/png;base64,UE5H",
+          "size": 11
+        }
+      }
+    },
+    {
+      "name": "snapshot-granted-image",
+      "request": {
+        "root": "<CWD>",
+        "rel": "pic.png",
+        "grant": true
+      },
+      "result": {
+        "ok": true,
+        "value": {
+          "dataUrl": "data:image/png;base64,UE5H",
+          "size": 3
+        }
+      }
+    },
+    {
+      "name": "snapshot-unsupported-type",
+      "request": {
+        "root": "<CWD>",
+        "rel": "notes.txt",
+        "grant": false
+      },
+      "result": {
+        "ok": false,
+        "error": "This file type has no snapshot."
+      }
+    },
+    {
+      "name": "snapshot-missing",
+      "request": {
+        "root": "<CWD>",
+        "rel": "gone.html",
+        "grant": false
+      },
+      "result": {
+        "ok": false,
+        "error": "ENOENT: no such file or directory, stat '<CWD>\\gone.html'"
+      }
+    },
+    {
+      "name": "page-project",
+      "request": {
+        "root": "<CWD>",
+        "rel": "site/index.html",
+        "scope": "project"
+      },
+      "result": {
+        "ok": true,
+        "path": "/<TOKEN>/site/index.html"
+      }
+    },
+    {
+      "name": "page-file",
+      "request": {
+        "root": "<CWD>",
+        "rel": "site/index.html",
+        "scope": "file"
+      },
+      "result": {
+        "ok": true,
+        "path": "/<TOKEN>/site/index.html"
+      }
+    },
+    {
+      "name": "page-outside-root",
+      "request": {
+        "root": "<CWD>",
+        "rel": "../secret.html",
+        "scope": "project"
+      },
+      "result": {
+        "ok": false,
+        "error": "The page must be a visible HTML file inside its folder."
+      }
+    },
+    {
+      "name": "page-missing",
+      "request": {
+        "root": "<CWD>",
+        "rel": "site/none.html",
+        "scope": "project"
+      },
+      "result": {
+        "ok": false,
+        "error": "ENOENT: no such file or directory, realpath '<CWD>\\site\\none.html'"
+      }
+    }
+  ]
+}

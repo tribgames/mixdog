@@ -213,6 +213,23 @@ pub struct ThreadState {
     pub provider_account_change: Option<ProviderAccountChange>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_enabled: Option<bool>,
+    /// The composer's Up-arrow recall (today's `promptHistoryList`, Node's merged list): the
+    /// thread's user prompts over the whole transcript plus the per-folder saved prompt
+    /// history of its cwd, newest first, trimmed, at most `PROMPT_HISTORY_LIMIT` (50), one
+    /// entry per whitespace-collapsed text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_history_list: Option<Vec<String>>,
+}
+
+/// Value of `thread/promptHistory/updated`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PromptHistoryChange {
+    /// A prompt was submitted: the client drops any held entry with the same
+    /// whitespace-collapsed text, puts `prompt` in front and keeps the first 50.
+    Added { prompt: String },
+    /// Any other change (rewind, clear, abort): the whole list, newest first.
+    Replaced { prompts: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -640,15 +657,6 @@ pub struct ItemDeltaParams {
     pub index: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ItemProgressParams {
-    pub thread_id: ThreadId,
-    pub turn_id: TurnId,
-    pub item_id: ItemId,
-    pub progress: JsonValue,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum HistoryResetReason {
@@ -665,6 +673,9 @@ pub struct ThreadHistoryResetParams {
     /// Items after this one are discarded; absent for `clear`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_item_id: Option<ItemId>,
+    /// `hasOlder` of the thread's transcript after the reset: the only change of
+    /// that flag outside a snapshot.
+    pub has_older: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]

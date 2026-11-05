@@ -1,104 +1,61 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
 
 import { cleanupRemoteServer } from './remote-cleanup.ts';
+import { errorReply, programArgs, reply, scriptedSsh, stagedPayloads } from './remote-fixture.mjs';
 
-function scriptedSsh(replies) {
-  const scripts = [];
-  const spawnImpl = (_command, args) => {
-    const reply = replies[Math.min(scripts.length, replies.length - 1)];
-    const command = args[args.length - 1];
-    scripts.push(Buffer.from(/printf %s ([A-Za-z0-9+/=]+) \|/.exec(command)[1], 'base64').toString('utf8'));
-    const child = new EventEmitter();
-    child.exitCode = null;
-    child.signalCode = null;
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
-    child.stdin = new PassThrough();
-    child.stdin.resume();
-    child.kill = () => true;
-    setImmediate(() => {
-      child.stdout.end(reply.stdout ?? '');
-      child.stderr.end('');
-      setTimeout(() => {
-        child.exitCode = reply.code ?? 0;
-        child.emit('close', child.exitCode, null);
-      }, 5);
-    });
-    return child;
-  };
-  return { scripts, spawnImpl };
-}
+const { payloads } = await stagedPayloads('1.4.6');
+const probe = (installed) => reply({ home: '/home/a', installed });
+const cleanupResult = (cleanup) => reply({ home: '/home/a', cleanup });
+const options = (ssh, extra = {}) => ({ removeUserData: false, spawnImpl: ssh.spawnImpl, payloads, ...extra });
 
-const programArgs = (script) =>
-  JSON.parse(Buffer.from(/'([A-Za-z0-9+/=]+)'\s*$/.exec(script.trim())[1], 'base64').toString('utf8'));
-const cleanupResult = (cleanup) => ({
-  stdout: `MIXDOG_PLATFORM Linux x86_64|glibc\nMIXDOG_RESULT ${JSON.stringify({ home: '/home/a', cleanup })}\n`,
-});
-
-test('cleanup stops the daemon, then removes everything but user-data', async () => {
+test('cleanup stops the core, then removes everything but user-data', async () => {
   const ssh = scriptedSsh([
+    probe(true),
     cleanupResult({ stopped: { pid: 4242, stopped: true }, removed: [], kept: [] }),
     cleanupResult({ stopped: null, removed: ['versions', 'deps', 'daemon.log', 'state.json'], kept: ['user-data'] }),
   ]);
   const events = [];
-  await cleanupRemoteServer('devbox', {
-    removeUserData: false,
-    onProgress: (event) => events.push(event),
-    spawnImpl: ssh.spawnImpl,
-  });
+  await cleanupRemoteServer('devbox', options(ssh, { onProgress: (event) => events.push(event) }));
   assert.deepEqual(
-    ssh.scripts.map(programArgs).map(({ mode, phase, removeUserData }) => ({ mode, phase, removeUserData })),
+    ssh.calls.map(programArgs).map(({ mode, phase, removeUserData, upload }) => ({ mode, phase, removeUserData, upload })),
     [
-      { mode: 'cleanup', phase: 'stop', removeUserData: false },
-      { mode: 'cleanup', phase: 'remove', removeUserData: false },
+      { mode: 'probe', phase: undefined, removeUserData: undefined, upload: undefined },
+      { mode: 'cleanup', phase: 'stop', removeUserData: false, upload: undefined },
+      { mode: 'cleanup', phase: 'remove', removeUserData: false, upload: undefined },
     ]
   );
-  assert.deepEqual(
-    events.map((event) => event.phase),
-    ['connect', 'stop', 'remove', 'done']
-  );
+  assert.deepEqual(events.map((event) => event.phase), ['connect', 'stop', 'remove', 'done']);
   assert.equal(events[1].detail, 'stopped pid 4242');
   assert.match(events[2].detail, /kept user-data/);
 });
 
-test("the server's refusal (an unproven daemon or a process using the install) stops the cleanup", async () => {
+test('a server without this build gets the runtime once, for the stop run; the remove run finds it', async () => {
+  const ssh = scriptedSsh([
+    probe(false),
+    cleanupResult({ stopped: null, removed: [], kept: [] }),
+    cleanupResult({ stopped: null, removed: ['versions'], kept: [] }),
+  ]);
+  await cleanupRemoteServer('devbox', options(ssh, { removeUserData: true }));
+  assert.deepEqual(ssh.calls.map((call) => programArgs(call).upload), [undefined, true, undefined]);
+  assert.ok(ssh.inputs[1].length > 0);
+  assert.equal(ssh.inputs[2].length, 0);
+});
+
+test("the server's refusal (an unproven core or a process using the install) stops the cleanup", async () => {
   for (const phase of ['stop', 'remove']) {
-    const refusal = { stdout: 'MIXDOG_ERROR daemon-unproven A process (pid 77) ... nothing was removed.\n', code: 3 };
+    const refusal = errorReply('daemon-unproven', 'A process (pid 77) ... nothing was removed.');
     const ssh = scriptedSsh(
-      phase === 'stop' ? [refusal] : [cleanupResult({ stopped: null, removed: [], kept: [] }), refusal]
+      phase === 'stop'
+        ? [probe(true), refusal]
+        : [probe(true), cleanupResult({ stopped: null, removed: [], kept: [] }), refusal]
     );
     const events = [];
     await assert.rejects(
-      cleanupRemoteServer('devbox', {
-        removeUserData: true,
-        onProgress: (event) => events.push(event),
-        spawnImpl: ssh.spawnImpl,
-      }),
+      cleanupRemoteServer('devbox', options(ssh, { removeUserData: true, onProgress: (event) => events.push(event) })),
       (error) => error.code === 'daemon-unproven' && /pid 77/.test(error.message)
     );
-    assert.equal(ssh.scripts.length, phase === 'stop' ? 1 : 2);
-    assert.equal(
-      events.some((event) => event.phase === 'remove' || event.phase === 'done'),
-      false
-    );
-  }
-});
-
-test('a server without a usable node is never cleaned blind', async () => {
-  for (const code of ['node-missing', 'node-too-old']) {
-    const ssh = scriptedSsh([{ stdout: `MIXDOG_ERROR ${code} Node.js was not found on the server.\n`, code: 3 }]);
-    await assert.rejects(
-      cleanupRemoteServer('devbox', { removeUserData: true, spawnImpl: ssh.spawnImpl }),
-      (error) =>
-        error.code === 'node-missing' &&
-        /nothing was removed/.test(error.message) &&
-        /~\/\.mixdog-remote\/runtime\/daemon\.json/.test(error.message) &&
-        /rm -rf ~\/\.mixdog-remote/.test(error.message)
-    );
-    // Only the program run: no shell-only removal follows.
-    assert.equal(ssh.scripts.length, 1);
+    assert.equal(ssh.calls.length, phase === 'stop' ? 2 : 3);
+    assert.equal(events.some((event) => event.phase === 'remove' || event.phase === 'done'), false);
   }
 });

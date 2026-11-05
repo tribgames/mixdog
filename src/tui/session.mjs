@@ -17,6 +17,6 @@ export {
 export { parseBackgroundTaskEnvelope } from './session/agent-envelope.mjs';
 
 export async function createSessionRuntime(options = {}) {
-  const { createSession } = await import('../standalone/session-client.mjs');
+  const { createSession } = await import('../standalone/protocol-session/index.mjs');
   return await createSession(options);
 }

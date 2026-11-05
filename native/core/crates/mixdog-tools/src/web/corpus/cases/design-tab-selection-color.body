@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>선택 탭 색감 시안</title>
+<style>
+  :root {
+    --frame: #202022;
+    --side: #1c1c1f;
+    --main: #1c1c1f;
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --hair: rgba(255, 255, 255, 0.09);
+    --accent: #8ab4f8;
+    --page: #0e0e10;
+  }
+  body.light {
+    --frame: #ececf0;
+    --side: #f7f7fa;
+    --main: #f7f7fa;
+    --text: #242529;
+    --muted: #5c5c60;
+    --hair: rgba(0, 0, 0, 0.09);
+    --accent: #1967d2;
+    --page: #d8d8de;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: var(--page); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  header { display: flex; gap: 16px; align-items: center; margin-bottom: 6px; }
+  h1 { font-size: 18px; margin: 0; }
+  button.toggle { border: 1px solid var(--hair); background: var(--main); color: var(--text); border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit; }
+  .lead { color: var(--muted); font-size: 12px; margin: 0 0 22px; max-width: 1100px; }
+  .variant { margin-bottom: 26px; }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant h2 .tag { color: var(--accent); font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .variant p { margin: 0 0 10px; color: var(--muted); font-size: 12px; max-width: 1100px; }
+  .variant code { font-size: 11.5px; }
+
+  .win {
+    width: 1180px; height: 170px; background: var(--frame);
+    border: 1px solid var(--hair); border-radius: 8px; overflow: hidden;
+    display: grid; grid-template-rows: 36px 1fr;
+  }
+  .titlebar { display: flex; justify-content: flex-end; }
+  .titlebar span { width: 46px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .below { display: grid; grid-template-columns: 48px 252px 1fr; min-height: 0; }
+  .rail { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  .rail i { width: 40px; height: 44px; display: grid; place-items: center; }
+  .rail i::before { content: ""; width: 18px; height: 18px; border: 1.6px solid var(--muted); border-radius: 5px; }
+  .side { background: var(--side); border-top-left-radius: 8px; box-shadow: inset 1px 1px 0 var(--hair); border-right: 1px solid var(--hair); }
+  .side-head { height: 44px; display: flex; align-items: center; padding: 0 14px; font-weight: 700; font-size: 15px; }
+  .side-row { padding: 6px 14px; font-size: 14px; }
+  /* 사이드 패널의 선택 행도 같은 규칙으로 */
+  .side-row.sel { margin: 0 6px; padding: 6px 8px; border-radius: 7px; background: color-mix(in srgb, var(--text) 8%, transparent); }
+
+  .main { background: var(--main); box-shadow: inset 0 1px 0 var(--hair); display: grid; grid-template-columns: 1fr 1fr; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--hair); }
+  .strip { height: 44px; flex: none; display: flex; align-items: stretch; }
+  .tab {
+    position: relative; isolation: isolate; width: 150px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden;
+  }
+  .tab:not(:last-child) { background: linear-gradient(var(--hair), var(--hair)) right center / 1px 16px no-repeat; }
+  .tab .ico { width: 14px; height: 14px; flex: none; }
+  .tab.active { font-weight: 600; }
+  .tab::before { content: ""; position: absolute; inset: 7px 3px 6px; border-radius: 7px; z-index: -1; }
+  .tab .dot { display: none; }
+  .new { width: 32px; display: grid; place-items: center; color: var(--text); flex: none; }
+  .new svg { width: 15px; height: 15px; }
+  .actions { margin-left: auto; display: flex; gap: 14px; align-items: center; padding-right: 12px; }
+  .actions b { width: 13px; height: 13px; border: 1.4px solid var(--muted); border-radius: 3px; display: block; }
+  .pane .body { flex: 1; padding: 16px 28px; }
+  .pane .body div { height: 9px; border-radius: 5px; margin-bottom: 11px; background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+  /* 현재: 포커스 = 파랑 16%, 나머지 = 회색 7% */
+  .v-now .tab.active::before { background: color-mix(in srgb, var(--text) 7%, transparent); }
+  .v-now .pane.focused .tab.active::before { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+  /* C1: 색 없이 밝기 단계 — 포커스 10%, 나머지 5% (사이드 선택 행과 같은 계열) */
+  .v-c1 .tab.active::before { background: color-mix(in srgb, var(--text) 5%, transparent); }
+  .v-c1 .pane.focused .tab.active::before { background: color-mix(in srgb, var(--text) 10%, transparent); }
+
+  /* C2: 중립 바탕 + 포커스 패널 아이콘만 파랑 */
+  .v-c2 .tab.active::before { background: color-mix(in srgb, var(--text) 7%, transparent); }
+  .v-c2 .pane.focused .tab.active::before { background: color-mix(in srgb, var(--text) 9%, transparent); }
+  .v-c2 .pane.focused .tab.active .ico { color: var(--accent); }
+
+  /* C3: 탁한 파랑 — 강조색을 회색 쪽으로 눌러 채도를 낮춤 */
+  .v-c3 .tab.active::before { background: color-mix(in srgb, var(--text) 6%, transparent); }
+  .v-c3 .pane.focused .tab.active::before { background: color-mix(in srgb, color-mix(in srgb, var(--accent) 45%, var(--text)) 12%, transparent); }
+
+  /* C4: 중립 바탕 + 왼쪽 작은 파란 점 (Arc 계열) */
+  .v-c4 .tab.active::before { background: color-mix(in srgb, var(--text) 7%, transparent); }
+  .v-c4 .pane.focused .tab.active::before { background: color-mix(in srgb, var(--text) 9%, transparent); }
+  .v-c4 .pane.focused .tab.active .dot {
+    display: block; position: absolute; left: 7px; top: 50%; width: 3px; height: 14px; margin-top: -7px;
+    border-radius: 2px; background: var(--accent);
+  }
+
+  /* C5: 포커스 = 아주 옅은 파랑 8% + 파란 글자, 나머지 = 회색 6% */
+  .v-c5 .tab.active::before { background: color-mix(in srgb, var(--text) 6%, transparent); }
+  .v-c5 .pane.focused .tab.active::before { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .v-c5 .pane.focused .tab.active { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>선택 탭 색감 시안</h1>
+  <button class="toggle" onclick="document.body.classList.toggle('light')">다크 / 라이트 전환</button>
+</header>
+<p class="lead">44px 탭 줄, 둥근 선택 바탕(R5), 작은 + 적용 상태입니다. 바탕 색감만 바꿨습니다. 오른쪽 패널이 포커스, 왼쪽 패널은 비포커스입니다. 사이드 패널의 선택 행(“새 작업”)은 비교용으로 회색 8%입니다.</p>
+<div id="list"></div>
+<script>
+  const variants = [
+    { cls: 'v-now', title: '현재', note: '포커스 = 파랑 <code>16%</code>, 나머지 = 회색 <code>7%</code>.' },
+    { cls: 'v-c1', title: 'C1. 색 없이 밝기만', tag: '추천', note: '포커스 <code>10%</code>, 나머지 <code>5%</code> 회색. 사이드 패널 선택 행과 같은 계열이라 화면 전체 톤이 하나로 맞습니다.' },
+    { cls: 'v-c2', title: 'C2. 회색 바탕 + 아이콘만 파랑', note: '바탕은 회색(포커스 9%), 포커스 패널의 선택 탭 아이콘만 파랑.' },
+    { cls: 'v-c3', title: 'C3. 탁한 파랑', note: '강조색을 회색 쪽으로 눌러 채도를 낮춘 바탕(포커스 12%). 파랑 기운만 살짝.' },
+    { cls: 'v-c4', title: 'C4. 회색 바탕 + 왼쪽 파란 막대', note: '바탕은 회색, 포커스 패널의 선택 탭 왼쪽 안에 짧은 파란 세로 막대(3×14px).' },
+    { cls: 'v-c5', title: 'C5. 아주 옅은 파랑 + 파란 글자', note: '포커스 바탕 파랑 <code>8%</code> + 제목·아이콘 파랑. 나머지 회색 6%.' },
+  ];
+  const icon = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>';
+  const plus = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2.5v11M2.5 8h11"/></svg>';
+  const pane = (focused, tabs) => `
+    <div class="pane${focused ? ' focused' : ''}">
+      <div class="strip">
+        ${tabs.map(([l, a]) => `<div class="tab${a ? ' active' : ''}"><span class="dot"></span>${icon}${l}</div>`).join('')}
+        <div class="new">${plus}</div>
+        <div class="actions"><b></b><b></b></div>
+      </div>
+      <div class="body"><div style="width:68%"></div><div style="width:52%"></div></div>
+    </div>`;
+  const list = document.getElementById('list');
+  for (const v of variants) {
+    const s = document.createElement('section');
+    s.className = 'variant';
+    s.innerHTML = `
+      <h2>${v.title}${v.tag ? `<span class="tag">${v.tag}</span>` : ''}</h2>
+      <p>${v.note}</p>
+      <div class="win ${v.cls}">
+        <div class="titlebar"><span>─</span><span>☐</span><span>✕</span></div>
+        <div class="below">
+          <div class="rail"><i></i><i></i></div>
+          <div class="side">
+            <div class="side-head">세션</div>
+            <div class="side-row sel">새 작업</div>
+          </div>
+          <div class="main">
+            ${pane(false, [['새 작업', false], ['리뷰 정리', true]])}
+            ${pane(true, [['새 작업', true], ['메모', false]])}
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(s);
+  }
+</script>
+</body>
+</html>

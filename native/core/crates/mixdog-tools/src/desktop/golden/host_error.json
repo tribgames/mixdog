@@ -1,0 +1,23 @@
+[
+  {
+    "name": "plain host failure",
+    "code": -32000,
+    "message": "browser action \"click\" ref e5 is not in the latest snapshot",
+    "data": { "timing": { "totalMs": 812, "stages": { "dispatch": 3, "settle": 790 } } },
+    "model_text": "browser action \"click\" ref e5 is not in the latest snapshot"
+  },
+  {
+    "name": "message already led by Error:",
+    "code": -32000,
+    "message": "Error: navigation timed out",
+    "data": { "timing": { "totalMs": 30001 } },
+    "model_text": "navigation timed out"
+  },
+  {
+    "name": "empty redacted message",
+    "code": -32000,
+    "message": "",
+    "data": {},
+    "model_text": "browser bridge request failed"
+  }
+]

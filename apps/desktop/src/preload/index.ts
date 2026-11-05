@@ -15,6 +15,7 @@ import {
   type DesktopTranscriptItem,
   type SessionSnapshot,
 } from '../shared/contract';
+import { SECTIONS_IPC } from '../shared/contract-sections';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { createBrowserTextureBridge } from './browser-texture';
 import { createHeldChannel } from './held-ipc';
@@ -308,6 +309,7 @@ const api: DesktopApi = {
   sshServerLogins: (id) => invokeIpc(DESKTOP_IPC.sshServerLogins, id),
   sshServerLoginBegin: (id, provider) => invokeIpc(DESKTOP_IPC.sshServerLoginBegin, id, provider),
   sshServerLoginStatus: (id, flowId) => invokeIpc(DESKTOP_IPC.sshServerLoginStatus, id, flowId),
+  subscribeSshServerLoginUpdated: (listener) => subscribeIpc(DESKTOP_IPC.sshServerLoginUpdated, listener),
   sshServerLoginComplete: (id, flowId, redirectUrl) =>
     invokeIpc(DESKTOP_IPC.sshServerLoginComplete, id, flowId, redirectUrl),
   sshServerLoginCancel: (id, flowId) => invokeIpc(DESKTOP_IPC.sshServerLoginCancel, id, flowId),
@@ -331,7 +333,8 @@ const api: DesktopApi = {
   setReopenServerWindows: (enabled) => invokeIpc(DESKTOP_IPC.reopenServerWindowsSet, enabled),
   subscribeServerRestoreProgress: (listener) => subscribeIpc(DESKTOP_IPC.serverRestoreProgress, listener),
   getServerRestoreProgress: () => invokeIpc(DESKTOP_IPC.serverRestoreProgressGet),
-  listServerPorts: (rescan) => invokeIpc(DESKTOP_IPC.serverPortsList, rescan !== false),
+  listServerPorts: () => invokeIpc(DESKTOP_IPC.serverPortsList),
+  subscribeHostListsChanged: (listener) => subscribeIpc(DESKTOP_IPC.hostListsChanged, () => listener()),
   subscribeServerPorts: (listener) => subscribeIpc(DESKTOP_IPC.serverPortsChanged, listener),
   forwardServerPort: (remotePort, localPort) => invokeIpc(DESKTOP_IPC.serverPortForward, remotePort, localPort ?? null),
   stopServerPortForward: (remotePort) => invokeIpc(DESKTOP_IPC.serverPortStop, remotePort),
@@ -711,6 +714,15 @@ const api: DesktopApi = {
   previewNotificationSound: () => invokeIpc(DESKTOP_IPC.previewNotificationSound),
   subscribeSettingsChanged: (listener) => subscribeIpc(DESKTOP_IPC.settingsChanged, listener),
   subscribeTurnReviewChanged: (listener) => subscribeIpc(DESKTOP_IPC.turnReviewChanged, () => listener()),
+  // Pushed sections of this window's core (desktop-services.md §2): the renderer mirrors them and asks for
+  // detail through a closed list of methods; it never opens a socket.
+  sections: {
+    snapshot: () => invokeIpc(SECTIONS_IPC.snapshot),
+    subscribe: (listener) => subscribeIpc(SECTIONS_IPC.push, listener),
+    call: (method, params) => invokeIpc(SECTIONS_IPC.call, method, params),
+    subscribeFsChanged: (listener) => subscribeIpc(SECTIONS_IPC.fsChanged, listener),
+    subscribeLoginUpdated: (listener) => subscribeIpc(SECTIONS_IPC.loginUpdated, listener),
+  },
   subscribeOrchestrationModeChanged: (listener) => subscribeIpc(DESKTOP_IPC.orchestrationModeChanged, listener),
   readActivityRailPins: () => invokeIpc(DESKTOP_IPC.readActivityRailPins),
   updateActivityRailPins: (pins, initializeIfMissing) =>

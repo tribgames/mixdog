@@ -18,10 +18,10 @@
 import type { DesktopApi, SessionSnapshot } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
-import { startVisibleRefreshCadence } from './visible-refresh-cadence';
+import { sectionStoreFor } from './section-store';
 
 export type UsageApi = Partial<
-  Pick<DesktopApi, 'invokeCapability' | 'readCapabilities' | 'subscribeState' | 'subscribeSessionState'>
+  Pick<DesktopApi, 'invokeCapability' | 'readCapabilities' | 'subscribeState' | 'subscribeSessionState' | 'sections'>
 >;
 export type UsageRecord = Record<string, unknown>;
 
@@ -42,9 +42,8 @@ export type UsageDashboardSnapshot = {
 };
 
 export const USAGE_DASHBOARD_CACHE_KEY = 'mixdog.desktop.sidebar-usage.v1';
-export const USAGE_DASHBOARD_REFRESH_INTERVAL_MS = 5 * 60_000;
 /** A snapshot younger than this satisfies an open/prewarm without a request. */
-const USAGE_DASHBOARD_TTL_MS = USAGE_DASHBOARD_REFRESH_INTERVAL_MS;
+const USAGE_DASHBOARD_TTL_MS = 5 * 60_000;
 export const USAGE_DASHBOARD_RETRY_DELAY_MS = 15_000;
 export const USAGE_DASHBOARD_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -479,6 +478,21 @@ function acceptRefresh(win: Window, value: unknown): void {
   });
 }
 
+/** Takes the pushed `usage/dashboard` aggregate as a live result. Returns the unfollow. */
+function followUsageSection(win: Window, api: UsageApi | undefined): () => void {
+  const sections = sectionStoreFor(api);
+  if (!sections) return () => undefined;
+  const generation = epoch;
+  const take = (): void => {
+    const entry = sections.get('usage', 'dashboard');
+    if (!entry || host !== win || epoch !== generation) return;
+    acceptRefresh(win, entry.value);
+  };
+  const unsubscribe = sections.subscribe('usage', take);
+  void sections.ready().then(take);
+  return unsubscribe;
+}
+
 function owns(win: Window, id: number, generation: number): boolean {
   return host === win && epoch === generation && pendingId === id;
 }
@@ -637,16 +651,9 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
   if (canReadUsage(api)) cadenceApi = api;
   if (win && cadenceApi) bindAccountChanges(win, cadenceApi);
   if (win && releaseCadence === null && canReadUsage(cadenceApi)) {
-    releaseCadence = startVisibleRefreshCadence({
-      win,
-      intervalMs: USAGE_DASHBOARD_REFRESH_INTERVAL_MS,
-      refresh: (reason) => void refreshUsageDashboard(cadenceApi, { force: reason === 'interval' }),
-      onHidden: () => {
-        if (retryTimer !== null) clearTracked(win, retryTimer);
-        retryTimer = null;
-        if (!pending && snapshot.status === 'loading') publishStatus(settledStatus());
-      },
-    });
+    // The aggregate is pushed (section `usage`, key `dashboard`; desktop-services.md §15 P7): there is no
+    // refresh cadence. A read happens only for a credential change (refreshUsageDashboardAfterAuth).
+    releaseCadence = followUsageSection(win, cadenceApi);
     // A phone that booted while its desktop was still redialing (a relay
     // deploy) failed this read on the dropped connection; the bounded retry
     // runs as soon as the connection is back instead of holding the boot cover

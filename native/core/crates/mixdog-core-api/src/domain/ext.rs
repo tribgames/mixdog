@@ -73,6 +73,14 @@ pub struct ExtWorkerStatus {
     pub state: ExtWorkerState,
 }
 
+/// The shared render browser: the DevTools WebSocket URL of a running browser,
+/// launching it when none is. Implemented by the extension host, which owns the
+/// browser's launch, idle close and process guarding.
+#[async_trait::async_trait]
+pub trait BrowserEndpoint: Send + Sync {
+    async fn endpoint(&self) -> Result<String, String>;
+}
+
 pub trait ExtPool: Send + Sync {
     /// Queues the call. Dropping the returned stream sends `cancel`; the
     /// worker's slot stays occupied until it answers or exits.

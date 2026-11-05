@@ -2,9 +2,10 @@ import type { DesktopApi, DesktopCapability, SessionSnapshot } from '../shared/c
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import { readGlobalCapabilities } from './global-capability-reads';
 import { record } from './record-utils';
+import { sectionStoreFor } from './section-store';
 
 export type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
-  Partial<Pick<DesktopApi, 'getSnapshot' | 'subscribeState' | 'subscribeSessionState' | 'readCapabilities'>>;
+  Partial<Pick<DesktopApi, 'getSnapshot' | 'subscribeState' | 'subscribeSessionState' | 'readCapabilities' | 'sections'>>;
 
 export const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
   // The footer's session spend reads the usage ledger beside the gauge.
@@ -30,16 +31,8 @@ type StatsCache = {
   listeners: Set<() => void>;
   holders: number;
   release: (() => void) | null;
-  /** Remote hold only: usage changed since the last read began. */
-  dirty: boolean;
-  readAt: number;
-  timer: ReturnType<typeof setTimeout> | null;
 };
 const statsDataCache = new WeakMap<SurfaceApi, StatsCache>();
-
-/** A remote client re-reads changed usage at most this often while the
- * statistics dialog is open; closed, it waits for the next opening. */
-export const REMOTE_STATS_REFRESH_INTERVAL_MS = 30_000;
 
 function statsCache(api: SurfaceApi): StatsCache {
   let cache = statsDataCache.get(api);
@@ -51,9 +44,6 @@ function statsCache(api: SurfaceApi): StatsCache {
       listeners: new Set(),
       holders: 0,
       release: null,
-      dirty: false,
-      readAt: 0,
-      timer: null,
     };
     statsDataCache.set(api, cache);
   }
@@ -111,25 +101,7 @@ export function subscribeStatsDataCache(api: SurfaceApi, listener: () => void): 
   cache.listeners.add(listener);
   return () => {
     cache.listeners.delete(listener);
-    if (cache.listeners.size === 0) clearStaleRefresh(cache);
   };
-}
-
-function clearStaleRefresh(cache: StatsCache): void {
-  if (cache.timer) clearTimeout(cache.timer);
-  cache.timer = null;
-}
-
-/** Remote: changed usage re-reads only while the dialog is open, no sooner
- * than the interval after the previous read began. */
-function scheduleStaleRefresh(api: SurfaceApi, cache: StatsCache): void {
-  if (!cache.dirty || cache.timer || cache.listeners.size === 0) return;
-  const delay = Math.max(0, cache.readAt + REMOTE_STATS_REFRESH_INTERVAL_MS - Date.now());
-  cache.timer = setTimeout(() => {
-    cache.timer = null;
-    if (!cache.dirty || cache.listeners.size === 0) return;
-    void refreshStatsDataCache(api).catch(() => undefined);
-  }, delay);
 }
 
 /** Opening and background warmup share one read, including changes that arrive
@@ -140,8 +112,6 @@ export function refreshStatsDataCache(api: SurfaceApi): Promise<Record<string, u
   cache.pending = (async () => {
     while (true) {
       const revision = cache.revision;
-      cache.dirty = false;
-      cache.readAt = Date.now();
       const [value] = await readGlobalCapabilities(api, [
         {
           capability: 'getUsageStats',
@@ -205,11 +175,8 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
       ]);
       if (signatures.get(sessionId) === signature) return;
       signatures.set(sessionId, signature);
-      if (!background) {
-        cache.dirty = true;
-        scheduleStaleRefresh(api, cache);
-        return;
-      }
+      // A client that holds no background cache receives the statistics as the pushed `usage` section.
+      if (!background) return;
       cache.revision += 1;
       // Only the open dialog shows these numbers; closed, the revision bump
       // marks the cache stale and opening reads fresh figures.
@@ -218,11 +185,19 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
     const unsubscribeState = api.subscribeState?.(update);
     const unsubscribeSession = api.subscribeSessionState?.(({ sessionId, snapshot }) => update(snapshot, sessionId));
     if (background) page?.addEventListener('visibilitychange', onVisibility);
+    // Section `usage` key `stats` (desktop-services.md §15 P7): the aggregate is pushed, never re-read on a timer.
+    const sections = background ? undefined : sectionStoreFor(api);
+    const takeStats = (): void => {
+      const entry = sections?.get('usage', 'stats');
+      if (entry) setStatsDataCache(api, { getUsageStats: entry.value });
+    };
+    const unsubscribeStats = sections?.subscribe('usage', takeStats);
+    void sections?.ready().then(takeStats);
     cache.release = () => {
       unsubscribeState?.();
       unsubscribeSession?.();
+      unsubscribeStats?.();
       page?.removeEventListener('visibilitychange', onVisibility);
-      clearStaleRefresh(cache);
     };
     if (background) warm();
   }

@@ -1,0 +1,1498 @@
+[
+ {
+  "args": {
+   "command": "sleep 5"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 5 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 5"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 5 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 1"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "sleep 1",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 1"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "sleep 1",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 2; echo done"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 2 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 2; echo done"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 2 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 3 && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 3 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 3 && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 3 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 2.5"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "sleep 2.5",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 2.5"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "sleep 2.5",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 10",
+   "background": true
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "sleep 10",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 10",
+   "background": true
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "sleep 10",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "  sleep 3\nls"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 3 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "  sleep 3\nls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 3 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "Start-Sleep 5"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Start-Sleep 5",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Start-Sleep 5"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 5 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "start-sleep -Seconds 4"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "start-sleep -Seconds 4",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "start-sleep -Seconds 4"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 4 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "Start-Sleep -s 3; x"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Start-Sleep -s 3; x",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Start-Sleep -s 3; x"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: the leading sleep of 3 s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+  }
+ },
+ {
+  "args": {
+   "command": "Start-Sleep -Milliseconds 500"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Start-Sleep -Milliseconds 500",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Start-Sleep -Milliseconds 500"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "Start-Sleep -Milliseconds 500",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 3 | cat"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "sleep 3 | cat",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "sleep 3 | cat"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "sleep 3 | cat",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "echo a; sleep 9"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "echo a; sleep 9",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "echo a; sleep 9"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "echo a; sleep 9",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "/tmp"
+   },
+   "notes": [
+    "Moved `cd /tmp` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "/tmp"
+   },
+   "notes": [
+    "Moved `cd /tmp` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp; ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "/tmp"
+   },
+   "notes": [
+    "Moved `cd /tmp` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp; ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "/tmp"
+   },
+   "notes": [
+    "Moved `cd /tmp` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd \"/my dir\" && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "/my dir"
+   },
+   "notes": [
+    "Moved `cd /my dir` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd \"/my dir\" && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "/my dir"
+   },
+   "notes": [
+    "Moved `cd /my dir` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd 'a b' && x"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "x",
+    "cwd": "a b"
+   },
+   "notes": [
+    "Moved `cd a b` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd 'a b' && x"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "x",
+    "cwd": "a b"
+   },
+   "notes": [
+    "Moved `cd a b` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd $HOME && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd $HOME && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd $HOME && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd $HOME && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd ~ && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "~"
+   },
+   "notes": [
+    "Moved `cd ~` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd ~ && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "~"
+   },
+   "notes": [
+    "Moved `cd ~` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd ~user && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd ~user && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd ~user && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd ~user && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd - && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd - && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd - && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd - && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp && cd /var && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd /tmp && cd /var && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp && cd /var && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd /tmp && cd /var && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd a\\b && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd a\\b && ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd a\\b && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "a\\b"
+   },
+   "notes": [
+    "Moved `cd a\\b` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd 'a\\b' && ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "a\\b"
+   },
+   "notes": [
+    "Moved `cd a\\b` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd 'a\\b' && ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": "a\\b"
+   },
+   "notes": [
+    "Moved `cd a\\b` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd /tmp",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd /tmp",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp && ls",
+   "cwd": "/x"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd /tmp && ls",
+    "cwd": "/x"
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd /tmp && ls",
+   "cwd": "/x"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd /tmp && ls",
+    "cwd": "/x"
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Set-Location -Path C:\\x; Get-ChildItem"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Set-Location -Path C:\\x; Get-ChildItem",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Set-Location -Path C:\\x; Get-ChildItem"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "Get-ChildItem",
+    "cwd": "C:\\x"
+   },
+   "notes": [
+    "Moved `cd C:\\x` into cwd."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "Set-Location \"C:\\a*\" ; ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Set-Location \"C:\\a*\" ; ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Set-Location \"C:\\a*\" ; ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "Set-Location \"C:\\a*\" ; ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd src/*; ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cd src/*; ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cd src/*; ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cd src/*; ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "pushd x; ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "pushd x; ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "pushd x; ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "pushd x; ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cat file.txt"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cat file.txt",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cat file.txt"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cat file.txt",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cat"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cat",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cat"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cat",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cat a b | head -5"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cat a b | head -5",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cat a b | head -5"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cat a b | head -5",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "head -n 5 file"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "head -n 5 file",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "head -n 5 file"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "head -n 5 file",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "tail -n +5 file"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "tail -n +5 file",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "tail -n +5 file"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "tail -n +5 file",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "grep foo"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "grep foo",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "grep foo"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "grep foo",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "grep foo file"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "grep foo file",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "grep foo file"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "grep foo file",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "grep -e foo file"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "grep -e foo file",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "grep -e foo file"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "grep -e foo file",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "ls src"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls src",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "ls src"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls src",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "ls"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "ls"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "ls src | wc -l"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls src | wc -l",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "ls src | wc -l"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls src | wc -l",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "ls src | xargs rm"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "ls src | xargs rm",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "ls src | xargs rm"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "ls src | xargs rm",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "find . -name \"*.rs\""
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "find . -name \"*.rs\"",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "find . -name \"*.rs\""
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "find . -name \"*.rs\"",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "find . -name x -delete"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "find . -name x -delete",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "find . -name x -delete"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "find . -name x -delete",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "find . -type f"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "find . -type f",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "find . -type f"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "find . -type f",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cat a > b"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cat a > b",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cat a > b"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cat a > b",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "cat a > /dev/null"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "cat a > /dev/null",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "cat a > /dev/null"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "cat a > /dev/null",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "Get-Content a.txt"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Get-Content a.txt",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Get-Content a.txt"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "Get-Content a.txt",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "gc a.txt | Select-Object -First 5"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "gc a.txt | Select-Object -First 5",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "gc a.txt | Select-Object -First 5"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "gc a.txt | Select-Object -First 5",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "Select-String -Pattern x -Path f"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "Select-String -Pattern x -Path f",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "Select-String -Pattern x -Path f"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "Select-String -Pattern x -Path f",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "rg foo src"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "rg foo src",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "rg foo src"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "rg foo src",
+    "cwd": null
+   },
+   "notes": [
+    "Note: use the read / grep / list tools for files instead of the shell."
+   ]
+  }
+ },
+ {
+  "args": {
+   "command": "git worktree add ../x"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "git worktree add ../x"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "git -C d worktree add -b b p"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "git -C d worktree add -b b p"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "echo \"git worktree add\""
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "echo \"git worktree add\""
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "git status"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "git status",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "git status"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "git status",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "git worktree list"
+  },
+  "shellType": "posix",
+  "result": {
+   "args": {
+    "command": "git worktree list",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "git worktree list"
+  },
+  "shellType": "powershell",
+  "result": {
+   "args": {
+    "command": "git worktree list",
+    "cwd": null
+   },
+   "notes": []
+  }
+ },
+ {
+  "args": {
+   "command": "g\\\nit worktree add p"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "g\\\nit worktree add p"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "echo $'\\x67it' worktree add"
+  },
+  "shellType": "posix",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ },
+ {
+  "args": {
+   "command": "echo $'\\x67it' worktree add"
+  },
+  "shellType": "powershell",
+  "result": {
+   "failure": "Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command \"git worktree add --detach <path> [<commit>]\" makes a read-only snapshot (removed when the turn ends; delegated workers too), and the Lead uses \"git worktree add -b <branch> <path>\" or action:\"worktree\" for a branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out of shell commands (echo, commit messages, heredocs)."
+  }
+ }
+]

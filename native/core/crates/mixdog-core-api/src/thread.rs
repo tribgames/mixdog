@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_protocol::ConnectionKind;
 use serde_json::Value;
 
 use crate::call::CallContext;
@@ -75,6 +76,11 @@ pub trait RunControl: Send + Sync {
 pub struct Decision {
     pub request: ServerRequestId,
     pub connection: ConnectionId,
+    /// The answering device as the connection's `initialize` named it (`connection.device`
+    /// of the initialize response); recorded in `ApprovalResolution::Decided.device`.
+    pub device: String,
+    /// The answering connection's `clientInfo.kind`; recorded as `connectionKind`.
+    pub connection_kind: ConnectionKind,
     /// The JSON-RPC `result` of the client's response.
     pub result: Value,
 }

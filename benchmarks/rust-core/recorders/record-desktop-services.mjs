@@ -9,10 +9,10 @@
 //
 //   node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs \
 //        benchmarks/rust-core/recorders/record-desktop-services.mjs --tree <dir>
-import { readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { chmodSync, readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
@@ -34,6 +34,8 @@ const scrub = (value) => {
     for (const v of [typeof value === 'string' ? root : null, fwd(root), JSON.stringify(root).slice(1, -1)].filter(Boolean)) text = text.replaceAll(v, v === tree || fwd(tree) === v ? '<TREE>' : '<WORK>');
   }
   text = text.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<UUID>').replace(/\b[0-9a-f]{32,}\b/g, '<HEX>');
+  // A download `version` is sha256(dev:ino:size:mtimeNs) of the host's file identity: host-specific, format fixed (43 base64url chars).
+  text = text.replace(/("version":\s*")[A-Za-z0-9_-]{43}(")/g, '$1<VERSION>$2');
   text = text.replace(/\b1[67]\d{11}\b/g, typeof value === 'string' ? '<MS>' : '0');
   return typeof value === 'string' ? text : JSON.parse(text);
 };
@@ -48,8 +50,15 @@ const rec = async (domain, op, input, fn) => {
 
 // ---- dispatcher: settings, GitHub gate, terminal, LSP --------------------------
 const events = [];
+const listeners = new Set();
 const { createDesktopOperations } = await M('desktop-operations');
-const ops = createDesktopOperations({ userDataPath: userData, packaged: false, resourcesPath: undefined, appPath: join(tree, 'apps', 'desktop'), emit: (e) => events.push(e) });
+const ops = createDesktopOperations({ userDataPath: userData, packaged: false, resourcesPath: undefined, appPath: join(tree, 'apps', 'desktop'), emit: (e) => { events.push(e); for (const l of [...listeners]) l(e); } });
+// Resolves when the terminal's output events (accumulated from now) satisfy `test`; no timers: the recorder's rec() deadline bounds it.
+const outputUntil = (test) => new Promise((resolve) => {
+  let seen = '';
+  const l = (e) => { if (e?.name === 'terminal-data') { seen += e.value.data; if (test(seen)) { listeners.delete(l); resolve(seen); } } };
+  listeners.add(l);
+});
 const call = (domain, name, ...a) => rec(domain, name, a, () => ops.invoke(name, a));
 
 await call('settings', 'readSettings');
@@ -107,9 +116,16 @@ await call('github', 'githubRequest', project, { action: 'pr.list', repo: 'owner
 }
 
 // Terminal (real node-pty), deterministic through markers.
-await call('terminal', 'termProfiles');
+// Which shells exist (and where) is the host's; the recorded facts are the entry shape and the default count.
+await rec('terminal', 'termProfiles', [], async () => {
+  const profiles = await ops.invoke('termProfiles', []);
+  return { entryKeys: [...new Set(profiles.flatMap((p) => Object.keys(p)))].sort(), nonEmpty: profiles.length > 0, defaultCount: profiles.filter((p) => p.default).length, pathsAbsolute: profiles.every((p) => typeof p.path === 'string' && p.path.length > 0) };
+});
 {
   let id = null;
+  // The shell is ready when it has printed its prompt; input sent before that is lost to the pty (root cause of the
+  // old containsMarker:false). The listener is armed before the spawn so the first prompt cannot be missed.
+  const shellReady = outputUntil((s) => (process.platform === 'win32' ? /PS [^\r\n]*>/.test(s) : /[$#] $/.test(s)));
   await rec('terminal', 'termEnsure', [null, '<project>', null], async () => {
     const r = await ops.invoke('termEnsure', [null, project, { path: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh', args: process.platform === 'win32' ? ['-NoLogo', '-NoProfile'] : [] }]);
     id = r.id;
@@ -117,9 +133,12 @@ await call('terminal', 'termProfiles');
   });
   if (id) {
     await call('terminal', 'termActivity');
+    await Promise.race([shellReady, sleep(20000).then(() => { throw new Error('terminal: shell never printed a prompt'); })]);
+    // The marker shows twice once the command ran: the input echo, then the command's own output.
+    const markerOutput = outputUntil((s) => s.split('MIXDOG_FIXTURE_MARKER').length > 2);
     await rec('terminal', 'termWrite', ['<id>', 'echo MIXDOG_FIXTURE_MARKER\\r'], () => ops.invoke('termWrite', [id, process.platform === 'win32' ? 'echo MIXDOG_FIXTURE_MARKER\r' : 'echo MIXDOG_FIXTURE_MARKER\n']));
-    await sleep(1500);
     await rec('terminal', 'termSnapshot', ['<id>'], async () => {
+      await markerOutput; // the pty output event carrying the marker; the buffer is written before the event fires
       const s = await ops.invoke('termSnapshot', [id]);
       return { keys: Object.keys(s ?? {}).sort(), containsMarker: JSON.stringify(s).includes('MIXDOG_FIXTURE_MARKER'), cursorType: typeof s?.cursor };
     });
@@ -134,22 +153,59 @@ await call('terminal', 'termProfiles');
   }
   await call('terminal', 'termWrite', 'no-such-terminal', 'x');
   const kinds = [...new Set(events.map((e) => e.channel ?? e.type ?? e.kind ?? 'unknown'))].sort();
-  corpora.terminal.push({ op: '<emitted event kinds>', kinds, count: events.length });
+  // Output chunking (hence the event count) depends on the shell and host; only "some events, of these kinds" is a fact.
+  corpora.terminal.push({ op: '<emitted event kinds>', kinds, emitted: events.length > 0 });
   events.length = 0;
 }
 
-// LSP: unsupported language and a language whose server is not installed.
+// LSP: unsupported language and a language whose server is not installed. Servers are looked up on PATH, so
+// PATH is pinned to an empty directory: "rust-analyzer absent" is then the same on every host (a rustup shim
+// or a real install would otherwise change the outcome and its timing).
+const hostPath = process.env.PATH;
+const emptyPath = join(work, 'empty-path');
+mkdirSync(emptyPath);
+process.env.PATH = emptyPath;
 await call('lsp', 'lspDocument', project, project, { relPath: 'a.xyz', languageId: 'plaintext', text: 'x', version: 1 });
 await call('lsp', 'lspDocument', project, project, { relPath: 'a.rs', languageId: 'rust', text: 'fn main(){}', version: 1 });
 await call('lsp', 'lspRequest', project, project, 'a.xyz', 'plaintext', 'textDocument/hover', { position: { line: 0, character: 0 } });
 await call('lsp', 'lspDisposeUnder', project);
+// Happy path: a scripted stub registered on PATH as `rust-analyzer` (the product resolves it like any server).
+// A second project root, because the missing result above is cached per root for 30 s.
+{
+  const stubBin = join(work, 'stub-bin');
+  const project2 = join(work, 'project-lsp');
+  mkdirSync(stubBin); mkdirSync(project2);
+  const stubScript = fileURLToPath(new URL('./lib/lsp-stub.mjs', import.meta.url));
+  if (process.platform === 'win32') writeFileSync(join(stubBin, 'rust-analyzer.cmd'), `@"${process.execPath}" "${stubScript}" %*\r\n`);
+  else { writeFileSync(join(stubBin, 'rust-analyzer'), `#!/bin/sh\nexec "${process.execPath}" "${stubScript}" "$@"\n`); chmodSync(join(stubBin, 'rust-analyzer'), 0o755); }
+  process.env.PATH = stubBin;
+  // Resolves on the diagnostics event; rejects as soon as the product reports the server failed, with its own message.
+  const diagnostics = new Promise((resolve, reject) => {
+    const l = (e) => {
+      if (e?.name === 'lsp-diagnostics') { listeners.delete(l); resolve(e); }
+      else if (e?.name === 'lsp-status' && ['error', 'stopped', 'missing'].includes(e.value?.status)) { listeners.delete(l); reject(new Error(`lsp stub ${e.value.status}: ${e.value.message ?? e.value.detail ?? JSON.stringify(e.value)}`)); }
+    };
+    listeners.add(l);
+  });
+  diagnostics.catch(() => undefined);
+  await call('lsp', 'lspDocument', project2, project2, { relPath: 'a.rs', languageId: 'rust', text: 'fn main(){}', version: 1 });
+  await Promise.race([diagnostics, sleep(60000).then(() => { throw new Error(`lsp: no diagnostics from stub; statuses seen: ${JSON.stringify(events.filter((e) => e?.name === 'lsp-status').map((e) => e.value))}`); })]);
+  await call('lsp', 'lspRequest', project2, project2, 'a.rs', 'rust', 'textDocument/hover', { position: { line: 0, character: 3 } });
+  await call('lsp', 'lspRequest', project2, project2, 'a.rs', 'rust', 'textDocument/definition', { position: { line: 0, character: 3 } });
+  await call('lsp', 'lspRequest', project2, project2, 'a.rs', 'rust', 'textDocument/completion', { position: { line: 0, character: 3 } });
+  await call('lsp', 'lspRequest', project2, project2, 'a.rs', 'rust', 'textDocument/rename', { position: { line: 0, character: 3 }, newName: 'x' });
+  await call('lsp', 'lspDisposeUnder', project2);
+  process.env.PATH = emptyPath;
+}
 {
   const lsp = await M('language-server-manager');
   await rec('lsp', 'lspDocumentLanguageId', ['a.tsx', 'typescriptreact'], () => lsp.lspDocumentLanguageId('a.tsx', 'typescriptreact'));
   await rec('lsp', 'lspDocumentLanguageId', ['Dockerfile', 'plaintext'], () => lsp.lspDocumentLanguageId('Dockerfile', 'plaintext'));
   await rec('lsp', 'SERVER_BY_LANGUAGE', [], () => Object.fromEntries(Object.entries(lsp.SERVER_BY_LANGUAGE).map(([k, v]) => [k, { id: v.id, command: v.command, args: v.args }])));
 }
-corpora.lsp.push({ op: '<emitted events>', events: scrub(events.splice(0)) });
+// The pty keeps flushing output after termDispose; when those chunks arrive is the host's, so they are not LSP events.
+corpora.lsp.push({ op: '<emitted events>', events: scrub(events.splice(0).filter((e) => !String(e?.name ?? '').startsWith('terminal'))) });
+process.env.PATH = hostPath;
 await ops.dispose();
 
 // ---- notifications ------------------------------------------------------------------

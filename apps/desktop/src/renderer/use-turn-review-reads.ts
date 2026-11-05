@@ -17,6 +17,7 @@ import {
 } from './turn-review-cache';
 import { cachedTurnReviewState, TURN_REVIEW_CAPABILITY, type TurnReviewCapabilityValue } from './turn-review-model';
 import type { useTurnReviewDisclosure } from './use-turn-review-disclosure';
+import { sectionStoreFor } from './section-store';
 
 type AgentReviewState = {
   scopeKey: string;
@@ -292,7 +293,8 @@ export function subscribeTurnReviewRereads(reread: () => void): () => void {
   const onEvent = () => {
     if (document.visibilityState !== 'hidden') reread();
   };
-  const unsubscribe = window.mixdogDesktop?.subscribeTurnReviewChanged?.(onEvent);
+  // The core publishes the `reviewDiff` section after a run ends and on git/working-tree evidence (DS §5.3).
+  const unsubscribe = sectionStoreFor(window.mixdogDesktop)?.subscribe('reviewDiff', onEvent);
   window.addEventListener('focus', onEvent);
   window.addEventListener(REMOTE_RECONNECTED_EVENT, onEvent);
   document.addEventListener('visibilitychange', onEvent);

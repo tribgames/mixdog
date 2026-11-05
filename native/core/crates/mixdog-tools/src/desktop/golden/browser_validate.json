@@ -1,0 +1,794 @@
+[
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "e1"
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {}
+  },
+  "ok": false,
+  "error": "browser action \"click\" requires input.ref or input.target or input.snapshotId+x+y"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "e1",
+    "target": {
+     "role": "button"
+    }
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" accepts only one input target form"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "e1",
+    "pointer": "touch",
+    "button": "right"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" pointer=touch does not accept button, modifiers, or doubleClick"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "target": {
+     "exact": true,
+     "role": "x"
+    }
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" input.target.exact applies to name"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "target": {
+     "nth": 0,
+     "role": "x"
+    }
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" input.target.nth must be an integer from 1 to 500"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "target": "x"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" input.target must be an object with role, name, and/or selector"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "target": {
+     "foo": 1
+    }
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" input.target does not accept field(s): foo"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "navigate",
+   "input": {}
+  },
+  "ok": false,
+  "error": "browser action \"navigate\" requires input.url or input.reload"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "navigate",
+   "input": {
+    "url": "https://a.com"
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "navigate",
+   "input": {
+    "reload": true
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "navigate",
+   "url": "x",
+   "input": {
+    "url": "y"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"navigate\" fields must be inside input: url"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "nope"
+  },
+  "ok": false,
+  "error": "unknown browser action \"nope\""
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "cookies",
+   "input": {}
+  },
+  "ok": false,
+  "error": "browser action \"cookies\" belongs to the browser_devtools tool; call browser_devtools with the same input"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "e"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" belongs to the browser tool; call browser with the same input"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "snapshot",
+   "input": {
+    "fullPage": true
+   }
+  },
+  "ok": false,
+  "error": "browser action \"snapshot\" screenshot options require input.mode=visual or input.mode=both"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "snapshot",
+   "input": {
+    "mode": "both",
+    "fullPage": true
+   }
+  },
+  "ok": false,
+  "error": "browser action \"snapshot\" fullPage is inspection-only and requires input.mode=visual"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "snapshot",
+   "input": {
+    "mode": "semantic",
+    "ref": "e1"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"snapshot\" input.ref or input.target crops the image and requires input.mode=visual"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "snapshot",
+   "input": {
+    "mode": "visual",
+    "ref": "e1",
+    "format": "pdf"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"snapshot\" format=pdf prints the whole page; drop input.ref or input.target"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "snapshot",
+   "input": {
+    "mode": "visual",
+    "quality": 50
+   }
+  },
+  "ok": false,
+  "error": "browser screenshot input.quality is supported only with input.format=jpeg"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "snapshot",
+   "input": {
+    "mode": "visual",
+    "format": "pdf",
+    "image_output": "inline"
+   }
+  },
+  "ok": false,
+  "error": "browser format=pdf always writes a file; drop input.image_output"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "read",
+   "input": {
+    "quality": 5
+   }
+  },
+  "ok": false,
+  "error": "browser action \"read\" does not accept input field(s): quality"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "e",
+    "includeScreenshot": false,
+    "format": "png"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" screenshot options require input.includeScreenshot=true"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "scroll",
+   "input": {
+    "ref": "a",
+    "text": "b"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"scroll\" accepts only one input target form"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "scroll",
+   "input": {
+    "dx": 5
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "fill",
+   "input": {
+    "fields": []
+   }
+  },
+  "ok": false,
+  "error": "browser action \"fill\" input.fields requires 1 to 30 items"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "fill",
+   "input": {
+    "fields": [
+     {
+      "ref": "a",
+      "text": "x"
+     },
+     {
+      "target": {
+       "name": "n"
+      },
+      "text": "y"
+     }
+    ]
+   }
+  },
+  "ok": false,
+  "error": "browser action \"fill\" input.fields must use ref for every item or target for every item"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "fill",
+   "input": {
+    "fields": [
+     {
+      "ref": "a"
+     }
+    ]
+   }
+  },
+  "ok": false,
+  "error": "browser action \"fill\" input.fields[0] requires exactly one of text/value, values, or checked"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "fill",
+   "input": {
+    "ref": "a",
+    "text": "",
+    "sensitive": true
+   }
+  },
+  "ok": false,
+  "error": "browser action \"fill\" input.sensitive text must not be empty"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "fill",
+   "input": {
+    "ref": "a",
+    "savedAccount": "x"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"fill\" accepts only one input target form"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "sequence",
+   "input": {
+    "steps": [
+     {
+      "action": "press",
+      "key": "a"
+     }
+    ]
+   }
+  },
+  "ok": false,
+  "error": "browser action \"sequence\" input.steps requires 2 to 6 steps"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "sequence",
+   "input": {
+    "steps": [
+     {
+      "action": "press",
+      "key": "a"
+     },
+     {
+      "action": "click"
+     }
+    ]
+   }
+  },
+  "ok": false,
+  "error": "browser action \"sequence\" input.steps[1] requires ref or target"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "sequence",
+   "input": {
+    "steps": [
+     {
+      "action": "press",
+      "key": "a"
+     },
+     {
+      "action": "select",
+      "ref": "r",
+      "values": []
+     }
+    ]
+   }
+  },
+  "ok": false,
+  "error": "browser action \"sequence\" input.steps[1] values must be a non-empty array of strings"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "sequence",
+   "input": {
+    "steps": [
+     {
+      "action": "press",
+      "key": "a"
+     },
+     {
+      "action": "press",
+      "key": "b"
+     }
+    ]
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "sequence",
+   "input": {
+    "steps": [
+     {
+      "action": "press",
+      "key": "a"
+     },
+     {
+      "action": "hover",
+      "ref": "r",
+      "text": "x"
+     }
+    ]
+   }
+  },
+  "ok": false,
+  "error": "browser action \"sequence\" input.steps[1] does not accept field(s): text"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "extract",
+   "input": {
+    "selector": " "
+   }
+  },
+  "ok": false,
+  "error": "browser action \"extract\" requires a non-empty input.selector"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "extract",
+   "input": {
+    "selector": "a",
+    "attributes": []
+   }
+  },
+  "ok": false,
+  "error": "browser action \"extract\" input.attributes requires 1 to 12 attribute names"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "extract",
+   "input": {
+    "selector": "a",
+    "attributes": [
+     "href"
+    ]
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "emulate",
+   "input": {
+    "latitude": 1
+   }
+  },
+  "ok": false,
+  "error": "browser action \"emulate\" geolocation requires input.latitude and input.longitude together"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "emulate",
+   "input": {
+    "accuracy": 1
+   }
+  },
+  "ok": false,
+  "error": "browser action \"emulate\" input.accuracy requires latitude and longitude"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "emulate",
+   "input": {
+    "headers": {}
+   }
+  },
+  "ok": false,
+  "error": "browser action \"emulate\" input.headers requires 1 to 20 header names with string values"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "emulate",
+   "input": {
+    "width": 400,
+    "height": 300
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "press",
+   "input": {
+    "key": "A",
+    "expect": {
+     "bogus": 1
+    }
+   }
+  },
+  "ok": false,
+  "error": "browser action \"press\" input.expect is invalid or too large"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "press",
+   "input": {
+    "key": "A",
+    "expect": {
+     "text": "ok"
+    }
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "wait",
+   "input": {
+    "query": "/a/g"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"wait\" input.query regular expression accepts only the i flag"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "wait",
+   "input": {
+    "query": "/a/i"
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "wait",
+   "input": {
+    "query": "plain"
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "intercept",
+   "input": {
+    "operation": "add",
+    "url": "*/a"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"intercept\" add requires input.abort=true or input.body"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "intercept",
+   "input": {
+    "operation": "remove"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"intercept\" remove requires input.ruleId from an intercept list"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "intercept",
+   "input": {
+    "operation": "list",
+    "url": "x"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"intercept\" list does not accept input field(s): url"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "init_script",
+   "input": {
+    "operation": "add",
+    "script": "x"
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "intercept",
+   "input": {
+    "operation": "zap"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"intercept\" operation must be add, remove, list, or clear"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "performance",
+   "input": {
+    "saveTrace": true
+   }
+  },
+  "ok": false,
+  "error": "performance saveTrace requires operation=start and a boolean"
+ },
+ {
+  "tool": "browser_devtools",
+  "args": {
+   "action": "performance",
+   "input": {
+    "operation": "start",
+    "saveTrace": true
+   }
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "press",
+   "input": {
+    "key": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"press\" input.key must be a string of at most 100 characters"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "select",
+   "input": {
+    "ref": "a",
+    "values": "x"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"select\" input.values requires at most 100 strings of at most 4096 characters"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "a",
+    "button": "bogus"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" input.button must be one of: left, right, middle"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": {
+    "ref": "a",
+    "settleMs": "x"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"click\" input.settleMs must be an integer"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "drag",
+   "input": {
+    "ref": "a"
+   }
+  },
+  "ok": false,
+  "error": "browser action \"drag\" requires input.ref+targetRef or input.target+dropTarget or input.snapshotId+x+y+targetX+targetY"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "upload",
+   "input": {}
+  },
+  "ok": false,
+  "error": "browser action \"upload\" requires input.paths"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "close_tab",
+   "input": {}
+  },
+  "ok": false,
+  "error": "browser action \"close_tab\" requires input.tab"
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "list_tabs"
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": "{\"ref\":\"e1\"}"
+  },
+  "ok": true,
+  "error": null
+ },
+ {
+  "tool": "browser",
+  "args": {
+   "action": "click",
+   "input": 5
+  },
+  "ok": false,
+  "error": "browser action \"click\" input must be an object"
+ },
+ {
+  "tool": "browser",
+  "args": "x",
+  "ok": false,
+  "error": "browser arguments must be an object"
+ }
+]

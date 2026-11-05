@@ -13,7 +13,13 @@ export const MEDIA_KINDS: MediaKind[] = ['image', 'video'];
 export type StudioApi = Partial<
   Pick<
     DesktopApi,
-    'invokeCapability' | 'readCapabilities' | 'mediaUrl' | 'openAttachmentImage' | 'openMediaAsset' | 'openMediaFolder'
+    | 'invokeCapability'
+    | 'readCapabilities'
+    | 'mediaUrl'
+    | 'openAttachmentImage'
+    | 'openMediaAsset'
+    | 'openMediaFolder'
+    | 'sections'
   >
 >;
 export type RecordValue = Record<string, unknown>;

@@ -88,8 +88,11 @@
 //! );
 //! ```
 //!
+//! Scoped feeds come from [`ScopedFeeds::create`] and end with [`ScopedFeed::close`]; between
+//! the two they are ordinary feeds on this same attach and publish path.
+//!
 //! The executable form of this contract is [`crate::mock::conformance`]; every [`Feed`]
-//! implementation runs it.
+//! implementation runs it, and every [`ScopedFeeds`] implementation runs its `run_scoped`.
 
 use std::fmt;
 use std::sync::Arc;
@@ -280,6 +283,31 @@ pub trait Feed: FeedSource {
         frames: &[FeedFrame],
         view: Option<Arc<dyn FeedView>>,
     ) -> Result<(), PublishError>;
+}
+
+/// A scoped feed (`fs:<watchId>`, `search:<sessionId>`, …; DS §2.1), created through
+/// [`ScopedFeeds`] by the domain that owns its scope. Its subscribing method returns it in
+/// [`crate::call::Reply::Subscribe`] with [`Window::Fixed`], so it is attached by
+/// [`subscribe`] like every other feed; its [`FeedView`] encodes the `feed/snapshot` frame.
+pub trait ScopedFeed: Feed {
+    /// Ends the feed when its scope ends (unwatch, stop, the owning connection's close): under
+    /// the feed lock it detaches every subscription, closing its lane and releasing its
+    /// unwritten frames. Afterwards `attach` answers `connectionClosed` (the subscription raced
+    /// the close of its scope) and registers nothing, and `publish` reaches no lane. Idempotent.
+    fn close(&self);
+}
+
+/// Creates scoped feeds. Implemented by WP-FEED, injected into domain services by the
+/// composition root.
+///
+/// Every created feed is independent: its own lock, ring, view and lanes, and no registry that
+/// `attach` or `publish` consult. So one feed's burst, slow subscriber or held lock never
+/// delays another feed; feeds share nothing but each subscriber connection's event budget
+/// (P §6.5). A created feed does not depend on the factory staying alive.
+pub trait ScopedFeeds: Send + Sync {
+    /// An empty feed `id` (`<kind>:<key>`, seq 0) whose initial view is `view`, under a freshly
+    /// drawn epoch, so a position in an earlier feed with the same id never replays.
+    fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

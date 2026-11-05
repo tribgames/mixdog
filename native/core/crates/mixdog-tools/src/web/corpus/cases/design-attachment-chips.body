@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>첨부 표시 시안</title>
+<style>
+  :root {
+    --bg: #1b1b1d; --composer: #2a2a2d; --bubble: #2c2c2f;
+    --layer2: #323236; --layer3: #3d3d41;
+    --text: #e9e9e9; --muted: #a8a8a8; --faint: #6f6f73;
+    --hover: rgba(255,255,255,.08); --pressed: rgba(255,255,255,.12);
+    --border: rgba(255,255,255,.125);
+    --pdf: #e5534b; --doc: #4a8fe7; --txt: #9aa0a6; --paste: #c79a3c; --img: #57ab5a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 40px 80px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 40px 0 4px; }
+  .desc { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .label { font-size: 12px; color: var(--faint); margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+
+  /* composer */
+  .composer { background: var(--composer); border-radius: 18px; padding: 8px 10px 10px; max-width: 760px; }
+  .composer .input { padding: 8px 6px 14px; min-height: 40px; color: var(--text); }
+  .composer .input .caret { display: inline-block; width: 1px; height: 18px; background: var(--text); vertical-align: middle; }
+  .composer .footer { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; padding: 0 6px; }
+  .composer .footer b { color: var(--text); font-weight: 600; }
+  .composer .send { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; background: #e9e9e9; color: #222;
+    display: grid; place-items: center; font-weight: 700; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; align-items: center; }
+
+  /* sent message */
+  .msg { display: flex; justify-content: flex-end; max-width: 760px; }
+  .bubble { background: var(--bubble); border-radius: 16px; padding: 10px 12px; max-width: 560px; }
+  .bubble p { margin: 6px 4px 2px; font-weight: 600; }
+  .bubble .row { padding: 0; }
+
+  /* icons */
+  .ic { width: 16px; height: 16px; flex: 0 0 16px; display: inline-block; }
+
+  /* ---------- 현재 ---------- */
+  .cur { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 3px 6px; border-radius: 6px;
+    background: var(--hover); color: var(--text); font-size: 14px; white-space: nowrap; }
+  .cur .x { color: var(--muted); font-size: 13px; padding: 0 3px; }
+  .cur-img { position: relative; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; }
+  .cur-img .name { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.55); font-size: 11px; padding: 1px 5px; }
+  .sent-cur { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px; border-radius: 6px;
+    background: var(--layer2); color: var(--muted); font-size: 14px; }
+
+  /* ---------- 시안 1: 컴팩트 칩 ---------- */
+  .chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 4px; border-radius: 8px;
+    background: var(--hover); max-width: 240px; font-size: 13px; }
+  .chip:hover { background: var(--pressed); }
+  .chip .badge { width: 28px; height: 28px; border-radius: 6px; flex: 0 0 28px; display: grid; place-items: center;
+    font-size: 9px; font-weight: 800; letter-spacing: .02em; color: #fff; }
+  .chip .thumb { width: 28px; height: 28px; border-radius: 6px; flex: 0 0 28px; }
+  .chip .t { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+  .chip .t b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .t small { color: var(--muted); font-size: 11px; }
+  .chip .x { color: var(--muted); width: 20px; text-align: center; font-size: 13px; }
+  .chip .edit { color: var(--muted); font-size: 12px; }
+
+  /* ---------- 시안 2: 카드 ---------- */
+  .card { position: relative; width: 112px; height: 88px; border-radius: 10px; background: var(--layer2);
+    border: 1px solid var(--border); padding: 8px 9px; display: flex; flex-direction: column; overflow: visible; }
+  .card .name { font-size: 12px; font-weight: 500; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+  .card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .card .tag { margin-top: auto; align-self: flex-start; font-size: 9px; font-weight: 800; letter-spacing: .04em;
+    padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+  .card.paste .snippet { font: 10px/1.3 Consolas, monospace; color: var(--muted); overflow: hidden; height: 26px; flex: 0 0 26px; white-space: pre; }
+  .card .meta { flex: 0 0 auto; }
+
+  /* states */
+  .states { display: grid; grid-template-columns: 180px 1fr 1fr; gap: 10px 20px; align-items: center; max-width: 1500px; }
+  .states .h { font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+  .states .k { color: var(--muted); font-size: 13px; }
+  .states .k small { display: block; color: var(--faint); font-size: 11px; }
+  .stage { background: var(--composer); border-radius: 12px; padding: 12px; display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; position: relative; min-height: 64px; }
+  .hov { background: var(--pressed) !important; }
+  .tip { position: absolute; background: #111; color: var(--text); font-size: 11px; padding: 3px 7px; border-radius: 5px; border: 1px solid var(--border); white-space: nowrap; }
+  .menu { background: var(--layer2); border: 1px solid var(--border); border-radius: 8px; padding: 4px; min-width: 150px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.45); font-size: 13px; }
+  .menu div { padding: 5px 10px; border-radius: 5px; }
+  .menu div:first-child { background: var(--hover); }
+  .focus { outline: 2px solid #6aa2ff; outline-offset: 2px; }
+  .card .dims { color: var(--muted); font-size: 11px; }
+  .card.noimg { align-items: flex-start; }
+  .card.noimg svg { color: var(--muted); }
+  .warn { color: #e5b35a; }
+  .card.image { padding: 0; border: 0; }
+  .card.image .thumb { position: absolute; inset: 0; border-radius: 10px; }
+  .card .x { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--layer3); color: var(--text); font-size: 11px; display: grid; place-items: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  .bubble .card { width: 104px; height: 80px; }
+
+  .red { background: #e04444; } .blue { background: linear-gradient(135deg,#2f6fdc,#5aa0ff); }
+  .note { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--layer3); color: var(--muted); font-size: 13px; max-width: 760px; }
+  .note b { color: var(--text); }
+  .bad { color: #ff8a80; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="file" viewBox="0 0 16 16"><path d="M4 1.5h5l3.5 3.5v9.5h-8.5z M9 1.5v3.5h3.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+  <symbol id="photo" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="6" cy="6.5" r="1.2" fill="currentColor"/><path d="M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+</svg>
+
+<h1>첨부 표시 시안</h1>
+<p class="desc">같은 첨부 6개(blue.png · 붙여넣기 25줄 · second.txt · second.pdf · second.docx · red.png)를 현재 / 시안 1 / 시안 2로 비교합니다. 위는 입력창, 아래는 보낸 메시지입니다.</p>
+
+<!-- ================= 현재 ================= -->
+<h2>현재</h2>
+<p class="desc">높이 불일치(64px 이미지 vs 32px 칩), 모든 파일이 같은 아이콘, 입력창 본문에 <code>[File #3…]</code> 글자 중복.</p>
+<div class="grid">
+  <div>
+    <div class="label">입력창</div>
+    <div class="composer">
+      <div class="row">
+        <span class="cur"><svg class="ic"><use href="#file"/></svg>Pasted text · 40 lines <span class="x">✎</span><span class="x">✕</span></span>
+        <span class="cur-img red"><span class="name">red.png</span></span>
+        <span class="cur"><svg class="ic"><use href="#file"/></svg>notes.txt <span class="x">✕</span></span>
+        <span class="cur"><svg class="ic"><use href="#file"/></svg>doc.pdf <span class="x">✕</span></span>
+      </div>
+      <div class="input"><span class="bad">[File #3: notes.txt] [PDF #4: doc.pdf]</span><span class="caret"></span></div>
+      <div class="footer">＋ <b>GPT-6.1-Sol</b> Auto ⌄ <span class="send">↑</span></div>
+    </div>
+  </div>
+  <div>
+    <div class="label">보낸 메시지</div>
+    <div class="msg"><div class="bubble">
+      <div class="row">
+        <span class="sent-cur"><svg class="ic"><use href="#photo"/></svg>blue.png</span>
+        <span class="sent-cur"><svg class="ic"><use href="#file"/></svg>Pasted text · 25 lines</span>
+        <span class="sent-cur"><svg class="ic"><use href="#file"/></svg>second.txt</span>
+        <span class="sent-cur"><svg class="ic"><use href="#file"/></svg>second.pdf</span>
+        <span class="sent-cur"><svg class="ic"><use href="#file"/></svg>second.docx</span>
+      </div>
+      <p>도구 쓰지 말고 OK 한 단어만 답해줘.</p>
+    </div></div>
+  </div>
+</div>
+
+<!-- ================= 시안 1 ================= -->
+<h2>시안 1 · 컴팩트 칩 (Codex 앱 계열)</h2>
+<p class="desc">모든 첨부가 36px 같은 높이. 왼쪽 28px 칸에 이미지는 썸네일, 파일은 색 배지. 두 번째 줄에 종류·크기. 입력창 본문에는 아무 글자도 안 들어감.</p>
+<div class="grid">
+  <div>
+    <div class="label">입력창</div>
+    <div class="composer">
+      <div class="row">
+        <span class="chip"><span class="badge" style="background:var(--paste)">TXT</span><span class="t"><b>붙여넣은 텍스트</b><small>40줄</small></span><span class="edit">✎</span><span class="x">✕</span></span>
+        <span class="chip"><span class="thumb red"></span><span class="t"><b>red.png</b><small>이미지 · 1.2 KB</small></span><span class="x">✕</span></span>
+        <span class="chip"><span class="badge" style="background:var(--txt)">TXT</span><span class="t"><b>notes.txt</b><small>12줄</small></span><span class="x">✕</span></span>
+        <span class="chip"><span class="badge" style="background:var(--pdf)">PDF</span><span class="t"><b>doc.pdf</b><small>PDF · 84 KB</small></span><span class="x">✕</span></span>
+      </div>
+      <div class="input"><span class="caret"></span></div>
+      <div class="footer">＋ <b>GPT-6.1-Sol</b> Auto ⌄ <span class="send">↑</span></div>
+    </div>
+  </div>
+  <div>
+    <div class="label">보낸 메시지</div>
+    <div class="msg"><div class="bubble">
+      <div class="row">
+        <span class="chip"><span class="thumb blue"></span><span class="t"><b>blue.png</b><small>이미지</small></span></span>
+        <span class="chip"><span class="badge" style="background:var(--paste)">TXT</span><span class="t"><b>붙여넣은 텍스트</b><small>25줄</small></span></span>
+        <span class="chip"><span class="badge" style="background:var(--txt)">TXT</span><span class="t"><b>second.txt</b><small>텍스트</small></span></span>
+        <span class="chip"><span class="badge" style="background:var(--pdf)">PDF</span><span class="t"><b>second.pdf</b><small>PDF</small></span></span>
+        <span class="chip"><span class="badge" style="background:var(--doc)">DOC</span><span class="t"><b>second.docx</b><small>Word</small></span></span>
+      </div>
+      <p>도구 쓰지 말고 OK 한 단어만 답해줘.</p>
+    </div></div>
+  </div>
+</div>
+<div class="note"><b>장점</b> 공간을 적게 씀, 지금 구조에서 변경 폭이 작음. <b>단점</b> 이미지 썸네일이 작아 내용 식별이 어려움(클릭하면 확대).</div>
+
+<!-- ================= 시안 2 ================= -->
+<h2>시안 2 · 카드 (Claude 앱 계열)</h2>
+<p class="desc">모든 첨부가 같은 크기 카드. 이미지는 카드 전체가 썸네일, 붙여넣기는 첫 몇 줄 미리보기, 파일은 이름 + 종류 태그. ✕는 마우스를 올렸을 때 모서리에 표시.</p>
+<div class="grid">
+  <div>
+    <div class="label">입력창</div>
+    <div class="composer">
+      <div class="row">
+        <div class="card paste"><div class="snippet">const a = 1;
+function run() {
+  return a + 2;</div><div class="meta">40줄</div><span class="tag">붙여넣기</span><span class="x">✕</span></div>
+        <div class="card image"><div class="thumb red"></div><span class="x">✕</span></div>
+        <div class="card"><div class="name">notes.txt</div><div class="meta">12줄</div><span class="tag">TXT</span></div>
+        <div class="card"><div class="name">doc.pdf</div><div class="meta">84 KB</div><span class="tag" style="color:var(--pdf);border-color:var(--pdf)">PDF</span></div>
+      </div>
+      <div class="input"><span class="caret"></span></div>
+      <div class="footer">＋ <b>GPT-6.1-Sol</b> Auto ⌄ <span class="send">↑</span></div>
+    </div>
+  </div>
+  <div>
+    <div class="label">보낸 메시지</div>
+    <div class="msg"><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div class="row" style="justify-content:flex-end;padding:0;max-width:560px">
+        <div class="card image"><div class="thumb blue"></div></div>
+        <div class="card paste"><div class="snippet">const a = 1;
+function run() {</div><div class="meta">25줄</div><span class="tag">붙여넣기</span></div>
+        <div class="card"><div class="name">second.txt</div><span class="tag">TXT</span></div>
+        <div class="card"><div class="name">second.pdf</div><span class="tag" style="color:var(--pdf);border-color:var(--pdf)">PDF</span></div>
+        <div class="card"><div class="name">second.docx</div><span class="tag" style="color:var(--doc);border-color:var(--doc)">DOCX</span></div>
+      </div>
+      <div class="bubble"><p style="margin:0 4px">도구 쓰지 말고 OK 한 단어만 답해줘.</p></div>
+    </div></div>
+  </div>
+</div>
+<div class="note"><b>장점</b> 이미지·붙여넣기 내용이 한눈에 보임, 보낸 메시지에서 첨부가 말풍선 밖으로 분리돼 깔끔함. <b>단점</b> 입력창 높이가 커짐(약 +56px), 첨부가 많으면 가로 스크롤.</div>
+
+<!-- ================= 기존 기능 유지 ================= -->
+<h2>기존 기능 유지 확인</h2>
+<p class="desc">지금 첨부 칩에 있는 동작을 두 시안에 그대로 옮긴 모습입니다. <span class="warn">노란 글씨</span>는 지금 구조로는 표시할 데이터가 없는 항목입니다.</p>
+<div class="states">
+  <div class="h">상태</div><div class="h">시안 1 · 컴팩트 칩</div><div class="h">시안 2 · 카드</div>
+
+  <div class="k">마우스 올림<small>이름 전체 툴팁 · ✎ 편집(붙여넣기만) · ✕ 삭제</small></div>
+  <div class="stage" style="padding-top:34px">
+    <span class="tip" style="top:8px;left:12px">Pasted text · 40 lines</span>
+    <span class="chip hov"><span class="badge" style="background:var(--paste)">TXT</span><span class="t"><b>붙여넣은 텍스트</b><small>40줄</small></span><span class="edit">✎</span><span class="x">✕</span></span>
+    <span class="chip"><span class="badge" style="background:var(--pdf)">PDF</span><span class="t"><b>a-very-long-report-name-2025.pdf</b><small>PDF · 84 KB</small></span><span class="x">✕</span></span>
+  </div>
+  <div class="stage" style="padding-top:34px">
+    <span class="tip" style="top:8px;left:12px">a-very-long-report-name-2025.pdf</span>
+    <div class="card paste"><div class="snippet">const a = 1;
+function run() {</div><div class="meta">40줄</div><span class="tag">붙여넣기</span><span class="x" style="right:22px">✎</span><span class="x">✕</span></div>
+    <div class="card hov"><div class="name">a-very-long-report-name-2025.pdf</div><span class="tag" style="color:var(--pdf);border-color:var(--pdf)">PDF</span><span class="x">✕</span></div>
+  </div>
+
+  <div class="k">이미지 클릭<small>이미지 뷰어로 열기 (커서 돋보기)</small></div>
+  <div class="stage"><span class="chip"><span class="thumb red" style="cursor:zoom-in"></span><span class="t"><b>red.png</b><small>이미지 · 클릭하면 크게</small></span><span class="x">✕</span></span></div>
+  <div class="stage"><div class="card image" style="cursor:zoom-in"><div class="thumb red"></div></div><span class="k" style="align-self:center">카드 전체 클릭 → 뷰어</span></div>
+
+  <div class="k">우클릭 메뉴<small>종류별 항목 그대로 (입력창·보낸 메시지 공통)</small></div>
+  <div class="stage">
+    <span class="chip"><span class="thumb blue"></span><span class="t"><b>blue.png</b><small>이미지</small></span></span>
+    <div class="menu"><div>열기</div><div>이미지 복사</div><div>이미지 저장…</div></div>
+    <span class="chip"><span class="badge" style="background:var(--doc)">DOC</span><span class="t"><b>second.docx</b><small>Word</small></span></span>
+    <div class="menu"><div>기본 앱으로 열기</div><div>파일 저장…</div></div>
+  </div>
+  <div class="stage">
+    <div class="card paste"><div class="snippet">const a = 1;
+function run() {</div><div class="meta">25줄</div><span class="tag">붙여넣기</span></div>
+    <div class="menu"><div>텍스트 복사</div><div>텍스트 저장…</div></div>
+    <div class="card"><div class="name">second.txt</div><span class="tag">TXT</span></div>
+    <div class="menu"><div>열기</div><div>내용 복사</div><div>파일 저장…</div></div>
+  </div>
+
+  <div class="k">키보드 포커스<small>Tab으로 이동, 포커스 테두리</small></div>
+  <div class="stage"><span class="chip focus"><span class="thumb red"></span><span class="t"><b>red.png</b><small>이미지</small></span><span class="x">✕</span></span></div>
+  <div class="stage"><div class="card image focus"><div class="thumb red"></div></div></div>
+
+  <div class="k">앱 재시작 후 보낸 메시지<small>이미지 바이트·파일 내용은 저장 안 됨</small></div>
+  <div class="stage">
+    <span class="chip"><span class="badge" style="background:var(--layer3)"><svg class="ic" style="color:var(--muted)"><use href="#photo"/></svg></span><span class="t"><b>blue.png</b><small>1320×872</small></span></span>
+    <span class="chip"><span class="badge" style="background:var(--pdf)">PDF</span><span class="t"><b>second.pdf</b><small class="warn">PDF (크기 모름)</small></span></span>
+    <div class="menu"><div>이름 복사</div></div>
+  </div>
+  <div class="stage">
+    <div class="card noimg"><svg class="ic"><use href="#photo"/></svg><div class="name" style="margin-top:4px">blue.png</div><div class="dims">1320×872</div></div>
+    <div class="card paste"><div class="snippet warn">(내용 없음)</div><div class="meta">25줄</div><span class="tag">붙여넣기</span></div>
+    <div class="card"><div class="name">second.pdf</div><span class="tag" style="color:var(--pdf);border-color:var(--pdf)">PDF</span></div>
+  </div>
+
+  <div class="k">예약 작업 첨부<small>스케줄 편집 화면, 같은 스타일 공유</small></div>
+  <div class="stage"><span class="chip"><span class="thumb red"></span><span class="t"><b>red.png</b><small>이미지</small></span><span class="x">✕</span></span><span class="chip"><span class="badge" style="background:var(--txt)">TXT</span><span class="t"><b>prompt.md</b><small>텍스트</small></span><span class="x">✕</span></span></div>
+  <div class="stage"><div class="card image"><div class="thumb red"></div><span class="x">✕</span></div><div class="card"><div class="name">prompt.md</div><span class="tag">TXT</span><span class="x">✕</span></div></div>
+
+  <div class="k">모바일(터치)<small>마우스 올림이 없음 → ✎ ✕ 항상 표시, 큰 터치 영역</small></div>
+  <div class="stage"><span class="chip" style="height:44px"><span class="badge" style="background:var(--pdf)">PDF</span><span class="t"><b>doc.pdf</b><small>PDF · 84 KB</small></span><span class="x" style="width:32px">✕</span></span></div>
+  <div class="stage"><div class="card"><div class="name">doc.pdf</div><span class="tag" style="color:var(--pdf);border-color:var(--pdf)">PDF</span><span class="x" style="width:26px;height:26px">✕</span></div><span class="k" style="align-self:center">✕ 항상 표시</span></div>
+</div>
+
+</body>
+</html>

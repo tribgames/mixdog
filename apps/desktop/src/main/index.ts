@@ -111,6 +111,15 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
+import { HOST_CAPABILITIES } from './host/connection';
+import { notifyHostListsChanged } from './host-lists-changed';
+import { createProtocolConnection } from './protocol/connection';
+import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
+import { readLocalDiscovery, resolveTunnelEndpoint } from './protocol/discovery';
+import { openCore } from './protocol/open-core';
+import { createVisualizePublisher } from './protocol/visualize-publish';
+import type { VisualizeHostEvent } from '../shared/visualize';
+import { resolveRuntimeRoot } from '../../../../src/runtime/shared/runtime-root.mjs';
 import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { BROWSER_PARTITION } from './browser/command';
@@ -530,6 +539,24 @@ async function runWithHostSettings<T>(hostId: string, run: () => Promise<T>): Pr
   return runWithSshContext(host?.settings ? { settings: host.settings } : {}, run);
 }
 const connectionDependencies: DesktopConnectionDependencies = {
+  // This PC's core reads the discovery file; a server's core is reached through its SSH tunnel. Both use the
+  // header token and re-resolve on every dial.
+  createProtocol: (connection, connector) => {
+    const resolve = connector
+      ? () => resolveTunnelEndpoint(connector)
+      : connection.kind === 'local'
+        ? () => readLocalDiscovery(resolveRuntimeRoot())
+        : null;
+    return resolve
+      ? createProtocolConnection({
+          open: openCore({
+            resolve,
+            version: app.getVersion(),
+            capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
+          }),
+        })
+      : null;
+  },
   moduleUrl: desktopServiceModuleUrl,
   environmentReady: () => loginShellEnvironmentReady,
   sessionOptions: () => ({
@@ -549,16 +576,14 @@ const connectionDependencies: DesktopConnectionDependencies = {
     appPath: app.getAppPath(),
   }),
   appVersion: app.getVersion(),
-  bundlePath: desktopServiceModulePath(),
   remoteGraceMs: process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS?.trim() || '',
   // A server's turns use only the providers its host entry allows (no list:
   // every provider).
-  createPortForwards: (connection, target, scan) => {
+  createPortForwards: (connection, target) => {
     const sshTarget = parseSshTarget(target);
     return createServerPortForwards({
       hostId: connection.id,
       store: portForwardStore,
-      scan,
       runSsh: (run) => runWithHostSettings(connection.id, run),
       createTunnel: ({ freePort, onChange }) =>
         new SshTunnel(sshTarget, {
@@ -663,10 +688,7 @@ const remoteTransportPeers = createRemoteTransportPeerEndpoint({
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
 const ENV_SSH_CONNECTION_ID = 'ssh-env-target';
-const envSshConfig = remoteSessionConfigFromEnv(process.env, {
-  appVersion: app.getVersion(),
-  bundlePath: desktopServiceModulePath(),
-});
+const envSshConfig = remoteSessionConfigFromEnv(process.env);
 const connectionWindows = new Map<string, BrowserWindow>();
 const withGrace = (graceMs: number | null): { graceMs?: number } => (graceMs === null ? {} : { graceMs });
 const sshConnections = createConnectionManager<DesktopConnection>({
@@ -744,6 +766,7 @@ function startDaemonService(): void {
     .start()
     .then(() => {
       terminalBridge.start();
+      hostRole.claimNow();
       diagnostics?.write('daemon-service-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
       });
@@ -853,15 +876,26 @@ const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
 // panel. Default-on built-in; the runtime gates the tool by its toggle, and
 // the bridge runs for the app's lifetime like the terminal bridge.
 let browserFeatureInstalled = false;
+let hostRoleReady = false;
+/** One diagnostics record for every failed visualize publish: change events and the claim-time snapshot. */
+const reportVisualizePublishFailure = (target: 'node' | 'host', error: unknown): void =>
+  diagnostics?.write('visualize-publish-failed', {
+    target,
+    errorName: error instanceof Error ? error.name : 'Error',
+    message: String((error as Error)?.message ?? error).slice(0, 300),
+  });
 const visualize = createDesktopVisualize({
   window: () => mainWindow,
   invokeDesktopOperation: (method, args) => localService.invokeDesktopOperation(method, args),
   browserAvailable: () => browserFeatureInstalled,
   watchBrowserTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),
   // Paired remote clients: the daemon mirrors the tabs and serves pane bytes.
-  publishRemote: (event) => {
-    void localService.invokeDesktopOperation('visualizeRemotePublish', [event]).catch(() => {});
-  },
+  // The same event also reaches the core as `host/state/set{section:'visualize'}`; the host role is built later.
+  publishRemote: createVisualizePublisher<VisualizeHostEvent>({
+    node: (event) => localService.invokeDesktopOperation('visualizeRemotePublish', [event]),
+    host: () => (hostRoleReady ? hostRole.host.publishVisualize : undefined),
+    onFailure: reportVisualizePublishFailure,
+  }),
   remoteViewing: async (sessionId) =>
     (await localService.invokeDesktopOperation('visualizeRemoteViewing', [sessionId])) === true,
   // Kept versions of visualize tabs: app data, never the project.
@@ -1335,10 +1369,58 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
       .catch((error: unknown) => console.error('[mixdog-pc-access] owed revoke failed (still pending):', error));
   }
 });
-// Paired browsers show this machine's updater, so its state travels to the daemon.
-unsubscribeUpdaterRelay = desktopUpdater.subscribe((state) => {
-  void localService.invokeDesktopOperation('publishUpdaterState', [state]).catch(() => {});
+// This PC's host role on its protocol connection: the in-app browser, OS toasts, the system proxy, power and
+// updater reports (DS §12). The computer pill follows the core's `computer` section.
+const localProtocol = localConnection.protocol;
+if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
+const hostRole = createLocalHostRole({
+  protocol: localProtocol,
+  hostId: readOrCreateHostId(desktopUserData),
+  browser: () => {
+    if (!browserHost) throw new Error('The in-app browser is not open.');
+    return browserHost.hostRole();
+  },
+  visualize: () => ({
+    execute: (command) => visualize.execute(command),
+    snapshot: () => visualize.hostSnapshot(),
+  }),
+  onVisualizePublishFailed: (error) => reportVisualizePublishFailure('host', error),
+  onUpdaterInstallFailed: (error) =>
+    diagnostics?.write('updater-install-failed', {
+      errorName: error instanceof Error ? error.name : 'Error',
+      message: String((error as Error)?.message ?? error).slice(0, 300),
+    }),
+  files: () => ({
+    captureFileSnapshot: (root, rel, grant) => fileSnapshots.capture(root, rel, grant),
+    // The daemon already confined the path; the lease is owned by the window so it dies with it.
+    localPageUrl: (root, rel, scope) =>
+      localPageUrl(root, rel, { scope, owner: mainWindow?.webContents, authorize: async () => {} }),
+  }),
+  resolveProxy: (url) => session.defaultSession.resolveProxy(url),
+  notifications: {
+    createNotification: (content) =>
+      new Notification({
+        ...content,
+        ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
+        silent: process.platform === 'win32',
+      }),
+    ...(process.platform === 'win32' ? { playSound: () => playNotificationSound() } : {}),
+    activate: () => primaryActivation.activate(),
+  },
+  updater: {
+    check: () => desktopUpdater.check(),
+    getState: () => desktopUpdater.getState(),
+    confirmBusy: () => desktopUpdater.confirmBusy(),
+    install: (confirmed) => desktopUpdater.install(confirmed),
+  },
+  onClaimFailed: (error) =>
+    diagnostics?.write('host-claim-failed', { message: error instanceof Error ? error.message : String(error) }),
 });
+hostRoleReady = true;
+// A saved PC's presence is part of the core's pushed `remote` section: windows re-read their PC lists on it.
+localProtocol.watchSection('remote', () => notifyHostListsChanged());
+// Paired browsers show this machine's updater, so its state travels to the core.
+unsubscribeUpdaterRelay = desktopUpdater.subscribe((state) => hostRole.host.reports.updateState(state));
 let quitAfterDispose = false;
 // Last-known runInBackground setting; the window's close listener reads it live.
 let runInBackground = true;
@@ -1601,21 +1683,6 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
         },
         (message, data) => {
           diagnostics?.write('updater', { message, ...data });
-        },
-        // Running turns, agents and background shell jobs; null while the
-        // current daemon connection has not reported them.
-        async () => localService.runningWorkCount(),
-        // The daemon this app would stop on quit: new work is refused from the
-        // moment it reports idle, so nothing can start between check and quit.
-        {
-          async close() {
-            const hold = await localConnection.transport()?.holdInTreeDaemon();
-            if (!hold || hold.status === 'held' || hold.status === 'none') return 0;
-            return hold.status === 'busy' ? hold.busy : null;
-          },
-          async release() {
-            await localConnection.transport()?.holdInTreeDaemon({ release: true });
-          },
         }
       );
     },
@@ -2395,7 +2462,9 @@ function installLocalWindowFeatures(
           );
         },
       },
-      app.getLocale()
+      app.getLocale(),
+      {},
+      hostRole.computerPill
     );
   }
   computerHost?.setObserveOnly(computerObserveOnly);
@@ -2428,12 +2497,8 @@ function installLocalWindowFeatures(
     },
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
-    publishRemoteFrame: async (frame) => {
-      await localService.invokeDesktopOperation('browserRemoteFrame', [frame]);
-    },
-    publishRemoteTabs: async (tabs) => {
-      await localService.invokeDesktopOperation('browserRemoteTabs', [tabs]);
-    },
+    publishRemoteFrame: (frame) => hostRole.host.publishRemoteFrame(frame),
+    publishRemoteTabs: (tabs) => hostRole.host.publishRemoteTabs(tabs),
     publishRemoteImportProgress: async (progress) => {
       await localService.invokeDesktopOperation('browserRemoteImportProgress', [progress]);
     },
@@ -2548,7 +2613,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   installDesktopWindowMaterial(window, writeBootDiagnostic);
   // The user's operations in this window reach its connection's runtime.
   const inputReporter = createUserInputReporter({
-    report: (at) => connection.client.invokeCapability('noteUserInput', [at]),
+    report: (at) => connection.protocol?.noteUserInput(at),
   });
   // Not while Computer Use is executing a command against this window (its
   // Browser Use pages, which live inside it, follow the same rule).
@@ -2688,6 +2753,7 @@ function installWindowIpc(
       },
     },
     serviceUserDataPath: () => connection.serviceUserDataPath(),
+    protocol: connection.protocol,
     // The updater and the notification sound are this PC's: a server window
     // gets neither (its channels are refused by the feature gates).
     ...(local && process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
@@ -2883,13 +2949,13 @@ function watchPowerAndNetwork(): void {
     // The blocker may have been dropped across sleep; re-assert it, and
     // redial the relay leg instead of waiting for the ping cycle.
     awakeService.reevaluate();
-    void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+    hostRole.host.reports.power('resume');
     // Server links probe before touching their tunnel: a live one stays.
     for (const connection of connectionPool.list()) void connection.link?.resume();
   });
   // Sleep pauses the server links: no attempts, no failure shown.
   powerMonitor.on('suspend', () => {
-    void localService.invokeDesktopOperation('remoteAccessSuspend', []).catch(() => {});
+    hostRole.host.reports.power('suspend');
     for (const connection of connectionPool.list()) connection.link?.suspend();
   });
   // A dead network is otherwise noticed only by the ping cycle: redial the
@@ -2897,9 +2963,7 @@ function watchPowerAndNetwork(): void {
   createNetworkWatcher({
     isOnline: () => net.isOnline(),
     signature: () => networkSignature(),
-    onChange: () => {
-      void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
-    },
+    onChange: () => hostRole.host.reports.power('resume'),
   });
   diagnosticsMemoryTimer = setInterval(
     () => {
@@ -2930,6 +2994,17 @@ function registerLocalSshHostIpc(): void {
           invoke: async (capability, args) => (await connection.client.invokeCapability(capability, args)).value,
           busySessions: async () => (await connection.remote?.busySessions(3_000)) ?? null,
           onEnd: (listener) => connection.onModelLoginEnd(modelLogin, listener),
+          ...(connection.protocol
+            ? {
+                onLoginUpdated: (listener) =>
+                  connection.protocol!.onEvent((event) => {
+                    if (event.type !== 'notification') return;
+                    const { method, params } = (event as { notification: { method: string; params?: unknown } })
+                      .notification;
+                    if (method === 'login/updated') listener(params as { flowId: string; state: unknown });
+                  }),
+              }
+            : {}),
         };
       },
       onAttach: (listener) =>

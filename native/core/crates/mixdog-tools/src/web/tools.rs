@@ -1,0 +1,556 @@
+//! The four web tools over one shared service.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use futures::future::join_all;
+use mixdog_core_api::domain::tool::ImageData;
+use mixdog_core_api::domain::tool::Tool;
+use mixdog_core_api::domain::tool::ToolAnnotations;
+use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::domain::tool::ToolError;
+use mixdog_core_api::domain::tool::ToolErrorCode;
+use mixdog_core_api::domain::tool::ToolOutcome;
+use mixdog_core_api::domain::tool::ToolOutput;
+use mixdog_core_api::domain::tool::ToolPart;
+use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_protocol::JsonValue;
+use serde_json::json;
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+use url::Url;
+
+use super::cache::TtlCache;
+use super::cache::node_cache_key;
+use super::cache::node_entry_size;
+use super::error::FetchError;
+use super::format::FetchItem;
+use super::format::continuation;
+use super::format::format_fetch;
+use super::format::paginate;
+use super::http::Fetcher;
+use super::pipeline::Page;
+use super::pipeline::PageRenderer;
+use super::pipeline::Pipeline;
+use super::search::NativeWebSearch;
+use super::search::SearchArgs;
+use super::search::SearchService;
+use super::search::format_results;
+use super::ssrf::AddressPolicy;
+
+const PAGE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+const FETCH_CACHE_VERSION: &str = "document-pipeline-v3";
+const FETCH_URL_CAP: usize = 10;
+const FETCH_CONCURRENCY: usize = 3;
+const SEARCH_FANOUT: usize = 10;
+const LOCAL_BATCH_CAP: usize = 8;
+
+pub struct WebConfig {
+    /// Product version, sent in the user agent.
+    pub version: String,
+    pub renderer: Option<Arc<dyn PageRenderer>>,
+    pub search: Option<Arc<dyn NativeWebSearch>>,
+    pub request_timeout: Duration,
+    pub(crate) public_policy: AddressPolicy,
+}
+
+impl WebConfig {
+    pub fn new(version: impl Into<String>) -> Self {
+        Self {
+            version: version.into(),
+            renderer: None,
+            search: None,
+            request_timeout: Duration::from_secs(120),
+            public_policy: AddressPolicy::PublicOnly,
+        }
+    }
+}
+
+pub struct WebService {
+    public: Arc<Fetcher>,
+    loopback: Fetcher,
+    pipeline: Pipeline,
+    pages: TtlCache<Page>,
+    search: SearchService,
+    timeout: Duration,
+}
+
+struct FetchArgs {
+    urls: Vec<String>,
+    start_index: u64,
+    max_length: Option<u64>,
+}
+
+fn invalid(field: &str, reason: &str) -> ToolError {
+    let text = json!({
+        "error": "Invalid arguments",
+        "details": [{ "path": [field], "message": reason }],
+    })
+    .to_string();
+    ToolError::new(
+        ToolErrorCode::InvalidArgs {
+            field: field.to_string(),
+            reason: reason.to_string(),
+        },
+        text,
+    )
+}
+
+fn unavailable(capability: &str, message: String) -> ToolError {
+    ToolError::new(
+        ToolErrorCode::Unavailable {
+            capability: capability.to_string(),
+            reason: message.clone(),
+        },
+        message,
+    )
+}
+
+fn optional_text(args: &JsonValue, key: &str) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::String(text)) => {
+            let text = mixdog_js::js_trim(text);
+            Ok((!text.is_empty()).then(|| text.to_string()))
+        }
+        Some(_) => Err(invalid(key, "Expected string")),
+    }
+}
+
+fn optional_count(args: &JsonValue, key: &str) -> Result<Option<u64>, ToolError> {
+    match args.get(key) {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| invalid(key, "Expected a non-negative integer")),
+    }
+}
+
+/// A string or an array of strings, trimmed, blanks dropped.
+fn text_list(args: &JsonValue, key: &str) -> Result<Vec<String>, ToolError> {
+    let raw: Vec<&JsonValue> = match args.get(key) {
+        Some(JsonValue::Array(items)) => items.iter().collect(),
+        Some(value) => vec![value],
+        None => Vec::new(),
+    };
+    let mut out = Vec::new();
+    for item in raw {
+        let text = mixdog_js::js_trim(item.as_str().ok_or_else(|| invalid(key, "Expected string"))?);
+        if !text.is_empty() {
+            out.push(text.to_string());
+        }
+    }
+    if out.is_empty() {
+        return Err(invalid(key, "Required"));
+    }
+    Ok(out)
+}
+
+fn fetch_args(args: &JsonValue) -> Result<FetchArgs, ToolError> {
+    let urls = text_list(args, "url")?;
+    if urls.iter().any(|url| Url::parse(url).is_err()) {
+        return Err(invalid("url", "Invalid url"));
+    }
+    Ok(FetchArgs {
+        urls,
+        start_index: optional_count(args, "startIndex")?.unwrap_or(0),
+        max_length: optional_count(args, "maxLength")?,
+    })
+}
+
+fn text_output(text: String) -> ToolOutput {
+    ToolOutput {
+        parts: vec![ToolPart::Text(text)],
+        ..ToolOutput::default()
+    }
+}
+
+impl WebService {
+    pub fn new(config: WebConfig) -> Result<Arc<Self>, FetchError> {
+        let public = Arc::new(Fetcher::new(config.public_policy, &config.version)?);
+        Ok(Arc::new(Self {
+            loopback: Fetcher::new(AddressPolicy::LoopbackOnly, &config.version)?,
+            pipeline: Pipeline::new(public.clone(), config.renderer),
+            public,
+            pages: TtlCache::default(),
+            search: SearchService::new(config.search),
+            timeout: config.request_timeout,
+        }))
+    }
+
+    pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
+        vec![
+            Arc::new(WebSearchTool::new(self.clone())),
+            Arc::new(WebFetchTool::new(self.clone())),
+            Arc::new(LocalFetchTool::new(self.clone())),
+            Arc::new(ImageFetchTool::new(self.clone())),
+        ]
+    }
+
+    async fn fetch_one(&self, url: &str, args: &FetchArgs, cancel: &CancellationToken) -> FetchItem {
+        let normalized = Url::parse(url).map_or_else(|_| url.to_string(), |parsed| parsed.to_string());
+        let cache_key = node_cache_key("fetch:url", &json!({ "url": normalized, "version": FETCH_CACHE_VERSION }));
+        if let Some(page) = self.pages.get(&cache_key) {
+            return success_item(&page, args);
+        }
+        let error_item = |error: &FetchError, code: &str, failures, attempts| FetchItem::Error {
+            url: url.to_string(),
+            error: error.message.clone(),
+            error_code: code.to_string(),
+            failures,
+            attempts,
+        };
+        let mut target = match self.public.parse_url(url) {
+            Ok(target) => target,
+            Err(error) => return error_item(&error, error.code(), Vec::new(), Vec::new()),
+        };
+        target.set_fragment(None);
+        match self.pipeline.run(&target, self.timeout, cancel).await {
+            Ok(page) => {
+                let page = Arc::new(page);
+                let size = page_entry_size(&page, target.as_str());
+                self.pages.put(cache_key, page.clone(), size, PAGE_CACHE_TTL);
+                success_item(&page, args)
+            }
+            Err(failure) => error_item(&failure.error, failure.code, failure.failures, failure.attempts),
+        }
+    }
+
+    async fn web_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
+        let urls: Vec<String> = args.urls.iter().take(FETCH_URL_CAP).cloned().collect();
+        let truncated = if args.urls.len() > urls.len() { args.urls.len() } else { 0 };
+        let gate = Semaphore::new(FETCH_CONCURRENCY);
+        let items: Vec<FetchItem> = join_all(urls.iter().map(|url| async {
+            let _turn = gate.acquire().await;
+            self.fetch_one(url, &args, cancel).await
+        }))
+        .await;
+        let text = format_fetch(&items, truncated);
+        if items.iter().any(|item| matches!(item, FetchItem::Success { .. })) {
+            Ok(text_output(text))
+        } else {
+            Err(unavailable("web_fetch", text))
+        }
+    }
+
+    async fn web_search(&self, args: &JsonValue, cancel: &CancellationToken) -> ToolOutcome {
+        let mut queries: Vec<String> = Vec::new();
+        let given = if args.get("query").is_some() { "query" } else { "keywords" };
+        for query in text_list(args, given)? {
+            if !queries.contains(&query) {
+                queries.push(query);
+            }
+        }
+        let max_results = match args.get("maxResults") {
+            None | Some(JsonValue::Null) => 10,
+            Some(value) => match value.as_u64() {
+                Some(n @ 1..=20) => n as usize,
+                _ => return Err(invalid("maxResults", "Expected an integer from 1 to 20")),
+            },
+        };
+        let context_size = optional_text(args, "contextSize")?.unwrap_or_else(|| "low".to_string());
+        if !matches!(context_size.as_str(), "low" | "medium" | "high") {
+            return Err(invalid("contextSize", "Expected low, medium or high"));
+        }
+        let site = optional_text(args, "site")?;
+        let locale = optional_text(args, "locale")?;
+        let one = |query: String| SearchArgs {
+            query,
+            site: site.clone(),
+            locale: locale.clone(),
+            context_size: context_size.clone(),
+            max_results,
+        };
+        if let [only] = queries.as_slice() {
+            return match self.search.search(&one(only.clone()), cancel).await {
+                Ok(payload) => Ok(text_output(format_results(&payload))),
+                Err(message) => Err(unavailable("web_search", format!("Web search failed: {message}"))),
+            };
+        }
+        let gate = Semaphore::new(SEARCH_FANOUT);
+        let (gate, one) = (&gate, &one);
+        let sections: Vec<(String, bool)> = join_all(queries.iter().map(|query| async move {
+            let _turn = gate.acquire().await;
+            let result = self.search.search(&one(query.clone()), cancel).await;
+            let (text, failed) = match result {
+                Ok(payload) => (format_results(&payload), false),
+                Err(message) => (format!("Web search failed: {message}"), true),
+            };
+            (format!("### Query: {query}\n\n{text}"), failed)
+        }))
+        .await;
+        let failed = sections.iter().filter(|(_, failed)| *failed).count();
+        let summary = if failed > 0 {
+            format!(
+                "[web_search] {failed}/{} queries failed; successful results are retained.\n\n",
+                queries.len()
+            )
+        } else {
+            String::new()
+        };
+        let joined: Vec<String> = sections.into_iter().map(|(text, _)| text).collect();
+        let text = format!("{summary}{}", joined.join("\n\n---\n\n"));
+        if failed > 0 {
+            let mut error = unavailable("web_search", text.clone());
+            error.partial = Some(text_output(text));
+            return Err(error);
+        }
+        Ok(text_output(text))
+    }
+
+    async fn local_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
+        self.bounded_batch(&args, cancel, |url| async move {
+            let parsed = self.loopback.parse_url(&url)?;
+            let text = self.loopback.fetch_text(&parsed).await?;
+            let window = paginate(&text, args.start_index, args.max_length);
+            Ok(vec![ToolPart::Text(format!("{url}\n\n{}{}", window.content, continuation(&window)))])
+        })
+        .await
+    }
+
+    async fn image_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
+        self.bounded_batch(&args, cancel, |url| async move {
+            let parsed = self.public.parse_url(&url)?;
+            let (mime, bytes) = self.public.fetch_image(&parsed).await?;
+            Ok(vec![
+                ToolPart::Text(format!("Downloaded image: {url} ({mime}, {} bytes)", bytes.len())),
+                ToolPart::Image {
+                    mime,
+                    data: ImageData::Bytes(bytes),
+                },
+            ])
+        })
+        .await
+    }
+
+    /// Sequential URLs under one request deadline; the first failure ends the call.
+    async fn bounded_batch<F, Fut>(&self, args: &FetchArgs, cancel: &CancellationToken, each: F) -> ToolOutcome
+    where
+        F: Fn(String) -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<ToolPart>, FetchError>>,
+    {
+        if args.urls.len() > LOCAL_BATCH_CAP {
+            return Err(unavailable(
+                "fetch",
+                format!("Error: fetch batch exceeds maximum of {LOCAL_BATCH_CAP} URLs."),
+            ));
+        }
+        let run = async {
+            let mut parts = Vec::new();
+            for url in &args.urls {
+                parts.extend(each(url.clone()).await?);
+            }
+            Ok::<_, FetchError>(parts)
+        };
+        let outcome = tokio::select! {
+            () = cancel.cancelled() => Err(FetchError::new(super::error::FetchKind::Cancelled, "Fetch cancelled")),
+            result = tokio::time::timeout(self.timeout, run) => match result {
+                Ok(result) => result,
+                Err(_) => Err(FetchError::new(
+                    super::error::FetchKind::Timeout,
+                    "The operation was aborted due to timeout",
+                )),
+            },
+        };
+        match outcome {
+            Ok(parts) => Ok(ToolOutput {
+                parts,
+                ..ToolOutput::default()
+            }),
+            Err(error) if error.kind == super::error::FetchKind::Cancelled => {
+                Err(ToolError::new(ToolErrorCode::Cancelled, "Fetch cancelled"))
+            }
+            Err(error) => Err(unavailable("fetch", format!("Fetch failed: {}", error.message))),
+        }
+    }
+}
+
+/// The payload Node caches for a fetched page, `{ tool, ...page }` as the pipeline returns it.
+/// `httpStatus` is a placeholder: a cached page is always 2xx, so it is three digits either way.
+pub(super) fn page_payload(page: &Page, requested_url: &str) -> serde_json::Value {
+    let failures: Vec<serde_json::Value> = page
+        .failures
+        .iter()
+        .map(|failure| {
+            let mut item = json!({ "extractor": failure.extractor, "error": failure.error, "code": failure.code });
+            if let (Some(status), Some(map)) = (failure.status, item.as_object_mut()) {
+                map.insert("status".into(), json!(status));
+            }
+            item
+        })
+        .collect();
+    let attempts: Vec<serde_json::Value> = page
+        .attempts
+        .iter()
+        .map(|attempt| {
+            let elapsed = u64::try_from(attempt.elapsed_ms).unwrap_or(u64::MAX);
+            match attempt.code {
+                None => json!({ "stage": attempt.stage, "status": "success", "elapsedMs": elapsed }),
+                Some(code) => json!({ "stage": attempt.stage, "status": "error", "elapsedMs": elapsed, "code": code }),
+            }
+        })
+        .collect();
+    let tried: Vec<&str> = page.attempts.iter().map(|attempt| attempt.stage).collect();
+    let mut map = serde_json::Map::new();
+    map.insert("tool".into(), json!("web_fetch"));
+    map.insert("url".into(), json!(page.url));
+    map.insert("title".into(), json!(page.title));
+    map.insert("content".into(), json!(page.content));
+    map.insert("excerpt".into(), json!(page.excerpt));
+    map.insert("extractor".into(), json!(page.extractor));
+    map.insert("format".into(), json!(page.format));
+    map.insert("contentType".into(), json!(page.content_type));
+    map.insert("httpStatus".into(), json!(200));
+    if let Some(redirects) = &page.redirects {
+        let records: Vec<serde_json::Value> = redirects
+            .iter()
+            .map(|hop| match hop.status {
+                Some(status) => json!({ "url": hop.url, "status": status, "location": hop.location }),
+                None => json!({ "url": hop.url, "location": hop.location, "status": "meta-refresh" }),
+            })
+            .collect();
+        map.insert("redirects".into(), json!(records));
+    }
+    map.insert("requestedUrl".into(), json!(requested_url));
+    map.insert("triedExtractors".into(), json!(tried));
+    map.insert("failures".into(), json!(failures));
+    map.insert("attempts".into(), json!(attempts));
+    serde_json::Value::Object(map)
+}
+
+/// Node's entry size for a page; the excerpt counts as `JSON.stringify` writes it.
+pub(super) fn page_entry_size(page: &Page, requested_url: &str) -> usize {
+    let shown = mixdog_js::utf16_len(&mixdog_js::json_stringify(&json!(page.excerpt)));
+    node_entry_size(&page_payload(page, requested_url), PAGE_CACHE_TTL) + page.excerpt_json_len - shown
+}
+
+fn success_item(page: &Page, args: &FetchArgs) -> FetchItem {
+    FetchItem::Success {
+        url: page.url.clone(),
+        title: page.title.clone(),
+        window: paginate(&page.content, args.start_index, args.max_length),
+        failures: page.failures.clone(),
+        attempts: page.attempts.clone(),
+    }
+}
+
+fn fetch_schema() -> JsonValue {
+    json!({
+        "type": "object",
+        "properties": {
+            "url": {
+                "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }],
+                "description": "URL, or an array of up to 10; loopback and public URLs in separate calls.",
+            },
+            "startIndex": { "type": "integer", "minimum": 0, "description": "Character offset." },
+            "maxLength": { "type": "integer", "minimum": 0, "description": "Default 20000; 0 unlimited." },
+        },
+        "required": ["url"],
+        "additionalProperties": false,
+    })
+}
+
+fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_world: bool) -> ToolSpec {
+    ToolSpec {
+        name: name.to_string(),
+        aliases: Vec::new(),
+        description: description.to_string(),
+        input_schema: schema,
+        annotations: ToolAnnotations {
+            title: Some(title.to_string()),
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(open_world),
+            ..ToolAnnotations::default()
+        },
+        parallel_safe: true,
+        exclusive_with: Vec::new(),
+    }
+}
+
+macro_rules! web_tool {
+    ($tool:ident, $name:literal, $title:literal, $description:literal, $schema:expr, $open_world:literal, |$svc:ident, $ctx:ident, $args:ident| $body:expr) => {
+        pub struct $tool {
+            service: Arc<WebService>,
+            spec: ToolSpec,
+        }
+
+        impl $tool {
+            pub fn new(service: Arc<WebService>) -> Self {
+                Self {
+                    service,
+                    spec: spec($name, $title, $description, $schema, $open_world),
+                }
+            }
+        }
+
+        #[async_trait]
+        impl Tool for $tool {
+            fn spec(&self) -> &ToolSpec {
+                &self.spec
+            }
+
+            async fn call(&self, $ctx: &ToolContext, $args: JsonValue) -> ToolOutcome {
+                let $svc = &self.service;
+                $body
+            }
+        }
+    };
+}
+
+web_tool!(
+    WebSearchTool,
+    "web_search",
+    "Mixdog Web Search",
+    "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
+    json!({
+        "type": "object",
+        "properties": {
+            "query": {
+                "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }],
+                "description": "One query, or an array run as a batch.",
+            },
+            "site": { "type": "string", "description": "Domain filter." },
+            "maxResults": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Default 10." },
+            "locale": { "type": "string", "description": "e.g. ko-KR." },
+            "contextSize": { "type": "string", "enum": ["low", "medium", "high"], "description": "Default low." },
+        },
+        "required": ["query"],
+        "additionalProperties": false,
+    }),
+    true,
+    |service, ctx, args| service.web_search(&args, &ctx.cancel).await
+);
+
+web_tool!(
+    WebFetchTool,
+    "web_fetch",
+    "Mixdog Web Fetch",
+    "Fetch the page or docs body of known URLs; to find pages, use web_search.",
+    fetch_schema(),
+    true,
+    |service, ctx, args| service.web_fetch(fetch_args(&args)?, &ctx.cancel).await
+);
+
+web_tool!(
+    LocalFetchTool,
+    "local_fetch",
+    "Mixdog Loopback Fetch",
+    "Runtime-only loopback HTTP(S) fetch target.",
+    fetch_schema(),
+    false,
+    |service, ctx, args| service.local_fetch(fetch_args(&args)?, &ctx.cancel).await
+);
+
+web_tool!(
+    ImageFetchTool,
+    "image_fetch",
+    "Mixdog Image Fetch",
+    "Runtime-only bounded public image fetch target.",
+    fetch_schema(),
+    true,
+    |service, ctx, args| service.image_fetch(fetch_args(&args)?, &ctx.cancel).await
+);

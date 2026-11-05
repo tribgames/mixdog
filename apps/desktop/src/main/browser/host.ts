@@ -46,9 +46,11 @@ import {
   type RemoteScreenSources,
   type RemoteScreenSourcesDeps,
 } from '../remote-screen/screen-webrtc-sources';
+import { type BrowserRemoteMethod, runBrowserRemoteRequest } from '../remote-browser-methods';
 import { createRemoteWebrtcHost, type RemoteWebrtcHost } from '../remote-webrtc/host';
 import { createRemoteWebrtcSenderWindow, type RemoteWebrtcSenderPage } from '../remote-webrtc/sender-window';
 import type { BrowserApprovalRequest } from './action-approval';
+import type { createBrowserCommandRunner } from './agent-bridge';
 import { BACKGROUND_RECLAIM_INTERVAL_MS } from './command';
 import { createBrowserCommandToolkit } from './command-toolkit';
 import type { BrowserCredentialFillResult } from './credential-autofill';
@@ -108,6 +110,19 @@ export interface BrowserHost {
    *  it down (server, discovery file, agent offscreen pages). The browser
    *  pane infrastructure stays live either way. */
   setBridgeEnabled(enabled: boolean): void;
+  /** What serves a browser command (bridge or `host/browser/command` alike). */
+  commandRunner: ReturnType<typeof createBrowserCommandRunner>;
+  /** What the protocol host role (`host/*`, main/host/index.ts) drives: commands, live view and input, tab facts. */
+  hostRole(): {
+    runner: ReturnType<typeof createBrowserCommandRunner>;
+    view: {
+      remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
+      remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<unknown>;
+    };
+    tabs: { remoteTabsWatch(on: boolean): DesktopRemoteBrowserTab[] };
+    /** The window-process end of a paired client's non-tool browser request (history, tabs, credentials, import). */
+    remote(method: BrowserRemoteMethod, args: unknown[]): Promise<unknown>;
+  };
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
   /** Takeover `id` starts: the page it hands over (`tab` of the request, else
    *  the agent's page) is fixed now, whatever tabs move later. */
@@ -254,7 +269,10 @@ export function createBrowserHost(
     window,
     base,
     onSurfaceRequest: options.onSurfaceRequest,
-    onGuest: options.onGuest,
+    onGuest: (guest) => {
+      options.onGuest?.(guest);
+      shown.remoteTabs.observe(guest);
+    },
     interruptForLocal: (command) => agent.interruptForLocal(command),
   });
   const tools = createBrowserCommandToolkit({
@@ -421,6 +439,17 @@ export function createBrowserHost(
       display,
       executeSerialized: agent.executeSerialized,
       host: () => browserHost,
+    }),
+    /** The command path the loopback bridge serves, for the protocol host channel. */
+    commandRunner: agent.bridge.runner,
+    hostRole: () => ({
+      runner: agent.bridge.runner,
+      view: {
+        remoteBrowserStream: (sessionId, streamOptions) => browserHost.remoteBrowserStream(sessionId, streamOptions),
+        remoteBrowserControl: (sessionId, control) => browserHost.remoteBrowserControl(sessionId, control),
+      },
+      tabs: { remoteTabsWatch: (on) => browserHost.remoteTabsWatch(on) },
+      remote: (method, args) => runBrowserRemoteRequest(browserHost, method, args),
     }),
     ...createBrowserHostLifecycleMethods({
       bridge: agent.bridge,

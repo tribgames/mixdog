@@ -12,5 +12,15 @@ workspace = true
 test-support = []
 
 [dependencies]
-tokio = { workspace = true, features = ["rt", "sync"] }
+arc-swap = { workspace = true }
+crossbeam-channel = { workspace = true }
+# The driver features are named here so RT-C and RT-W always have time and I/O drivers
+# (`enable_all`), regardless of what other crates in the build enable.
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net"] }
 tokio-util = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading"] }

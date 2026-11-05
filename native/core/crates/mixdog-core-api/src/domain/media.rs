@@ -68,6 +68,12 @@ pub enum MediaError {
 pub trait MediaFrameSource: Send {
     fn kind(&self) -> FrameSourceKind;
     /// `Ok(None)` ends the source.
+    ///
+    /// Cancel-safe: the media loop drops this future whenever a control
+    /// change arrives. Dropping it before it completes consumes nothing and
+    /// leaves the source usable; the next call returns the next frame the
+    /// source has, with `seq` still increasing. A frame is taken from the
+    /// source only in the poll that returns it.
     async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError>;
 }
 

@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/inline",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Inline",
+  "content": "Text **bold *both*** **** *padded* tail\nnext line span end\n\n### Heading [linked](<https://example.com/h>)\n\nTerm\n\nDefinition\n\n![fig](<https://example.com/f.png>)\n\nCaption",
+  "extractor": "dom-markdown"
+ }
+}

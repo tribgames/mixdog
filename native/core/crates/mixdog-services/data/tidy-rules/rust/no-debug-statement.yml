@@ -1,0 +1,7 @@
+id: no-debug-statement
+language: Rust
+severity: warning
+message: dbg! macro left in code.
+note: dbg! prints to stderr and moves its argument; it is investigation output, not logging. Replace with the expression it wraps or a log call; this rule has no autofix.
+rule:
+  pattern: dbg!($$$)

@@ -65,23 +65,14 @@ test('strict checking: a key never seen is a plain failure, a changed one still 
   assert.deepEqual(describeConnectFailure(changedKey, target, 'linux'), { kind: 'host-key-changed' });
 });
 
-test('node and mixdog setup errors carry the commands to run on the server', () => {
-  const tooOld = new RemoteBootstrapError(
-    'node-too-old',
-    'Mixdog needs Node.js 22 or newer on the server; found 18.19.1.'
+test('an older desktop is told to update this PC in the server’s own words', () => {
+  const outdated = new RemoteBootstrapError(
+    'client-outdated',
+    'This Mixdog (1.4.6) is older than the one on the server (1.5.0). Update Mixdog on this PC.'
   );
-  assert.deepEqual(describeConnectFailure(tooOld, target, 'linux'), {
-    kind: 'node',
-    reason: 'too-old',
-    found: '18.19.1',
-    required: 22,
-    command: 'curl -fsSL https://fnm.vercel.app/install | bash && fnm install 22',
-  });
-  const missing = new RemoteBootstrapError('node-missing', 'Node.js was not found on the server (PATH=/usr/bin).');
-  assert.equal(describeConnectFailure(missing, target, 'linux').found, null);
-  assert.deepEqual(describeConnectFailure(new RemoteBootstrapError('npm-missing', 'x'), target, 'linux'), {
-    kind: 'npm-missing',
-    command: 'curl -fsSL https://fnm.vercel.app/install | bash && fnm install 22',
+  assert.deepEqual(describeConnectFailure(outdated, target, 'linux'), {
+    kind: 'failed',
+    message: 'This Mixdog (1.4.6) is older than the one on the server (1.5.0). Update Mixdog on this PC.',
   });
 });
 
@@ -106,13 +97,13 @@ test('the server install’s error codes each get their own view', () => {
     kind: 'unsupported-platform',
     message: 'Windows servers are not supported.',
   });
-  assert.deepEqual(view('install-failed', 'npm exited with 1'), {
+  assert.deepEqual(view('install-failed', 'The uploaded Mixdog runtime does not match its digest.'), {
     kind: 'install-failed',
-    message: 'npm exited with 1',
+    message: 'The uploaded Mixdog runtime does not match its digest.',
   });
-  assert.deepEqual(view('local-payload', 'The server module lockfile is missing'), {
+  assert.deepEqual(view('local-payload', 'This desktop ships no Mixdog server runtime for linux-arm64.'), {
     kind: 'install-failed',
-    message: 'The server module lockfile is missing',
+    message: 'This desktop ships no Mixdog server runtime for linux-arm64.',
   });
   assert.deepEqual(view('install-locked'), { kind: 'install-locked' });
   assert.deepEqual(view('daemon-busy-other-version', 'busy on 1.0.0'), {
@@ -123,14 +114,12 @@ test('the server install’s error codes each get their own view', () => {
     kind: 'port-unavailable',
     message: 'port 7000 is taken',
   });
-  assert.deepEqual(view('deps-install', 'npm ERR! network'), { kind: 'deps-install', message: 'npm ERR! network' });
   for (const code of ['daemon-stop', 'daemon-replace', 'daemon-unproven', 'daemon-unmanaged', 'daemon-data-in-use'])
     assert.deepEqual(view(code, `${code} (pid 9)`), { kind: code, message: `${code} (pid 9)` });
   assert.deepEqual(view('daemon-not-proxy', 'A Mixdog daemon (pid 42) is already running.'), {
     kind: 'daemon-running',
     pid: 42,
   });
-  assert.equal(view('node-missing', 'node missing').kind, 'node');
 });
 
 test('a missing OpenSSH client gets the Windows install command, other systems only the message', () => {
@@ -171,8 +160,7 @@ test('every failure view carries the error code: the bootstrap code, or the view
     'internal',
     'remote-shell',
     'remote-home',
-    'node-missing',
-    'npm-missing',
+    'client-outdated',
     'upload',
   ]) {
     assert.equal(code(new RemoteBootstrapError(name, 'x')), name);

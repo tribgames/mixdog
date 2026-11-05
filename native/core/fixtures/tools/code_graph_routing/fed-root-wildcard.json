@@ -1,0 +1,21 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>"
+  ],
+  "input": {
+    "files": [
+      "<ROOT>/reg/other/*.mjs"
+    ],
+    "mode": "overview"
+  },
+  "isError": true,
+  "registered": [
+    "reg/outer",
+    "reg/outer/inner",
+    "reg/other"
+  ],
+  "text": "Error: code_graph: wildcard-shaped file anchors are not allowed at a filesystem root",
+  "tool": "code_graph"
+}

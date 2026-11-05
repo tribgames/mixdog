@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 로고 띵킹 아이콘 · 움직임 스타일</title>
+<style>
+  @property --f { syntax:'<number>'; inherits:false; initial-value:0; }
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --head:#79b8ff; --flash:#eef6ff;
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --head:#185abc; --flash:#0a2a66;
+  }
+  :root { --k:1; --sw:2.1; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 11px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; margin:20px 0 22px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+
+  .strip { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr)); gap:4px 20px; padding:12px 18px; margin-bottom:24px; }
+  .strip-row { display:flex; align-items:center; gap:10px; }
+  .strip-row .num { width:14px; color:var(--muted); font-size:11px; text-align:right; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:11px; flex:none; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; white-space:nowrap; }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { padding:16px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .mini .tile > svg { width:72px; height:72px; }
+  .sizes { display:flex; align-items:end; gap:10px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .frames { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:4px; margin:10px 16px 0; padding:8px 6px; }
+  .frames figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .frames svg { width:30px; height:30px; }
+  .frames figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:560px) { body .page { padding:20px 14px 40px; } }
+
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  .arc {
+    fill:none; stroke-linecap:round; stroke-dasharray:80 280; stroke-dashoffset:-20;
+    stroke:color-mix(in oklch, var(--flash) calc(var(--f) * 55%), var(--head));
+    stroke-width:calc(var(--sw) * (1 + var(--f) * .2));
+  }
+  .star { fill:var(--head); }
+</style>
+<style id="generated"></style>
+</head>
+<body class="t theme-dark">
+<div class="page">
+  <h1>로고 띵킹 아이콘 · 다른 움직임 4종</h1>
+  <p class="intro">모양은 로고(원호 3개 + 별) 그대로, 색은 앱 포인트 색, 선 두께 2.1로 맞추고 움직이는 방식만 완전히 다르게 만들었습니다. 각 카드 아래 칸은 한 주기를 6단계로 멈춘 모습입니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">재생</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="2">½</button><button data-v="1" aria-pressed="true">실제 속도</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <div class="tile t theme-dark strip" id="strip"></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  const STAR = 'M12 8.7Q12.55 11.45 15.3 12 12.55 12.55 12 15.3 11.45 12.55 8.7 12 11.45 11.45 12 8.7Z';
+  const R = 8.6;
+  const r3 = (n) => Math.round(n * 1000) / 1000;
+  const ease = (x, p) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 0.5 * Math.pow(2 * x, p) : 1 - 0.5 * Math.pow(2 - 2 * x, p));
+  const bump = (d, w) => Math.exp(-((d / w) ** 2));
+  const cbump = (t, c, w) => bump(((t - c + 1.5) % 1) - 0.5, w);
+  const TAU = Math.PI * 2;
+
+  // Every style returns, per phase t∈[0,1]: the group transform (arcs), arc
+  // length L in degrees (centred on the logo arc), radius r, landing accent f,
+  // and the star transform. Each cycle ends on a pose identical to its start:
+  // arcs turn by multiples of 120°, the star by multiples of 90°, and flips
+  // only mirror across the logo's own symmetry axes.
+  const STYLES = [
+    { id: 'spin', letter: 'A', name: '스핀 락', tag: '룰렛', ms: 2000,
+      desc: '<b>로고가 빠르게 돌며 원호가 짧은 혜성처럼 줄어들고, 감속하며 정확한 로고 자리에 "딱" 멈춥니다.</b> 멈추는 순간 원호가 반짝이고 별이 튑니다. 룰렛이 서는 것 같은 쾌감이 있습니다.',
+      at(t) {
+        const end = 0.62;
+        const x = Math.min(t / end, 1);
+        const rot = 480 * ease(x, 3);
+        const h = 1e-4;
+        const v = t < end ? (480 * (ease((t + h) / end, 3) - ease(Math.max(0, t - h) / end, 3))) / (2 * h) : 0;
+        const vmax = (480 * 3) / end;
+        const s = v / vmax;
+        return {
+          g: `rotate(${r3(rot)}deg)`, L: 80 - 60 * s, r: R, f: cbump(t, end, 0.035),
+          star: `rotate(${r3(-180 * ease(x, 3))}deg) scale(${r3(0.9 - 0.1 * s + 0.16 * cbump(t, end, 0.04))})`,
+        };
+      } },
+    { id: 'heart', letter: 'B', name: '하트비트', tag: '두근', ms: 1500,
+      desc: '<b>천천히 도는 로고가 "두-근" 두 번 뛰고 쉽니다.</b> 뛸 때 원호가 바깥으로 살짝 벌어지며 길어지고, 별이 함께 부풉니다. 살아 있는 느낌이 가장 강합니다.',
+      at(t) {
+        const p = cbump(t, 0.1, 0.035) + 0.7 * cbump(t, 0.27, 0.035);
+        return {
+          g: `rotate(${r3(120 * t)}deg)`, L: 74 + 22 * p, r: R + 0.9 * p, f: 0.8 * p,
+          star: `rotate(${r3(90 * t)}deg) scale(${r3(0.86 + 0.3 * p)})`,
+        };
+      } },
+    { id: 'iris', letter: 'C', name: '조리개', tag: '수렴', ms: 2200,
+      desc: '<b>카메라 조리개처럼 원호가 돌며 안쪽으로 모였다가 다시 펼쳐집니다.</b> 가장 모였을 때 원호가 살짝 밝아지고, 펼쳐지면 정확한 로고가 됩니다. "생각을 모은다"는 느낌입니다.',
+      at(t) {
+        const phi = (1 - Math.cos(TAU * t)) / 2;
+        const turn = t - Math.sin(TAU * t) / TAU;
+        return {
+          // Closed radius keeps a clear ring of space around the star.
+          g: `rotate(${r3(120 * turn)}deg)`, L: 80 - 40 * phi, r: R - 2.8 * phi, f: 0.5 * phi ** 3,
+          star: `rotate(${r3(-90 * turn)}deg) scale(${r3(0.82 + 0.14 * phi)})`,
+        };
+      } },
+    { id: 'tumble', letter: 'D', name: '텀블', tag: '입체', ms: 2400,
+      desc: '<b>로고가 동전처럼 세 방향 축으로 차례로 뒤집힙니다.</b> 옆면이 보이는 순간 빛이 스치고, 착지할 때마다 별이 30°씩 돕니다. 평면 아이콘인데도 입체감이 납니다.',
+      at(t) {
+        const k = Math.min(2, Math.floor(3 * t + 1e-9));
+        const x = 3 * t - k;
+        const theta = Math.PI * ease(x / 0.55, 2.6);
+        const a = 60 * k;
+        const c = Math.cos(theta);
+        return {
+          g: `rotate(${a}deg) scaleY(${r3(c)}) rotate(${-a}deg)`, L: 80, r: R, f: x < 0.55 ? bump(c, 0.35) : 0,
+          star: `rotate(${r3(30 * (k + ease(x / 0.55, 2.6)))}deg) scale(${r3(0.88 + 0.14 * bump(x - 0.55, 0.06))})`,
+        };
+      } },
+  ];
+
+  function css(style) {
+    // Uniform samples plus a hard cut at each tumble flip boundary, where the
+    // pose is identical but the transform list restarts.
+    const ts = new Set(Array.from({ length: 181 }, (_, i) => i / 180));
+    if (style.id === 'tumble') [1, 2].forEach((k) => { ts.add(k / 3 - 1e-5); ts.add(k / 3); });
+    let g = '';
+    let arc = '';
+    let star = '';
+    const seen = new Set();
+    [...ts].sort((a, b) => a - b).forEach((t) => {
+      const pct = r3(t * 100);
+      if (seen.has(pct)) return;
+      seen.add(pct);
+      const s = style.at(t);
+      g += `${pct}%{transform:${s.g}}`;
+      arc += `${pct}%{stroke-dasharray:${r3(s.L)} ${r3(360 - s.L)};stroke-dashoffset:${r3(-(60 - s.L / 2))};r:${r3(s.r)}px;--f:${r3(s.f)}}`;
+      star += `${pct}%{transform:${s.star}}`;
+    });
+    const d = `calc(var(--k) * ${style.ms}ms)`;
+    const n = style.id;
+    return `@keyframes ${n}-g{${g}}@keyframes ${n}-arc{${arc}}@keyframes ${n}-star{${star}}` +
+      `.m-${n} .g{animation:${n}-g ${d} linear infinite}.m-${n} .arc{animation:${n}-arc ${d} linear infinite}.m-${n} .star{animation:${n}-star ${d} linear infinite}`;
+  }
+  document.getElementById('generated').textContent = STYLES.map(css).join('');
+
+  const glyph = (id, size) =>
+    `<svg viewBox="0 0 24 24" class="m-${id}"${size ? ` width="${size}" height="${size}"` : ''}><g class="o g">${[-120, 0, 120].map((rot) => `<circle class="arc" cx="12" cy="12" r="${R}" pathLength="360" transform="rotate(${rot} 12 12)"/>`).join('')}</g><path class="o star" d="${STAR}"/></svg>`;
+  const live = (id) => `<div class="live"><span class="live-icon">${glyph(id, 14)}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  document.getElementById('strip').innerHTML = STYLES.map((s) => `<div class="strip-row"><span class="num">${s.letter}</span>${live(s.id)}</div>`).join('');
+  const PHASES = [0, 0.17, 0.33, 0.5, 0.67, 0.83];
+  document.getElementById('grid').innerHTML = STYLES.map((s) => `
+    <article class="card">
+      <div class="card-head"><span class="letter">${s.letter}</span><h2>${s.name}</h2><span class="tag">${s.tag} · ${(s.ms / 1000).toFixed(1)}초</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">${glyph(s.id)}
+            <div class="sizes">${[24, 16, 14, 12].map((z) => `<figure>${glyph(s.id, z)}<figcaption>${z}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="tile t theme-dark frames">${PHASES.map((p) => `<figure data-p="${p}" data-ms="${s.ms}">${glyph(s.id)}<figcaption>${Math.round(p * 100)}%</figcaption></figure>`).join('')}</div>
+      <div class="bands">${['theme-dark', 'theme-light'].map((theme) => `<div class="tile t ${theme}">${live(s.id)}</div>`).join('')}</div>
+      <p class="desc">${s.desc}</p>
+    </article>`).join('');
+  document.querySelectorAll('.frames figure').forEach((fig) => {
+    const delay = -Number(fig.dataset.p) * Number(fig.dataset.ms);
+    fig.querySelectorAll('.g, .arc, .star').forEach((el) => {
+      el.style.animationPlayState = 'paused';
+      el.style.animationDelay = `calc(var(--k) * ${delay}ms)`;
+    });
+  });
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

@@ -2,10 +2,12 @@
 //!
 //! - [`MockConnection`]: a transport connection with the byte-budgeted writer of P §6.5,
 //!   driven synchronously by [`MockConnection::drain`].
-//! - [`MockFeed`]: the attach/publish algorithm of SPEC §4.2 over [`MockConnection`] lanes.
+//! - [`MockFeed`]: the attach/publish algorithm of SPEC §4.2 over [`MockConnection`] lanes;
+//!   [`MockScopedFeeds`] creates them as scoped feeds.
 //! - [`MockCore`] and friends: `CoreHandle`, `ThreadDirectory`, `ThreadHandle`, `OpIndex`,
 //!   `DomainService`, `ServerRequestSink`, `StatePublisher`, `HostChannel`, `HostMediaSink`.
-//! - [`conformance`]: the attach-ordering scenarios every `Feed` implementation passes.
+//! - [`conformance`]: the attach-ordering scenarios every `Feed` implementation passes, and
+//!   the scoped-feed scenarios every `ScopedFeeds` implementation passes.
 //!
 //! Lane jobs run inline on the submitting thread (`mixdog_rt::testing`), so a snapshot slot is
 //! filled before `attach` returns and `drain` output is deterministic.
@@ -39,6 +41,7 @@ pub use self::core::MockStatePublisher;
 pub use self::core::MockThread;
 pub use self::core::ServerRequestEvent;
 pub use self::feed::MockFeed;
+pub use self::feed::MockScopedFeeds;
 pub use self::transport::MockConnection;
 pub use self::transport::Written;
 

@@ -5,8 +5,14 @@
  */
 import { MAIN_BROWSER_PAGE_PREFIX, type DesktopRemoteBrowserTab } from '../../shared/contract-browser';
 
-/** How often a watched list is compared with the last published one. */
-const TAB_WATCH_MS = 750;
+/** Page events that can change a tab's title, address or loading state. */
+const TAB_EVENTS = [
+  'did-navigate',
+  'did-navigate-in-page',
+  'page-title-updated',
+  'did-start-loading',
+  'did-stop-loading',
+] as const;
 
 interface TabPage {
   isDestroyed(): boolean;
@@ -15,17 +21,22 @@ interface TabPage {
   isLoadingMainFrame(): boolean;
 }
 
+/** The page events `observe` listens to; a Electron `WebContents` fits. */
+interface ObservedPage {
+  on(event: (typeof TAB_EVENTS)[number], listener: () => void): unknown;
+  once(event: 'destroyed', listener: () => void): unknown;
+}
+
 export interface BrowserRemoteTabsDeps {
   /** Every session that currently owns a page. */
   sessionIds(): string[];
   liveGuest(sessionId: string): TabPage | null;
   publish(tabs: DesktopRemoteBrowserTab[]): Promise<void>;
-  watchMs?: number;
 }
 
 export function createBrowserRemoteTabs(deps: BrowserRemoteTabsDeps) {
   const order: string[] = [];
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let watching = false;
   let published = '';
 
   function list(): DesktopRemoteBrowserTab[] {
@@ -54,28 +65,29 @@ export function createBrowserRemoteTabs(deps: BrowserRemoteTabsDeps) {
     void deps.publish(tabs).catch(() => undefined);
   }
 
+  /** A page was created, changed or released. */
+  function changed(): void {
+    if (watching) check();
+  }
+
   return {
     list,
-    /** A page was created or released: tell watchers without waiting for the poll. */
-    changed(): void {
-      if (timer) check();
+    changed,
+    /** A new page: its own events publish a change, and so does its closing. */
+    observe(page: ObservedPage): void {
+      for (const event of TAB_EVENTS) page.on(event, changed);
+      page.once('destroyed', changed);
+      changed();
     },
-    /** Start or stop the watch; starting answers with the current list. */
+    /** Start or stop publishing; starting answers with the current list. */
     watch(on: boolean): DesktopRemoteBrowserTab[] {
-      if (on && !timer) {
-        timer = setInterval(check, deps.watchMs ?? TAB_WATCH_MS);
-        timer.unref?.();
-      } else if (!on && timer) {
-        clearInterval(timer);
-        timer = null;
-      }
+      watching = on;
       const tabs = list();
       published = JSON.stringify(tabs);
       return tabs;
     },
     dispose(): void {
-      if (timer) clearInterval(timer);
-      timer = null;
+      watching = false;
     },
   };
 }

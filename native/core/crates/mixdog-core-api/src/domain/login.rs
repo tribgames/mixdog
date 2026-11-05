@@ -29,6 +29,13 @@ pub enum LoginFailure {
         code: String,
         message: String,
     },
+    /// The provider requires the user to verify the account on `url` before
+    /// signing in again (Antigravity `VALIDATION_REQUIRED`, from the
+    /// response's structured details).
+    VerificationRequired {
+        url: String,
+        account: Option<String>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -42,6 +49,10 @@ pub enum LoginState {
     /// Open this URL; the loopback callback or a pasted code completes it.
     Authorize {
         url: String,
+        /// For a browser on another machine: this URL ends on a page showing a
+        /// code to paste (`LoginInput::AuthorizationCode`) instead of the
+        /// loopback redirect. `None` where the provider has no such page.
+        manual_url: Option<String>,
     },
     Waiting,
     Done {

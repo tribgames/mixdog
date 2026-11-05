@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Mixdog · 연결 화면 개편 시안</title>
+<style>
+  :root {
+    --app: #161618; --rail-app: #121213;
+    --dlg: #232325; --dlg-rail: #1d1d1f; --dlg-line: #333336;
+    --card: #232325; --card-line: #38383c; --field: #1a1a1c; --field-line: #3b3b40;
+    --item-on: #2f2f33; --btn: #333337; --btn-hover: #3c3c41;
+    --text: #e8e8ea; --dim: #9c9ca3; --faint: #6f6f77;
+    --ok: #4cc38a; --off: #6f6f77; --accent: #8ea7ff; --warn: #f0b35a; --danger: #ff8a80;
+    --new: #f0b35a;
+    --font: "Pretendard", "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #0b0b0c; color: var(--text); font: 14px/1.55 var(--font); padding: 40px 36px 80px; }
+  h1 { font-size: 22px; font-weight: 700; }
+  .lead { color: var(--dim); margin: 6px 0 10px; max-width: 1000px; }
+  .legend { display: flex; gap: 18px; color: var(--dim); font-size: 13px; margin-bottom: 34px; }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .part { margin: 44px 0 18px; font-size: 18px; font-weight: 700; }
+  .part small { display: block; font-size: 13px; color: var(--dim); font-weight: 400; margin-top: 2px; }
+  .step { display: grid; grid-template-columns: 290px 1040px; gap: 26px; align-items: start; margin-bottom: 34px; }
+  .meta { display: grid; gap: 8px; position: sticky; top: 16px; }
+  .who { font: 600 12px var(--font); padding: 3px 10px; border-radius: 999px; justify-self: start; }
+  .who.main { background: #22304f; color: #a9bfff; } .who.other { background: #2d2a1f; color: #f3cf8e; } .who.mobile { background: #1f2d26; color: #9fe0bd; }
+  .meta h2 { font-size: 15.5px; } .meta p { color: #b6b6bd; font-size: 13.5px; }
+
+  /* ---------- app chrome (matches the real settings dialog) ---------- */
+  .appwin { width: 1040px; height: 700px; background: var(--app); border: 1px solid #2a2a2d; border-radius: 10px; position: relative; overflow: hidden; }
+  .titlebar { height: 32px; display: flex; align-items: center; padding: 0 10px 0 64px; gap: 10px; color: var(--dim); font-size: 12px; }
+  .caption { margin-left: auto; display: flex; gap: 22px; color: #bdbdc2; font-size: 13px; padding-right: 8px; }
+  .apprail { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; background: var(--rail-app); display: grid; align-content: start; justify-items: center; gap: 18px; padding-top: 48px; }
+  .apprail i { width: 18px; height: 18px; border: 1.6px solid #77777e; border-radius: 5px; display: block; }
+  .scrim { position: absolute; inset: 32px 0 0 48px; background: #000000a0; }
+  .dlg { position: absolute; left: 30px; top: 77px; width: 980px; height: 580px; background: var(--dlg); border-radius: 14px; display: grid; grid-template-columns: 240px 1fr; overflow: hidden; box-shadow: 0 30px 70px #000c; }
+  .dlg-rail { background: var(--dlg-rail); padding: 26px 16px; display: grid; align-content: start; gap: 4px; }
+  .dlg-rail span { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 9px; font-size: 14.5px; color: #d9d9dd; }
+  .dlg-rail span::before { content: ""; width: 15px; height: 15px; border: 1.5px solid #a2a2a8; border-radius: 4px; }
+  .dlg-rail span.on { background: var(--item-on); color: var(--text); }
+  .dlg-main { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
+  .dlg-head { display: flex; align-items: center; padding: 22px 32px 10px; }
+  .dlg-head h3 { font-size: 19px; font-weight: 700; }
+  .dlg-head .hostbadge { margin-left: 12px; }
+  .dlg-head .x { margin-left: auto; color: #b9b9be; font-size: 18px; }
+  .dlg-body { padding: 6px 32px 28px; overflow: hidden; display: grid; align-content: start; gap: 22px; }
+
+  /* ---------- settings building blocks ---------- */
+  .group-title { font-size: 15px; font-weight: 700; }
+  .group-desc { color: var(--dim); font-size: 13px; margin-top: 2px; }
+  .card { border: 1px solid var(--card-line); border-radius: 12px; background: var(--card); }
+  .card.pad { padding: 18px 20px; }
+  .seg { display: inline-flex; background: #1a1a1c; border: 1px solid var(--card-line); border-radius: 10px; padding: 3px; gap: 2px; }
+  .seg span { padding: 6px 14px; border-radius: 7px; color: var(--dim); font-size: 13.5px; font-weight: 600; display: flex; gap: 7px; align-items: center; }
+  .seg span.on { background: var(--item-on); color: var(--text); }
+  .tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--dlg-line); }
+  .tabs span { padding: 0 2px 10px; color: var(--dim); font-weight: 600; font-size: 14px; }
+  .tabs span.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--text); }
+  .pair { display: grid; grid-template-columns: 168px 1fr; gap: 22px; align-items: center; }
+  .qr { width: 168px; height: 168px; border-radius: 12px; background: #f4f4f4; padding: 12px; display: grid; }
+  .qr div { background:
+      linear-gradient(90deg, #141414 50%, transparent 0) 0 0/18px 18px,
+      linear-gradient(#141414 50%, transparent 0) 0 0/18px 18px; background-blend-mode: multiply; border-radius: 3px;
+      mask: radial-gradient(circle at 18% 18%, #000 20%, transparent 21%), linear-gradient(#000, #000); }
+  .steps { display: grid; gap: 9px; counter-reset: s; }
+  .steps li { list-style: none; display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 13.5px; color: #d6d6da; }
+  .steps li::before { counter-increment: s; content: counter(s); width: 22px; height: 22px; border-radius: 50%; background: #2f2f33; color: var(--text); font: 700 12px/22px var(--font); text-align: center; }
+  .steps b { color: var(--text); font-weight: 600; }
+  .kbd { display: inline-block; padding: 0 6px; border: 1px solid #45454b; border-radius: 5px; font-size: 12px; color: #d0d0d5; background: #1b1b1d; }
+  .field { height: 34px; display: flex; align-items: center; padding: 0 12px; background: var(--field); border: 1px solid var(--field-line); border-radius: 8px; color: #d5d5da; font: 13px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .field.ph { color: var(--faint); font-family: var(--font); }
+  .btn { height: 34px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 8px; background: var(--btn); color: var(--text); font: 600 13px var(--font); white-space: nowrap; border: 0; }
+  .btn.primary { background: #e8e8ea; color: #151517; }
+  .btn.ghost { background: transparent; border: 1px solid var(--card-line); color: #cfcfd4; }
+  .btn.danger { color: var(--danger); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+  .hint { color: var(--dim); font-size: 12.5px; }
+  .list { display: grid; }
+  .item { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; padding: 13px 18px; }
+  .item + .item { border-top: 1px solid #2d2d31; }
+  .dev { width: 34px; height: 34px; border-radius: 9px; background: #2b2b2f; display: grid; place-items: center; }
+  .dev svg { width: 18px; height: 18px; stroke: #cfcfd4; fill: none; stroke-width: 1.6; }
+  .item b { font-size: 14px; font-weight: 600; }
+  .item small { display: block; color: var(--dim); font-size: 12.5px; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: #2b2b2f; color: #c9c9ce; font-size: 11.5px; font-weight: 600; vertical-align: 1px; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .pill.off::before { background: var(--off); }
+  .hostbadge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: #1f2a22; color: #9fe0bd; font-size: 12px; font-weight: 600; }
+  .hostbadge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .local-tag { font-size: 11px; color: var(--dim); border: 1px solid #3a3a3f; border-radius: 5px; padding: 0 5px; margin-left: 6px; }
+
+  /* NEW markers */
+  .new { outline: 2px dashed var(--new); outline-offset: 5px; border-radius: 12px; position: relative; }
+  .new::after { content: "NEW"; position: absolute; top: -12px; right: -4px; background: var(--new); color: #1a1205; font: 700 10px/1 var(--font); padding: 3px 6px; border-radius: 6px; letter-spacing: .05em; }
+
+  /* confirm dialog */
+  .confirm { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 420px; background: #2a2a2d; border: 1px solid #3c3c41; border-radius: 14px; padding: 22px 22px 18px; display: grid; gap: 12px; box-shadow: 0 24px 60px #000d; }
+  .confirm h4 { font-size: 16px; }
+  .confirm p { color: #c4c4ca; font-size: 13.5px; }
+  .code { font: 700 30px/1 var(--mono); letter-spacing: .34em; text-align: center; padding: 16px 0 16px .34em; background: #1b1b1d; border: 1px solid #45454b; border-radius: 10px; }
+  .warn { color: var(--warn); font-size: 12.5px; }
+  .confirm footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+  /* phone */
+  .phone { width: 300px; height: 620px; border-radius: 42px; background: #0f0f10; border: 10px solid #232326; position: relative; overflow: hidden; }
+  .phone .notch { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 90px; height: 24px; border-radius: 14px; background: #000; }
+  .phone .screen { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; }
+  .waitcard { width: 100%; background: #17171a; border-radius: 20px; padding: 26px 20px; display: grid; gap: 14px; justify-items: center; text-align: center; }
+  .spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid #333; border-top-color: var(--text); }
+  .pairrow { display: flex; gap: 28px; align-items: start; }
+
+  /* in-app host switcher */
+  .switcher { position: absolute; left: 60px; top: 4px; display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 10px; border-radius: 7px; background: #222225; border: 1px solid #333337; font-size: 12px; color: #d6d6da; }
+  .switcher::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #a2a2a8; }
+  .switcher.remote { background: #1f2a22; border-color: #2e4a38; color: #9fe0bd; }
+  .switcher.remote::before { background: var(--ok); }
+  .menu { position: absolute; left: 60px; top: 34px; width: 280px; background: #2a2a2d; border: 1px solid #3c3c41; border-radius: 12px; padding: 6px; box-shadow: 0 18px 44px #000c; display: grid; gap: 2px; }
+  .menu .mi { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+  .menu .mi.on { background: #34343a; }
+  .menu .mi small { color: var(--dim); font-size: 11.5px; display: block; }
+  .menu .sep { height: 1px; background: #3a3a3f; margin: 4px 6px; }
+  .workspace { position: absolute; left: 48px; top: 32px; right: 0; bottom: 0; display: grid; grid-template-columns: 250px 1fr; }
+  .ws-side { border-right: 1px solid #262629; padding: 14px 12px; display: grid; align-content: start; gap: 6px; color: var(--dim); font-size: 13px; }
+  .ws-side b { color: var(--text); font-size: 12px; font-weight: 600; margin: 6px 4px 2px; }
+  .ws-side span { padding: 6px 8px; border-radius: 7px; }
+  .ws-side span.on { background: #242427; color: var(--text); }
+  .ws-main { display: grid; place-items: center; color: var(--faint); font-size: 13px; }
+  .remotebar { position: absolute; left: 48px; right: 0; top: 32px; height: 34px; background: #1b2620; border-bottom: 1px solid #2c4436; display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 12.5px; color: #b8e6cc; }
+  .remotebar .btn { height: 24px; font-size: 12px; padding: 0 10px; margin-left: auto; }
+  .remotebar + .workspace { top: 66px; }
+  .flow { color: var(--faint); font-size: 13px; margin: -20px 0 22px 316px; }
+</style>
+</head>
+<body>
+<h1>연결 화면 개편 · 프로세스별 시안</h1>
+<p class="lead">지금 설정 → 연결 화면(웹 앱 QR + 연결된 기기 + 다른 PC에 연결이 한 화면에 섞인 구조)을 <b>두 갈래</b>로 나눕니다. ① 이 PC로 연결받기(iOS · Android · 다른 PC) ② 이 PC에서 다른 PC에 연결하기. 다른 PC에 연결한 상태는 <b>앱 상단에 늘 보이게</b> 합니다.</p>
+<div class="legend"><span><i style="background:var(--new)"></i>NEW · 이번에 새로 추가/변경</span><span>색·간격·모서리는 지금 설정 창 기준</span></div>
+
+<!-- ===================== PART 1 ===================== -->
+<div class="part">1. 이 PC로 연결받기 <small>설정 → 연결 → "이 PC로 연결" 탭. 기기 종류를 먼저 고르면 그 기기에 맞는 안내만 보여 줍니다.</small></div>
+
+<section class="step">
+  <div class="meta"><span class="who main">메인 PC</span><h2>1-1. iPhone · iPad</h2>
+    <p>기기 종류 선택(iPhone·iPad / Android / 다른 PC)이 새로 생깁니다. iOS는 Safari 전용 설치 순서를 안내합니다.</p>
+    <p>아래 "연결된 기기"에는 기기 종류 아이콘이 붙습니다.</p></div>
+  <div class="appwin"><div class="titlebar"><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div><div class="scrim"></div>
+    <div class="dlg">
+      <div class="dlg-rail"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>단축키</span><span class="on">연결</span><span>정보</span></div>
+      <div class="dlg-main"><div class="dlg-head"><h3>연결</h3><span class="x">✕</span></div>
+        <div class="dlg-body">
+          <div class="tabs new"><span class="on">이 PC로 연결</span><span>다른 PC에 연결</span></div>
+          <div class="card pad" style="display:grid;gap:16px">
+            <div class="row"><div class="grow"><div class="group-title">어떤 기기로 연결할까요?</div><div class="group-desc">승인하면 그 기기는 이 PC와 같은 권한을 가져요.</div></div>
+              <div class="seg new"><span class="on">iPhone · iPad</span><span>Android</span><span>다른 PC</span></div></div>
+            <div class="pair"><div class="qr"><div></div></div>
+              <ol class="steps"><li><span><b>카메라로 QR</b>을 찍고 <b>Safari</b>로 여세요</span></li><li><span>아래쪽 <span class="kbd">공유</span> → <b>홈 화면에 추가</b></span></li><li><span>홈 화면의 <b>Mixdog</b> 아이콘으로 여세요</span></li><li><span>이 PC에 뜨는 승인 창에서 <b>확인 코드</b>를 대조하고 승인</span></li></ol></div>
+          </div>
+          <div><div class="group-title">연결된 기기</div>
+            <div class="card list" style="margin-top:10px">
+              <div class="item"><div class="dev"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></div><div><b>iPhone<span class="pill">연결됨</span></b><small>추가 10. 3. · 마지막 사용 방금</small></div><span class="btn">해제</span></div>
+              <div class="item"><div class="dev"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><div><b>회사 노트북<span class="pill off">꺼짐</span></b><small>다른 PC · 마지막 사용 어제</small></div><span class="btn">해제</span></div>
+            </div></div>
+        </div></div></div></div>
+</section>
+
+<section class="step">
+  <div class="meta"><span class="who main">메인 PC</span><h2>1-2. Android</h2><p>같은 QR이지만 Chrome 기준 설치 순서로 바뀝니다.</p></div>
+  <div class="appwin"><div class="titlebar"><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div><div class="scrim"></div>
+    <div class="dlg"><div class="dlg-rail"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>단축키</span><span class="on">연결</span><span>정보</span></div>
+      <div class="dlg-main"><div class="dlg-head"><h3>연결</h3><span class="x">✕</span></div>
+        <div class="dlg-body">
+          <div class="tabs"><span class="on">이 PC로 연결</span><span>다른 PC에 연결</span></div>
+          <div class="card pad" style="display:grid;gap:16px">
+            <div class="row"><div class="grow"><div class="group-title">어떤 기기로 연결할까요?</div><div class="group-desc">승인하면 그 기기는 이 PC와 같은 권한을 가져요.</div></div>
+              <div class="seg"><span>iPhone · iPad</span><span class="on">Android</span><span>다른 PC</span></div></div>
+            <div class="pair"><div class="qr"><div></div></div>
+              <ol class="steps"><li><span><b>카메라로 QR</b>을 찍고 <b>Chrome</b>으로 여세요</span></li><li><span>오른쪽 위 <span class="kbd">⋮</span> → <b>앱 설치</b> (또는 아래 "설치" 버튼)</span></li><li><span>설치된 <b>Mixdog</b> 앱을 여세요</span></li><li><span>이 PC에 뜨는 승인 창에서 <b>확인 코드</b>를 대조하고 승인</span></li></ol></div>
+          </div>
+          <div class="hint">Samsung Internet·Firefox에서도 열리지만, 설치는 Chrome이 가장 확실해요.</div>
+        </div></div></div></div>
+</section>
+
+<section class="step">
+  <div class="meta"><span class="who main">메인 PC</span><h2>1-3. 다른 PC</h2><p>QR 대신 <b>연결 링크</b>를 보여 줍니다. 지금처럼 기본 입력란 그대로가 아니라 정돈된 필드 + 복사 버튼으로 바꿉니다.</p><p>링크만으로는 아무 권한도 생기지 않고, 이 PC 승인 + 코드 대조가 있어야 연결돼요.</p></div>
+  <div class="appwin"><div class="titlebar"><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div><div class="scrim"></div>
+    <div class="dlg"><div class="dlg-rail"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>단축키</span><span class="on">연결</span><span>정보</span></div>
+      <div class="dlg-main"><div class="dlg-head"><h3>연결</h3><span class="x">✕</span></div>
+        <div class="dlg-body">
+          <div class="tabs"><span class="on">이 PC로 연결</span><span>다른 PC에 연결</span></div>
+          <div class="card pad" style="display:grid;gap:18px">
+            <div class="row"><div class="grow"><div class="group-title">어떤 기기로 연결할까요?</div><div class="group-desc">승인하면 그 기기는 이 PC와 같은 권한을 가져요.</div></div>
+              <div class="seg"><span>iPhone · iPad</span><span>Android</span><span class="on">다른 PC</span></div></div>
+            <div style="display:grid;gap:8px"><div class="hint">이 PC의 연결 링크</div>
+              <div class="row new"><div class="field grow">https://relay.mixdog.app/d/43debcfa-172f-4f5b-a117-91903d50c8a3/</div><span class="btn primary">링크 복사</span></div></div>
+            <ol class="steps"><li><span>링크를 다른 PC로 보내세요 (메신저·메모 등)</span></li><li><span>다른 PC의 Mixdog에서 <b>설정 → 연결 → 다른 PC에 연결</b>에 붙여 넣기</span></li><li><span>이 PC에 뜨는 승인 창에서 <b>확인 코드</b>를 대조하고 승인</span></li></ol>
+          </div>
+        </div></div></div></div>
+</section>
+
+<!-- ===================== PART 2 ===================== -->
+<div class="part">2. 승인 · 확인 코드 <small>어느 기기든 같은 단계. 요청한 기기와 메인 PC에 같은 6자리 코드가 떠야 승인합니다.</small></div>
+
+<section class="step">
+  <div class="meta"><span class="who main">메인 PC</span><h2>2-1. 승인 창</h2><p>지금 승인 창("○○을 연결할까요?") 구조 그대로, <b>확인 코드</b>와 <b>"같은 권한" 경고</b>를 추가합니다. 승인 버튼은 "코드가 같아요 · 승인".</p><p>코드가 다르면 거부 → 요청한 쪽에 "거부됨"이 뜨고 끝납니다.</p></div>
+  <div class="appwin"><div class="titlebar"><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div><div class="scrim"></div>
+    <div class="dlg" style="filter:brightness(.55)"><div class="dlg-rail"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>단축키</span><span class="on">연결</span><span>정보</span></div><div class="dlg-main"><div class="dlg-head"><h3>연결</h3></div></div></div>
+    <div class="confirm">
+      <h4>회사 노트북을 연결할까요?</h4>
+      <p>이 데스크톱을 사용하겠다고 요청했어요. 방금 그 기기에서 Mixdog을 연 경우에만 승인하세요.</p>
+      <div class="new" style="display:grid;gap:10px;padding:2px">
+        <div class="hint">요청한 기기 화면의 코드와 같은지 확인하세요</div>
+        <div class="code">482917</div>
+        <div class="warn">승인하면 이 기기는 이 PC와 같은 권한을 가져요 — API 키, MCP, 파일, 터미널 포함.</div>
+      </div>
+      <footer><span class="btn">거부</span><span class="btn primary new">코드가 같아요 · 승인</span></footer>
+    </div></div>
+</section>
+
+<section class="step">
+  <div class="meta"><div class="row"><span class="who mobile">폰</span><span class="who other">다른 PC</span></div><h2>2-2. 요청한 쪽 · 승인 대기</h2><p>지금 "이 장치를 승인합니다 · 승인 대기 중" 화면에 <b>같은 확인 코드</b>를 추가합니다. 폰(설치된 앱)과 다른 PC 창 모두 같은 화면입니다.</p><p>메인 PC에서 설정 → 연결을 열어 두지 않으면 승인 창이 안 뜨므로, 여기에 그 안내도 넣습니다.</p></div>
+  <div class="pairrow">
+    <div class="phone"><div class="notch"></div><div class="screen"><div class="waitcard">
+      <b style="font-size:17px">이 장치를 승인합니다</b>
+      <span class="hint">Mixdog은(는) 자신이 속한 데스크톱의 일회성 승인이 필요합니다.</span>
+      <div class="spinner"></div><b>승인 대기 중</b>
+      <div class="new" style="display:grid;gap:8px;width:100%;padding:2px"><span class="hint">메인 PC 화면의 코드와 같은지 확인하세요</span><div class="code" style="font-size:26px">482917</div></div>
+      <span class="hint new" style="padding:4px 6px">메인 PC에서 <b style="color:var(--text)">설정 → 연결</b>을 열어 두세요</span>
+    </div></div></div>
+    <div class="appwin" style="width:700px;height:620px"><div class="titlebar" style="padding-left:14px"><span style="color:#cfcfd4">집 PC — Mixdog</span><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div>
+      <div style="position:absolute;inset:32px 0 0 0;display:grid;place-items:center"><div class="waitcard" style="width:360px">
+        <b style="font-size:17px">이 장치를 승인합니다</b>
+        <span class="hint">Mixdog은(는) 자신이 속한 데스크톱의 일회성 승인이 필요합니다.</span>
+        <div class="spinner"></div><b>승인 대기 중</b>
+        <div class="new" style="display:grid;gap:8px;width:100%;padding:2px"><span class="hint">메인 PC 화면의 코드와 같은지 확인하세요</span><div class="code">482917</div></div>
+        <span class="hint new" style="padding:4px 6px">메인 PC에서 <b style="color:var(--text)">설정 → 연결</b>을 열어 두세요</span>
+      </div></div></div>
+  </div>
+</section>
+
+<!-- ===================== PART 3 ===================== -->
+<div class="part">3. 이 PC에서 다른 PC에 연결하기 <small>설정 → 연결 → "다른 PC에 연결" 탭. 저장된 PC를 관리하고 새 PC를 추가합니다.</small></div>
+
+<section class="step">
+  <div class="meta"><span class="who other">다른 PC</span><h2>3-1. 다른 PC에 연결 탭</h2><p>지금은 페이지 맨 아래에 기본 입력란이 섞여 있어 깨져 보입니다. 별도 탭으로 빼고, 저장된 PC를 카드 목록으로 정리합니다.</p><p>"열기"를 누르면 그 PC 전용 창이 열립니다.</p></div>
+  <div class="appwin"><div class="titlebar"><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div><div class="scrim"></div>
+    <div class="dlg"><div class="dlg-rail"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>단축키</span><span class="on">연결</span><span>정보</span></div>
+      <div class="dlg-main"><div class="dlg-head"><h3>연결</h3><span class="x">✕</span></div>
+        <div class="dlg-body">
+          <div class="tabs"><span>이 PC로 연결</span><span class="on">다른 PC에 연결</span></div>
+          <div><div class="group-title">저장된 PC</div><div class="group-desc">연결했던 PC예요. 그 PC의 Mixdog이 켜져 있어야 열 수 있어요.</div>
+            <div class="card list new" style="margin-top:10px">
+              <div class="item"><div class="dev"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><div><b>집 PC<span class="pill">켜져 있음</span></b><small>마지막 연결 오늘 오전 3:44</small></div><div class="row"><span class="btn primary">열기</span><span class="btn ghost">⋯</span></div></div>
+              <div class="item"><div class="dev"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><div><b>사무실 데스크톱<span class="pill off">꺼짐</span></b><small>마지막 연결 3일 전</small></div><div class="row"><span class="btn" style="opacity:.5">열기</span><span class="btn ghost">⋯</span></div></div>
+            </div></div>
+          <div><div class="group-title">새 PC 추가</div><div class="group-desc">다른 PC의 설정 → 연결 → 이 PC로 연결 → <b style="color:var(--text)">다른 PC</b>에서 복사한 링크를 붙여 넣으세요.</div>
+            <div class="card pad new" style="margin-top:10px;display:grid;gap:10px">
+              <div class="row"><div class="field ph grow">연결 링크 붙여 넣기</div><div class="field ph" style="width:180px">이름 (선택)</div><span class="btn primary">연결</span></div>
+            </div></div>
+        </div></div></div></div>
+</section>
+
+<!-- ===================== PART 4 ===================== -->
+<div class="part">4. 앱에서 연결 상태 보이기 <small>다른 PC에 연결하면 그 PC의 세션·프로젝트·설정이 보이므로, 지금 어느 PC를 보고 있는지 앱 어디서든 알 수 있게 합니다.</small></div>
+
+<section class="step">
+  <div class="meta"><span class="who other">다른 PC</span><h2>4-1. 상단 PC 전환 메뉴</h2><p>제목 표시줄 왼쪽에 <b>"이 PC ▾"</b> 버튼을 추가합니다. 누르면 저장된 PC와 상태가 나오고, 고르면 그 PC 창이 열립니다(이미 열려 있으면 앞으로).</p><p>저장된 PC가 없으면 버튼은 숨깁니다.</p></div>
+  <div class="appwin"><div class="titlebar"><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div>
+    <div class="switcher new">이 PC ▾</div>
+    <div class="workspace"><div class="ws-side"><b>에이전트</b><span class="on">새 작업</span><span>리팩터링 정리</span><b>프로젝트</b><span>mixdog</span><span>blog</span></div><div class="ws-main">이 PC의 작업 화면</div></div>
+    <div class="menu new">
+      <div class="mi on"><span>🖥</span><div>이 PC<small>지금 보고 있음</small></div><span class="hint">✓</span></div>
+      <div class="sep"></div>
+      <div class="mi"><span>🖥</span><div>집 PC<small>켜져 있음 · 창 열기</small></div><span class="pill" style="margin:0">ON</span></div>
+      <div class="mi"><span>🖥</span><div>사무실 데스크톱<small>꺼짐</small></div><span class="pill off" style="margin:0">OFF</span></div>
+      <div class="sep"></div>
+      <div class="mi"><span>＋</span><div>다른 PC 연결…<small>설정 → 연결 → 다른 PC에 연결</small></div><span></span></div>
+    </div></div>
+</section>
+
+<section class="step">
+  <div class="meta"><span class="who other">다른 PC</span><h2>4-2. 다른 PC 창 · 늘 보이는 연결 표시</h2><p>그 PC 창은 제목 표시줄 버튼이 초록색 <b>"집 PC ●"</b>로 바뀌고, 상단에 얇은 연결 바가 붙습니다. 실수로 이 PC 작업이라고 착각하지 않게 하려는 것입니다.</p><p>바에서 "연결 끊기"로 창을 닫을 수 있어요.</p></div>
+  <div class="appwin"><div class="titlebar"><span style="margin-left:180px;color:#cfcfd4">집 PC — Mixdog</span><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div>
+    <div class="switcher remote new">집 PC ▾</div>
+    <div class="remotebar new"><span>●</span><span><b>집 PC</b>에 연결됨 — 여기서 하는 작업은 집 PC에서 실행돼요</span><span class="btn">연결 끊기</span></div>
+    <div class="workspace"><div class="ws-side"><b>에이전트</b><span class="on">API 서버 버그 수정</span><span>배포 스크립트</span><b>프로젝트</b><span>home-server</span><span>mixdog</span></div><div class="ws-main">집 PC의 세션·프로젝트가 그대로 보임</div></div></div>
+</section>
+
+<section class="step">
+  <div class="meta"><span class="who other">다른 PC</span><h2>4-3. 다른 PC 창의 설정 · 어느 PC 설정인지 표시</h2><p>그 PC 창에서 연 설정은 <b>집 PC의 설정</b>입니다. 제목 옆에 "집 PC 설정" 표시를 붙이고, 테마·언어처럼 이 PC에만 적용되는 항목에는 <b>"이 PC"</b> 태그를 답니다.</p></div>
+  <div class="appwin"><div class="titlebar"><span style="margin-left:180px;color:#cfcfd4">집 PC — Mixdog</span><div class="caption"><span>—</span><span>☐</span><span>✕</span></div></div><div class="apprail"><i></i><i></i><i></i><i></i></div><div class="switcher remote">집 PC ▾</div><div class="scrim"></div>
+    <div class="dlg"><div class="dlg-rail"><span class="on">일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>연결</span><span>정보</span></div>
+      <div class="dlg-main"><div class="dlg-head"><h3>일반</h3><span class="hostbadge new">집 PC 설정</span><span class="x">✕</span></div>
+        <div class="dlg-body">
+          <div><div class="group-title">프로필</div>
+            <div class="card list" style="margin-top:10px">
+              <div class="item" style="grid-template-columns:1fr auto"><div><b>호칭</b><small>집 PC의 Mixdog이 부르는 이름</small></div><div class="field" style="width:200px">재영님</div></div>
+              <div class="item" style="grid-template-columns:1fr auto"><div><b>답변 언어</b><small>집 PC에서 실행되는 모든 답변</small></div><div class="field" style="width:200px">한국어</div></div>
+            </div></div>
+          <div><div class="group-title">화면</div>
+            <div class="card list new" style="margin-top:10px">
+              <div class="item" style="grid-template-columns:1fr auto"><div><b>테마<span class="local-tag">이 PC</span></b><small>이 PC의 창에만 적용돼요</small></div><div class="field" style="width:200px">다크</div></div>
+              <div class="item" style="grid-template-columns:1fr auto"><div><b>표시 언어<span class="local-tag">이 PC</span></b><small>이 PC의 창에만 적용돼요</small></div><div class="field" style="width:200px">시스템 기본값</div></div>
+            </div></div>
+        </div></div></div></div>
+</section>
+
+</body>
+</html>

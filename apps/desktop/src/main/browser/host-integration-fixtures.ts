@@ -246,6 +246,17 @@ export function createBrowserPageFixture(frameOrigin: () => string): {
       response.end('download attachment ready');
       return;
     }
+    if (path === '/download-held') {
+      // A 1 KB attachment whose second half follows after a pause, so it is in
+      // progress while the navigation to it settles on every channel alike.
+      response.setHeader('content-type', 'text/plain; charset=utf-8');
+      response.setHeader('content-disposition', 'attachment; filename="browser-fixture.txt"');
+      response.setHeader('content-length', '1024');
+      response.write('a'.repeat(512));
+      const finish = setTimeout(() => response.end('a'.repeat(512)), 300);
+      response.once('close', () => clearTimeout(finish));
+      return;
+    }
     if (path === '/long-text') {
       response.end(
         `<!doctype html><title>Long text fixture</title><h1>Long text</h1><p>${'a long paragraph of page text. '.repeat(3_000)}</p>`

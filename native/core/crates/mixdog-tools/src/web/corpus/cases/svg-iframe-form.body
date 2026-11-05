@@ -1,0 +1,3 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Misc</title></head><body><main><p>Before</p><svg width="10" height="10"><title>icon</title><a href="/s"><text>svg link</text></a></svg>
+<iframe src="/frame">fallback</iframe><form action="/go"><label>Name <input value="v"></label><select><option>One</option><option>Two</option></select><button>Go</button></form>
+<video controls><source src="/v.mp4"></video><p>After</p></main></body></html>

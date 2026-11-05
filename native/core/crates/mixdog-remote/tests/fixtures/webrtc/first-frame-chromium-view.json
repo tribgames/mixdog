@@ -1,0 +1,9 @@
+{
+  "browser": "chromium",
+  "scenario": "view",
+  "width": 640,
+  "height": 360,
+  "firstFrameMs": 434,
+  "pliCount": 0,
+  "keyFramesDecoded": 1
+}

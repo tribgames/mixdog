@@ -1,0 +1,143 @@
+<!doctype html><html><head><title>docs/computer-use-parity.md</title></head><body><header><nav><a href="/">Home</a></nav></header><main><article class="markdown-body"><h1>Computer Use parity and recovery boundaries</h1>
+<p>This is a source/fixture comparison, not a claim of production-product parity.
+The reference sources inspected were the local Cua Windows driver, OpenAI&#39;s
+computer-use sample application, and Anthropic&#39;s public computer-use demo and
+best-practices quickstart. Public samples do not expose every production control.</p>
+<h2>Contracts and remaining gaps</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Current implementation and evidence</th>
+<th>Remaining boundary</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Window capture</td>
+<td>Electron window capture, exact-HWND <code>PrintWindow</code>, then bounded Windows Graphics Capture (WGC) when those pixels are unavailable/unusable. Native paths share identity/geometry guards; zoom retains its original backend. <code>backend/window-graphics-capture.electron.test.mjs</code> verifies repeated real WGC captures of a covered fixture, known pixels, unchanged foreground and geometry rejection.</td>
+<td>WGC requires OS support and a working graphics device. The fully off-screen fixture returned black pixels; quality checks still reject unusable frames. Source/fixture coverage does not establish acceptance for every GPU/DirectComposition application, including Unity.</td>
+</tr>
+<tr>
+<td>Coordinates</td>
+<td>A bounded final image size is registered before the frame becomes actionable. Root <code>capture-size.test.mjs</code> checks encoder budgets and that provider preparation preserves the registered dimensions.</td>
+<td>Other display/DPI combinations and installed application behavior still need independent acceptance.</td>
+</tr>
+<tr>
+<td>Input planning</td>
+<td><code>host/input-preflight.ts</code> shares the dispatch key grammar and app-owned text eligibility. Native refs are not incorrectly exempted from preflight. The native worker checks the addressed child rather than treating the outer window&#39;s class as proof about every child.</td>
+<td>A valid preflight is not proof of delivery; target and authority are checked again at dispatch. The supported toolkit/action matrix remains narrower than a complete Windows desktop matrix.</td>
+</tr>
+<tr>
+<td>Partial execution</td>
+<td>Native and app-owned typing retain the preparatory click&#39;s delivery evidence when text fails. Uncertain sequence steps stop all continuation and remain in diagnostics.</td>
+<td>Neither transport acknowledgment nor an accessibility echo proves the user&#39;s complete task succeeded.</td>
+</tr>
+<tr>
+<td>Session release</td>
+<td>Concurrent releases share one acknowledgment; a new command waits for the previous release and can be cancelled without sending input. Shutdown waiting retains its own deadline.</td>
+<td>An unconfirmed release is not permission to dispatch the waiting command.</td>
+</tr>
+<tr>
+<td>Capture deadlines</td>
+<td>WGC preparation, frame acquisition, GPU copy and encoding share a 1500 ms work budget within the existing 2000 ms worker deadline. Async timeout requests cancellation and checks settlement; uncertain cancellation/cleanup removes the worker from reuse before resolving its original error receipt.</td>
+<td>Synchronous driver calls can still require the outer process deadline. Other OCR consumers retain their existing caller-owned deadlines.</td>
+</tr>
+<tr>
+<td>Capture evidence</td>
+<td><code>capture-sources.ts</code> owns transport selection separately from frame/coordinate registration. Bounded attempt records preserve each backend&#39;s outcome, code, elapsed time and cleanup, including successful fallback and owner scope. Replies, run history and saved failure bundles retain only category fields.</td>
+<td>No private pixels, titles or raw provider errors enter the attempt ledger. A timeout remains failure even if an operation completes during cancellation.</td>
+</tr>
+<tr>
+<td>Observation failure</td>
+<td>Completed input and failed observation remain separate. Recovery asks for fresh observation, never repetition of completed input.</td>
+<td>A failed observation cannot be promoted to goal success.</td>
+</tr>
+<tr>
+<td>Stop control</td>
+<td>The hit target stays fixed during takeover/status changes. An Electron fixture uses Windows hit-testing and window-targeted mouse messages through the sandboxed preload, without moving the cursor or activating the overlay. Repeated Stop requests share their completion. Native cleanup proceeds independently of bounded daemon cancellation; either failure keeps input paused. An unresponsive control renderer triggers a safety pause.</td>
+<td>Fixture input does not establish installed-build acceptance. OS-wide physical input and the current user&#39;s active application are not exercised by this test.</td>
+</tr>
+<tr>
+<td>Cleanup</td>
+<td>Worker exit and global input release are independent gates. The action catalogue distinguishes press/release lifetimes from semantic operations and plain character messages, avoiding fictitious held-input failures. Global key release cannot clear missing target-local message-release evidence.</td>
+<td>Unconfirmed background release requires user recovery. Restarting the host does not prove the application received a release.</td>
+</tr>
+<tr>
+<td>Browser routing</td>
+<td>Native delivery errors retain the user-selected external window/session. Mixdog browser work stays with Browser Use.</td>
+<td>Cua&#39;s browser-page escalation is not transferable to a browser tool that cannot attach to the selected external window.</td>
+</tr>
+<tr>
+<td>Verification</td>
+<td>Fast behavior tests, native compilation, dedicated fixture pixels, source bundles, and privacy checks cover the changed boundaries.</td>
+<td>Full app/toolkit × action × delivery matrices, actual human interruption, and installed-build acceptance remain separate checks.</td>
+</tr>
+</tbody></table>
+<h2>Policy decisions</h2>
+<ul>
+<li>Use supported background input by default. Known no-input refusals permit
+choosing another supported route only within the user&#39;s approved scope.</li>
+<li>Do not force a failed background attempt when unsupported behavior is already
+established, and do not infer support or failure from the app name alone.</li>
+<li>A no-input refusal for one action does not erase earlier completed steps.</li>
+<li>Preserve the selected browser session. Do not use another tool, shell input
+host, or another browser to bypass a refusal, user stop, CAPTCHA, or consent.</li>
+<li>Usable pixels remain usable when OCR is unavailable. Do not repeatedly call a
+missing recognizer or silently install language packs.</li>
+<li>Never replace window-owned capture with a crop of the shared desktop. A
+covering application&#39;s pixels are not evidence of the requested window.</li>
+<li>WGC keeps the OS capture indicator and never restores or focuses a window.
+Denial, minimization, cloaking or changing geometry stops native fallback.
+No borderless capture permission, SDK installation or graphics-device
+reconfiguration is requested.</li>
+<li>Keep stricter safety contracts where samples assume a disposable, exclusively
+controlled desktop. Do not adopt arbitrary code execution or silent delivery
+switching merely to increase apparent action coverage.</li>
+</ul>
+<h2>Skill review scenarios</h2>
+<p>The prior built-in skill is preserved by Git blob
+<code>752f7ea0e0c8647bf4f6532cd46f7ce33dd2d1b1</code>. These are instruction/contract review
+scenarios, not a live-model A/B benchmark:</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Required decision</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Read and click a native editor with empty accessibility and unavailable OCR, but usable pixels</td>
+<td>Continue with the fresh image/frame; no recognizer retry or package installation.</td>
+</tr>
+<tr>
+<td>Save in an external signed-in browser after a definite unsupported background chord</td>
+<td>Keep that browser; use explicit foreground only if in scope.</td>
+</tr>
+<tr>
+<td>A preparatory click completed, then typing failed</td>
+<td>Inspect the resulting state; do not retry the whole operation or call it unexecuted.</td>
+</tr>
+<tr>
+<td>Input completed but its final screenshot failed</td>
+<td>Recover observation only; preserve completed progress.</td>
+</tr>
+<tr>
+<td>A strict background-only request needs foreground input</td>
+<td>Ask for the material scope change, not an automatic escalation.</td>
+</tr>
+<tr>
+<td>Work in Mixdog&#39;s own browser</td>
+<td>Use Browser Use, not native desktop fallback.</td>
+</tr>
+</tbody></table>
+<h2>Reference paths</h2>
+<ul>
+<li><code>C:/Project/refs/cua/libs/cua-driver/rust/crates/platform-windows/src/capture.rs</code></li>
+<li><code>C:/Project/refs/cua/libs/cua-driver/rust/crates/platform-windows/src/wgc.rs</code></li>
+<li><code>C:/Project/refs/cua/libs/cua-driver/rust/crates/platform-windows/src/input/keyboard.rs</code></li>
+<li><code>C:/Project/refs/cua/libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs</code></li>
+<li><code>C:/Project/refs/cua/libs/cua-driver/docs/action-support.md</code></li>
+<li><code>C:/Project/refs/openai-cua-sample-app/python-app/app/desktop/worker.py</code></li>
+<li><a href="https://github.com/anthropics/anthropic-quickstarts/tree/main/computer-use-best-practices">https://github.com/anthropics/anthropic-quickstarts/tree/main/computer-use-best-practices</a></li>
+</ul>
+</article></main><footer>© docs</footer></body></html>

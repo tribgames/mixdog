@@ -493,7 +493,6 @@ test("a server connection's startup deadline outlasts a first install", async ()
       throw new Error('unused');
     },
     appVersion: '0.0.0',
-    bundlePath: 'daemon.cjs',
   };
   const server = createDesktopConnection(
     { id: 'srv-8', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
@@ -544,7 +543,6 @@ test('a server connection hands onProgress to its RemoteSession and detaches cle
         throw new Error('unused');
       },
       appVersion: '0.0.0',
-      bundlePath: 'daemon.cjs',
     },
     { onProgress }
   );

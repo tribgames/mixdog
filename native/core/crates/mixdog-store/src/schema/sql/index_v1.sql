@@ -148,10 +148,85 @@ CREATE TABLE compactions (
     file_no INTEGER NOT NULL,
     frame_offset INTEGER NOT NULL,
     frame_len INTEGER NOT NULL,
+    -- Where the display divider sits: the ordinal of the oldest live model message row
+    -- the replacement kept, else the compaction's own ordinal. The divider precedes the
+    -- first displayed row at or above it.
+    boundary INTEGER NOT NULL,
     superseded_rev INTEGER,
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;
 CREATE INDEX compactions_live ON compactions(session, ordinal) WHERE superseded_rev IS NULL;
+
+-- The catalog's message state (FORMAT.md §8.2). Rows are immutable versions keyed by log
+-- position: a message of the model context (a model `message` item, or one entry of a
+-- `compacted` replacement, which takes the compaction's ordinal and `idx` = its position)
+-- has a first version at `ver` = the frame's ordinal, and one more version per `amend`
+-- (`ver` = the amend's ordinal). `live` marks the current version of a live row;
+-- `superseded_rev` is the ordinal of the rewind that removed the version, so a rewind past
+-- an amend brings the earlier version back. `place` is the row's 1-based place among the
+-- counted rows of its epoch, fixed when it was written.
+CREATE TABLE message_rows (
+    session TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    idx INTEGER NOT NULL,
+    ver INTEGER NOT NULL,
+    iid TEXT NOT NULL,
+    counted INTEGER NOT NULL,
+    real INTEGER NOT NULL,
+    incoming INTEGER NOT NULL,
+    place INTEGER NOT NULL,
+    preview TEXT NOT NULL,
+    line TEXT NOT NULL,
+    routine TEXT NOT NULL,
+    live INTEGER NOT NULL,
+    superseded_rev INTEGER,
+    PRIMARY KEY (session, ordinal, idx, ver)
+) WITHOUT ROWID;
+CREATE INDEX message_rows_iid ON message_rows(session, iid, ordinal);
+CREATE INDEX message_rows_ver ON message_rows(session, ver) WHERE superseded_rev IS NULL;
+CREATE INDEX message_rows_preview ON message_rows(session, ordinal, idx) WHERE live = 1 AND preview <> '';
+CREATE INDEX message_rows_line ON message_rows(session, ordinal, idx) WHERE live = 1 AND line <> '';
+CREATE INDEX message_rows_incoming ON message_rows(session, ordinal, idx) WHERE live = 1 AND incoming = 1;
+
+-- Aggregates of one context epoch: the root (`start` 0) or a live `compacted` frame
+-- (`start` = its ordinal). Adjusted by deltas on append, amend and rewind; the live epoch
+-- is the newest not superseded. Counts include this session's own rows only.
+CREATE TABLE message_epochs (
+    session TEXT NOT NULL,
+    start INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    real INTEGER NOT NULL,
+    superseded_rev INTEGER,
+    PRIMARY KEY (session, start)
+) WITHOUT ROWID;
+
+-- What a fork inherits: its base's state as of `position` (the fork point, or lower after
+-- a rewind of the child into the base range), snapshotted once. Immutable once `ready`;
+-- a later rewind or amend of the base never reaches it. Versioned by log position like
+-- rows: `valid_from` is the frame that set it, a rewind past it supersedes it. A view
+-- whose base was not exactly at `position` is `pending` while the maintenance steps scan
+-- the base rows as of `position` from the cursor (`cur_*`); the accumulators carry the
+-- partial state and `place_base` the base's own inherited count for absolute places.
+CREATE TABLE message_views (
+    session TEXT NOT NULL,
+    valid_from INTEGER NOT NULL,
+    base TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('ready','pending')),
+    count INTEGER NOT NULL,
+    real INTEGER NOT NULL,
+    preview TEXT NOT NULL,
+    line TEXT NOT NULL,
+    routine TEXT NOT NULL,
+    incoming TEXT NOT NULL,
+    scan_from INTEGER NOT NULL,
+    cur_ordinal INTEGER NOT NULL,
+    cur_idx INTEGER NOT NULL,
+    place_base INTEGER NOT NULL,
+    superseded_rev INTEGER,
+    PRIMARY KEY (session, valid_from)
+) WITHOUT ROWID;
+CREATE INDEX message_views_pending ON message_views(state) WHERE state = 'pending' AND superseded_rev IS NULL;
 
 -- One row per run (`run` frames).
 CREATE TABLE turns (
@@ -194,6 +269,29 @@ CREATE TABLE fork_edges (
     PRIMARY KEY (base, child)
 ) WITHOUT ROWID;
 CREATE INDEX fork_edges_child ON fork_edges(child);
+
+-- Prompt history (the `promptHistoryList` of 1.4.5): every visible `user` message row's
+-- prompt text, keyed by the JS rule `text.trim().replace(/\s+/g, ' ')`.
+-- prompt_occurrences holds every occurrence (superseded by rewinds like history rows);
+-- prompt_history holds, per key, the newest live occurrence, so the newest 50 distinct
+-- prompts are one index range.
+CREATE TABLE prompt_occurrences (
+    session TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    text TEXT NOT NULL,
+    superseded_rev INTEGER,
+    PRIMARY KEY (session, ordinal)
+) WITHOUT ROWID;
+CREATE INDEX prompt_occurrences_key ON prompt_occurrences(session, key, ordinal);
+CREATE TABLE prompt_history (
+    session TEXT NOT NULL,
+    key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (session, key)
+) WITHOUT ROWID;
+CREATE INDEX prompt_history_recent ON prompt_history(session, ordinal);
 
 -- Thread-scope op lookup (P §9.2); the record at (file_no, frame_offset) carries the op.
 CREATE TABLE thread_ops (

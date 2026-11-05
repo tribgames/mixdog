@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/sniff",
+ "contentType": "",
+ "expected": {
+  "ok": true,
+  "title": "Sniffed",
+  "content": "Sniffed content.",
+  "extractor": "dom-markdown"
+ }
+}

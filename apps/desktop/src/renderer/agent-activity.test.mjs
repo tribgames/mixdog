@@ -6,12 +6,12 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 import {
-  AGENT_POOL_RECONCILE_MS,
   AgentActivityPane,
   agentActivityGroups,
   flattenAgentActivityNodes,
   liveAgentRows,
 } from './AgentActivityPane.tsx';
+import { sectionStoreFor } from './section-store.ts';
 import { createDesktopCancellationLedger, desktopAgentActivityState } from '../shared/agent-activity.ts';
 import { backgroundJobRows } from './background-jobs-model.ts';
 import { agentElapsedText } from './agent-row-meta.ts';
@@ -321,12 +321,13 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     await click('[data-action-id="restore-agent-groups"]');
     assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.agent-hidden-groups')), []);
-    // The contacts read the agent catalog (a read capability) and the
-    // notification overrides their menu words; nothing else.
+    // The contacts read the agent catalog (a read capability), the pool section
+    // and the notification overrides their menu words; nothing else.
     assert.deepEqual([...new Set(touched)].filter((key) => key !== 'perfLog').sort(), [
       'invokeCapability',
       'listAgentPool',
       'listConversationNotifications',
+      'sections',
       'subscribeAgentPool',
     ]);
   } finally {
@@ -1060,59 +1061,41 @@ test('Agent pane ignores a stale initial list that resolves after a live push', 
   }
 });
 
-test('active Agent pane reconciles missed pool pushes and clears departed rows', async () => {
+test('an Agent pane that mounts after the pool section is populated shows it, and a pushed empty pool clears departed rows', async () => {
   const dom = installDom();
-  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
-  const originalSetInterval = window.setInterval.bind(window);
-  const originalClearInterval = window.clearInterval.bind(window);
-  let reconcile = null;
-  let pool = [
-    {
-      tag: 'review',
-      agent: 'reviewer',
-      status: 'running',
-      stage: 'running',
-      sessionId: 'worker-live',
-      ownerSessionId: 'lead-a',
-    },
-  ];
-  window.setInterval = (callback, ms) => {
-    if (ms === AGENT_POOL_RECONCILE_MS) {
-      reconcile = callback;
-      return 987654;
-    }
-    return originalSetInterval(callback, ms);
+  const row = {
+    tag: 'review',
+    agent: 'reviewer',
+    status: 'running',
+    stage: 'running',
+    sessionId: 'worker-live',
+    ownerSessionId: 'lead-a',
   };
-  window.clearInterval = (id) => {
-    if (id !== 987654) originalClearInterval(id);
-  };
+  let listener = () => {};
+  let revision = 1;
+  const entry = (value) => ({ section: 'agentPool', key: null, revision: ++revision, value });
   window.mixdogDesktop = {
-    async listAgentPool() {
-      return pool;
-    },
-    subscribeAgentPool() {
-      return () => {};
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [entry([row])] }),
+      subscribe: (next) => ((listener = next), () => {}),
     },
   };
+  // The section store is loaded and idle before any consumer of the pool exists.
+  await sectionStoreFor(window.mixdogDesktop).ready();
   const sessions = [{ id: 'lead-a', title: 'Lead A', preview: '', updatedAt: 1, messageCount: 1 }];
   try {
     await act(async () => {
       dom.root.render(React.createElement(AgentActivityPane, { active: true, sessions }));
     });
     await expandAllAgentGroups();
-    assert.ok(document.querySelector('[data-agent-session-id="worker-live"]'));
-    assert.equal(typeof reconcile, 'function');
+    assert.ok(document.querySelector('[data-agent-session-id="worker-live"]'), 'the existing pool is read at subscribe time');
 
-    pool = [];
-    await act(async () => {
-      reconcile();
-      await Promise.resolve();
-    });
+    await act(async () =>
+      listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry([]) }] })
+    );
     assert.equal(Boolean(document.querySelector('[data-agent-session-id="worker-live"]')), false);
   } finally {
     await act(async () => dom.root.unmount());
-    window.setInterval = originalSetInterval;
-    window.clearInterval = originalClearInterval;
     dom.close();
   }
 });
@@ -2697,6 +2680,7 @@ test('a nested Agent row opens its exact child session without touching session 
       'invokeCapability',
       'listAgentPool',
       'listConversationNotifications',
+      'sections',
       'subscribeAgentPool',
     ]);
     assert.deepEqual(prefetched, ['grand-a', 'great-a', 'lead-a']);

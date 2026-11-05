@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>시안 v2 · 기존 컨텍스트 창 + 세션 사용량</title>
+<style>
+  /* Tokens copied from apps/desktop/src/renderer/desktop/01-tokens.css (dark). */
+  :root {
+    --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d;
+    --mx-text: #e9e9e9;
+    --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-text-muted: #a8a8a8;
+    --mx-text-faint: #9b9b9b;
+    --mx-text-accent: #8ab4f8;
+    --mx-border-muted: rgba(255, 255, 255, 0.09);
+    --mx-hover: rgba(255, 255, 255, 0.06);
+    --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
+    --mx-popup-action-ring: inset 0 0 0 0.5px var(--mx-border-muted);
+    --mx-chart-purple: #b3a3da; --mx-chart-teal: #71bcb0; --mx-chart-gold: #d4ba78;
+    --mx-chart-blue: #8fa9d4; --mx-chart-pink: #d58eaa; --mx-chart-green: #8cb77c;
+    --mx-chart-mauve: #c49fbd; --mx-chart-orange: #d59b79; --mx-chart-sky: #80b6ca;
+    --mx-chart-violet: #b58bc3; --mx-chart-grey: #9a9fa7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #161618; color: var(--mx-text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 16px;
+  }
+  .switch { display: flex; gap: 8px; align-items: center; color: var(--mx-text-muted); }
+  .switch button {
+    font: inherit; color: var(--mx-text); background: var(--mx-bg-base); cursor: pointer;
+    border: 0.5px solid var(--mx-border-muted); border-radius: 8px; padding: 6px 12px;
+  }
+  .switch button[aria-pressed="true"] { outline: 2px solid var(--mx-text-accent); outline-offset: -2px; }
+
+  /* Dialog frame (command-surface[data-surface="context"]) */
+  .dialog {
+    width: min(920px, 100%); height: 650px; display: flex; flex-direction: column; overflow: hidden;
+    border-radius: 14px; background: var(--mx-bg-layer-1);
+    box-shadow: 0 16px 32px rgba(0,0,0,.45), 0 0 0 0.5px var(--mx-border-muted);
+  }
+  .header { flex: 0 0 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 22px; }
+  .header h1 { flex: 1 1 auto; margin: 0; font-size: 20px; font-weight: 600; }
+  .reading { display: inline-flex; align-items: baseline; gap: 8px; color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .reading b { color: var(--mx-text-soft); font-weight: 500; }
+  .close { width: 28px; height: 28px; display: grid; place-items: center; color: var(--mx-text-muted); }
+  .overview { flex: 0 0 auto; padding: 2px 22px 18px; display: grid; gap: 10px; }
+  .main-bar { height: 8px; border-radius: 999px; background: var(--mx-hover); overflow: hidden; }
+  .main-bar span { display: flex; height: 100%; width: 5.7%; }
+  .main-bar b { height: 100%; background: var(--c); }
+
+  /* B: one-line session strip under the bar */
+  .strip { display: none; align-items: center; gap: 14px; flex-wrap: wrap; color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .strip b { color: var(--mx-text-soft); font-weight: 500; }
+  .strip strong { color: var(--mx-text); font-weight: 600; }
+  .strip .sep { width: 1px; height: 12px; background: var(--mx-border-muted); }
+  .strip .chip { display: inline-flex; align-items: center; gap: 6px; }
+  .strip .chip i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+  body[data-variant="b"] .strip { display: flex; }
+
+  /* Inspector (unchanged) */
+  .inspector { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); border-top: 0.5px solid var(--mx-border-muted); }
+  .nav, .detail { min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+  .nav { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 16px 22px; border-right: 0.5px solid var(--mx-border-muted); }
+  .detail { display: flex; flex-direction: column; padding: 0 22px 16px 16px; }
+  .block-map { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; }
+  .block-map i { min-height: 12px; aspect-ratio: 1; border-radius: 2px; background: var(--c); }
+  .block-map i.free { --c: #6f777d; opacity: .25; }
+  .list { display: grid; overflow: hidden; border-radius: 8px; background: var(--mx-popup-action-bg); box-shadow: var(--mx-popup-action-ring); }
+  .row {
+    min-height: 36px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center;
+    column-gap: 12px; padding: 6px 12px; border-bottom: 0.5px solid var(--mx-border-muted);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row i { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+  .row span { color: var(--mx-text-muted); white-space: nowrap; overflow: hidden; display: flex; gap: 6px; align-items: baseline; }
+  .row span small { color: var(--mx-text-faint); font-size: 14px; }
+  .row em { min-width: 44px; color: var(--mx-text-muted); font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
+  .row strong { min-width: 72px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .row.empty, .row.empty strong { color: var(--mx-text-faint); }
+  .row.empty i { opacity: .35; }
+
+  .empty-state { flex: 1 1 auto; display: grid; place-items: center; color: var(--mx-text-faint); }
+
+  /* A: session usage in the detail pane's resting state */
+  .session { display: none; flex-direction: column; gap: 14px; }
+  body[data-variant="a"] .session { display: flex; }
+  body[data-variant="a"] .empty-state { display: none; }
+  .detail-bar { flex: 0 0 48px; height: 48px; display: flex; align-items: center; gap: 8px; border-bottom: 0.5px solid var(--mx-border-muted); }
+  .detail-bar h3 { margin: 0 0 0 6px; font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .detail-bar span { color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .figures { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .figure { padding: 12px 14px; border-radius: 8px; background: var(--mx-popup-action-bg); box-shadow: var(--mx-popup-action-ring); }
+  .figure strong { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .figure span { color: var(--mx-text-muted); }
+  .prompt-bar { display: flex; gap: 1px; height: 8px; border-radius: 999px; overflow: hidden; background: var(--mx-hover); }
+  .prompt-bar b { height: 100%; background: var(--c); }
+  .note { margin: 0; color: var(--mx-text-faint); font-size: 13px; }
+
+  .k-system { --c: var(--mx-chart-grey); } .k-assistant { --c: var(--mx-chart-blue); }
+  .k-reasoning { --c: var(--mx-chart-orange); } .k-toolResults { --c: var(--mx-chart-teal); }
+  .k-tools { --c: var(--mx-chart-green); } .k-user { --c: var(--mx-chart-purple); }
+  .k-skills { --c: var(--mx-chart-gold); } .k-memory { --c: var(--mx-chart-sky); }
+  .k-attachments { --c: var(--mx-chart-pink); } .k-mcp { --c: var(--mx-chart-mauve); }
+  .k-agents { --c: var(--mx-chart-violet); }
+  .k-read { --c: var(--mx-chart-teal); } .k-write { --c: var(--mx-chart-gold); }
+  .k-input { --c: var(--mx-chart-orange); } .k-output { --c: var(--mx-chart-blue); }
+</style>
+</head>
+<body data-variant="a">
+  <div class="switch">
+    <span>배치:</span>
+    <button type="button" data-v="a" aria-pressed="true">A · 오른쪽 빈 패널 활용</button>
+    <button type="button" data-v="b" aria-pressed="false">B · 상단 막대 아래 한 줄</button>
+  </div>
+
+  <div class="dialog">
+    <div class="header">
+      <h1>컨텍스트</h1>
+      <span class="reading"><b>컨텍스트 사용량</b><span>57k / 1.0m · 5.7%</span></span>
+      <span class="close">✕</span>
+    </div>
+    <div class="overview">
+      <div class="main-bar"><span>
+        <b class="k-system" style="width:7%"></b><b class="k-assistant" style="width:20%"></b>
+        <b class="k-reasoning" style="width:19%"></b><b class="k-toolResults" style="width:46%"></b>
+        <b class="k-tools" style="width:8%"></b>
+      </span></div>
+      <!-- B: always-visible one-line session summary -->
+      <div class="strip">
+        <b>이 세션</b>
+        <span><strong>~$2.47</strong></span>
+        <span>캐시 적중 <strong>89.0%</strong></span>
+        <span class="sep"></span>
+        <span class="chip k-read"><i></i>캐시 읽기 3.42m</span>
+        <span class="chip k-write"><i></i>쓰기 241k</span>
+        <span class="chip k-input"><i></i>입력 182k</span>
+        <span class="chip k-output"><i></i>출력 58.3k</span>
+        <span class="sep"></span>
+        <span>42턴 · 컴팩트 2회 포함</span>
+      </div>
+    </div>
+
+    <div class="inspector">
+      <div class="nav">
+        <div class="block-map" id="map"></div>
+        <div class="list">
+          <div class="row k-toolResults"><i></i><span>도구 결과 <small>24개</small></span><em>2.6%</em><strong>≈26,074</strong></div>
+          <div class="row k-assistant"><i></i><span>어시스턴트 메시지 <small>20개</small></span><em>1.1%</em><strong>≈11,396</strong></div>
+          <div class="row k-reasoning"><i></i><span>추론 토큰 <small>16개</small></span><em>1.1%</em><strong>≈10,803</strong></div>
+          <div class="row k-tools"><i></i><span>시스템 도구 <small>12개</small></span><em>0.4%</em><strong>≈4,466</strong></div>
+          <div class="row k-system"><i></i><span>시스템 메시지 <small>20개</small></span><em>0.4%</em><strong>≈3,644</strong></div>
+          <div class="row k-user"><i></i><span>사용자 메시지 <small>5개</small></span><em>0%</em><strong>≈200</strong></div>
+          <div class="row k-skills"><i></i><span>스킬 <small>1개</small></span><em>0%</em><strong>≈141</strong></div>
+          <div class="row k-memory"><i></i><span>메모리 파일 <small>1개</small></span><em>0%</em><strong>≈49</strong></div>
+          <div class="row empty k-attachments"><i></i><span>첨부 파일 <small>0개</small></span><em>0%</em><strong>≈0</strong></div>
+          <div class="row empty k-mcp"><i></i><span>MCP 도구 <small>0개</small></span><em>0%</em><strong>≈0</strong></div>
+          <div class="row empty k-agents"><i></i><span>사용자 지정 에이전트 <small>0개</small></span><em>0%</em><strong>≈0</strong></div>
+        </div>
+      </div>
+
+      <div class="detail">
+        <!-- Existing resting state (kept in B) -->
+        <div class="empty-state"><p>카테고리를 선택하세요.</p></div>
+
+        <!-- A: resting state shows this session's usage; picking a category replaces it as today -->
+        <div class="session">
+          <div class="detail-bar"><h3>이 세션 사용량</h3><span>42턴 · 컴팩트 2회 포함</span></div>
+          <div class="figures">
+            <div class="figure"><strong>~$2.47</strong><span>비용 (추정 포함)</span></div>
+            <div class="figure"><strong>89.0%</strong><span>캐시 적중률</span></div>
+          </div>
+          <div class="prompt-bar" role="img" aria-label="보낸 입력 구성: 캐시 읽기 89.0%, 캐시 쓰기 6.3%, 새 입력 4.7%">
+            <b class="k-read" style="width:89%"></b><b class="k-write" style="width:6.3%"></b><b class="k-input" style="width:4.7%"></b>
+          </div>
+          <div class="list">
+            <div class="row k-read"><i></i><span>캐시 읽기</span><em>89.0%</em><strong>3.42m</strong></div>
+            <div class="row k-write"><i></i><span>캐시 쓰기</span><em>6.3%</em><strong>241k</strong></div>
+            <div class="row k-input"><i></i><span>입력</span><em>4.7%</em><strong>182k</strong></div>
+            <div class="row k-output"><i></i><span>출력</span><em></em><strong>58.3k</strong></div>
+          </div>
+          <p class="note">컴팩트 전후를 합친 세션 전체 값이며, 재시작해도 유지됩니다. 왼쪽에서 카테고리를 고르면 이 자리에 상세가 열립니다.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // 128 blocks over a 1.0m window; the first 7 follow the screenshot's order.
+  const used = ['k-system', 'k-assistant', 'k-reasoning', 'k-toolResults', 'k-toolResults', 'k-toolResults', 'k-tools'];
+  const map = document.getElementById('map');
+  for (let i = 0; i < 128; i++) {
+    const block = document.createElement('i');
+    block.className = used[i] || 'free';
+    map.appendChild(block);
+  }
+  for (const button of document.querySelectorAll('.switch button')) {
+    button.addEventListener('click', () => {
+      document.body.dataset.variant = button.dataset.v;
+      for (const other of document.querySelectorAll('.switch button'))
+        other.setAttribute('aria-pressed', String(other === button));
+    });
+  }
+</script>
+</body>
+</html>

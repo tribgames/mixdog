@@ -1,0 +1,243 @@
+{
+ "skillOut": [
+  {
+   "runtime": {
+    "platform": "win32",
+    "interpreter": "C:\\Program Files\\Mixdog\\Mixdog.exe",
+    "entry": "C:\\app\\runtime.asar\\src\\skill-script-entry.mjs",
+    "electron": true
+   },
+   "psFunction": "function mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; $__mxo1 = $env:ELECTRON_RUN_AS_NODE; try { $env:MIXDOG_SKILL_ARGV = $__mxa; $env:ELECTRON_RUN_AS_NODE = '1'; & 'C:\\Program Files\\Mixdog\\Mixdog.exe' 'C:\\app\\runtime.asar\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0; $env:ELECTRON_RUN_AS_NODE = $__mxo1 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }",
+   "posix": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nELECTRON_RUN_AS_NODE=1\nexport ELECTRON_RUN_AS_NODE\nexec 'C:\\Program Files\\Mixdog\\Mixdog.exe' 'C:\\app\\runtime.asar\\src\\skill-script-entry.mjs' \"$@\"\n",
+   "windows": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\nset \"ELECTRON_RUN_AS_NODE=1\"\r\n\"C:\\Program Files\\Mixdog\\Mixdog.exe\" \"C:\\app\\runtime.asar\\src\\skill-script-entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n",
+   "dir": "C:\\data\\skill-launchers\\00d2d1e162de3855"
+  },
+  {
+   "runtime": {
+    "platform": "win32",
+    "interpreter": "C:\\node\\node.exe",
+    "entry": "C:\\it's\\skill-script-entry.mjs",
+    "electron": false
+   },
+   "psFunction": "function mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\node\\node.exe' 'C:\\it''s\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }",
+   "posix": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nexec 'C:\\node\\node.exe' 'C:\\it'\\''s\\skill-script-entry.mjs' \"$@\"\n",
+   "windows": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n\"C:\\node\\node.exe\" \"C:\\it's\\skill-script-entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n",
+   "dir": "C:\\data\\skill-launchers\\c2dba7b5d93758f1"
+  },
+  {
+   "runtime": {
+    "platform": "linux",
+    "interpreter": "/usr/bin/node",
+    "entry": "/opt/m/src/skill-script-entry.mjs",
+    "electron": false
+   },
+   "psFunction": "function mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & '/usr/bin/node' '/opt/m/src/skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }",
+   "posix": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nexec '/usr/bin/node' '/opt/m/src/skill-script-entry.mjs' \"$@\"\n",
+   "windows": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n\"/usr/bin/node\" \"/opt/m/src/skill-script-entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n",
+   "dir": "/data/skill-launchers/7f755acfe94c3479"
+  },
+  {
+   "runtime": {
+    "platform": "darwin",
+    "interpreter": "/Applications/M.app/Contents/MacOS/M",
+    "entry": "/a b/entry.mjs",
+    "electron": true
+   },
+   "psFunction": "function mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; $__mxo1 = $env:ELECTRON_RUN_AS_NODE; try { $env:MIXDOG_SKILL_ARGV = $__mxa; $env:ELECTRON_RUN_AS_NODE = '1'; & '/Applications/M.app/Contents/MacOS/M' '/a b/entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0; $env:ELECTRON_RUN_AS_NODE = $__mxo1 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }",
+   "posix": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nELECTRON_RUN_AS_NODE=1\nexport ELECTRON_RUN_AS_NODE\nexec '/Applications/M.app/Contents/MacOS/M' '/a b/entry.mjs' \"$@\"\n",
+   "windows": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\nset \"ELECTRON_RUN_AS_NODE=1\"\r\n\"/Applications/M.app/Contents/MacOS/M\" \"/a b/entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n",
+   "dir": "/data/skill-launchers/a6d478befa15a891"
+  },
+  {
+   "runtime": {
+    "platform": "win32",
+    "interpreter": "C:\\한글\\node.exe",
+    "entry": "C:\\한글\\entry.mjs",
+    "electron": false
+   },
+   "psFunction": "function mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\한글\\node.exe' 'C:\\한글\\entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }",
+   "posix": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nexec 'C:\\한글\\node.exe' 'C:\\한글\\entry.mjs' \"$@\"\n",
+   "windows": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\nfor /f \"tokens=2 delims=:.\" %%C in ('chcp') do set \"MIXDOG_SKILL_CP=%%C\"\r\nchcp 65001 >nul\r\n\"C:\\한글\\node.exe\" \"C:\\한글\\entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nif defined MIXDOG_SKILL_CP chcp %MIXDOG_SKILL_CP% >nul\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n",
+   "dir": "C:\\data\\skill-launchers\\9cecb0cffe410c44"
+  }
+ ],
+ "tee": [
+  {
+   "command": "git status 2>&1 | Select-String foo | Select-Object -First 3",
+   "result": {
+    "command": "$__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; git status 2>&1; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | Select-String foo | Select-Object -First 3; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "npm test 2>&1 | Select-String FAIL",
+   "result": {
+    "command": "$__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | Select-String FAIL; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "cd x; npm test 2>&1 | sls FAIL | select -First 1",
+   "result": {
+    "command": "cd x; $__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | sls FAIL | select -First 1; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "cd x && npm test 2>&1 | sls FAIL",
+   "result": null
+  },
+  {
+   "command": "a | b",
+   "result": null
+  },
+  {
+   "command": "Get-Process | Select-String x",
+   "result": {
+    "command": "$__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; Get-Process; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | Select-String x; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "npm test | Select-Object -First 5 | Out-File f",
+   "result": null
+  },
+  {
+   "command": "npm test > out.txt | sls x",
+   "result": null
+  },
+  {
+   "command": "npm test 2>&1 | Tee-Object x | sls y",
+   "result": null
+  },
+  {
+   "command": "npm test 2>&1 | sls \"a`b\"",
+   "result": null
+  },
+  {
+   "command": "npm $(x) 2>&1 | sls y",
+   "result": null
+  },
+  {
+   "command": "npm test\n| sls y",
+   "result": null
+  },
+  {
+   "command": "npm test 2>&1 | findstr FAIL",
+   "result": {
+    "command": "$__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | findstr FAIL; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "npm test 2>&1 | % { $_ }",
+   "result": {
+    "command": "$__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | % { $_ }; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "(npm test | sls x) -join \",\"",
+   "result": null
+  },
+  {
+   "command": "npm test 2>&1 | Where-Object { $_ -match \"x\" } | Select-Object -Last 2",
+   "result": {
+    "command": "$__mixdogProducerExitTOKEN = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | Where-Object { $_ -match \"x\" } | Select-Object -Last 2; exit $__mixdogProducerExitTOKEN.Value"
+   }
+  },
+  {
+   "command": "try { npm test | sls x } catch {}",
+   "result": null
+  },
+  {
+   "command": "x 2>&1 | grep y",
+   "result": null
+  },
+  {
+   "command": "npm test 2>&1 | sls x ; ",
+   "result": null
+  },
+  {
+   "command": "",
+   "result": null
+  }
+ ],
+ "snapScripts": [
+  {
+   "shell": "/bin/bash",
+   "configExists": true,
+   "snapshot": "/data/shell-snapshots/snapshot-x.sh",
+   "script": "SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\nsource 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.bashrc' < /dev/null 2>/dev/null || true\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\necho \"# Unset all aliases first to avoid frozen-alias issues inside functions\" >> \"$SNAPSHOT_FILE\"\necho \"unalias -a 2>/dev/null || true\" >> \"$SNAPSHOT_FILE\"\necho \"# Functions\" >> \"$SNAPSHOT_FILE\"\n\n      declare -f > /dev/null 2>&1\n      declare -F 2>/dev/null | cut -d' ' -f3 | grep -vE '^_[^_]' | while read func; do\n        declare -f \"$func\" >> \"$SNAPSHOT_FILE\" 2>/dev/null\n      done\n    \necho \"# Shell options\" >> \"$SNAPSHOT_FILE\"\n\n      shopt -p 2>/dev/null | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      set -o 2>/dev/null | awk '$2 == \"on\" && $1 != \"monitor\" {print \"set -o \" $1}' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      echo \"shopt -s expand_aliases\" >> \"$SNAPSHOT_FILE\"\n    \necho \"# Aliases\" >> \"$SNAPSHOT_FILE\"\n\n      alias 2>/dev/null | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n  \n# The sourced PATH replaces the model shell's own, so it carries the\n# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).\nPATH='C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\MIXDOG_DATA_DIR\\skill-launchers\\16d006cf036fc08b':\"$PATH\"\n# PATH may contain $, backticks, or quotes that would re-expand if we\n# emitted it inside double quotes. Emit a shell-safe single-quoted PATH\n# export line via printf %q-style escaping inside the dump shell.\nprintf 'export PATH=' >> \"$SNAPSHOT_FILE\"\n_q=$(printf %s \"$PATH\" | sed \"s/'/'\\\\''/g\")\nprintf \"'%s'\n\" \"$_q\" >> \"$SNAPSHOT_FILE\"\nexit 0\n",
+   "config": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.bashrc"
+  },
+  {
+   "shell": "/bin/bash",
+   "configExists": false,
+   "snapshot": "/data/shell-snapshots/snapshot-x.sh",
+   "script": "SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\n# no user config file\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\necho \"# Unset all aliases first to avoid frozen-alias issues inside functions\" >> \"$SNAPSHOT_FILE\"\necho \"unalias -a 2>/dev/null || true\" >> \"$SNAPSHOT_FILE\"\necho \"# Functions\" >> \"$SNAPSHOT_FILE\"\n\n      declare -f > /dev/null 2>&1\n      declare -F 2>/dev/null | cut -d' ' -f3 | grep -vE '^_[^_]' | while read func; do\n        declare -f \"$func\" >> \"$SNAPSHOT_FILE\" 2>/dev/null\n      done\n    \necho \"# Shell options\" >> \"$SNAPSHOT_FILE\"\n\n      shopt -p 2>/dev/null | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      set -o 2>/dev/null | awk '$2 == \"on\" && $1 != \"monitor\" {print \"set -o \" $1}' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      echo \"shopt -s expand_aliases\" >> \"$SNAPSHOT_FILE\"\n    \necho \"# Aliases\" >> \"$SNAPSHOT_FILE\"\n\n      alias 2>/dev/null | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n  \n# The sourced PATH replaces the model shell's own, so it carries the\n# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).\nPATH='C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\MIXDOG_DATA_DIR\\skill-launchers\\16d006cf036fc08b':\"$PATH\"\n# PATH may contain $, backticks, or quotes that would re-expand if we\n# emitted it inside double quotes. Emit a shell-safe single-quoted PATH\n# export line via printf %q-style escaping inside the dump shell.\nprintf 'export PATH=' >> \"$SNAPSHOT_FILE\"\n_q=$(printf %s \"$PATH\" | sed \"s/'/'\\\\''/g\")\nprintf \"'%s'\n\" \"$_q\" >> \"$SNAPSHOT_FILE\"\nexit 0\n",
+   "config": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.bashrc"
+  },
+  {
+   "shell": "/usr/bin/zsh",
+   "configExists": true,
+   "snapshot": "/data/shell-snapshots/snapshot-x.sh",
+   "script": "SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\nsource 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.zshrc' < /dev/null 2>/dev/null || true\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\necho \"# Unset all aliases first to avoid frozen-alias issues inside functions\" >> \"$SNAPSHOT_FILE\"\necho \"unalias -a 2>/dev/null || true\" >> \"$SNAPSHOT_FILE\"\necho \"# Functions\" >> \"$SNAPSHOT_FILE\"\n\n      typeset -f > /dev/null 2>&1\n      typeset +f 2>/dev/null | grep -vE '^_[^_]' | while read func; do\n        typeset -f \"$func\" >> \"$SNAPSHOT_FILE\" 2>/dev/null\n      done\n    \necho \"# Shell options\" >> \"$SNAPSHOT_FILE\"\nsetopt 2>/dev/null | grep -vxE '(no)?monitor' | sed 's/^/setopt /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\necho \"# Aliases\" >> \"$SNAPSHOT_FILE\"\n\n      alias 2>/dev/null | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n  \n# The sourced PATH replaces the model shell's own, so it carries the\n# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).\nPATH='C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\MIXDOG_DATA_DIR\\skill-launchers\\16d006cf036fc08b':\"$PATH\"\n# PATH may contain $, backticks, or quotes that would re-expand if we\n# emitted it inside double quotes. Emit a shell-safe single-quoted PATH\n# export line via printf %q-style escaping inside the dump shell.\nprintf 'export PATH=' >> \"$SNAPSHOT_FILE\"\n_q=$(printf %s \"$PATH\" | sed \"s/'/'\\\\''/g\")\nprintf \"'%s'\n\" \"$_q\" >> \"$SNAPSHOT_FILE\"\nexit 0\n",
+   "config": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.zshrc"
+  },
+  {
+   "shell": "/usr/bin/zsh",
+   "configExists": false,
+   "snapshot": "/data/shell-snapshots/snapshot-x.sh",
+   "script": "SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\n# no user config file\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\necho \"# Unset all aliases first to avoid frozen-alias issues inside functions\" >> \"$SNAPSHOT_FILE\"\necho \"unalias -a 2>/dev/null || true\" >> \"$SNAPSHOT_FILE\"\necho \"# Functions\" >> \"$SNAPSHOT_FILE\"\n\n      typeset -f > /dev/null 2>&1\n      typeset +f 2>/dev/null | grep -vE '^_[^_]' | while read func; do\n        typeset -f \"$func\" >> \"$SNAPSHOT_FILE\" 2>/dev/null\n      done\n    \necho \"# Shell options\" >> \"$SNAPSHOT_FILE\"\nsetopt 2>/dev/null | grep -vxE '(no)?monitor' | sed 's/^/setopt /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\necho \"# Aliases\" >> \"$SNAPSHOT_FILE\"\n\n      alias 2>/dev/null | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n  \n# The sourced PATH replaces the model shell's own, so it carries the\n# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).\nPATH='C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\MIXDOG_DATA_DIR\\skill-launchers\\16d006cf036fc08b':\"$PATH\"\n# PATH may contain $, backticks, or quotes that would re-expand if we\n# emitted it inside double quotes. Emit a shell-safe single-quoted PATH\n# export line via printf %q-style escaping inside the dump shell.\nprintf 'export PATH=' >> \"$SNAPSHOT_FILE\"\n_q=$(printf %s \"$PATH\" | sed \"s/'/'\\\\''/g\")\nprintf \"'%s'\n\" \"$_q\" >> \"$SNAPSHOT_FILE\"\nexit 0\n",
+   "config": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.zshrc"
+  },
+  {
+   "shell": "/bin/sh",
+   "configExists": true,
+   "snapshot": "/data/shell-snapshots/snapshot-x.sh",
+   "script": "SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\nsource 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.profile' < /dev/null 2>/dev/null || true\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\necho \"# Unset all aliases first to avoid frozen-alias issues inside functions\" >> \"$SNAPSHOT_FILE\"\necho \"unalias -a 2>/dev/null || true\" >> \"$SNAPSHOT_FILE\"\necho \"# Functions\" >> \"$SNAPSHOT_FILE\"\n\n      declare -f > /dev/null 2>&1\n      declare -F 2>/dev/null | cut -d' ' -f3 | grep -vE '^_[^_]' | while read func; do\n        declare -f \"$func\" >> \"$SNAPSHOT_FILE\" 2>/dev/null\n      done\n    \necho \"# Shell options\" >> \"$SNAPSHOT_FILE\"\n\n      shopt -p 2>/dev/null | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      set -o 2>/dev/null | awk '$2 == \"on\" && $1 != \"monitor\" {print \"set -o \" $1}' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      echo \"shopt -s expand_aliases\" >> \"$SNAPSHOT_FILE\"\n    \necho \"# Aliases\" >> \"$SNAPSHOT_FILE\"\n\n      alias 2>/dev/null | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n  \n# The sourced PATH replaces the model shell's own, so it carries the\n# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).\nPATH='C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\MIXDOG_DATA_DIR\\skill-launchers\\16d006cf036fc08b':\"$PATH\"\n# PATH may contain $, backticks, or quotes that would re-expand if we\n# emitted it inside double quotes. Emit a shell-safe single-quoted PATH\n# export line via printf %q-style escaping inside the dump shell.\nprintf 'export PATH=' >> \"$SNAPSHOT_FILE\"\n_q=$(printf %s \"$PATH\" | sed \"s/'/'\\\\''/g\")\nprintf \"'%s'\n\" \"$_q\" >> \"$SNAPSHOT_FILE\"\nexit 0\n",
+   "config": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.profile"
+  },
+  {
+   "shell": "/bin/sh",
+   "configExists": false,
+   "snapshot": "/data/shell-snapshots/snapshot-x.sh",
+   "script": "SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\n# no user config file\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\necho \"# Unset all aliases first to avoid frozen-alias issues inside functions\" >> \"$SNAPSHOT_FILE\"\necho \"unalias -a 2>/dev/null || true\" >> \"$SNAPSHOT_FILE\"\necho \"# Functions\" >> \"$SNAPSHOT_FILE\"\n\n      declare -f > /dev/null 2>&1\n      declare -F 2>/dev/null | cut -d' ' -f3 | grep -vE '^_[^_]' | while read func; do\n        declare -f \"$func\" >> \"$SNAPSHOT_FILE\" 2>/dev/null\n      done\n    \necho \"# Shell options\" >> \"$SNAPSHOT_FILE\"\n\n      shopt -p 2>/dev/null | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      set -o 2>/dev/null | awk '$2 == \"on\" && $1 != \"monitor\" {print \"set -o \" $1}' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n      echo \"shopt -s expand_aliases\" >> \"$SNAPSHOT_FILE\"\n    \necho \"# Aliases\" >> \"$SNAPSHOT_FILE\"\n\n      alias 2>/dev/null | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n  \n# The sourced PATH replaces the model shell's own, so it carries the\n# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).\nPATH='C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\MIXDOG_DATA_DIR\\skill-launchers\\16d006cf036fc08b':\"$PATH\"\n# PATH may contain $, backticks, or quotes that would re-expand if we\n# emitted it inside double quotes. Emit a shell-safe single-quoted PATH\n# export line via printf %q-style escaping inside the dump shell.\nprintf 'export PATH=' >> \"$SNAPSHOT_FILE\"\n_q=$(printf %s \"$PATH\" | sed \"s/'/'\\\\''/g\")\nprintf \"'%s'\n\" \"$_q\" >> \"$SNAPSHOT_FILE\"\nexit 0\n",
+   "config": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.84b366f20c92633a\\mixdog-shell-fixture-IXxCvk\\USERPROFILE\\.profile"
+  }
+ ],
+ "payloads": [
+  {
+   "content": "",
+   "ok": false
+  },
+  {
+   "content": "alias -- ll=ls",
+   "ok": true
+  },
+  {
+   "content": "foo() {\n}",
+   "ok": true
+  },
+  {
+   "content": "function foo",
+   "ok": true
+  },
+  {
+   "content": "setopt x",
+   "ok": true
+  },
+  {
+   "content": "shopt -s extglob",
+   "ok": true
+  },
+  {
+   "content": "set -o errexit",
+   "ok": true
+  },
+  {
+   "content": "# Snapshot\nexport PATH=/x",
+   "ok": false
+  },
+  {
+   "content": "  alias   -- a",
+   "ok": true
+  }
+ ],
+ "utf8Prefix": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;"
+}

@@ -1,0 +1,10 @@
+{
+ "url": "https://news.example.com/two",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Two images",
+  "content": "og:image: https://cdn.example.com/a.png\nog:image: https://cdn.example.com/b.png\n\nSome article text.",
+  "extractor": "dom-markdown"
+ }
+}

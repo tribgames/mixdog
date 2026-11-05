@@ -1,0 +1,1261 @@
+{
+ "startOffset": 1000,
+ "limit": 200000,
+ "scenarios": [
+  {
+   "name": "marker cycle whole",
+   "options": {},
+   "ops": [
+    {
+     "data": "6265666f72651b5d3639373b500770726f6d70743e201b5d3639373b43076f7574707574206c696e650d0a1b5d3639373b443b30071b5d3639373b50076166746572"
+    }
+   ],
+   "expect": {
+    "cursor": 1032,
+    "trimmed": false,
+    "length": 32,
+    "fnv": 3844767100,
+    "head": "beforeprompt> output line\r\nafter",
+    "tail": "beforeprompt> output line\r\nafter",
+    "replay": "beforeprompt> output line\r\nafter",
+    "transitions": [
+     "idle",
+     "running",
+     "finished"
+    ]
+   }
+  },
+  {
+   "name": "marker cycle byte by byte",
+   "options": {},
+   "ops": [
+    {
+     "data": "62"
+    },
+    {
+     "data": "65"
+    },
+    {
+     "data": "66"
+    },
+    {
+     "data": "6f"
+    },
+    {
+     "data": "72"
+    },
+    {
+     "data": "65"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "50"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "70"
+    },
+    {
+     "data": "72"
+    },
+    {
+     "data": "6f"
+    },
+    {
+     "data": "6d"
+    },
+    {
+     "data": "70"
+    },
+    {
+     "data": "74"
+    },
+    {
+     "data": "3e"
+    },
+    {
+     "data": "20"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "43"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "6f"
+    },
+    {
+     "data": "75"
+    },
+    {
+     "data": "74"
+    },
+    {
+     "data": "70"
+    },
+    {
+     "data": "75"
+    },
+    {
+     "data": "74"
+    },
+    {
+     "data": "20"
+    },
+    {
+     "data": "6c"
+    },
+    {
+     "data": "69"
+    },
+    {
+     "data": "6e"
+    },
+    {
+     "data": "65"
+    },
+    {
+     "data": "0d"
+    },
+    {
+     "data": "0a"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "44"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "30"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "50"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "61"
+    },
+    {
+     "data": "66"
+    },
+    {
+     "data": "74"
+    },
+    {
+     "data": "65"
+    },
+    {
+     "data": "72"
+    }
+   ],
+   "expect": {
+    "cursor": 1032,
+    "trimmed": false,
+    "length": 32,
+    "fnv": 3844767100,
+    "head": "beforeprompt> output line\r\nafter",
+    "tail": "beforeprompt> output line\r\nafter",
+    "replay": "beforeprompt> output line\r\nafter",
+    "transitions": [
+     "idle",
+     "running",
+     "finished"
+    ]
+   }
+  },
+  {
+   "name": "marker cycle 5-byte chunks",
+   "options": {},
+   "ops": [
+    {
+     "data": "6265666f72"
+    },
+    {
+     "data": "651b5d3639"
+    },
+    {
+     "data": "373b500770"
+    },
+    {
+     "data": "726f6d7074"
+    },
+    {
+     "data": "3e201b5d36"
+    },
+    {
+     "data": "39373b4307"
+    },
+    {
+     "data": "6f75747075"
+    },
+    {
+     "data": "74206c696e"
+    },
+    {
+     "data": "650d0a1b5d"
+    },
+    {
+     "data": "3639373b44"
+    },
+    {
+     "data": "3b30071b5d"
+    },
+    {
+     "data": "3639373b50"
+    },
+    {
+     "data": "0761667465"
+    },
+    {
+     "data": "72"
+    }
+   ],
+   "expect": {
+    "cursor": 1032,
+    "trimmed": false,
+    "length": 32,
+    "fnv": 3844767100,
+    "head": "beforeprompt> output line\r\nafter",
+    "tail": "beforeprompt> output line\r\nafter",
+    "replay": "beforeprompt> output line\r\nafter",
+    "transitions": [
+     "idle",
+     "running",
+     "finished"
+    ]
+   }
+  },
+  {
+   "name": "marker cycle with focus",
+   "options": {},
+   "ops": [
+    {
+     "data": "1b5d3639373b5007"
+    },
+    {
+     "focus": [
+      "a",
+      true
+     ]
+    },
+    {
+     "data": "1b5d3639373b4307781b5d3639373b443b3107"
+    },
+    {
+     "focus": [
+      "a",
+      false
+     ]
+    },
+    {
+     "data": "1b5d3639373b4307791b5d3639373b443b3007"
+    },
+    {
+     "focus": [
+      "b",
+      true
+     ]
+    },
+    {
+     "focus": [
+      "b",
+      false
+     ]
+    }
+   ],
+   "expect": {
+    "cursor": 1002,
+    "trimmed": false,
+    "length": 2,
+    "fnv": 1968890716,
+    "head": "xy",
+    "tail": "xy",
+    "replay": "xy",
+    "transitions": [
+     "idle",
+     "running",
+     "idle",
+     "running",
+     "finished",
+     "idle"
+    ]
+   }
+  },
+  {
+   "name": "string terminator and unknown body",
+   "options": {},
+   "ops": [
+    {
+     "data": "611b5d3639373b501b5c621b5d3639373b5a07631b5d3639373b443b2d323134373438333634380764"
+    }
+   ],
+   "expect": {
+    "cursor": 1004,
+    "trimmed": false,
+    "length": 4,
+    "fnv": 3887379777,
+    "head": "abcd",
+    "tail": "abcd",
+    "replay": "abcd",
+    "transitions": [
+     "idle"
+    ]
+   }
+  },
+  {
+   "name": "too long body is output",
+   "options": {},
+   "ops": [
+    {
+     "data": "611b5d3639373b443b313233343536373839303132333435363738393031323334353637383930313233343536373839300762"
+    }
+   ],
+   "expect": {
+    "cursor": 1051,
+    "trimmed": false,
+    "length": 51,
+    "fnv": 387135675,
+    "head": "a\u001b]697;D;1234567890123456789012345678901234567890\u0007b",
+    "tail": "a\u001b]697;D;1234567890123456789012345678901234567890\u0007b",
+    "replay": "a\u001b]697;D;1234567890123456789012345678901234567890\u0007b",
+    "transitions": []
+   }
+  },
+  {
+   "name": "unterminated tail held then released by next chunk",
+   "options": {},
+   "ops": [
+    {
+     "data": "781b5d3639373b443b"
+    },
+    {
+     "data": "300779"
+    }
+   ],
+   "expect": {
+    "cursor": 1002,
+    "trimmed": false,
+    "length": 2,
+    "fnv": 1968890716,
+    "head": "xy",
+    "tail": "xy",
+    "replay": "xy",
+    "transitions": []
+   }
+  },
+  {
+   "name": "unterminated tail released at stream end",
+   "options": {},
+   "ops": [
+    {
+     "data": "781b5d3639373b443b31"
+    },
+    {
+     "exit": true
+    }
+   ],
+   "expect": {
+    "cursor": 1010,
+    "trimmed": false,
+    "length": 10,
+    "fnv": 1738884638,
+    "head": "x\u001b]697;D;1",
+    "tail": "x\u001b]697;D;1",
+    "replay": "x\u001b]697;D;1",
+    "transitions": []
+   }
+  },
+  {
+   "name": "non-ascii body inside the window is a stripped marker",
+   "options": {},
+   "ops": [
+    {
+     "data": "611b5d3639373bc3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a90762"
+    }
+   ],
+   "expect": {
+    "cursor": 1002,
+    "trimmed": false,
+    "length": 2,
+    "fnv": 2174188438,
+    "head": "ab",
+    "tail": "ab",
+    "replay": "ab",
+    "transitions": []
+   }
+  },
+  {
+   "name": "non-ascii body past the window is output",
+   "options": {},
+   "ops": [
+    {
+     "data": "611b5d3639373bc3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a90762"
+    }
+   ],
+   "expect": {
+    "cursor": 1034,
+    "trimmed": false,
+    "length": 34,
+    "fnv": 413495461,
+    "head": "a\u001b]697;ééééééééééééééééééééééééé\u0007b",
+    "tail": "a\u001b]697;ééééééééééééééééééééééééé\u0007b",
+    "replay": "a\u001b]697;ééééééééééééééééééééééééé\u0007b",
+    "transitions": []
+   }
+  },
+  {
+   "name": "non-ascii unterminated tail is held by units",
+   "options": {},
+   "ops": [
+    {
+     "data": "781b5d3639373bc3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9"
+    },
+    {
+     "data": "0779"
+    }
+   ],
+   "expect": {
+    "cursor": 1002,
+    "trimmed": false,
+    "length": 2,
+    "fnv": 1968890716,
+    "head": "xy",
+    "tail": "xy",
+    "replay": "xy",
+    "transitions": []
+   }
+  },
+  {
+   "name": "non-ascii unterminated tail past the bound is output",
+   "options": {},
+   "ops": [
+    {
+     "data": "781b5d3639373be4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896e4b896"
+    }
+   ],
+   "expect": {
+    "cursor": 1032,
+    "trimmed": false,
+    "length": 32,
+    "fnv": 3487686572,
+    "head": "x\u001b]697;世世世世世世世世世世世世世世世世世世世世世世世世世",
+    "tail": "x\u001b]697;世世世世世世世世世世世世世世世世世世世世世世世世世",
+    "replay": "x\u001b]697;世世世世世世世世世世世世世世世世世世世世世世世世世",
+    "transitions": []
+   }
+  },
+  {
+   "name": "astral characters count as two units",
+   "options": {},
+   "ops": [
+    {
+     "data": "781b5d3639373bf09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f98800779"
+    },
+    {
+     "data": "1b5d3639373bf09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880077a"
+    }
+   ],
+   "expect": {
+    "cursor": 1036,
+    "trimmed": false,
+    "length": 36,
+    "fnv": 88207795,
+    "head": "xy\u001b]697;😀😀😀😀😀😀😀😀😀😀😀😀😀\u0007z",
+    "tail": "xy\u001b]697;😀😀😀😀😀😀😀😀😀😀😀😀😀\u0007z",
+    "replay": "xy\u001b]697;😀😀😀😀😀😀😀😀😀😀😀😀😀\u0007z",
+    "transitions": []
+   }
+  },
+  {
+   "name": "non-ascii text around markers byte by byte",
+   "options": {},
+   "ops": [
+    {
+     "data": "c3"
+    },
+    {
+     "data": "a9"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "50"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "e4"
+    },
+    {
+     "data": "b8"
+    },
+    {
+     "data": "96"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "43"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "f0"
+    },
+    {
+     "data": "9f"
+    },
+    {
+     "data": "98"
+    },
+    {
+     "data": "80"
+    },
+    {
+     "data": "1b"
+    },
+    {
+     "data": "5d"
+    },
+    {
+     "data": "36"
+    },
+    {
+     "data": "39"
+    },
+    {
+     "data": "37"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "44"
+    },
+    {
+     "data": "3b"
+    },
+    {
+     "data": "30"
+    },
+    {
+     "data": "07"
+    },
+    {
+     "data": "c3"
+    },
+    {
+     "data": "b1"
+    }
+   ],
+   "expect": {
+    "cursor": 1005,
+    "trimmed": false,
+    "length": 5,
+    "fnv": 2344618858,
+    "head": "é世😀ñ",
+    "tail": "é世😀ñ",
+    "replay": "é世😀ñ",
+    "transitions": [
+     "idle",
+     "running",
+     "finished"
+    ]
+   }
+  },
+  {
+   "name": "prefix split",
+   "options": {},
+   "ops": [
+    {
+     "data": "611b5d3639"
+    },
+    {
+     "data": "373b500762"
+    }
+   ],
+   "expect": {
+    "cursor": 1002,
+    "trimmed": false,
+    "length": 2,
+    "fnv": 2174188438,
+    "head": "ab",
+    "tail": "ab",
+    "replay": "ab",
+    "transitions": [
+     "idle"
+    ]
+   }
+  },
+  {
+   "name": "lone escape held then released",
+   "options": {},
+   "ops": [
+    {
+     "data": "611b"
+    },
+    {
+     "data": "62"
+    }
+   ],
+   "expect": {
+    "cursor": 1003,
+    "trimmed": false,
+    "length": 3,
+    "fnv": 3759823645,
+    "head": "a\u001bb",
+    "tail": "a\u001bb",
+    "replay": "a\u001bb",
+    "transitions": []
+   }
+  },
+  {
+   "name": "cmd infers start from submit",
+   "options": {
+    "inferStart": true
+   },
+   "ops": [
+    {
+     "data": "1b5d3639373b5007"
+    },
+    {
+     "input": "dir\r"
+    },
+    {
+     "data": "6c697374696e670d0a1b5d3639373b5007"
+    },
+    {
+     "input": "x"
+    }
+   ],
+   "expect": {
+    "cursor": 1009,
+    "trimmed": false,
+    "length": 9,
+    "fnv": 1266424448,
+    "head": "listing\r\n",
+    "tail": "listing\r\n",
+    "replay": "listing\r\n",
+    "transitions": [
+     "idle",
+     "running",
+     "finished"
+    ]
+   }
+  },
+  {
+   "name": "not integrated passes markers through",
+   "options": {
+    "integrated": false
+   },
+   "ops": [
+    {
+     "data": "611b5d3639373b500762"
+    }
+   ],
+   "expect": {
+    "cursor": 1010,
+    "trimmed": false,
+    "length": 10,
+    "fnv": 1880189076,
+    "head": "a\u001b]697;P\u0007b",
+    "tail": "a\u001b]697;P\u0007b",
+    "replay": "a\u001b]697;P\u0007b",
+    "transitions": []
+   }
+  },
+  {
+   "name": "exit clears activity",
+   "options": {},
+   "ops": [
+    {
+     "data": "1b5d3639373b50071b5d3639373b4307"
+    },
+    {
+     "exit": true
+    }
+   ],
+   "expect": {
+    "cursor": 1000,
+    "trimmed": false,
+    "length": 0,
+    "fnv": 2166136261,
+    "head": "",
+    "tail": "",
+    "replay": "",
+    "transitions": [
+     "idle",
+     "running",
+     null
+    ]
+   }
+  },
+  {
+   "name": "utf-8 whole",
+   "options": {},
+   "ops": [
+    {
+     "data": "68c3a96c6c6f20e4b896e7958c20f09f988020656e6420c3b10d0a"
+    }
+   ],
+   "expect": {
+    "cursor": 1019,
+    "trimmed": false,
+    "length": 19,
+    "fnv": 4066477898,
+    "head": "héllo 世界 😀 end ñ\r\n",
+    "tail": "héllo 世界 😀 end ñ\r\n",
+    "replay": "héllo 世界 😀 end ñ\r\n",
+    "transitions": []
+   }
+  },
+  {
+   "name": "utf-8 byte by byte",
+   "options": {},
+   "ops": [
+    {
+     "data": "68"
+    },
+    {
+     "data": "c3"
+    },
+    {
+     "data": "a9"
+    },
+    {
+     "data": "6c"
+    },
+    {
+     "data": "6c"
+    },
+    {
+     "data": "6f"
+    },
+    {
+     "data": "20"
+    },
+    {
+     "data": "e4"
+    },
+    {
+     "data": "b8"
+    },
+    {
+     "data": "96"
+    },
+    {
+     "data": "e7"
+    },
+    {
+     "data": "95"
+    },
+    {
+     "data": "8c"
+    },
+    {
+     "data": "20"
+    },
+    {
+     "data": "f0"
+    },
+    {
+     "data": "9f"
+    },
+    {
+     "data": "98"
+    },
+    {
+     "data": "80"
+    },
+    {
+     "data": "20"
+    },
+    {
+     "data": "65"
+    },
+    {
+     "data": "6e"
+    },
+    {
+     "data": "64"
+    },
+    {
+     "data": "20"
+    },
+    {
+     "data": "c3"
+    },
+    {
+     "data": "b1"
+    },
+    {
+     "data": "0d"
+    },
+    {
+     "data": "0a"
+    }
+   ],
+   "expect": {
+    "cursor": 1019,
+    "trimmed": false,
+    "length": 19,
+    "fnv": 4066477898,
+    "head": "héllo 世界 😀 end ñ\r\n",
+    "tail": "héllo 世界 😀 end ñ\r\n",
+    "replay": "héllo 世界 😀 end ñ\r\n",
+    "transitions": []
+   }
+  },
+  {
+   "name": "utf-8 2-byte chunks",
+   "options": {},
+   "ops": [
+    {
+     "data": "68c3"
+    },
+    {
+     "data": "a96c"
+    },
+    {
+     "data": "6c6f"
+    },
+    {
+     "data": "20e4"
+    },
+    {
+     "data": "b896"
+    },
+    {
+     "data": "e795"
+    },
+    {
+     "data": "8c20"
+    },
+    {
+     "data": "f09f"
+    },
+    {
+     "data": "9880"
+    },
+    {
+     "data": "2065"
+    },
+    {
+     "data": "6e64"
+    },
+    {
+     "data": "20c3"
+    },
+    {
+     "data": "b10d"
+    },
+    {
+     "data": "0a"
+    }
+   ],
+   "expect": {
+    "cursor": 1019,
+    "trimmed": false,
+    "length": 19,
+    "fnv": 4066477898,
+    "head": "héllo 世界 😀 end ñ\r\n",
+    "tail": "héllo 世界 😀 end ñ\r\n",
+    "replay": "héllo 世界 😀 end ñ\r\n",
+    "transitions": []
+   }
+  },
+  {
+   "name": "utf-8 3-byte chunks",
+   "options": {},
+   "ops": [
+    {
+     "data": "68c3a9"
+    },
+    {
+     "data": "6c6c6f"
+    },
+    {
+     "data": "20e4b8"
+    },
+    {
+     "data": "96e795"
+    },
+    {
+     "data": "8c20f0"
+    },
+    {
+     "data": "9f9880"
+    },
+    {
+     "data": "20656e"
+    },
+    {
+     "data": "6420c3"
+    },
+    {
+     "data": "b10d0a"
+    }
+   ],
+   "expect": {
+    "cursor": 1019,
+    "trimmed": false,
+    "length": 19,
+    "fnv": 4066477898,
+    "head": "héllo 世界 😀 end ñ\r\n",
+    "tail": "héllo 世界 😀 end ñ\r\n",
+    "replay": "héllo 世界 😀 end ñ\r\n",
+    "transitions": []
+   }
+  },
+  {
+   "name": "burst 5 MB",
+   "options": {},
+   "burst": {
+    "chunk": 4093,
+    "bytes": 5242888
+   },
+   "ops": [],
+   "expect": {
+    "cursor": 4682150,
+    "trimmed": true,
+    "length": 200000,
+    "fnv": 3847145665,
+    "head": "burst line 00179246 é世 \r\nburst line 00179247 é世 \r\nburst line 00179248 é世 \r\nburst",
+    "tail": "é世 \r\nburst line 00187243 é世 \r\nburst line 00187244 é世 \r\nburst line 00187245 é世 \r\n",
+    "replay": null,
+    "transitions": []
+   }
+  }
+ ],
+ "plans": [
+  {
+   "spawn": {
+    "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "args": [
+     "-NoExit",
+     "-EncodedCommand",
+     "CgBpAGYAIAAoAEcAZQB0AC0AQwBvAG0AbQBhAG4AZAAgAFAAUwBDAG8AbgBzAG8AbABlAEgAbwBzAHQAUgBlAGEAZABMAGkAbgBlACAALQBDAG8AbQBtAGEAbgBkAFQAeQBwAGUAIABGAHUAbgBjAHQAaQBvAG4AIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAKQAgAHsACgAgACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBNAGEAcgBrACAAPQAgAHsAIABwAGEAcgBhAG0AKAAkAGIAbwBkAHkAKQAgAFsAQwBvAG4AcwBvAGwAZQBdADoAOgBXAHIAaQB0AGUAKAAiACQAKABbAGMAaABhAHIAXQAyADcAKQBdADYAOQA3ADsAJABiAG8AZAB5ACQAKABbAGMAaABhAHIAXQA3ACkAIgApACAAfQAKACAAIAAkAGcAbABvAGIAYQBsADoAXwBfAG0AaQB4AGQAbwBnAFAAcgBvAG0AcAB0ACAAPQAgACQAZgB1AG4AYwB0AGkAbwBuADoAcAByAG8AbQBwAHQACgAgACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBSAGUAYQBkAEwAaQBuAGUAIAA9ACAAJABmAHUAbgBjAHQAaQBvAG4AOgBQAFMAQwBvAG4AcwBvAGwAZQBIAG8AcwB0AFIAZQBhAGQATABpAG4AZQAKACAAIABmAHUAbgBjAHQAaQBvAG4AIABnAGwAbwBiAGEAbAA6AHAAcgBvAG0AcAB0ACAAewAKACAAIAAgACAAJABvAGsAIAA9ACAAJABnAGwAbwBiAGEAbAA6AD8ACgAgACAAIAAgACQAYwBvAGQAZQAgAD0AIABpAGYAIAAoACQAbwBrACkAIAB7ACAAMAAgAH0AIABlAGwAcwBlAGkAZgAgACgAJABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFACkAIAB7ACAAJABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAAfQAgAGUAbABzAGUAIAB7ACAAMQAgAH0ACgAgACAAIAAgACYAIAAkAGcAbABvAGIAYQBsADoAXwBfAG0AaQB4AGQAbwBnAE0AYQByAGsAIAAiAEQAOwAkAGMAbwBkAGUAIgAKACAAIAAgACAAJgAgACQAZwBsAG8AYgBhAGwAOgBfAF8AbQBpAHgAZABvAGcATQBhAHIAawAgACcAUAAnAAoAIAAgACAAIABpAGYAIAAoAC0AbgBvAHQAIAAkAG8AawApACAAewAgAFcAcgBpAHQAZQAtAEUAcgByAG8AcgAgAC0ATQBlAHMAcwBhAGcAZQAgACcAZgBhAGkAbABlAGQAJwAgAC0ARQByAHIAbwByAEEAYwB0AGkAbwBuACAASQBnAG4AbwByAGUAIAB9AAoAIAAgACAAIAAmACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBQAHIAbwBtAHAAdAAKACAAIAB9AAoAIAAgAGYAdQBuAGMAdABpAG8AbgAgAGcAbABvAGIAYQBsADoAUABTAEMAbwBuAHMAbwBsAGUASABvAHMAdABSAGUAYQBkAEwAaQBuAGUAIAB7AAoAIAAgACAAIAAkAGwAaQBuAGUAIAA9ACAAJgAgACQAZwBsAG8AYgBhAGwAOgBfAF8AbQBpAHgAZABvAGcAUgBlAGEAZABMAGkAbgBlAAoAIAAgACAAIAAmACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBNAGEAcgBrACAAJwBDACcACgAgACAAIAAgACQAbABpAG4AZQAKACAAIAB9AAoAfQAKAA=="
+    ],
+    "env": {},
+    "integration": "powershell"
+   }
+  },
+  {
+   "spawn": {
+    "path": "/usr/bin/pwsh"
+   },
+   "platform": "linux",
+   "noRoot": false,
+   "plan": {
+    "path": "/usr/bin/pwsh",
+    "args": [
+     "-NoExit",
+     "-EncodedCommand",
+     "CgBpAGYAIAAoAEcAZQB0AC0AQwBvAG0AbQBhAG4AZAAgAFAAUwBDAG8AbgBzAG8AbABlAEgAbwBzAHQAUgBlAGEAZABMAGkAbgBlACAALQBDAG8AbQBtAGEAbgBkAFQAeQBwAGUAIABGAHUAbgBjAHQAaQBvAG4AIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAKQAgAHsACgAgACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBNAGEAcgBrACAAPQAgAHsAIABwAGEAcgBhAG0AKAAkAGIAbwBkAHkAKQAgAFsAQwBvAG4AcwBvAGwAZQBdADoAOgBXAHIAaQB0AGUAKAAiACQAKABbAGMAaABhAHIAXQAyADcAKQBdADYAOQA3ADsAJABiAG8AZAB5ACQAKABbAGMAaABhAHIAXQA3ACkAIgApACAAfQAKACAAIAAkAGcAbABvAGIAYQBsADoAXwBfAG0AaQB4AGQAbwBnAFAAcgBvAG0AcAB0ACAAPQAgACQAZgB1AG4AYwB0AGkAbwBuADoAcAByAG8AbQBwAHQACgAgACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBSAGUAYQBkAEwAaQBuAGUAIAA9ACAAJABmAHUAbgBjAHQAaQBvAG4AOgBQAFMAQwBvAG4AcwBvAGwAZQBIAG8AcwB0AFIAZQBhAGQATABpAG4AZQAKACAAIABmAHUAbgBjAHQAaQBvAG4AIABnAGwAbwBiAGEAbAA6AHAAcgBvAG0AcAB0ACAAewAKACAAIAAgACAAJABvAGsAIAA9ACAAJABnAGwAbwBiAGEAbAA6AD8ACgAgACAAIAAgACQAYwBvAGQAZQAgAD0AIABpAGYAIAAoACQAbwBrACkAIAB7ACAAMAAgAH0AIABlAGwAcwBlAGkAZgAgACgAJABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFACkAIAB7ACAAJABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAAfQAgAGUAbABzAGUAIAB7ACAAMQAgAH0ACgAgACAAIAAgACYAIAAkAGcAbABvAGIAYQBsADoAXwBfAG0AaQB4AGQAbwBnAE0AYQByAGsAIAAiAEQAOwAkAGMAbwBkAGUAIgAKACAAIAAgACAAJgAgACQAZwBsAG8AYgBhAGwAOgBfAF8AbQBpAHgAZABvAGcATQBhAHIAawAgACcAUAAnAAoAIAAgACAAIABpAGYAIAAoAC0AbgBvAHQAIAAkAG8AawApACAAewAgAFcAcgBpAHQAZQAtAEUAcgByAG8AcgAgAC0ATQBlAHMAcwBhAGcAZQAgACcAZgBhAGkAbABlAGQAJwAgAC0ARQByAHIAbwByAEEAYwB0AGkAbwBuACAASQBnAG4AbwByAGUAIAB9AAoAIAAgACAAIAAmACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBQAHIAbwBtAHAAdAAKACAAIAB9AAoAIAAgAGYAdQBuAGMAdABpAG8AbgAgAGcAbABvAGIAYQBsADoAUABTAEMAbwBuAHMAbwBsAGUASABvAHMAdABSAGUAYQBkAEwAaQBuAGUAIAB7AAoAIAAgACAAIAAkAGwAaQBuAGUAIAA9ACAAJgAgACQAZwBsAG8AYgBhAGwAOgBfAF8AbQBpAHgAZABvAGcAUgBlAGEAZABMAGkAbgBlAAoAIAAgACAAIAAmACAAJABnAGwAbwBiAGEAbAA6AF8AXwBtAGkAeABkAG8AZwBNAGEAcgBrACAAJwBDACcACgAgACAAIAAgACQAbABpAG4AZQAKACAAIAB9AAoAfQAKAA=="
+    ],
+    "env": {},
+    "integration": "powershell"
+   }
+  },
+  {
+   "spawn": {
+    "path": "powershell.exe",
+    "args": [
+     "-NoLogo"
+    ]
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "powershell.exe",
+    "args": [
+     "-NoLogo"
+    ],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "C:\\WINDOWS\\System32\\cmd.exe"
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "C:\\WINDOWS\\System32\\cmd.exe",
+    "args": [],
+    "env": {
+     "PROMPT": "$e]697;P$e\\$P$G"
+    },
+    "integration": "cmd"
+   }
+  },
+  {
+   "spawn": {
+    "path": "C:\\WINDOWS\\System32\\cmd.exe",
+    "env": {
+     "PROMPT": "X$G"
+    }
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "C:\\WINDOWS\\System32\\cmd.exe",
+    "args": [],
+    "env": {
+     "PROMPT": "$e]697;P$e\\X$G"
+    },
+    "integration": "cmd"
+   }
+  },
+  {
+   "spawn": {
+    "path": "cmd.exe",
+    "args": [
+     "/k"
+    ]
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "cmd.exe",
+    "args": [
+     "/k"
+    ],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "/usr/bin/cmd"
+   },
+   "platform": "linux",
+   "noRoot": false,
+   "plan": {
+    "path": "/usr/bin/cmd",
+    "args": [],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "/bin/bash"
+   },
+   "platform": "linux",
+   "noRoot": true,
+   "plan": {
+    "path": "/bin/bash",
+    "args": [],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "/usr/bin/fish"
+   },
+   "platform": "linux",
+   "noRoot": false,
+   "plan": {
+    "path": "/usr/bin/fish",
+    "args": [],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "/bin/bash",
+    "args": [
+     "-c",
+     "x"
+    ]
+   },
+   "platform": "linux",
+   "noRoot": false,
+   "plan": {
+    "path": "/bin/bash",
+    "args": [
+     "-c",
+     "x"
+    ],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "C:\\Windows\\System32\\bash.exe"
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "C:\\Windows\\System32\\bash.exe",
+    "args": [],
+    "env": {},
+    "integration": null
+   }
+  },
+  {
+   "spawn": {
+    "path": "/bin/zsh"
+   },
+   "platform": "win32",
+   "noRoot": false,
+   "plan": {
+    "path": "/bin/zsh",
+    "args": [],
+    "env": {},
+    "integration": null
+   }
+  }
+ ],
+ "shellFiles": {
+  "files": {
+   "bash/mixdog.bash": "# Mixdog terminal integration (bash)\nif [ -z \"$__mixdog_bash\" ]; then\n  __mixdog_bash=1\n  if [ -n \"$__mixdog_bash_boot\" ]; then\n    export -n PROMPT_COMMAND\n  else\n    [ -r /etc/bash.bashrc ] && . /etc/bash.bashrc\n    [ -r ~/.bashrc ] && . ~/.bashrc\n  fi\n  if [ \"${BASH_VERSINFO[0]}\" -gt 4 ] || { [ \"${BASH_VERSINFO[0]}\" -eq 4 ] && [ \"${BASH_VERSINFO[1]}\" -ge 4 ]; }; then\n    __mixdog_prompt() {\n      local code=$?\n      printf '\\033]697;D;%s\\007\\033]697;P\\007' \"$code\"\n      return \"$code\"\n    }\n    PROMPT_COMMAND=\"__mixdog_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}\"\n    PS0=\"${PS0}\"$'\\033]697;C\\007'\n    # Sourced from this prompt's PROMPT_COMMAND: the hook starts with the next.\n    [ -n \"$__mixdog_bash_boot\" ] && printf '\\033]697;P\\007'\n  fi\n  unset __mixdog_bash_boot\nfi\n",
+   "zsh/.zprofile": "# Mixdog terminal integration (zsh)\nMIXDOG_ZDOTDIR=$ZDOTDIR\nZDOTDIR=${MIXDOG_USER_ZDOTDIR:-$HOME}\n[[ -r $ZDOTDIR/.zprofile ]] && source $ZDOTDIR/.zprofile\nif [[ $ZDOTDIR != ${MIXDOG_USER_ZDOTDIR:-$HOME} ]]; then unset MIXDOG_ZDOTDIR_UNSET; fi\nMIXDOG_USER_ZDOTDIR=$ZDOTDIR\nZDOTDIR=$MIXDOG_ZDOTDIR\n",
+   "zsh/.zshenv": "# Mixdog terminal integration (zsh)\nMIXDOG_ZDOTDIR=$ZDOTDIR\nZDOTDIR=${MIXDOG_USER_ZDOTDIR:-$HOME}\n[[ -r $ZDOTDIR/.zshenv ]] && source $ZDOTDIR/.zshenv\nif [[ $ZDOTDIR != ${MIXDOG_USER_ZDOTDIR:-$HOME} ]]; then unset MIXDOG_ZDOTDIR_UNSET; fi\nMIXDOG_USER_ZDOTDIR=$ZDOTDIR\nZDOTDIR=$MIXDOG_ZDOTDIR\n",
+   "zsh/.zshrc": "# Mixdog terminal integration (zsh)\nZDOTDIR=${MIXDOG_USER_ZDOTDIR:-$HOME}\n[[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc\nif [[ -n $MIXDOG_ZDOTDIR_UNSET && $ZDOTDIR == ${MIXDOG_USER_ZDOTDIR:-$HOME} ]]; then unset ZDOTDIR; fi\nunset MIXDOG_ZDOTDIR MIXDOG_USER_ZDOTDIR MIXDOG_ZDOTDIR_UNSET\n__mixdog_precmd() {\n  local code=$?\n  print -rn -- $'\\e]697;D;'\"$code\"$'\\a\\e]697;P\\a'\n  return $code\n}\n__mixdog_preexec() { print -rn -- $'\\e]697;C\\a'; }\nprecmd_functions=(__mixdog_precmd $precmd_functions)\npreexec_functions=(__mixdog_preexec $preexec_functions)\n"
+  },
+  "bashArgsShape": [
+   "--init-file",
+   "<script>",
+   "-i"
+  ],
+  "bashIntegration": "bash",
+  "zshIntegration": "zsh",
+  "zshEnvKeys": [
+   "MIXDOG_USER_ZDOTDIR",
+   "MIXDOG_ZDOTDIR_UNSET",
+   "ZDOTDIR"
+  ],
+  "zshUserZdotdir": "/home/u",
+  "zshUnsetFlag": "1",
+  "loginArgs": [
+   "--login"
+  ],
+  "loginPromptCommandSuffix": true,
+  "loginPromptCommandPrefix": "[ -n \"$__mixdog_bash\" ] || { __mixdog_ba"
+ }
+}

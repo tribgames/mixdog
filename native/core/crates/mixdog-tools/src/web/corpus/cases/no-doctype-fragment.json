@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/frag",
+ "contentType": "text/html",
+ "expected": {
+  "ok": true,
+  "title": "",
+  "content": "Main **text**",
+  "extractor": "dom-markdown"
+ }
+}

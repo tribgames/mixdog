@@ -1,0 +1,35 @@
+{
+  "command": "written by the product's own tests: apps/desktop/src/main/host/host-twin.test.mjs and apps/desktop/src/main/browser/golden-twin.integration.ts (no P0-BENCH recorder)",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 103896,
+      "path": "browser-golden.json",
+      "sha256": "9ecca27e9e729edd4a510b7780b1e41c7ab5937b5cd4a1bcbd908bd1f97fa2ab"
+    },
+    {
+      "bytes": 4707,
+      "path": "visualize-files-golden.json",
+      "sha256": "ba7da13cf7018da9c079c9e171c864761df0bc5943019a0a21e78128976217c9"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "apps/desktop/src/main/host/host-twin.test.mjs",
+  "set": "desktop-host",
+  "totalBytes": 108603
+}

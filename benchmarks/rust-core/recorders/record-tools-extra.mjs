@@ -55,13 +55,13 @@ const outDir = join(FIXTURES_ROOT, 'tools');
 const recorded = [];
 const impossible = [];
 const timeout = (ms, label) => new Promise((_r, rej) => setTimeout(() => rej(new Error(`recorder timeout after ${ms}ms: ${label}`)), ms));
-async function golden(dir, name, toolName, input, fn, { ms = 60000 } = {}) {
+async function golden(dir, name, toolName, input, fn, { ms = 60000, normalize = (t) => t } = {}) {
   let outcome;
   try {
     const raw = await Promise.race([fn(), timeout(ms, `${toolName}/${name}`)]);
     const env = normalizeToolEnvelope(raw);
     const text = typeof env.result === 'string' ? env.result : JSON.stringify(env.result ?? '');
-    outcome = { text: scrub(text), isError: env.isError === true || /^Error[\s:[]/.test(text) };
+    outcome = { text: scrub(normalize(text)), isError: env.isError === true || /^Error[\s:[]/.test(text) };
   } catch (e) {
     outcome = { thrown: scrub(String(e?.message ?? e)) };
   }
@@ -129,7 +129,21 @@ const parse = (o) => { try { return JSON.parse(o.text); } catch { return null; }
 await office('describe', { action: 'describe' });
 await office('describe-docx', { action: 'describe', format: 'docx' });
 await office('describe-operation', { action: 'describe', format: 'xlsx', operation: 'set_range' });
-await office('detect', { action: 'detect' });
+// `detect` reports the host: whether Microsoft Office / qpdf / tesseract / a PDF font are present, and where.
+// Those fields are pinned to a fixed recorded state ("<host>"); everything else (the portable format list,
+// the response shape) is the product's own and stays raw.
+const HOST = '<host>';
+const pinDetect = (text) => {
+  const outer = JSON.parse(text);
+  const body = JSON.parse(outer.content[0].text);
+  body.microsoftOffice = HOST;
+  body.portable.pdfSecurity = { available: HOST, backend: body.portable.pdfSecurity.backend };
+  body.portable.pdfUnicodeFont = HOST;
+  body.portable.pdfOcr = { ...body.portable.pdfOcr, available: HOST, backend: HOST, cachedLanguages: HOST };
+  outer.content[0].text = JSON.stringify(body);
+  return JSON.stringify(outer);
+};
+await office('detect', { action: 'detect' }, { normalize: pinDetect });
 for (const [fmt, file] of [['docx', 'a.docx'], ['xlsx', 'a.xlsx'], ['pptx', 'a.pptx']]) {
   const created = await office(`create-${fmt}`, { action: 'create', path: file, format: fmt, mode: 'portable' });
   const session = parse(created)?.session;
@@ -179,7 +193,10 @@ try {
 } catch (e) {
   impossible.push({ tool: 'memory', reason: String(e?.message ?? e) });
 }
+// stop() runs `pg_ctl stop -m fast -w`, which returns only once the postmaster is down. A stop error fails the run
+// (no catch), and a postmaster.pid left behind means Postgres is still alive and would hold pg.log open.
 await memoryStop?.();
+if (existsSync(join(work, 'data', 'pgdata', 'postmaster.pid'))) throw new Error('memory: postgres still running after stop(); refusing to remove its data dir');
 writeJson(join(outDir, 'extra-impossible.json'), { impossible });
 
 // Refresh the set manifest (record-tools.mjs wrote the first version).
@@ -189,6 +206,7 @@ writeSetManifest(outDir, {
   command: 'node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree>',
   extra: { extraCases: recorded, extraImpossible: impossible.map((i) => i.tool) },
 });
+// A removal failure fails the run (non-zero exit); the postmaster is already confirmed down above.
 rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
 console.log(`extra recorded ${recorded.length}; impossible: ${impossible.map((i) => `${i.tool}: ${i.reason.slice(0, 120)}`).join(' | ') || 'none'}`);
 process.exit(0);

@@ -1,0 +1,616 @@
+[
+ {
+  "id": "biome",
+  "title": "Biome",
+  "bin": "biome",
+  "altBins": [],
+  "kind": [
+   "format",
+   "lint"
+  ],
+  "languages": [
+   "javascript",
+   "typescript",
+   "json",
+   "css"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [
+   "node"
+  ],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "biome.json",
+   "biome.jsonc"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [
+   "prettier",
+   "eslint"
+  ],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "npm i -D @biomejs/biome, or run tidy action:install engines:[\"biome\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "prettier",
+  "title": "Prettier",
+  "bin": "prettier",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "javascript",
+   "typescript",
+   "json",
+   "css",
+   "markdown",
+   "yaml",
+   "html"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [
+   "node"
+  ],
+  "projectLocalOnly": true,
+  "configFiles": [
+   ".prettierrc",
+   ".prettierrc.json",
+   ".prettierrc.yml",
+   ".prettierrc.yaml",
+   ".prettierrc.js",
+   ".prettierrc.cjs",
+   ".prettierrc.mjs",
+   "prettier.config.js",
+   "prettier.config.cjs",
+   "prettier.config.mjs"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "npm i -D prettier (tidy only uses a project-local Prettier)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "eslint",
+  "title": "ESLint",
+  "bin": "eslint",
+  "altBins": [],
+  "kind": [
+   "lint"
+  ],
+  "languages": [
+   "javascript",
+   "typescript"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [
+   "node"
+  ],
+  "projectLocalOnly": true,
+  "configFiles": [
+   "eslint.config.js",
+   "eslint.config.mjs",
+   "eslint.config.cjs",
+   ".eslintrc",
+   ".eslintrc.js",
+   ".eslintrc.cjs",
+   ".eslintrc.json",
+   ".eslintrc.yml",
+   ".eslintrc.yaml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "npm i -D eslint (tidy only uses a project-local ESLint)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "ruff",
+  "title": "Ruff",
+  "bin": "ruff",
+  "altBins": [],
+  "kind": [
+   "format",
+   "lint"
+  ],
+  "languages": [
+   "python"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [
+   "venv"
+  ],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "ruff.toml",
+   ".ruff.toml"
+  ],
+  "tomlConfig": {
+   "file": "pyproject.toml",
+   "section": "[tool.ruff"
+  },
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "pip install ruff, or run tidy action:install engines:[\"ruff\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "clang-format",
+  "title": "clang-format",
+  "bin": "clang-format",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "c",
+   "cpp",
+   "objc"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".clang-format",
+   "_clang-format"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install LLVM/clang-format, or run tidy action:install engines:[\"clang-format\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "shfmt",
+  "title": "shfmt",
+  "bin": "shfmt",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "bash"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".editorconfig"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install mvdan/sh, or run tidy action:install engines:[\"shfmt\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "shellcheck",
+  "title": "ShellCheck",
+  "bin": "shellcheck",
+  "altBins": [],
+  "kind": [
+   "lint"
+  ],
+  "languages": [
+   "bash"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".shellcheckrc"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install shellcheck, or run tidy action:install engines:[\"shellcheck\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "stylua",
+  "title": "StyLua",
+  "bin": "stylua",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "lua"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "stylua.toml",
+   ".stylua.toml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install StyLua, or run tidy action:install engines:[\"stylua\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "gofumpt",
+  "title": "gofumpt",
+  "bin": "gofumpt",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "go"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "go install mvdan.cc/gofumpt@latest, or run tidy action:install engines:[\"gofumpt\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "air",
+  "title": "Air",
+  "bin": "air",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "r"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "air.toml",
+   ".air.toml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install air (posit-dev/air), or run tidy action:install engines:[\"air\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "mago",
+  "title": "Mago",
+  "bin": "mago",
+  "altBins": [],
+  "kind": [
+   "format",
+   "lint"
+  ],
+  "languages": [
+   "php"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "mago.toml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install mago (carthage-software/mago), or run tidy action:install engines:[\"mago\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "dprint",
+  "title": "dprint",
+  "bin": "dprint",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "json",
+   "markdown",
+   "toml",
+   "javascript",
+   "typescript"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [
+   "node"
+  ],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "dprint.json",
+   "dprint.jsonc",
+   ".dprint.json"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": true,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install dprint and add dprint.json, or run tidy action:install engines:[\"dprint\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "rustfmt",
+  "title": "rustfmt",
+  "bin": "rustfmt",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "rust"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "rustfmt.toml",
+   ".rustfmt.toml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "rustup component add rustfmt",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "gofmt",
+  "title": "gofmt",
+  "bin": "gofmt",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "go"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install the Go toolchain (gofmt ships with it)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "psscriptanalyzer",
+  "title": "PSScriptAnalyzer",
+  "bin": "pwsh",
+  "altBins": [
+   "powershell"
+  ],
+  "kind": [
+   "format",
+   "lint"
+  ],
+  "languages": [
+   "powershell"
+  ],
+  "managed": true,
+  "managedModule": true,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "PSScriptAnalyzerSettings.psd1"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": [
+   "-NoProfile",
+   "-NonInteractive",
+   "-Command",
+   "$m = @(Get-Module -ListAvailable -Name PSScriptAnalyzer) | Select-Object -First 1; if ($m) { [string]$m.Version }"
+  ],
+  "command": null,
+  "installHint": "run tidy action:install engines:[\"psscriptanalyzer\"] (needs pwsh or powershell on PATH)",
+  "hostInstallHint": "install PowerShell (pwsh or powershell on PATH)"
+ },
+ {
+  "id": "dotnet-format",
+  "title": "dotnet format",
+  "bin": "dotnet",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "csharp"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".editorconfig"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": [
+   "dotnet",
+   "format"
+  ],
+  "installHint": "install the .NET SDK (dotnet format)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "zig",
+  "title": "zig fmt",
+  "bin": "zig",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "zig"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": [
+   "zig",
+   "fmt"
+  ],
+  "installHint": "install the Zig toolchain (zig fmt)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "dart",
+  "title": "dart format",
+  "bin": "dart",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "dart"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   "analysis_options.yaml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": [
+   "dart",
+   "format"
+  ],
+  "installHint": "install the Dart SDK (dart format)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "swift-format",
+  "title": "swift-format",
+  "bin": "swift-format",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "swift"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".swift-format"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install swift-format (ships with recent Swift toolchains)",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "mix",
+  "title": "mix format",
+  "bin": "mix",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "elixir"
+  ],
+  "managed": false,
+  "managedModule": false,
+  "toolchain": true,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".formatter.exs"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": [
+   "mix",
+   "format"
+  ],
+  "installHint": "install Elixir (mix format)",
+  "hostInstallHint": ""
+ }
+]

@@ -28,8 +28,6 @@ export interface ForwardTunnel {
 export interface ServerPortForwardsOptions {
   hostId: string;
   store: PortForwardStore;
-  /** The server's listening ports, from its daemon. */
-  scan(): Promise<DesktopServerPort[]>;
   /** One ssh forward; `freePort` picks its local port, `onChange` hears every state change. */
   createTunnel(options: { freePort: () => Promise<number>; onChange: () => void }): ForwardTunnel;
   /** Runs ssh work under the server's settings (identity file); never prompts. */
@@ -42,8 +40,8 @@ export interface ServerPortForwardsOptions {
 
 export interface ServerPortForwards {
   view(): DesktopServerPortsView;
-  /** Scans the server now. */
-  refresh(): Promise<DesktopServerPortsView>;
+  /** The server's listening ports as the core's `ports` section last pushed them. */
+  update(ports: DesktopServerPort[]): void;
   forward(remotePort: number, localPort?: number | null): Promise<DesktopPortForward>;
   stop(remotePort: number): Promise<void>;
   dismiss(port: number): void;
@@ -274,14 +272,12 @@ export function createServerPortForwards(options: ServerPortForwardsOptions): Se
   const listeners = new Set<(view: DesktopServerPortsView) => void>();
   const suggestions = createSuggestions();
   let detected: DesktopServerPort[] | null = null;
-  let scanError: string | undefined;
   let disposed = false;
   const inflight = new Map<number, Promise<DesktopPortForward>>();
   let restoring: Promise<void> | null = null;
 
   const view = (): DesktopServerPortsView => ({
     detected: detected ? detected.map((port) => ({ ...port, addresses: [...port.addresses] })) : null,
-    ...(scanError ? { scanError } : {}),
     forwards: [...forwards.values()].sort((a, b) => a.remotePort - b.remotePort).map(forwardView),
     suggested: suggestions.list(),
   });
@@ -316,18 +312,10 @@ export function createServerPortForwards(options: ServerPortForwardsOptions): Se
 
   return {
     view,
-    async refresh() {
-      try {
-        const ports = await options.scan();
-        detected = ports;
-        scanError = undefined;
-        suggestions.update(ports, forwards);
-      } catch (error) {
-        detected = null;
-        scanError = error instanceof Error ? error.message : String(error);
-      }
+    update(ports) {
+      detected = ports;
+      suggestions.update(ports, forwards);
       emit();
-      return view();
     },
     forward(remotePort, localPort) {
       // One request per server port at a time: a second click joins the first.

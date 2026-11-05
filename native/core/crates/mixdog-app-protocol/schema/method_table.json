@@ -3309,7 +3309,7 @@
         "relay"
       ],
       "params": "ConfigGetToolModuleSettingsParams",
-      "result": "JsonValue",
+      "result": "mixdog_protocol::ToolModuleSettings",
       "scope": {
         "field": "threadId",
         "key": "config",
@@ -8056,6 +8056,50 @@
     },
     {
       "class": "C1",
+      "method": "lsp/subscribe",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "LspSubscribeParams",
+      "result": "v2::feed::Subscription",
+      "scope": {
+        "field": "root",
+        "kind": "keyed",
+        "namespace": "lsp"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "lsp/unsubscribe",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "LspSubscribeParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "field": "root",
+        "kind": "keyed",
+        "namespace": "lsp"
+      }
+    },
+    {
+      "class": "C1",
       "method": "lsp/document",
       "mutation": {
         "kind": "none"
@@ -10333,21 +10377,6 @@
     },
     {
       "delivery": "thread",
-      "method": "item/commandExecution/outputDelta",
-      "params": "ItemDeltaParams"
-    },
-    {
-      "delivery": "thread",
-      "method": "item/plan/delta",
-      "params": "ItemDeltaParams"
-    },
-    {
-      "delivery": "thread",
-      "method": "item/mcpToolCall/progress",
-      "params": "ItemProgressParams"
-    },
-    {
-      "delivery": "thread",
       "method": "thread/historyReset",
       "params": "ThreadHistoryResetParams"
     },
@@ -10409,7 +10438,12 @@
     {
       "delivery": "thread",
       "method": "thread/providerAccount/changed",
-      "params": "ThreadSectionParams<ProviderAccountChange>"
+      "params": "ThreadSectionParams<Option<ProviderAccountChange>>"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/promptHistory/updated",
+      "params": "ThreadSectionParams<PromptHistoryChange>"
     },
     {
       "delivery": "thread",
@@ -10539,6 +10573,11 @@
     {
       "delivery": "app",
       "method": "webSearch/updated",
+      "params": "SectionUpdate"
+    },
+    {
+      "delivery": "app",
+      "method": "toolModules/updated",
       "params": "SectionUpdate"
     },
     {
@@ -10733,7 +10772,7 @@
     },
     {
       "method": "host/visualize/command",
-      "params": "HostCommandParams",
+      "params": "HostVisualizeCommandParams",
       "requires": "host.visualize",
       "result": "JsonValue"
     },
@@ -10751,15 +10790,15 @@
     },
     {
       "method": "host/capture/fileSnapshot",
-      "params": "HostFileParams",
+      "params": "HostFileSnapshotParams",
       "requires": "host.files",
-      "result": "JsonValue"
+      "result": "HostFileSnapshot"
     },
     {
       "method": "host/localPage/url",
-      "params": "HostFileParams",
+      "params": "HostLocalPageUrlParams",
       "requires": "host.files",
-      "result": "JsonValue"
+      "result": "String"
     },
     {
       "method": "model/proxy/execute",

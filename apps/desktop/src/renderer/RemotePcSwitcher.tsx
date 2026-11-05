@@ -69,10 +69,11 @@ function useRemotePcs(reloadOn: unknown = false) {
         .catch(() => undefined);
     };
     load();
-    const timer = window.setInterval(load, 15_000);
+    // Presence and the saved list change through main's event (this window's own bridge when it has one).
+    const unsubscribe = window.mixdogDesktop?.subscribeHostListsChanged?.(load);
     return () => {
       live = false;
-      window.clearInterval(timer);
+      unsubscribe?.();
     };
   }, [remote, reloadOn]);
 
@@ -145,10 +146,10 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
         .catch(() => undefined);
     };
     load();
-    const timer = window.setInterval(load, 15_000);
+    const unsubscribe = window.mixdogDesktop?.subscribeHostListsChanged?.(load);
     return () => {
       live = false;
-      window.clearInterval(timer);
+      unsubscribe?.();
     };
   }, [listed, reloadOn]);
   const [sshHosts, setSshHosts] = useState<DesktopSshHost[]>([]);
@@ -164,10 +165,10 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
         .catch(() => undefined);
     };
     load();
-    const timer = window.setInterval(load, 15_000);
+    const unsubscribe = window.mixdogDesktop?.subscribeHostListsChanged?.(load);
     return () => {
       live = false;
-      window.clearInterval(timer);
+      unsubscribe?.();
     };
   }, [sshListed, reloadOn]);
   const thisPc: SwitcherPc = {

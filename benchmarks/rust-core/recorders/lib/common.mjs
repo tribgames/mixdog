@@ -178,7 +178,7 @@ export function writeText(path, text) {
 export const writeJson = (path, value) => writeText(path, stableStringify(value));
 
 /** Credential shapes that must never reach a checked-in fixture. */
-const SECRET_PATTERNS = [
+export const SECRET_PATTERNS = [
   // `sk-DUMMY-` is the migration corpus's sanitized placeholder marker, the only accepted exemption.
   /sk-(?!DUMMY-)[A-Za-z0-9_-]{20,}/,
   /AIza[0-9A-Za-z_-]{30,}/,

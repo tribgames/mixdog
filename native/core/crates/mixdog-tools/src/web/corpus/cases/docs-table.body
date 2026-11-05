@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Options</title></head><body><main><h1>Options</h1><table><thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+<tbody><tr><td><code>a|b</code></td><td>string</td><td>Pipe | char<br>second line</td></tr>
+<tr><td>flag</td><td>boolean</td></tr><tr><td colspan="3"><p>wide</p><p>cell</p></td></tr></tbody></table>
+<table><tr><td>solo</td></tr></table><table></table></main></body></html>

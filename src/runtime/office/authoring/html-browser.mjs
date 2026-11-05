@@ -9,8 +9,17 @@ import {
 } from '../../shared/browser-launch.mjs';
 import { startChildGuardian } from '../../shared/child-guardian.mjs';
 
+let browserProvider = null;
+
+/** The extension host hands every layout a page of the core's one shared render browser instead of
+ *  launching its own: `provider(label, { signal })` returns `{ newPage(), close() }`. */
+export function setHtmlBrowserProvider(provider) {
+  browserProvider = provider;
+}
+
 /** Launches the local browser the HTML is laid out in, under a guardian that reaps it with this process. */
 export async function launchHtmlBrowser(label, { signal = null } = {}) {
+  if (browserProvider) return await browserProvider(label, { signal });
   const puppeteer = (await import('puppeteer-core')).default;
   const browser = await launchPuppeteerBrowser(
     puppeteer,

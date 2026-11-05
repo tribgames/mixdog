@@ -11,7 +11,7 @@ import { hasActiveBackgroundTasks } from './runtime/shared/background-tasks.mjs'
 import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
 import { closeUsageLedgers } from './runtime/shared/llm/usage-ledger.mjs';
 import { stopStandaloneMemoryRuntimesForProcess } from './session-runtime/services/memory-runtime-proxy.mjs';
-import { shutdownDaemonForRuntimeRoot } from './standalone/session-client.mjs';
+import { stopCoreForRuntimeRoot } from './standalone/protocol-session/core-control.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
 import { clean } from './runtime/shared/clean.mjs';
 import { createJsonLifecycle, nonNegativeNumber } from './headless-json-lifecycle.mjs';
@@ -73,7 +73,7 @@ export async function runHeadlessExec({
     createPristineExecutionBoundary({ ...route, patchManifestPath: BUNDLED_PATCH_MANIFEST_PATH }),
   runtimeFactory = null,
   memoryRuntimeCleanup = stopStandaloneMemoryRuntimesForProcess,
-  daemonRuntimeCleanup = shutdownDaemonForRuntimeRoot,
+  daemonRuntimeCleanup = stopCoreForRuntimeRoot,
   usageLedgerCleanup = closeUsageLedgers,
   sessionStoreDrain = drainHeadlessSessionStore,
   hasActiveTasks = hasActiveBackgroundTasks,

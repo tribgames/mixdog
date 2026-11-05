@@ -10,74 +10,10 @@
 //!                               [--move X Y] [--click X Y]
 //!                               [--text STRING] [--key VK]
 
-use crate::protocol::{self, Decoded, InputEvent, Message, PointerButton, PROTOCOL_VERSION};
-use crate::security::{self, InstallState};
+use crate::client::{authenticate, Hello};
+use crate::protocol::{self, Decoded, InputEvent, Message, PointerButton};
+use crate::security::InstallState;
 use crate::{ipc, paths};
-
-/// Perform the mutual challenge-response as the client. The on-disk secret is
-/// never sent; the server must prove it knows the secret first, and this aborts
-/// (without revealing its own proof) if that fails — so a same-name squatter
-/// that lacks the secret learns nothing usable. Returns the `server-hello`.
-fn authenticate(io: &mut ipc::PipeIo, state: &InstallState) -> Result<Message, String> {
-    let client_nonce_b64 = security::generate_nonce();
-    let client_nonce =
-        security::decode_nonce(&client_nonce_b64).ok_or("failed to generate a client nonce")?;
-    protocol::write_all(
-        io,
-        &protocol::encode_control(&Message::ClientHello {
-            protocol: PROTOCOL_VERSION,
-            client_nonce: client_nonce_b64,
-        }),
-    )
-    .map_err(|error| format!("failed to send client-hello: {error}"))?;
-
-    // The server proves knowledge of the secret before we send ours.
-    let (server_nonce, server_mac) = match protocol::read_frame(io) {
-        Ok(Decoded::Control(Message::ServerAuth {
-            protocol,
-            server_nonce,
-            mac,
-        })) => {
-            if protocol != PROTOCOL_VERSION {
-                return Err(format!(
-                    "server speaks protocol {protocol}, expected {PROTOCOL_VERSION}"
-                ));
-            }
-            (server_nonce, mac)
-        }
-        Ok(Decoded::Control(Message::Error { code, message })) => {
-            return Err(format!("handshake rejected code={code} message={message}"))
-        }
-        Ok(other) => return Err(format!("unexpected handshake reply: {other:?}")),
-        Err(error) => return Err(format!("reading server-auth: {error}")),
-    };
-    let server_nonce_bytes =
-        security::decode_nonce(&server_nonce).ok_or("server sent a malformed nonce")?;
-    let expected = security::server_auth_tag(&state.secret, &client_nonce, &server_nonce_bytes);
-    if !security::secret_matches(&expected, &server_mac) {
-        return Err(
-            "server authentication failed (not the real helper); aborting before sending our proof"
-                .into(),
-        );
-    }
-
-    // Only after the server is proven do we reveal our own proof.
-    let client_mac = security::client_auth_tag(&state.secret, &server_nonce_bytes, &client_nonce);
-    protocol::write_all(
-        io,
-        &protocol::encode_control(&Message::ClientAuth { mac: client_mac }),
-    )
-    .map_err(|error| format!("failed to send client-auth: {error}"))?;
-
-    match protocol::read_frame(io) {
-        Ok(Decoded::Control(hello @ Message::ServerHello { .. })) => Ok(hello),
-        Ok(Decoded::Control(Message::Error { code, message })) => {
-            Err(format!("handshake rejected code={code} message={message}"))
-        }
-        Ok(other) => Err(format!("unexpected reply after client-auth: {other:?}")),
-        Err(error) => Err(format!("reading server-hello: {error}")),
-    }
-}
 
 fn parse_i32(value: Option<&String>) -> Option<i32> {
     value.and_then(|v| v.parse().ok())
@@ -183,7 +119,7 @@ pub fn run(args: &[String]) -> i32 {
     let mut io = ipc::PipeIo(pipe.get());
 
     match authenticate(&mut io, &state) {
-        Ok(Message::ServerHello {
+        Ok(Hello {
             protocol,
             version,
             session,
@@ -194,7 +130,6 @@ pub fn run(args: &[String]) -> i32 {
                 "server-hello protocol={protocol} version={version} session={session} desktop={desktop} locked={locked:?}"
             );
         }
-        Ok(_) => unreachable!("authenticate only returns ServerHello on success"),
         Err(error) => {
             eprintln!("probe: {error}");
             return 1;

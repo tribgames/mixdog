@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "cwd": "multi",
+  "dependencyRoots": [
+    "<ROOT>/multi",
+    "<ROOT>/multi/alpha/src/a.mjs"
+  ],
+  "input": {
+    "file": "alpha/src/a.mjs",
+    "mode": "overview"
+  },
+  "isError": false,
+  "text": "file: alpha/src/a.mjs\nlanguage: javascript\noutline:\nexport function shared (L1-3)  function shared()\nexport function onlyAlpha (L5-7)  function onlyAlpha()",
+  "tool": "code_graph"
+}

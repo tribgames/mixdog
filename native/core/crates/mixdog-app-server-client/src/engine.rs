@@ -1,9 +1,8 @@
-//! Reference engine for the frozen API (`api`). It exists so the shared conformance suite has something to run and so the API
-//! is proven implementable; WP-CLIENT-RS owns the production client and must pass the same suite.
+//! The client behind the frozen API (`api`); it passes the shared conformance suite over any `Connector`.
 //!
 //! Shape: one driver task owns the transport and every wire decision (ids, responses, close, ladder, restore); callers run the
-//! per-call policy (opId, `-32001` retry, ready wait) in their own task through `Inner::run`; one folder task resolves blob stubs
-//! and applies notifications in order.
+//! per-call policy (opId, `-32001` retry, ready wait) in their own task through `Inner::run`; each feed (and the connection-scoped stream)
+//! has its own fold lane that resolves blob stubs and applies notifications in order, so a slow feed delays only itself.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -26,6 +25,7 @@ use mixdog_app_protocol::{
         thread::{ThreadIdParams, ThreadResumeParams},
     },
 };
+use mixdog_protocol::{BlobDigest, InvalidBlobDigest};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -191,7 +191,6 @@ pub struct Inner {
     opts: ConnectOptions,
     shared: Mutex<Shared>,
     cmd: mpsc::UnboundedSender<Cmd>,
-    fold: mpsc::UnboundedSender<FoldItem>,
     pulse: watch::Sender<u64>,
     status: watch::Sender<ConnectionStatus>,
     events: broadcast::Sender<ClientEvent>,
@@ -770,6 +769,8 @@ struct Driver {
     writer: Option<Box<dyn TransportWriter>>,
     reader: Option<Box<dyn TransportReader>>,
     pending: HashMap<u64, Pending>,
+    /// Fold lanes of the current connection; dropped with it (queued items of the old generation are discarded by their check).
+    lanes: HashMap<Option<String>, mpsc::UnboundedSender<FoldItem>>,
     next_id: u64,
     ever_ready: bool,
     done: bool,
@@ -925,6 +926,7 @@ impl Driver {
     fn on_closed(&mut self) {
         self.writer = None;
         self.reader = None;
+        self.lanes.clear();
         let mut ids: Vec<u64> = self.pending.keys().copied().collect();
         ids.sort_unstable();
         {
@@ -1062,10 +1064,27 @@ impl Driver {
         self.inner.pulse();
     }
 
+    /// Queues `item` on its feed's lane (`None`: connection-scoped notifications). Each lane is its own task, so a feed whose
+    /// blob stubs are slow to resolve delays only itself; order within a lane is arrival order.
+    fn fold(&mut self, lane: Option<String>, item: FoldItem) {
+        let inner = &self.inner;
+        let tx = self.lanes.entry(lane).or_insert_with(|| {
+            let (tx, mut rx) = mpsc::unbounded_channel::<FoldItem>();
+            let inner = inner.clone();
+            tokio::spawn(async move {
+                while let Some(item) = rx.recv().await {
+                    inner.fold_item(item).await;
+                }
+            });
+            tx
+        });
+        let _ = tx.send(item);
+    }
+
     async fn on_notification(&mut self, n: RpcNotification) {
         let cur_gen = self.inner.lock().generation;
         let Some(f) = n.feed.clone() else {
-            let _ = self.inner.fold.send(FoldItem::Connection { n, cur_gen });
+            self.fold(None, FoldItem::Connection { n, cur_gen });
             return;
         };
         let snapshot = n.method == wire::THREAD_SNAPSHOT || n.method == wire::APP_SNAPSHOT;
@@ -1097,12 +1116,15 @@ impl Driver {
             None => {}
             Some(true) => self.violation(1002, &format!("feed gap on {id}")).await,
             Some(false) => {
-                let _ = self.inner.fold.send(FoldItem::Feed {
-                    n,
-                    f,
-                    snapshot,
-                    cur_gen,
-                });
+                self.fold(
+                    Some(id),
+                    FoldItem::Feed {
+                        n,
+                        f,
+                        snapshot,
+                        cur_gen,
+                    },
+                );
             }
         }
     }
@@ -1270,7 +1292,6 @@ impl FoldStore for StoreView {
 /// first ready connection is the caller's to handle (e.g. start the core); the ladder only runs after a ready connection drops.
 pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
     let (cmd, cmd_rx) = mpsc::unbounded_channel();
-    let (fold, fold_rx) = mpsc::unbounded_channel();
     let shared = Shared {
         status: ConnectionStatus::Reconnecting { attempt: 0 },
         server: None,
@@ -1293,7 +1314,6 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         status: watch::channel(shared.status.clone()).0,
         shared: Mutex::new(shared),
         cmd,
-        fold,
         pulse: watch::channel(0).0,
         events: broadcast::channel(1024).0,
         store_changes: broadcast::channel(1024).0,
@@ -1304,6 +1324,7 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         writer: None,
         reader: None,
         pending: HashMap::new(),
+        lanes: HashMap::new(),
         next_id: 1,
         ever_ready: false,
         done: false,
@@ -1325,13 +1346,6 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         server_instance_id: id,
     });
     tokio::spawn(driver.run());
-    let folder = inner.clone();
-    tokio::spawn(async move {
-        let mut rx: mpsc::UnboundedReceiver<FoldItem> = fold_rx;
-        while let Some(item) = rx.recv().await {
-            folder.fold_item(item).await;
-        }
-    });
     Ok(Client { inner })
 }
 
@@ -1455,13 +1469,15 @@ impl ProtocolClient for Client {
     }
 
     async fn put_blob(&self, bytes: &[u8], media_type: &str) -> Result<BlobRef, ClientError> {
-        let digest = format!(
+        let digest: BlobDigest = format!(
             "sha256:{}",
             Sha256::digest(bytes)
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect::<String>()
-        );
+        )
+        .parse()
+        .map_err(|e: InvalidBlobDigest| ClientError::ProtocolViolation(e.to_string()))?;
         let chunk = self
             .inner
             .lock()
@@ -1474,7 +1490,7 @@ impl ProtocolClient for Client {
         loop {
             let end = (offset + chunk).min(bytes.len());
             let params = to_json(&BlobPutParams {
-                digest: digest.as_str().into(),
+                digest: digest.clone(),
                 offset: offset as u64,
                 bytes_b64: B64.encode(&bytes[offset..end]),
             });
@@ -1488,7 +1504,7 @@ impl ProtocolClient for Client {
         }
         Ok(BlobRef {
             blob: BlobDescriptor {
-                digest: digest.as_str().into(),
+                digest,
                 bytes: bytes.len() as u64,
                 media_type: media_type.to_string(),
             },
@@ -1504,6 +1520,14 @@ impl ProtocolClient for Client {
         if self.inner.cmd.send(Cmd::Close { reply }).is_ok() {
             let _ = rx.await;
         }
+    }
+}
+
+impl Drop for Client {
+    /// The driver and folder hold the shared state, so they would outlive the last handle; dropping it closes the connection.
+    fn drop(&mut self) {
+        let (reply, _) = oneshot::channel();
+        let _ = self.inner.cmd.send(Cmd::Close { reply });
     }
 }
 

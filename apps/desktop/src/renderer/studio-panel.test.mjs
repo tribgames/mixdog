@@ -585,14 +585,21 @@ test('an unmounted gallery drops its queued sync and starts no read after', asyn
   assert.equal(reads, atUnmount, 'no media read starts after unmount');
 });
 
-test('the count poll runs only while the window has focus', async (t) => {
+test('the board counts re-read on a published media change and on return, never on a clock', async (t) => {
   reset();
   const calls = [];
-  const api = studioApi(calls);
+  const published = new Set();
+  const api = {
+    ...studioApi(calls),
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [] }),
+      subscribe(listener) {
+        published.add(listener);
+        return () => published.delete(listener);
+      },
+    },
+  };
   t.mock.timers.enable({ apis: ['setInterval'] });
-  const hasFocus = document.hasFocus;
-  let focused = false;
-  document.hasFocus = () => focused;
   const reads = () => calls.filter((call) => call.capability === 'listMediaBoards').length;
   const Probe = () => {
     boardsStore.useStudioBoardsWatch(api, true);
@@ -601,13 +608,16 @@ test('the count poll runs only while the window has focus', async (t) => {
   const view = await mount(React.createElement(Probe));
   try {
     await whileVisible(async () => {
-      t.mock.timers.tick(15_000);
+      t.mock.timers.tick(10 * 60_000);
       await act(async () => settle());
-      assert.equal(reads(), 0, 'a visible but unfocused window does not poll');
-      focused = true;
-      t.mock.timers.tick(15_000);
-      await act(async () => settle());
-      assert.equal(reads(), 1, 'a focused window polls');
+      assert.equal(reads(), 0, 'time passing reads nothing');
+      const entry = { section: 'mediaJobs', key: 'job-1', revision: 1, value: { state: 'done' } };
+      await act(async () => {
+        for (const listener of [...published])
+          listener({ kind: 'sections', changes: [{ section: 'mediaJobs', key: 'job-1', entry }] });
+        await settle();
+      });
+      assert.equal(reads(), 1, 'a published media job change re-reads the counts');
     });
     // Let any list read still in flight settle, so the focus read is a fresh one.
     await boardsStore.refreshStudioBoards(api, { join: true });
@@ -616,7 +626,6 @@ test('the count poll runs only while the window has focus', async (t) => {
     assert.equal(reads(), settled + 1, 'the window coming back still re-reads');
   } finally {
     await view.unmount();
-    document.hasFocus = hasFocus;
   }
 });
 
@@ -624,28 +633,32 @@ test('an outside result waits until this view’s running generation settles', a
   reset();
   const calls = [];
   const base = studioApi(calls);
-  let jobDone = false;
+  const published = new Set();
   const api = {
     ...base,
-    invokeCapability: async (request) => {
-      if (request.capability === 'getMediaJob' && jobDone) {
-        calls.push(request);
-        return {
-          value: {
-            id: request.args[0],
-            status: 'done',
-            kind: 'image',
-            lane: 'gemini',
-            model: 'image-model',
-            progress: 1,
-            assetId: 'generated-1',
-            error: null,
-          },
-          snapshot: null,
-        };
-      }
-      return base.invokeCapability(request);
+    // The core announces the finished job on the `mediaJobs` section (desktop-services.md §15 P9).
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [] }),
+      subscribe(listener) {
+        published.add(listener);
+        return () => published.delete(listener);
+      },
     },
+  };
+  const finishJob = () => {
+    const value = {
+      id: 'job-1',
+      status: 'done',
+      kind: 'image',
+      lane: 'gemini',
+      model: 'image-model',
+      progress: 1,
+      assetId: 'generated-1',
+      error: null,
+    };
+    const entry = { section: 'mediaJobs', key: 'job-1', revision: 1, value };
+    for (const listener of [...published])
+      listener({ kind: 'sections', changes: [{ section: 'mediaJobs', key: 'job-1', entry }] });
   };
   const view = await mount(React.createElement(StudioPane, { api, tabKey: 'studio:a' }));
   const { host } = view;
@@ -661,8 +674,10 @@ test('an outside result waits until this view’s running generation settles', a
   assert.equal(shownTiles(host).includes('outside-1'), false, 'nothing folds in while the run is in flight');
   assert.equal(assetReads(), before);
   base.works.unshift(asset('generated-1', 'A glowing jellyfish', 5));
-  jobDone = true;
-  await act(async () => settle(1_800));
+  await act(async () => {
+    finishJob();
+    await settle(100);
+  });
   const tiles = shownTiles(host);
   assert.ok(tiles.includes('generated-1') && tiles.includes('outside-1'), 'both land once the run settles');
   await view.unmount();

@@ -21,6 +21,25 @@
       "description": "Structured detail of a coded domain failure, one variant per code that carries details today (worktree, merge, room and schedule refusals). Fields and their optionality are the union over every producer of that code. Shared by core-api and the wire.",
       "oneOf": [
         {
+          "description": "An external tool's or host's failure message, for codes whose Node-visible text includes it (for example the LibreOffice install failure).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "externalFailure"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.",
           "properties": {
             "admission": {
@@ -877,6 +896,47 @@
           },
           "required": [
             "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A command failure whose text is shown to the user verbatim (git or gh stderr, a refusal sentence); never parsed or reworded.",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "commandFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`MERGE_CONFLICT`: the conflicted files, as git listed them.",
+          "properties": {
+            "files": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "mergeConflict"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "files",
             "type"
           ],
           "type": "object"

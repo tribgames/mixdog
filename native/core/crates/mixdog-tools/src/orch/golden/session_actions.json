@@ -1,0 +1,93 @@
+{
+ "outputs": {
+  "status": {
+   "ok": true,
+   "text": "{\n  \"sessionId\": \"sess_lead1\",\n  \"title\": \"My title\",\n  \"titleSource\": \"user\",\n  \"cwd\": \"C:/proj\",\n  \"project\": \"C:/proj\",\n  \"provider\": \"anthropic\",\n  \"model\": \"claude-x\",\n  \"effort\": \"high\",\n  \"autoEffort\": true,\n  \"fast\": false\n}"
+  },
+  "status_default": {
+   "ok": true,
+   "text": "{\n  \"sessionId\": \"sess_lead1\",\n  \"title\": \"My title\",\n  \"titleSource\": \"user\",\n  \"cwd\": \"C:/proj\",\n  \"project\": \"C:/proj\",\n  \"provider\": \"anthropic\",\n  \"model\": \"claude-x\",\n  \"effort\": \"high\",\n  \"autoEffort\": true,\n  \"fast\": false\n}"
+  },
+  "compact": {
+   "ok": true,
+   "text": "{\n  \"action\": \"compact\",\n  \"sessionId\": \"sess_lead1\",\n  \"scheduled\": true,\n  \"note\": \"Compaction runs right after the current turn finishes.\"\n}"
+  },
+  "fork": {
+   "ok": true,
+   "text": "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess_lead1\",\n  \"sessionId\": \"sess_fork1\",\n  \"compacted\": false\n}"
+  },
+  "fork_compact": {
+   "ok": true,
+   "text": "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess_lead1\",\n  \"sessionId\": \"sess_fork1\",\n  \"compacted\": true\n}"
+  },
+  "rename_user_title": {
+   "ok": false,
+   "text": "session: the user already titled this session; the title was not changed"
+  },
+  "rename_missing": {
+   "ok": false,
+   "text": "session: title is required for action=rename"
+  },
+  "list": {
+   "ok": true,
+   "text": "{\"ok\":true,\"action\":\"list\",\"sessionId\":null,\"items\":[]}"
+  },
+  "read": {
+   "ok": true,
+   "text": "{\"ok\":true,\"action\":\"read\",\"sessionId\":\"sess_other\",\"items\":[]}"
+  },
+  "send_with_attachments_bad": {
+   "ok": true,
+   "text": "{\n  \"sessionId\": \"sess_lead1\",\n  \"title\": \"My title\",\n  \"titleSource\": \"user\",\n  \"cwd\": \"C:/proj\",\n  \"project\": \"C:/proj\",\n  \"provider\": \"anthropic\",\n  \"model\": \"claude-x\",\n  \"effort\": \"high\",\n  \"autoEffort\": true,\n  \"fast\": false\n}"
+  },
+  "create_not_bot": {
+   "ok": false,
+   "text": "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions"
+  },
+  "favorite_missing_value": {
+   "ok": false,
+   "text": "session: value (boolean) is required for action=favorite"
+  },
+  "other_target": {
+   "ok": false,
+   "text": "session: action=compact only applies to the current session"
+  },
+  "unknown": {
+   "ok": false,
+   "text": "session: unknown action \"zap\""
+  },
+  "set_project_missing_path": {
+   "ok": false,
+   "text": "session: path is required for action=set-project"
+  }
+ },
+ "controlCalls": [
+  {
+   "args": {
+    "action": "list",
+    "limit": 5
+   },
+   "ctx": {
+    "callerSessionId": "sess_lead1",
+    "callerAgentId": "",
+    "callerBotId": "",
+    "callerCwd": "C:/proj",
+    "callerScope": {
+     "kind": "human"
+    }
+   }
+  },
+  {
+   "args": {
+    "action": "read",
+    "session_id": "sess_other"
+   },
+   "ctx": {
+    "callerSessionId": "sess_lead1",
+    "callerAgentId": "",
+    "callerBotId": "",
+    "callerCwd": "C:/proj"
+   }
+  }
+ ]
+}

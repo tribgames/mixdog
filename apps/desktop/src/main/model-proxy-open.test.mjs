@@ -99,7 +99,6 @@ test('a server connection has no grant to trust, view or keep alive', async (t) 
       }),
       loadModelProxyRuntime: async () => fakeRuntime(usageProvider(1)),
       appVersion: '0.0.0',
-      bundlePath: 'daemon.cjs',
     }
   );
   t.after(() => connection.dispose());

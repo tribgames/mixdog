@@ -1,0 +1,9 @@
+{
+ "url": "https://example.com/nav",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": false,
+  "code": "EMPTY_CONTENT",
+  "message": "No readable content in response"
+ }
+}

@@ -1,0 +1,434 @@
+[
+ {
+  "command": "ls /c/Users/x/file.txt",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "ls C:\\Users\\x\\file.txt",
+   "block": null
+  }
+ },
+ {
+  "command": "ls /c/Users/x/file.txt",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "ls C:\\Users\\x\\file.txt",
+   "block": null
+  }
+ },
+ {
+  "command": "cd /d/work && ls",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "cd D:\\work && ls",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls."
+  }
+ },
+ {
+  "command": "cd /d/work && ls",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "cd D:\\work && ls",
+   "block": null
+  }
+ },
+ {
+  "command": "Get-Content /c/a/b/c.txt; Get-Content /d/x",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "Get-Content C:\\a\\b\\c.txt; Get-Content D:\\x",
+   "block": null
+  }
+ },
+ {
+  "command": "Get-Content /c/a/b/c.txt; Get-Content /d/x",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "Get-Content C:\\a\\b\\c.txt; Get-Content D:\\x",
+   "block": null
+  }
+ },
+ {
+  "command": "echo \"/c/Users/x\"",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "echo \"/c/Users/x\"",
+   "block": null
+  }
+ },
+ {
+  "command": "echo \"/c/Users/x\"",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "echo \"/c/Users/x\"",
+   "block": null
+  }
+ },
+ {
+  "command": "echo '/c/Users/x'",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "echo '/c/Users/x'",
+   "block": null
+  }
+ },
+ {
+  "command": "echo '/c/Users/x'",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "echo '/c/Users/x'",
+   "block": null
+  }
+ },
+ {
+  "command": "cat x=/e/data/y,/f/z",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "cat x=E:\\data\\y,\\f\\z",
+   "block": null
+  }
+ },
+ {
+  "command": "cat x=/e/data/y,/f/z",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "cat x=E:\\data\\y,\\f\\z",
+   "block": null
+  }
+ },
+ {
+  "command": "ls (/c/a)",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "ls (C:\\a)",
+   "block": null
+  }
+ },
+ {
+  "command": "ls (/c/a)",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "ls (C:\\a)",
+   "block": null
+  }
+ },
+ {
+  "command": "$PID = 5",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "$PID = 5",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name)."
+  }
+ },
+ {
+  "command": "$PID = 5",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "$PID = 5",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name)."
+  }
+ },
+ {
+  "command": "$pid=1",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "$pid=1",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name)."
+  }
+ },
+ {
+  "command": "$pid=1",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "$pid=1",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name)."
+  }
+ },
+ {
+  "command": "$PID == 3",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "$PID == 3",
+   "block": null
+  }
+ },
+ {
+  "command": "$PID == 3",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "$PID == 3",
+   "block": null
+  }
+ },
+ {
+  "command": "Write-Output '$PID=1'",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "Write-Output '$PID=1'",
+   "block": null
+  }
+ },
+ {
+  "command": "Write-Output '$PID=1'",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "Write-Output '$PID=1'",
+   "block": null
+  }
+ },
+ {
+  "command": "echo \"$PID=1\"",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "echo \"$PID=1\"",
+   "block": null
+  }
+ },
+ {
+  "command": "echo \"$PID=1\"",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "echo \"$PID=1\"",
+   "block": null
+  }
+ },
+ {
+  "command": "a && b",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "a && b",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls."
+  }
+ },
+ {
+  "command": "a && b",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "a && b",
+   "block": null
+  }
+ },
+ {
+  "command": "a && b && c",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "a && b && c",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls."
+  }
+ },
+ {
+  "command": "a && b && c",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "a && b && c",
+   "block": null
+  }
+ },
+ {
+  "command": "echo \"a && b\"",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "echo \"a && b\"",
+   "block": null
+  }
+ },
+ {
+  "command": "echo \"a && b\"",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "echo \"a && b\"",
+   "block": null
+  }
+ },
+ {
+  "command": "a & b",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "a & b",
+   "block": null
+  }
+ },
+ {
+  "command": "a & b",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "a & b",
+   "block": null
+  }
+ },
+ {
+  "command": "a &&",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "a &&",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls."
+  }
+ },
+ {
+  "command": "a &&",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "a &&",
+   "block": null
+  }
+ },
+ {
+  "command": "&& a",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "&& a",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls."
+  }
+ },
+ {
+  "command": "&& a",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "&& a",
+   "block": null
+  }
+ },
+ {
+  "command": "$PID = 1; a && b",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "$PID = 1; a && b",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name).\n- `&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls."
+  }
+ },
+ {
+  "command": "$PID = 1; a && b",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "$PID = 1; a && b",
+   "block": "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- `$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name)."
+  }
+ },
+ {
+  "command": "@'\n/c/not/rewritten\n'@",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "@'\n/c/not/rewritten\n'@",
+   "block": null
+  }
+ },
+ {
+  "command": "@'\n/c/not/rewritten\n'@",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "@'\n/c/not/rewritten\n'@",
+   "block": null
+  }
+ },
+ {
+  "command": "# /c/comment\nls /c/real",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "# /c/comment\nls C:\\real",
+   "block": null
+  }
+ },
+ {
+  "command": "# /c/comment\nls /c/real",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "# /c/comment\nls C:\\real",
+   "block": null
+  }
+ },
+ {
+  "command": "rm /c/Users/x/a b",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "rm C:\\Users\\x\\a b",
+   "block": null
+  }
+ },
+ {
+  "command": "rm /c/Users/x/a b",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "rm C:\\Users\\x\\a b",
+   "block": null
+  }
+ },
+ {
+  "command": "ls /cc/not-a-drive",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "ls /cc/not-a-drive",
+   "block": null
+  }
+ },
+ {
+  "command": "ls /cc/not-a-drive",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "ls /cc/not-a-drive",
+   "block": null
+  }
+ },
+ {
+  "command": "   ",
+  "shellType": "powershell",
+  "shellName": "powershell.exe",
+  "result": {
+   "command": "   ",
+   "block": null
+  }
+ },
+ {
+  "command": "   ",
+  "shellType": "powershell",
+  "shellName": "pwsh.exe",
+  "result": {
+   "command": "   ",
+   "block": null
+  }
+ }
+]

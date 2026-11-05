@@ -6,13 +6,33 @@ use std::sync::{
 };
 
 use async_trait::async_trait;
-use tokio::sync::{Mutex as AsyncMutex, mpsc};
+use tokio::sync::mpsc;
 
 use crate::api::*;
 
+/// A receiver one waiter at a time reads from. The receiver is taken out for the wait, so no lock is held across it.
+struct Inbox<T>(Mutex<Option<mpsc::UnboundedReceiver<T>>>);
+
+impl<T> Inbox<T> {
+    fn new(rx: mpsc::UnboundedReceiver<T>) -> Self {
+        Self(Mutex::new(Some(rx)))
+    }
+    async fn recv(&self) -> Option<T> {
+        let mut rx = self
+            .0
+            .lock()
+            .unwrap()
+            .take()
+            .expect("one waiter at a time");
+        let item = rx.recv().await;
+        *self.0.lock().unwrap() = Some(rx);
+        item
+    }
+}
+
 /// The server side of one mock connection.
 pub struct MockConn {
-    from_client: AsyncMutex<mpsc::UnboundedReceiver<String>>,
+    from_client: Inbox<String>,
     to_client: mpsc::UnboundedSender<TransportEvent>,
     closed: Arc<AtomicBool>,
     client_close: Arc<Mutex<Option<u16>>>,
@@ -24,8 +44,6 @@ impl MockConn {
     pub async fn next_sent(&self) -> String {
         let t = self
             .from_client
-            .lock()
-            .await
             .recv()
             .await
             .expect("client dropped the mock connection");
@@ -96,7 +114,7 @@ impl TransportReader for Reader {
 pub struct MockNetwork {
     fail_next: AtomicUsize,
     opened_tx: mpsc::UnboundedSender<MockConn>,
-    opened_rx: AsyncMutex<mpsc::UnboundedReceiver<MockConn>>,
+    opened_rx: Inbox<MockConn>,
 }
 
 impl Default for MockNetwork {
@@ -105,7 +123,7 @@ impl Default for MockNetwork {
         Self {
             fail_next: AtomicUsize::new(0),
             opened_tx,
-            opened_rx: AsyncMutex::new(opened_rx),
+            opened_rx: Inbox::new(opened_rx),
         }
     }
 }
@@ -118,8 +136,6 @@ impl MockNetwork {
     /// The next connection the client opened (in order).
     pub async fn accept(&self) -> MockConn {
         self.opened_rx
-            .lock()
-            .await
             .recv()
             .await
             .expect("network dropped")
@@ -139,7 +155,7 @@ impl Connector for MockNetwork {
         let client_close = Arc::new(Mutex::new(None));
         let queued = Arc::new(AtomicUsize::new(0));
         let conn = MockConn {
-            from_client: AsyncMutex::new(from_client),
+            from_client: Inbox::new(from_client),
             to_client: to_client.clone(),
             closed: closed.clone(),
             client_close: client_close.clone(),

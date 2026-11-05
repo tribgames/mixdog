@@ -1,0 +1,1616 @@
+{
+  "cases": [
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "fresh-nvidia",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "installed": false,
+            "license": "Apache-2.0",
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "arm64",
+      "hardware": {
+        "arch": "arm64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 11453246122,
+          "index": 0,
+          "memoryBytes": 11453246122,
+          "name": "Fake Apple M3",
+          "uuid": "MTL0",
+          "vendor": "Apple"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 11453246122,
+            "index": 0,
+            "memoryBytes": 11453246122,
+            "name": "Fake Apple M3",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          }
+        ],
+        "platform": "darwin",
+        "supported": true
+      },
+      "name": "fresh-apple",
+      "platform": "darwin",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "arm64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": {
+            "freeMemoryBytes": 11453246122,
+            "index": 0,
+            "memoryBytes": 11453246122,
+            "name": "Fake Apple M3",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          },
+          "gpus": [
+            {
+              "freeMemoryBytes": 11453246122,
+              "index": 0,
+              "memoryBytes": 11453246122,
+              "name": "Fake Apple M3",
+              "uuid": "MTL0",
+              "vendor": "Apple"
+            }
+          ],
+          "platform": "darwin",
+          "supported": true
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "installed": false,
+            "license": "Apache-2.0",
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": true,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "Metal",
+          "downloadBytes": 10954823,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "no-gpu",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "installed": false,
+            "license": "Apache-2.0",
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "freebsd",
+        "supported": false
+      },
+      "name": "unsupported-platform",
+      "platform": "freebsd",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "freebsd",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "installed": false,
+            "license": "Apache-2.0",
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "loaded",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": true,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 1235,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "inference-running",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": true,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "queueWaitMs": 5.047599999999875,
+              "state": "running"
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 1235,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "inference-complete",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": true,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.630Z",
+              "durationMs": 1,
+              "error": null,
+              "firstResponseMs": 1,
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "queueWaitMs": 5,
+              "state": "complete",
+              "tokensPerSecond": 647840.5
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 1235,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "inference-failed",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": true,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "durationMs": 0,
+              "error": "boom",
+              "firstResponseMs": null,
+              "inputTokens": null,
+              "outputTokens": null,
+              "queueWaitMs": 0,
+              "state": "failed",
+              "tokensPerSecond": null
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 1235,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "verified",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": true,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "durationMs": 0,
+              "error": "boom",
+              "firstResponseMs": null,
+              "inputTokens": null,
+              "outputTokens": null,
+              "queueWaitMs": 0,
+              "state": "failed",
+              "tokensPerSecond": null
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 1235,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false,
+            "verification": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 123,
+              "valid": true
+            }
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "tools-denied-no-load-time",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": false,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "durationMs": 0,
+              "error": "boom",
+              "firstResponseMs": null,
+              "inputTokens": null,
+              "outputTokens": null,
+              "queueWaitMs": 0,
+              "state": "failed",
+              "tokensPerSecond": null
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": null,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": false,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false,
+            "verification": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 123,
+              "valid": true
+            }
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "tools-unknown",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": null,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "durationMs": 0,
+              "error": "boom",
+              "firstResponseMs": null,
+              "inputTokens": null,
+              "outputTokens": null,
+              "queueWaitMs": 0,
+              "state": "failed",
+              "tokensPerSecond": null
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 10,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false,
+            "verification": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 123,
+              "valid": true
+            }
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "installing-cancelling-not-yet",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092355072
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [
+          {
+            "jobId": "420045c3-adb6-4a37-a8bd-3340f60276e4",
+            "modelId": null,
+            "percent": 12.4,
+            "phase": "runtime",
+            "stage": "downloading",
+            "state": "running",
+            "updatedAt": 1793908220635
+          },
+          {
+            "error": "download failed",
+            "jobId": "4b6f9d88-237e-461b-ae4e-bb2469a6f3c4",
+            "modelId": "fake-failed",
+            "percent": null,
+            "phase": "model",
+            "stage": "preparing",
+            "state": "failed",
+            "updatedAt": 1793908220635
+          },
+          {
+            "jobId": "f0a98d76-71be-4188-b61c-ec78617da1ce",
+            "modelId": "fake-paused",
+            "percent": null,
+            "phase": "model",
+            "stage": "preparing",
+            "state": "running"
+          }
+        ],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": null,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "durationMs": 0,
+              "error": "boom",
+              "firstResponseMs": null,
+              "inputTokens": null,
+              "outputTokens": null,
+              "queueWaitMs": 0,
+              "state": "failed",
+              "tokensPerSecond": null
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 10,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false,
+            "verification": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 123,
+              "valid": true
+            }
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    },
+    {
+      "arch": "x64",
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "installations-mixed",
+      "platform": "linux",
+      "status": {
+        "activeModel": null,
+        "activeRequests": 0,
+        "available": false,
+        "disk": {
+          "availableBytes": 7092449280
+        },
+        "gpu": null,
+        "hardware": {
+          "arch": "x64",
+          "checkedAt": 1700000000000,
+          "checking": false,
+          "error": null,
+          "gpu": null,
+          "gpus": [],
+          "platform": "linux",
+          "supported": false
+        },
+        "idleDeadline": null,
+        "idleTtlSeconds": 3600,
+        "installations": [
+          {
+            "jobId": "420045c3-adb6-4a37-a8bd-3340f60276e4",
+            "modelId": null,
+            "percent": 12.4,
+            "phase": "runtime",
+            "stage": "downloading",
+            "state": "running",
+            "updatedAt": 1793908220635
+          },
+          {
+            "error": "download failed",
+            "jobId": "4b6f9d88-237e-461b-ae4e-bb2469a6f3c4",
+            "modelId": "fake-failed",
+            "percent": null,
+            "phase": "model",
+            "stage": "preparing",
+            "state": "failed",
+            "updatedAt": 1793908220635
+          },
+          {
+            "error": null,
+            "jobId": "f0a98d76-71be-4188-b61c-ec78617da1ce",
+            "modelId": "fake-paused",
+            "percent": null,
+            "phase": "model",
+            "stage": "paused",
+            "state": "paused",
+            "updatedAt": 1793908220656
+          },
+          {
+            "jobId": "52bc26be-f696-414e-b656-3c2ae6d27c47",
+            "modelId": "fake-done",
+            "percent": 100,
+            "phase": "model",
+            "stage": "complete",
+            "state": "complete",
+            "updatedAt": 1793908220656
+          }
+        ],
+        "lastError": null,
+        "lastExit": null,
+        "lastUnloadError": null,
+        "loadTimeMs": null,
+        "models": [
+          {
+            "architecture": null,
+            "capabilities": {
+              "audio": false,
+              "images": false,
+              "reasoningSettings": false,
+              "tools": null,
+              "video": false
+            },
+            "compatibility": "Bundled model",
+            "compatible": false,
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768,
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "estimatedVramBytes": 23622320128,
+            "id": "qwen3.8-27b-q4-k-m",
+            "inference": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "durationMs": 0,
+              "error": "boom",
+              "firstResponseMs": null,
+              "inputTokens": null,
+              "outputTokens": null,
+              "queueWaitMs": 0,
+              "state": "failed",
+              "tokensPerSecond": null
+            },
+            "installed": false,
+            "license": "Apache-2.0",
+            "loadTimeMs": 10,
+            "maxContextWindow": 262144,
+            "minContextWindow": 16384,
+            "minimumVramBytes": 24696061952,
+            "name": "Qwen3.8 27B Q4_K_M",
+            "present": false,
+            "recommended": false,
+            "remainingDownloadBytes": 18973870432,
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "runtimeContextWindow": 32768,
+            "sizeBytes": 18973870432,
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "supportsFunctionCalling": true,
+            "supportsImages": false,
+            "supportsReasoning": true,
+            "supportsReasoningSettings": false,
+            "verification": {
+              "at": "2026-11-05T19:50:20.632Z",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 123,
+              "valid": true
+            }
+          }
+        ],
+        "platformSupported": false,
+        "queuedRequests": 0,
+        "recommendation": null,
+        "running": false,
+        "runtime": {
+          "backend": "",
+          "downloadBytes": 0,
+          "installed": false,
+          "license": "MIT",
+          "source": "https://github.com/ggml-org/llama.cpp",
+          "version": "b10621"
+        },
+        "starting": false
+      }
+    }
+  ],
+  "domain": "local-provider-status",
+  "note": "jobId is a random uuid and updatedAt a wall clock; consumers must not compare them.",
+  "recorder": "benchmarks/rust-core/recorders/record-local-provider-status.mjs",
+  "serverStates": {
+    "crashed": {
+      "activeModel": null,
+      "gpu": null,
+      "lastError": "[local-provider] llama-server exited (7): GPU failure",
+      "lastExit": {
+        "at": "2026-11-05T19:50:20.661Z",
+        "exitCode": 7,
+        "expected": false,
+        "log": "GPU failure",
+        "modelId": "fake-model",
+        "signal": null
+      },
+      "loadTimeMs": null,
+      "running": false,
+      "starting": false
+    },
+    "running": {
+      "activeModel": "fake-model",
+      "gpu": null,
+      "lastError": null,
+      "lastExit": null,
+      "loadTimeMs": 1.6800000000000637,
+      "running": true,
+      "starting": false
+    },
+    "stopped": {
+      "activeModel": null,
+      "gpu": null,
+      "lastError": null,
+      "lastExit": {
+        "at": "2026-11-05T19:50:20.662Z",
+        "exitCode": null,
+        "expected": true,
+        "log": "",
+        "modelId": "fake-model",
+        "signal": "SIGTERM"
+      },
+      "loadTimeMs": null,
+      "running": false,
+      "starting": false
+    }
+  },
+  "toolModuleSettings": {
+    "autoEffort": {
+      "enabled": true,
+      "info": {
+        "device": "CPU",
+        "engine": "ONNX Runtime",
+        "model": "EmbeddingGemma 2 (18 layers)",
+        "modelBytes": 153062716,
+        "quantization": "4-bit",
+        "ready": false
+      },
+      "installed": true,
+      "installing": false,
+      "lastError": "",
+      "ready": false,
+      "supported": true
+    },
+    "autoEffortBase": "medium",
+    "git": {
+      "enabled": true,
+      "installed": false
+    },
+    "instructionFiles": "off",
+    "localProvider": {
+      "activeModel": null,
+      "activeRequests": 0,
+      "available": false,
+      "disk": {
+        "availableBytes": 7092449280
+      },
+      "enabled": false,
+      "gpu": null,
+      "hardware": {
+        "arch": "x64",
+        "checkedAt": 1700000000000,
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "idleDeadline": null,
+      "idleTtlSeconds": 3600,
+      "installationCommandError": "install failed",
+      "installations": [
+        {
+          "jobId": "420045c3-adb6-4a37-a8bd-3340f60276e4",
+          "modelId": null,
+          "percent": 100,
+          "phase": "runtime",
+          "stage": "complete",
+          "state": "complete",
+          "updatedAt": 1793908220659
+        },
+        {
+          "error": "download failed",
+          "jobId": "4b6f9d88-237e-461b-ae4e-bb2469a6f3c4",
+          "modelId": "fake-failed",
+          "percent": null,
+          "phase": "model",
+          "stage": "preparing",
+          "state": "failed",
+          "updatedAt": 1793908220635
+        },
+        {
+          "error": null,
+          "jobId": "f0a98d76-71be-4188-b61c-ec78617da1ce",
+          "modelId": "fake-paused",
+          "percent": null,
+          "phase": "model",
+          "stage": "paused",
+          "state": "paused",
+          "updatedAt": 1793908220656
+        },
+        {
+          "jobId": "52bc26be-f696-414e-b656-3c2ae6d27c47",
+          "modelId": "fake-done",
+          "percent": 100,
+          "phase": "model",
+          "stage": "complete",
+          "state": "complete",
+          "updatedAt": 1793908220656
+        }
+      ],
+      "installed": false,
+      "lastError": null,
+      "lastExit": null,
+      "lastUnloadError": null,
+      "loadTimeMs": null,
+      "models": [
+        {
+          "architecture": null,
+          "capabilities": {
+            "audio": false,
+            "images": false,
+            "reasoningSettings": false,
+            "tools": null,
+            "video": false
+          },
+          "compatibility": "Bundled model",
+          "compatible": false,
+          "configuredContextWindow": null,
+          "contextWindow": 32768,
+          "defaultContextWindow": 32768,
+          "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+          "estimatedVramBytes": 23622320128,
+          "id": "qwen3.8-27b-q4-k-m",
+          "inference": {
+            "at": "2026-11-05T19:50:20.632Z",
+            "durationMs": 0,
+            "error": "boom",
+            "firstResponseMs": null,
+            "inputTokens": null,
+            "outputTokens": null,
+            "queueWaitMs": 0,
+            "state": "failed",
+            "tokensPerSecond": null
+          },
+          "installed": false,
+          "license": "Apache-2.0",
+          "loadTimeMs": 10,
+          "maxContextWindow": 262144,
+          "minContextWindow": 16384,
+          "minimumVramBytes": 24696061952,
+          "name": "Qwen3.8 27B Q4_K_M",
+          "present": false,
+          "recommended": false,
+          "remainingDownloadBytes": 18973870432,
+          "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+          "runtimeContextWindow": 32768,
+          "sizeBytes": 18973870432,
+          "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+          "supportsFunctionCalling": true,
+          "supportsImages": false,
+          "supportsReasoning": true,
+          "supportsReasoningSettings": false,
+          "verification": {
+            "at": "2026-11-05T19:50:20.632Z",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 123,
+            "valid": true
+          }
+        }
+      ],
+      "platformSupported": false,
+      "queuedRequests": 0,
+      "recommendation": null,
+      "running": false,
+      "runtime": {
+        "backend": "",
+        "downloadBytes": 0,
+        "installed": false,
+        "license": "MIT",
+        "source": "https://github.com/ggml-org/llama.cpp",
+        "version": "b10621"
+      },
+      "starting": false
+    },
+    "media": {
+      "enabled": true,
+      "installed": true
+    },
+    "memory": {
+      "enabled": false,
+      "info": {
+        "device": "",
+        "dimensions": 384,
+        "dtype": "q8",
+        "engine": "Transformers.js · ONNX Runtime",
+        "model": "Xenova/multilingual-e5-small",
+        "supported": true
+      },
+      "installed": false,
+      "semanticSearchSupported": true
+    },
+    "office": {
+      "enabled": false,
+      "installed": false
+    },
+    "tidy": {
+      "enabled": false,
+      "installed": false
+    },
+    "visualize": {
+      "enabled": true,
+      "installed": true
+    },
+    "webSearch": {
+      "enabled": true
+    }
+  }
+}

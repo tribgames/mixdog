@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/mobile-frame-neutral-v1.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Mixdog 폰 프레임 색상 비교 v1",
+  "content": "다크 테마: 폰에서만 띠(#18181b, 파랑 +3)가 보임(데스크톱은 Mica로 가려짐). Android 시스템바는 mixdogBand #201E1C(갈색 톤).\n\n## 다크 테마 (390×844)\n\n## 경계 확대 (상단 띠 ↔ 시트, 3배)\n\n## C안: 다크 토큰 전체 무채색화 (도출 값)\n\n| 토큰 | 현재 | C안 | 비고 |\n| --- | --- | --- | --- |\n\n## 라이트 테마 (참고)\n\n라이트 토큰(#f7f7f7 / #fcfcfc / #fff / #f3f3f3 / #eee / #e8e8e8, 글자 #222, muted #606060)은 이미 R=G=B 무채색이라 중립화로 바뀌는 값이 없음 — 두 프레임이 동일한 것이 정상.",
+  "extractor": "readability"
+ }
+}

@@ -23,6 +23,11 @@ pub struct CheckpointState {
     /// Fork lineage, copied from the `session` frame.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base: Option<Base>,
+    /// A fork's lineage view end after a `rewind` into the base range: base rows with
+    /// ordinal ≥ `base_cut` are gone for this session. Absent: the view ends at
+    /// `base.end_ordinal_exclusive`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_cut: Option<u64>,
     /// The newest non-superseded `compacted` frame: the model-context start. A rewind
     /// past it takes the next one from the index (`compactions`).
     #[serde(skip_serializing_if = "Option::is_none")]

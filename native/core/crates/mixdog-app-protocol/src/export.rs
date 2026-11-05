@@ -35,8 +35,21 @@ pub enum FileKind {
     TypeScript,
 }
 
+/// Object keys in sorted order, so a golden does not depend on whether
+/// `serde_json/preserve_order` is enabled somewhere in the workspace.
+fn sorted(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let ordered: BTreeMap<_, _> = map.iter().map(|(k, v)| (k.clone(), sorted(v))).collect();
+            Value::Object(ordered.into_iter().collect())
+        }
+        Value::Array(items) => Value::Array(items.iter().map(sorted).collect()),
+        other => other.clone(),
+    }
+}
+
 fn pretty(value: &Value) -> String {
-    let mut text = serde_json::to_string_pretty(value).expect("schema serializes");
+    let mut text = serde_json::to_string_pretty(&sorted(value)).expect("schema serializes");
     text.push('\n');
     text
 }
@@ -216,6 +229,9 @@ fn typescript() -> String {
     collector.visit::<mixdog_protocol::ComputerSection>();
     collector.visit::<mixdog_protocol::ToolCallId>();
     collector.visit::<mixdog_protocol::ProviderId>();
+    collector.visit::<mixdog_protocol::NotificationPreferences>();
+    collector.visit::<mixdog_protocol::RemotePairCode>();
+    collector.visit::<mixdog_protocol::ToolModuleSettings>();
 
     let mut client = TsMethodMap {
         collector: &mut collector,
@@ -293,6 +309,10 @@ pub fn generate() -> Vec<GeneratedFile> {
             root::<crate::notifications::ServerNotification>(),
         ),
         schema("error_data.json", root::<crate::error::ErrorData>()),
+        schema(
+            "notification_preferences.json",
+            root::<mixdog_protocol::NotificationPreferences>(),
+        ),
         schema("initialize.json", root::<crate::v1::InitializeResponse>()),
         schema(
             "client_methods.json",

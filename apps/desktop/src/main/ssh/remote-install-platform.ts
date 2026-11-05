@@ -1,9 +1,8 @@
 // Which servers the remote install supports, decided from the platform probe
 // that runs before anything else on the server: `uname -sm` plus glibc vs musl
-// in the shell, then the node ABI inside the server program. Linux x64/arm64
-// on glibc and macOS x64/arm64 are supported. The runtime's native modules
-// (and node-pty's prebuilds, see REMOTE_PLATFORM_SOURCE) have no musl or
-// Windows builds, so those servers stop with `unsupported-platform`.
+// in the shell. Linux x64/arm64 on glibc and macOS x64/arm64 are supported:
+// those are the `mixdogd` binaries the desktop ships (remote-install-payload).
+// musl and Windows servers stop with `unsupported-platform`.
 import { RemoteBootstrapError } from './remote-install-errors';
 
 export interface RemotePlatform {
@@ -64,28 +63,3 @@ export function classifyRemotePlatform(uname: string, libc: string): RemotePlatf
   if (os === 'linux' && libc === 'musl') throw unsupported(`${system} ${machine} with musl libc (Alpine or similar)`);
   return { os, arch };
 }
-
-/** Defines platformInfo() and assertSupportedRuntime(info): the program's own
- *  view (process.platform/arch, glibc from the process report, node ABI). */
-export const REMOTE_PLATFORM_SOURCE = `
-function platformInfo() {
-  let glibc = null;
-  if (process.platform === 'linux') {
-    try { glibc = process.report.getReport().header.glibcVersionRuntime || null; } catch {}
-  }
-  return {
-    os: process.platform,
-    arch: process.arch,
-    libc: process.platform === 'linux' ? (glibc ? 'glibc' : 'musl') : 'system',
-    glibc,
-    node: process.versions.node,
-    modules: process.versions.modules,
-  };
-}
-function assertSupportedRuntime(info) {
-  const hint = 'Mixdog servers need Linux (x64 or arm64, glibc) or macOS (x64 or arm64).';
-  if (info.os !== 'linux' && info.os !== 'darwin') fail('unsupported-platform', 'The server node runs on ' + info.os + '. ' + hint);
-  if (info.arch !== 'x64' && info.arch !== 'arm64') fail('unsupported-platform', 'The server node runs on ' + info.os + '-' + info.arch + '. ' + hint);
-  if (info.libc === 'musl') fail('unsupported-platform', 'The server node runs on musl libc (Alpine or similar). ' + hint);
-}
-`;

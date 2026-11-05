@@ -1,0 +1,10 @@
+{
+ "url": "https://news.example.com/microdata",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Micro",
+  "content": "Micro-data body paragraph.",
+  "extractor": "dom-markdown"
+ }
+}

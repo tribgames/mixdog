@@ -1,3 +1,8 @@
 {
-  "impossible": []
+  "impossible": [
+    {
+      "reason": "recorder timeout after 120000ms: memory init",
+      "tool": "memory"
+    }
+  ]
 }

@@ -166,14 +166,6 @@ const NO_REPOSITORY: ChangesRead = {
 };
 const EMPTY_ROWS: readonly SessionDiffRow[] = [];
 
-// The dock's Git cadence: watch bursts debounce, and runs keep a gap at least
-// as long as the last read. Only evidence starts a read; a failed one waits
-// for the next.
-const CHANGES_REFRESH_OPTIONS = {
-  activityDebounceMs: 125,
-  activityMinGapMs: 3_000,
-};
-
 const entries = new Map<string, ChangesEntry>();
 const requests = new Map<string, Promise<boolean>>();
 const entryListeners = new Set<() => void>();
@@ -483,7 +475,7 @@ function retainChangesWatch(target: ChangesTarget): () => void {
       target.cwd,
       createGitRefreshScheduler(async () => {
         if (!(await loadChanges(target, 'activity'))) throw new Error('The Changes read failed.');
-      }, CHANGES_REFRESH_OPTIONS)
+      })
     );
     watch = { count: 0, stop };
     watches.set(id, watch);

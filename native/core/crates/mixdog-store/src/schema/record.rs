@@ -144,6 +144,12 @@ pub struct ItemRecord {
     pub archive: Option<ArchiveTag>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<OpRef>,
+    /// Present exactly when this row counts for prompt history (a `user` display row,
+    /// own room lines included; never notices, tool cards, skill or hook rows): the row's
+    /// display text as the transcript shows it (paste and file chips, image lines,
+    /// feedback rewrites applied). Written by the session at commit and by migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
     /// Sorted, unique `sha256:` digests of every blob the record references: attachment
     /// parts of the body and the body slot itself when out of line.
     pub refs: Refs,
@@ -225,6 +231,10 @@ pub struct CompactedRecord {
     pub summary_iid: Option<Id>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<OpRef>,
+    /// The divider row's `at` (milliseconds since the Unix epoch, 1.4.5 `Date.now()` of the
+    /// compaction).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
     pub replacement: Slot<Vec<ReplacementEntry>>,
 }
 

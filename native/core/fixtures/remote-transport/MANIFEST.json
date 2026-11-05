@@ -1,0 +1,30 @@
+{
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-remote-transport.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 126512,
+      "path": "vectors.json",
+      "sha256": "5e538d5cf6a9d2f0b4f4a52ef0d706dc7578f1a24a00ff09af727796f5b1f2c3"
+    }
+  ],
+  "product": {
+    "appsSha256": "4f7712792d9b207a3c56b7aeaa034d5020e7cc24c9f9faadda6e1f5b893a3e14",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9210,
+    "refComparison": {
+      "closestCommit": "201cbaee60c6fb6cc539b41fe584f07feb4a6e6e",
+      "commitFilesMissingFromTree": 6,
+      "exact": false,
+      "filesDifferingFromCommit": 184
+    },
+    "srcSha256": "e258832403d4697edffbdc21061cbde09c5e8a78c44ed4823f87afc13d247c18",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-remote-transport.mjs",
+  "set": "remote-transport",
+  "totalBytes": 126512
+}

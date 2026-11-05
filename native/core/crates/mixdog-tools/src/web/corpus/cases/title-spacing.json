@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/title",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Spaced Title here",
+  "content": "Body.",
+  "extractor": "dom-markdown"
+ }
+}

@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>",
+    "<ROOT>/reg/other"
+  ],
+  "input": {
+    "mode": "overview"
+  },
+  "isError": false,
+  "session": "reg/other/x.mjs",
+  "text": "# project other [<ROOT>/reg/other]\nfiles\t1\nedges\t0\njavascript\t1",
+  "tool": "code_graph"
+}

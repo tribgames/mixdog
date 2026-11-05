@@ -1,0 +1,14 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "file": ".",
+    "mode": "imports"
+  },
+  "isError": true,
+  "text": "Error: code_graph imports: file not found in graph: . — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.",
+  "tool": "code_graph"
+}

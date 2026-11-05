@@ -1,0 +1,21 @@
+{
+  "complete": true,
+  "cwd": "many",
+  "dependencyRoots": [
+    "<ROOT>/many",
+    "<ROOT>/many/p01",
+    "<ROOT>/many/p02",
+    "<ROOT>/many/p03",
+    "<ROOT>/many/p04",
+    "<ROOT>/many/p05",
+    "<ROOT>/many/p06",
+    "<ROOT>/many/p07",
+    "<ROOT>/many/p08"
+  ],
+  "input": {
+    "mode": "overview"
+  },
+  "isError": false,
+  "text": "# project p01 [<ROOT>/many/p01]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p02 [<ROOT>/many/p02]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p03 [<ROOT>/many/p03]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p04 [<ROOT>/many/p04]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p05 [<ROOT>/many/p05]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p06 [<ROOT>/many/p06]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p07 [<ROOT>/many/p07]\nfiles\t1\nedges\t0\njavascript\t1\n\n# project p08 [<ROOT>/many/p08]\nfiles\t1\nedges\t0\njavascript\t1",
+  "tool": "code_graph"
+}

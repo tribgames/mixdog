@@ -9,4 +9,20 @@ workspace = true
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "net", "macros"] }
+# The workspace pin names a `proxy` feature tokio-tungstenite 0.28 does not have (contract change
+# request to WP-INTEGRATE); the listener needs only the server-side handshake, no TLS.
+tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["handshake"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros", "test-util"] }

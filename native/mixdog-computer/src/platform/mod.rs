@@ -12,8 +12,11 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod unsupported;
+#[cfg(windows)]
+mod windows;
 
-/// A native top-level window number: a CGWindowID on macOS, an XID on X11.
+/// A native top-level window number: a CGWindowID on macOS, an XID on X11,
+/// an HWND on Windows.
 pub type Wid = u64;
 
 /// Window ids travel in the same `hwnd:0x…` form on every platform so the
@@ -59,6 +62,35 @@ pub struct WindowInfo {
     pub height: i32,
     /// The content area; equal to the frame where the platform cannot tell.
     pub client: (i32, i32, i32, i32),
+    /// The process that owns the content a hosting frame shows (a packaged
+    /// app's frame belongs to the system); 0 when the window hosts none.
+    pub content_pid: i64,
+}
+
+/// How a window's process ranks against this host's own by integrity level.
+pub struct Integrity {
+    pub own_rid: i32,
+    pub target_rid: i32,
+    pub own_name: &'static str,
+    pub target_name: &'static str,
+}
+
+impl Integrity {
+    pub fn known(&self) -> bool {
+        self.own_rid > 0 && self.target_rid > 0
+    }
+    pub fn higher(&self) -> bool {
+        self.own_rid > 0 && self.target_rid > self.own_rid
+    }
+}
+
+/// A window's own rendering, read without touching the screen.
+pub struct Surface {
+    pub png: Vec<u8>,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
 }
 
 impl WindowInfo {
@@ -131,6 +163,10 @@ pub trait Background {
 
 pub trait Desktop {
     fn name(&self) -> &'static str;
+    /// What an accessibility element reports as its source.
+    fn element_source(&self) -> &'static str {
+        self.name()
+    }
 
     fn windows(&self) -> Result<Vec<WindowInfo>, String>;
     fn info(&self, handle: Wid) -> Option<WindowInfo>;
@@ -145,6 +181,23 @@ pub trait Desktop {
     fn related_windows(&self, handle: Wid) -> Vec<Wid>;
     /// A popup, sheet or dialog `candidate` that `owner` owns.
     fn is_owned_by(&self, candidate: Wid, owner: Wid) -> bool;
+    /// Whether `candidate` is `surface` itself or drawn inside it.
+    fn is_contained(&self, candidate: Wid, surface: Wid) -> bool {
+        candidate != 0 && candidate == surface
+    }
+    /// The window process's integrity against this host's; `None` where the
+    /// system has no such boundary.
+    fn integrity(&self, _handle: Wid) -> Option<Integrity> {
+        None
+    }
+    /// The window's own rendering; refuses where the platform has none.
+    fn window_surface(&self, handle: Wid) -> Result<Surface, String> {
+        Err(format!(
+            "capture_source_unavailable: {} has no native window surface backend; the composited capture covers {}",
+            self.name(),
+            window_id(handle)
+        ))
+    }
     fn move_window(
         &self,
         handle: Wid,
@@ -192,7 +245,9 @@ pub fn create(observer: Arc<Shared>, marker: i64) -> Box<dyn Desktop> {
     return Box::new(macos::MacDesktop::new(observer, marker));
     #[cfg(target_os = "linux")]
     return linux::create(observer, marker);
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    return Box::new(windows::WinDesktop::new(observer, marker));
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = (observer, marker);
         Box::new(unsupported::Unsupported::new(
@@ -208,7 +263,9 @@ pub fn release_owned_input() -> Result<(), String> {
     return macos::release_owned_input();
     #[cfg(target_os = "linux")]
     return linux::release_owned_input();
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    return windows::release_owned_input();
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     return Ok(());
 }
 
@@ -232,7 +289,12 @@ pub fn terminate_pid(pid: i64) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn terminate_pid(pid: i64) -> Result<(), String> {
+    windows::terminate_pid(pid)
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn terminate_pid(pid: i64) -> Result<(), String> {
     Err(format!(
         "terminating pid {pid} is not supported on this platform"
@@ -275,7 +337,12 @@ pub fn parent_pid(pid: i64) -> i64 {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+pub fn parent_pid(pid: i64) -> i64 {
+    windows::parent_pid(pid)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub fn parent_pid(_pid: i64) -> i64 {
     0
 }

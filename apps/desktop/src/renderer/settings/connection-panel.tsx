@@ -11,6 +11,7 @@ import { remoteClientKind } from '../../shared/remote-trust';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { deviceKindText, deviceTitle } from '../remote-client-kind-label';
+import { sectionStoreFor } from '../section-store';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { ActionButton, CompactSwitch, Group, ResourceRow } from './capability-controls';
 import type { CapabilityApi } from './capability-data';
@@ -48,7 +49,7 @@ function disconnectLabel(busy: boolean, confirming: boolean): string {
   return confirming ? t('Confirm disconnect') : t('Disconnect');
 }
 
-/** Keeps the device list current: a ready page polls for device changes, and
+/** Keeps the device list current: a ready page follows the pushed `remote` section, and
  *  one still waiting on the relay retries until it answers. */
 function useConnectionInfoUpdates({
   api,
@@ -79,11 +80,17 @@ function useConnectionInfoUpdates({
         });
     };
     refresh();
-    const timer = window.setInterval(refresh, 10_000);
+    // Device changes are pushed: the core's `remote` section carries the access info (desktop-services.md §7.2, §15 P11).
+    const sections = sectionStoreFor(window.mixdogDesktop);
+    const takeRemote = () => {
+      const info = (sections?.get('remote')?.value as { info?: DesktopRemoteAccessInfo | null } | undefined)?.info;
+      if (live && info !== undefined) applyInfo(info);
+    };
+    const unfollow = sections?.subscribe('remote', takeRemote);
     const unsubscribe = subscribeSetupChanges(refresh);
     return () => {
       live = false;
-      window.clearInterval(timer);
+      unfollow?.();
       unsubscribe();
     };
   }, [ready, api]);
@@ -92,21 +99,25 @@ function useConnectionInfoUpdates({
   useEffect(() => {
     if (ready || !api.getRemoteAccessInfo) return undefined;
     let live = true;
-    let timer = 0;
-    const attempt = () => {
-      const startedAt = Date.now();
-      void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
-        if (!live) return;
-        setInfo(value);
-        if (value?.enabled === false || connectionInfoReady(value)) return;
-        setStalledAttempts((count) => count + 1);
-        timer = window.setTimeout(attempt, Math.max(0, CONNECTION_RETRY_MS - (Date.now() - startedAt)));
-      });
+    const sections = sectionStoreFor(window.mixdogDesktop);
+    // The relay answers by pushing the `remote` section; there is no retry loop. A page still waiting after the
+    // time five retries used to take says so.
+    const take = (): void => {
+      const info = (sections?.get('remote')?.value as { info?: DesktopRemoteAccessInfo | null } | undefined)?.info;
+      if (live && info !== undefined) setInfo(info);
     };
-    attempt();
+    const unfollow = sections?.subscribe('remote', take);
+    void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
+      if (live) setInfo(value);
+    });
+    const stalled = window.setTimeout(
+      () => live && setStalledAttempts(() => CONNECTION_STALLED_ATTEMPTS),
+      CONNECTION_RETRY_MS * CONNECTION_STALLED_ATTEMPTS
+    );
     return () => {
       live = false;
-      window.clearTimeout(timer);
+      unfollow?.();
+      window.clearTimeout(stalled);
     };
   }, [api, ready]);
 }

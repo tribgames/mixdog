@@ -1,0 +1,118 @@
+//! The `voice/` namespace: `getVoiceStatus`, `toggleVoice`, `transcribeAudio`,
+//! `prepareTranscription`. `transcribeAudio` is scoped `global("voice")` by the method table,
+//! which is the one transcription queue (length one).
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use base64::Engine as _;
+use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply, service::Admit};
+use mixdog_core_api::ids::{ConnectionId, Method};
+use serde_json::Value;
+
+use super::pipeline::VoicePipeline;
+use super::setup::VoiceSetup;
+
+const MAX_PAYLOAD_CHARS: usize = 40_000_000;
+
+pub struct VoiceService {
+    pipeline: Arc<VoicePipeline>,
+    setup: Arc<VoiceSetup>,
+}
+
+impl VoiceService {
+    pub fn new(pipeline: Arc<VoicePipeline>, setup: Arc<VoiceSetup>) -> Self {
+        Self { pipeline, setup }
+    }
+
+    async fn transcribe_audio(&self, input: &Value) -> Result<Value, CoreError> {
+        let data = input.get("data").and_then(Value::as_str).unwrap_or("");
+        if data.is_empty() {
+            return Err(voice_error("transcribeAudio: audio payload is required"));
+        }
+        if data.len() > MAX_PAYLOAD_CHARS {
+            return Err(voice_error("transcribeAudio: recording too large"));
+        }
+        let mime = input.get("mimeType").and_then(Value::as_str).unwrap_or("audio/webm");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|_| invalid("input.data", "base64"))?;
+        let path = std::env::temp_dir().join(format!(
+            "mixdog-dictation-{}-{}.{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple(),
+            audio_extension(mime)
+        ));
+        tokio::fs::write(&path, bytes).await.map_err(|e| voice_error(e.to_string()))?;
+        let attachment = format!("dictation-{}", uuid::Uuid::new_v4());
+        let result = self.pipeline.transcribe(&path, Some(&attachment)).await;
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("wav")).await;
+        let text = result.map_err(|e| voice_error(e.0))?;
+        Ok(Value::String(text.unwrap_or_default()))
+    }
+}
+
+pub(crate) fn audio_extension(mime: &str) -> &'static str {
+    let mime = mime.to_lowercase();
+    if mime.contains("ogg") {
+        "ogg"
+    } else if mime.contains("wav") {
+        "wav"
+    } else if mime.contains("mp4") || mime.contains("m4a") {
+        "m4a"
+    } else {
+        "webm"
+    }
+}
+
+fn voice_error(detail: impl Into<String>) -> CoreError {
+    CoreError::CapabilityUnavailable {
+        capability: "voice".into(),
+        detail: detail.into().into(),
+    }
+}
+
+fn invalid(path: &str, expected: &str) -> CoreError {
+    CoreError::InvalidParams {
+        path: path.into(),
+        expected: expected.into(),
+    }
+}
+
+#[async_trait]
+impl DomainService for VoiceService {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let value = match req.method.as_str() {
+            "voice/getVoiceStatus" => self.setup.status(),
+            "voice/toggleVoice" => {
+                let enabled = req.params.get("enabled").and_then(Value::as_bool);
+                let result = self.setup.toggle(enabled).await;
+                let mut status = self.setup.status();
+                status["result"] = result.to_json();
+                status
+            }
+            "voice/transcribeAudio" => self.transcribe_audio(req.params.get("input").unwrap_or(&Value::Null)).await?,
+            "voice/prepareTranscription" => self.pipeline.prepare_transcription().await,
+            _ => return Err(invalid("method", "voice/*")),
+        };
+        Ok(Reply::Value(value))
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_follows_the_mime_type() {
+        assert_eq!(audio_extension("audio/ogg; codecs=opus"), "ogg");
+        assert_eq!(audio_extension("audio/x-wav"), "wav");
+        assert_eq!(audio_extension("audio/mp4"), "m4a");
+        assert_eq!(audio_extension("audio/webm"), "webm");
+    }
+}

@@ -1,0 +1,18 @@
+{
+  "complete": false,
+  "cwd": "multi",
+  "dependencyRoots": [
+    "<ROOT>/multi",
+    "<ROOT>/multi/alpha",
+    "<ROOT>/multi/beta"
+  ],
+  "input": {
+    "files": [
+      "."
+    ],
+    "mode": "symbols"
+  },
+  "isError": false,
+  "text": "# project alpha [<ROOT>/multi/alpha]\nError: code_graph symbols: file not found in graph: (missing file)\n\n# project beta [<ROOT>/multi/beta]\nError: code_graph symbols: file not found in graph: (missing file)",
+  "tool": "code_graph"
+}

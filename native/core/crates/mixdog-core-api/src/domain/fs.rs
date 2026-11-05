@@ -123,6 +123,12 @@ pub enum FsErrorKind {
     Io {
         os_code: Option<i32>,
     },
+    /// `search_text` with `regex: true` got a pattern that does not parse;
+    /// `message` is the parser's text as Node shows it
+    /// (`regex parse error: …`), passed through verbatim.
+    InvalidPattern {
+        message: String,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -153,8 +159,11 @@ pub trait FileService: Send + Sync {
     /// Atomic replace (write, rename, fsync of file and directory). Writes
     /// through a leaf symlink to its target.
     async fn write(&self, lane: DurabilityIo, request: WriteRequest) -> Result<FileStat, FsError>;
-    /// Recovery-backed multi-file write: all files or none; preconditions are
-    /// checked for every file before the first is replaced.
+    /// Multi-file write: all files or none; preconditions are checked for
+    /// every file before the first is replaced. A failure after that restores
+    /// the files already replaced from their prior contents held in memory,
+    /// as Node does; nothing is journaled, so a crash mid-batch can leave it
+    /// partly applied.
     async fn write_batch(
         &self,
         lane: DurabilityIo,

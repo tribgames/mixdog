@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/inherit-notice-mockup.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "모델 변경 안내 시안",
+  "content": "## 모델 변경 안내 시안\n\n상황: Claude로 대화하던 세션에서 입력창 모델을 Gemini Flash Lite Latest로 바꿨을 때. 이 대화는 계속 Claude를 써야 하므로 사용자에게 알려 줍니다.\n\n## A안 · 입력창 위 안내 띠\n\n모델이 다르면 입력창 바로 위에 띠가 붙습니다. 가장 눈에 잘 띄고, 버튼 한 번으로 이어받기가 가능합니다.\n\n이 함수 리팩터링해줘\n\n네, 함수를 세 부분으로 나눠서 정리했습니다…Claude Opus 5.5\n\n⚠ 이 대화는 **Claude Opus 5.5**로 계속됩니다. Gemini Flash Lite Latest는 새 대화에 적용돼요.\n\n메시지 입력…\n\n＋ Gemini Flash Lite Latest High ⌄  ↑\n\n## B안 · 모델 이름 옆 작은 표시\n\n입력창 안에 \"이 대화: Claude\" 표시만 붙이고, 누르면 설명과 버튼이 뜹니다. 화면이 덜 복잡한 대신 눈에 덜 띕니다.\n\n네, 함수를 세 부분으로 나눠서 정리했습니다…Claude Opus 5.5\n\n메시지 입력…\n\n＋ Gemini Flash Lite Latest High ⌄  이 대화: Claude Opus 5.5 ⓘ  다음 메시지는 **Claude Opus 5.5**로 보내집니다.\n 고른 모델(Gemini Flash Lite Latest)은 새 대화나 이어받기에 쓰여요.      ↑\n\n## C안 · 모델을 고르는 순간 묻기\n\n이미 대화한 세션에서 다른 모델을 고르면 바로 선택지를 보여 줍니다. 헷갈릴 여지가 가장 적지만, 고를 때마다 한 단계가 더 생깁니다.\n\n네, 함수를 세 부분으로 나눠서 정리했습니다…Claude Opus 5.5\n\n메시지 입력…\n\n＋ Claude Opus 5.5 High ⌄  ↑",
+  "extractor": "readability"
+ }
+}

@@ -11,7 +11,7 @@ import {
 } from './electron-harness.mjs';
 
 function integrationEntryName() {
-  for (const name of ['cdp-lifecycle', 'document-checkpoint', 'popup-blank', 'user-dialogs']) {
+  for (const name of ['cdp-lifecycle', 'document-checkpoint', 'popup-blank', 'user-dialogs', 'golden-twin', 'file-snapshot-host']) {
     if (process.argv.includes(`--${name}`)) return name;
   }
   return 'host';
@@ -30,7 +30,10 @@ await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
       sourcemap: 'inline',
     });
 
-    const presentationRun = process.argv.includes('--user-dialogs') || process.argv.includes('--popup-blank');
+    const presentationRun =
+      process.argv.includes('--user-dialogs') ||
+      process.argv.includes('--popup-blank') ||
+      process.argv.includes('--golden-twin');
     const nativeView = process.argv.includes('--native') ? '1' : '0';
     const env = electronProcessEnv({
       MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,

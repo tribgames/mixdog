@@ -44,7 +44,7 @@ crate::server_request_definitions! {
         requires: Some("host.browser"),
     },
     HostVisualizeCommand => "host/visualize/command" {
-        params: HostCommandParams,
+        params: HostVisualizeCommandParams,
         result: JsonValue,
         requires: Some("host.visualize"),
     },
@@ -59,13 +59,13 @@ crate::server_request_definitions! {
         requires: Some("host.updater"),
     },
     HostCaptureFileSnapshot => "host/capture/fileSnapshot" {
-        params: HostFileParams,
-        result: JsonValue,
+        params: HostFileSnapshotParams,
+        result: HostFileSnapshot,
         requires: Some("host.files"),
     },
     HostLocalPageUrl => "host/localPage/url" {
-        params: HostFileParams,
-        result: JsonValue,
+        params: HostLocalPageUrlParams,
+        result: String,
         requires: Some("host.files"),
     },
     /// A server core's model call executed with this machine's accounts.
