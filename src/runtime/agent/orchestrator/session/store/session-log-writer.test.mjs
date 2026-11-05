@@ -119,7 +119,18 @@ test('records append, edit, rollback, compaction and header patches that replay 
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line).t);
-  assert.deepEqual(types, ['session', 'compacted', 'append', 'patch', 'edit', 'rollback', 'patch', 'compacted', 'append', 'patch']);
+  assert.deepEqual(types, [
+    'session',
+    'compacted',
+    'append',
+    'patch',
+    'edit',
+    'rollback',
+    'patch',
+    'compacted',
+    'append',
+    'patch',
+  ]);
   const edit = JSON.parse(readFileSync(logPath, 'utf8').trim().split('\n')[4]);
   assert.deepEqual([edit.at, edit.del, edit.messages.length], [0, 1, 1], 'only the changed message is written');
   assert.ok(jsonEqual(await replayed(logPath), session));
@@ -141,7 +152,10 @@ test('records of one tick share one write and one fsync; later ones form the nex
   }
   const acks = await Promise.all(pending);
   assert.equal(syncCalls - before, 1);
-  assert.ok(acks.every((ack) => ack.seq === 6), 'every caller is acknowledged with the batch');
+  assert.ok(
+    acks.every((ack) => ack.seq === 6),
+    'every caller is acknowledged with the batch'
+  );
   session.messages = [...session.messages, msg('x')];
   const first = rec.record(session);
   await Promise.resolve();
@@ -185,7 +199,19 @@ test('nothing lands without the writer claim, and a lost claim ends the recorder
   assert.equal(statSync(logPath).size, size);
   claim.held = true;
   await assert.rejects(rec.record(session), { code: 'ESESSIONCHANGED' }, 'a stale recorder stays refused');
-  await assert.rejects(async () => openSessionLog({ logPath, claim: { ...claim, assertHeld() { throw Object.assign(new Error('busy'), { code: 'ESESSIONCHANGED' }); } } }), { code: 'ESESSIONCHANGED' });
+  await assert.rejects(
+    async () =>
+      openSessionLog({
+        logPath,
+        claim: {
+          ...claim,
+          assertHeld() {
+            throw Object.assign(new Error('busy'), { code: 'ESESSIONCHANGED' });
+          },
+        },
+      }),
+    { code: 'ESESSIONCHANGED' }
+  );
 });
 
 test('open refuses a copy recorded on another state of the log', async () => {
@@ -198,7 +224,8 @@ test('open refuses a copy recorded on another state of the log', async () => {
   await rec.record(session);
   await rec.close();
   await assert.rejects(
-    async () => openSessionLog({ logPath, claim, expect: { logId: loadedAt.logId, seq: loadedAt.seq }, messages: [msg('a')] }),
+    async () =>
+      openSessionLog({ logPath, claim, expect: { logId: loadedAt.logId, seq: loadedAt.seq }, messages: [msg('a')] }),
     { code: SESSION_LOG_ERRORS.CHANGED }
   );
   const reopened = await openSessionLog({ logPath, claim });
@@ -314,7 +341,10 @@ test('open sets a damaged log aside whole and continues from its replayed state'
   const original = readFileSync(logPath);
   const lostRecord = '{"t":"append","s":3,"len":3,"messages":[{"role":"user","content":"c"}]}\n';
   const fourth = '{"t":"append","s":4,"len":4,"messages":[{"role":"user","content":"d"}]}\n';
-  writeFileSync(logPath, Buffer.concat([original, Buffer.from(`${'\u0000'.repeat(lostRecord.length - 1)}\n${fourth}`)]));
+  writeFileSync(
+    logPath,
+    Buffer.concat([original, Buffer.from(`${'\u0000'.repeat(lostRecord.length - 1)}\n${fourth}`)])
+  );
   const damaged = readFileSync(logPath);
   const reopened = await openSessionLog({ logPath, claim });
   await reopened.close();
@@ -345,11 +375,19 @@ test('legacy conversion publishes a proven base and never touches the json', asy
 
   // First write after the conversion diffs against the legacy-loaded copy.
   const live = loadLegacy(before.bytes.toString('utf8'), id);
-  const rec = await openSessionLog({ logPath, claim, expect: { logId: result.logId, seq: 1 }, messages: live.messages });
+  const rec = await openSessionLog({
+    logPath,
+    claim,
+    expect: { logId: result.logId, seq: 1 },
+    messages: live.messages,
+  });
   live.messages = [...live.messages, msg('c')];
   await rec.record(live);
   await rec.close();
-  const lines = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line).t);
+  const lines = readFileSync(logPath, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line).t);
   assert.deepEqual(lines, ['session', 'compacted', 'append']);
 });
 
@@ -385,7 +423,13 @@ test('a diverged log is set aside and the session rebased from the json', async 
     async () => convertLegacySession({ jsonPath, logPath, loadLegacy, claim, divergedLogId: 'not-it' }),
     { code: SESSION_LOG_ERRORS.CHANGED }
   );
-  const rebased = await convertLegacySession({ jsonPath, logPath, loadLegacy, claim, divergedLogId: resolved.log.logId });
+  const rebased = await convertLegacySession({
+    jsonPath,
+    logPath,
+    loadLegacy,
+    claim,
+    divergedLogId: resolved.log.logId,
+  });
   assert.notEqual(rebased.logId, first.logId);
   assert.deepEqual(readFileSync(rebased.aside), logBytes, 'the diverged log is kept whole');
   const now = await resolveSessionRecord({ jsonPath, logPath, loadLegacy });
@@ -413,18 +457,21 @@ test('the redaction rewrite removes the old bytes and keeps the lineage', async 
   assert.equal((await pending).seq, 3, 'the record queued first landed in the old log');
   assert.deepEqual(ack, { logId: rec.logId, seq: 1, end: statSync(logPath).size });
   assert.equal(readFileSync(logPath, 'utf8').includes('hunter2'), false);
-  assert.equal(readdirSync(root).some((name) => name.startsWith(`${id}.`) && readFileSync(join(root, name), 'utf8').includes('hunter2')), false);
+  assert.equal(
+    readdirSync(root).some(
+      (name) => name.startsWith(`${id}.`) && readFileSync(join(root, name), 'utf8').includes('hunter2')
+    ),
+    false
+  );
   const log = await readSessionLog(logPath);
   assert.deepEqual(log.prev, { logId: oldLogId, seq: 3, reason: 'redaction' });
   assert.equal(log.messages.length, 3);
   session.messages = [...session.messages, msg('after')];
   await rec.record(session);
-  assert.deepEqual((await replayed(logPath)).messages.map((m) => m.content), [
-    'my token is [redacted]',
-    'ok, [redacted] noted',
-    'next',
-    'after',
-  ]);
+  assert.deepEqual(
+    (await replayed(logPath)).messages.map((m) => m.content),
+    ['my token is [redacted]', 'ok, [redacted] noted', 'next', 'after']
+  );
   await rec.close();
 });
 
@@ -451,7 +498,9 @@ async function sessionHoldingValue() {
 
 // The session's files that still hold the value.
 const holdingValue = (id) =>
-  readdirSync(root).filter((name) => name.startsWith(`${id}.`) && readFileSync(join(root, name), 'utf8').includes('hunter2'));
+  readdirSync(root).filter(
+    (name) => name.startsWith(`${id}.`) && readFileSync(join(root, name), 'utf8').includes('hunter2')
+  );
 
 test('redaction also rewrites the legacy json and the copies kept aside that hold the value', async () => {
   const { id, jsonPath, logPath } = paths();
@@ -546,7 +595,7 @@ test('a batch is refused when another writer appended to the log after the recor
   const foreign = encodePatch(2, [['status', '"error"']], []);
   appendFileSync(logPath, foreign);
   await assert.rejects(pending, { code: 'ESESSIONCHANGED' });
-  assert.ok(readFileSync(logPath, 'utf8').endsWith(foreign), 'the foreign record is the log\'s last');
+  assert.ok(readFileSync(logPath, 'utf8').endsWith(foreign), "the foreign record is the log's last");
   assert.equal((await replayed(logPath)).status, 'error');
   await assert.rejects(rec.record({ ...session, status: 'done' }), { code: 'ESESSIONCHANGED' });
   await rec.close().catch(() => {});
@@ -620,7 +669,8 @@ for (const at of ['batch in flight', 'log rename refused', 'json rename refused'
       void rec.record({ ...rec.loaded, title: 'queued before' }).catch(() => {});
       await until(() => resumeSync !== null);
     }
-    const hold = at === 'batch in flight' ? null : refuseRenamesOnto(t, at === 'log rename refused' ? logPath : jsonPath);
+    const hold =
+      at === 'batch in flight' ? null : refuseRenamesOnto(t, at === 'log rename refused' ? logPath : jsonPath);
     const rewriting = rec.rewrite(rec.loaded, { redaction });
     if (hold) {
       await until(() => hold.refused() > 0);
@@ -657,7 +707,10 @@ async function sessionWithMarks() {
   const redactMessage = (m) => (m && typeof m.content === 'string' ? { ...m, content: redactText(m.content) } : m);
   writeFileSync(jsonPath, JSON.stringify({ id, title: 't0', messages: [msg('first tok-0')] }));
   await convertLegacySession({ jsonPath, logPath, loadLegacy, claim });
-  writeFileSync(`${logPath}.damaged-1-ab`, `${JSON.stringify({ t: 'append', s: 9, len: 1, messages: [msg('tok-0')] })}\n`);
+  writeFileSync(
+    `${logPath}.damaged-1-ab`,
+    `${JSON.stringify({ t: 'append', s: 9, len: 1, messages: [msg('tok-0')] })}\n`
+  );
   writeFileSync(`${logPath}.torn-2-cd`, 'partial tok-0');
   const rec = await openSessionLog({ logPath, claim });
   rec._options.projectMessage = redactMessage;
@@ -682,7 +735,7 @@ function settleOrder(accepted) {
   return order;
 }
 
-test('an exit after a save accepted between two rewrites ends on the later rewrite\'s state', async (t) => {
+test("an exit after a save accepted between two rewrites ends on the later rewrite's state", async (t) => {
   const { logPath, rec, marked, holding, redaction } = await sessionWithMarks();
   const hold = refuseRenamesOnto(t, logPath);
   const base = rec.loaded;
@@ -698,7 +751,7 @@ test('an exit after a save accepted between two rewrites ends on the later rewri
   assert.deepEqual(
     parseSessionLog(readFileSync(logPath)).messages.map((m) => m.content),
     ['first [redacted]', 'later-save'],
-    'the log is the later rewrite\'s state'
+    "the log is the later rewrite's state"
   );
   await Promise.all([first, middle, last]);
   assert.deepEqual(order, [0, 1, 2], 'every promise resolved, in acceptance order');
@@ -766,15 +819,27 @@ for (const exit of ['before start', 'mid-batch', 'rename held', 'json rename ref
       holdNextSync = null;
       const expected = state.messages.map((m) => redactText(m.content));
       const onDisk = sessionFromLog(parseSessionLog(readFileSync(logPath)));
-      assert.deepEqual(onDisk.messages.map((m) => m.content), expected, `${what}: the log is the last accepted state`);
+      assert.deepEqual(
+        onDisk.messages.map((m) => m.content),
+        expected,
+        `${what}: the log is the last accepted state`
+      );
       assert.equal(onDisk.title, state.title, what);
       assert.deepEqual(holding(), [], `${what}: no file holds a marked value`);
       await Promise.allSettled(accepted);
-      assert.deepEqual(order, accepted.map((_, index) => index), `${what}: every promise resolved, in order`);
+      assert.deepEqual(
+        order,
+        accepted.map((_, index) => index),
+        `${what}: every promise resolved, in order`
+      );
       resumeSync?.();
       await rec.close();
       const after = sessionFromLog(parseSessionLog(readFileSync(logPath)));
-      assert.deepEqual(after.messages.map((m) => m.content), expected, `${what}: nothing moved afterwards`);
+      assert.deepEqual(
+        after.messages.map((m) => m.content),
+        expected,
+        `${what}: nothing moved afterwards`
+      );
       assert.deepEqual(holding(), [], `${what}: nothing moved back`);
     }
   });

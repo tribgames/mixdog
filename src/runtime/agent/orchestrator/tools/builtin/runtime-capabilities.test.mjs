@@ -287,7 +287,10 @@ test('the composition right after an awaited prewarm starts no git probe; the ne
   try {
     await prewarmGitStartupProbes([root]);
     const prewarmed = offThreadGit.length;
-    assert.equal(describeGitStartupState({ cwd: root, capabilities: { available: ['git'] } }).endsWith('; changes present.'), true);
+    assert.equal(
+      describeGitStartupState({ cwd: root, capabilities: { available: ['git'] } }).endsWith('; changes present.'),
+      true
+    );
     assert.equal(describeCwdStartupEntries({ cwd: root }), expectedCwdLine);
     // Nothing is left running in the folder once the session is composed.
     assert.deepEqual(offThreadGit.slice(prewarmed), [], 'the fresh prewarm answer was probed again');

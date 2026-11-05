@@ -8,7 +8,6 @@ import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
-import { waitUntil } from '../lib/wait-until-fixture.mjs';
 
 const tasks = new Map();
 const events = new EventEmitter();
@@ -53,9 +52,13 @@ const tree = scriptedChildTree();
 mock.module('../../mcp/child-tree.mjs', { namedExports: tree.namedExports });
 
 const { promoteWithRetry } = await import('../lib/shell-run-background/promote-job.mjs');
-const { forceReleaseTerminationHold, noteShellOwnerSessionClosed, readShellJobRecord, shellOwnerEpoch, _shellJobRecordWritesSettledForTest } = await import(
-  './lib/shell-job-records.mjs'
-);
+const {
+  forceReleaseTerminationHold,
+  noteShellOwnerSessionClosed,
+  readShellJobRecord,
+  shellOwnerEpoch,
+  _shellJobRecordWritesSettledForTest,
+} = await import('./lib/shell-job-records.mjs');
 
 after(cleanupTempDirs);
 
@@ -69,7 +72,11 @@ test('a command spawned before its owner closed keeps that incarnation through a
   const repo = makeRepo();
   tree.state.next = () => processTable([{ pid }, { pid: pid + 1, ppid: pid, token: 'worker' }]);
   // What the spawn recorded: the owner incarnation the command started in.
-  const run = { child: { pid }, foregroundRecordId: jobId, foregroundRecordInput: { ownerEpoch: shellOwnerEpoch(owner) } };
+  const run = {
+    child: { pid },
+    foregroundRecordId: jobId,
+    foregroundRecordInput: { ownerEpoch: shellOwnerEpoch(owner) },
+  };
   // The owner closes while the promotion has not happened yet.
   noteShellOwnerSessionClosed(owner);
   const { job } = await promoteWithRetry(
@@ -79,7 +86,11 @@ test('a command spawned before its owner closed keeps that incarnation through a
   assert.ok(job, 'promoted');
   await flush();
   await _shellJobRecordWritesSettledForTest(jobId);
-  assert.equal((await readShellJobRecord(jobId)).ownerSessionClosed, true, 'the record belongs to the closed incarnation');
+  assert.equal(
+    (await readShellJobRecord(jobId)).ownerSessionClosed,
+    true,
+    'the record belongs to the closed incarnation'
+  );
 
   // The command exits; its child keeps running, so the job is held.
   tree.state.next = () => processTable([{ pid: pid + 1, ppid: pid, token: 'worker' }]);
@@ -88,5 +99,5 @@ test('a command spawned before its owner closed keeps that incarnation through a
   t.mock.timers.tick(5_000);
   await flush();
   const other = await forceReleaseTerminationHold(jobId, { callerSessionId: 'sess_viewer', callerCwd: repo });
-  assert.equal(other.released, true, 'a session sharing the workspace releases the closed incarnation\'s hold');
+  assert.equal(other.released, true, "a session sharing the workspace releases the closed incarnation's hold");
 });

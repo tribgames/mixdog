@@ -21,7 +21,12 @@ import { readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { writeJsonAtomicAsync } from '../../../../shared/atomic-file.mjs';
-import { SESSION_LOG_MIGRATION_ID, SESSION_LOG_SUFFIX, fileFingerprint, sameFingerprint } from './session-log-format.mjs';
+import {
+  SESSION_LOG_MIGRATION_ID,
+  SESSION_LOG_SUFFIX,
+  fileFingerprint,
+  sameFingerprint,
+} from './session-log-format.mjs';
 import { SESSION_LOG_ERRORS, publishLegacyBase } from './session-log-writer.mjs';
 
 const PROGRESS_VERSION = 1;
@@ -59,7 +64,14 @@ function skipReason(code) {
 }
 
 function freshProgress() {
-  return { v: PROGRESS_VERSION, migrationId: SESSION_LOG_MIGRATION_ID, cursor: null, complete: false, updatedAt: 0, skipped: {} };
+  return {
+    v: PROGRESS_VERSION,
+    migrationId: SESSION_LOG_MIGRATION_ID,
+    cursor: null,
+    complete: false,
+    updatedAt: 0,
+    skipped: {},
+  };
 }
 
 /** The progress record, or a fresh one when there is none. A file that is not
@@ -181,7 +193,16 @@ export async function migrateLegacySessions({
     if (RETRIED_SKIPS.has(skip.reason)) delete progress.skipped[id];
   }
   const ids = cursorOrder(legacyIdsWithoutLog(await readdir(storeDir)), progress.cursor);
-  const report = { total: ids.length, migrated: 0, converted: 0, skipped: {}, bytes: 0, ms: 0, aborted: false, complete: false };
+  const report = {
+    total: ids.length,
+    migrated: 0,
+    converted: 0,
+    skipped: {},
+    bytes: 0,
+    ms: 0,
+    aborted: false,
+    complete: false,
+  };
   const count = (reason) => {
     report.skipped[reason] = (report.skipped[reason] || 0) + 1;
   };

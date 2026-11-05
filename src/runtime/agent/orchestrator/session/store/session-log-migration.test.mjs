@@ -12,7 +12,10 @@ import { loadLegacy } from './session-log-legacy-loader.fixture.mjs';
 const root = mkdtempSync(join(tmpdir(), 'mixdog-session-log-migration-'));
 process.on('exit', () => rmSync(root, { recursive: true, force: true }));
 
-const loader = { url: new URL('./session-log-legacy-loader.fixture.mjs', import.meta.url).href, exportName: 'loadLegacy' };
+const loader = {
+  url: new URL('./session-log-legacy-loader.fixture.mjs', import.meta.url).href,
+  exportName: 'loadLegacy',
+};
 const heldClaim = { assertHeld() {} };
 
 function store(name, docs) {

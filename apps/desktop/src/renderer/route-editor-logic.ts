@@ -97,10 +97,7 @@ export function routeDropdownBox(
   viewport: RouteViewport,
   preferredWidth = ROUTE_PANEL_WIDTH
 ): RoutePanelBox {
-  const width = Math.min(
-    Math.max(1, trigger.right - trigger.left),
-    routeSheetWidth(viewport, preferredWidth)
-  );
+  const width = Math.min(Math.max(1, trigger.right - trigger.left), routeSheetWidth(viewport, preferredWidth));
   return anchoredRouteBox(trigger, preferredHeight, viewport, width, 'below', 'start');
 }
 

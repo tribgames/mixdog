@@ -23,7 +23,12 @@ import {
   fenceSessionWrites,
   _recordLifecycleCommitFailure,
 } from './live-state.mjs';
-import { claimSessionWriter, forgetSessionWriter, releaseSessionWriter, sessionWriterRefusalError } from './session-writer-claim.mjs';
+import {
+  claimSessionWriter,
+  forgetSessionWriter,
+  releaseSessionWriter,
+  sessionWriterRefusalError,
+} from './session-writer-claim.mjs';
 import { forgetDeletedRecorder, settleRecorder } from './session-writers.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryRemoval, _cachedSummaryRows } from './summary-cache.mjs';
 import { takePendingWrite } from './pending-writes.mjs';
@@ -116,8 +121,15 @@ function _deletionPlan(id) {
     return null;
   }
   if (json === 'foreign') return null;
-  const logPresent = outcome.kind === 'log' || outcome.kind === 'orphan' || outcome.kind === 'diverged' || outcome.kind === 'log-invalid';
-  if ((outcome.kind === 'log' || outcome.kind === 'orphan' || outcome.kind === 'diverged') && outcome.log.sessionId !== id) {
+  const logPresent =
+    outcome.kind === 'log' ||
+    outcome.kind === 'orphan' ||
+    outcome.kind === 'diverged' ||
+    outcome.kind === 'log-invalid';
+  if (
+    (outcome.kind === 'log' || outcome.kind === 'orphan' || outcome.kind === 'diverged') &&
+    outcome.log.sessionId !== id
+  ) {
     return null;
   }
   return {

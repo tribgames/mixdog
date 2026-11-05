@@ -12,7 +12,12 @@ import { dataDir } from '../store-summary-locations.mjs';
 import { getStoreDir } from './session-paths.mjs';
 import { LEGACY_SESSION_LOADER } from './legacy-session.mjs';
 import { migrateLegacySessions, sessionLogMigrationProgressPath } from './session-log-migration.mjs';
-import { claimSessionWriter, releaseSessionWriter, sessionWriterHeldHere, sessionWriterRefusalError } from './session-writer-claim.mjs';
+import {
+  claimSessionWriter,
+  releaseSessionWriter,
+  sessionWriterHeldHere,
+  sessionWriterRefusalError,
+} from './session-writer-claim.mjs';
 
 let _started = null;
 

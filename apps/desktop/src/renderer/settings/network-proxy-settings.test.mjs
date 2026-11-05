@@ -32,7 +32,14 @@ let host;
 let calls;
 let nextCheck;
 function reset(settings) {
-  host = { mode: 'system', url: '', exceptions: DEFAULT_EXCEPTIONS, origin: 'https://api.openai.com', route: route(), ...settings };
+  host = {
+    mode: 'system',
+    url: '',
+    exceptions: DEFAULT_EXCEPTIONS,
+    origin: 'https://api.openai.com',
+    route: route(),
+    ...settings,
+  };
   calls = [];
   nextCheck = { ok: true, ms: 182, origin: 'https://api.openai.com', status: 401, route: route() };
 }
@@ -45,9 +52,15 @@ window.mixdogDesktop = {
     // The runtime refuses an address without a scheme and stores nothing.
     const patch = args[0];
     if (patch.url !== undefined && !/^https?:\/\/[^\s]+$/.test(patch.url)) {
-      throw new Error('Error invoking remote method \'invokeCapability\': Error: networkProxy.url is not a proxy address.');
+      throw new Error(
+        "Error invoking remote method 'invokeCapability': Error: networkProxy.url is not a proxy address."
+      );
     }
-    host = { ...host, ...patch, route: patch.mode === 'manual' ? route({ via: 'manual', proxy: 'proxy.company.com:8080' }) : host.route };
+    host = {
+      ...host,
+      ...patch,
+      route: patch.mode === 'manual' ? route({ via: 'manual', proxy: 'proxy.company.com:8080' }) : host.route,
+    };
     return { value: structuredClone(host) };
   },
 };
@@ -56,7 +69,10 @@ const { NetworkProxyGroup, routeDescription } = await import('./network-proxy-se
 
 const settle = () => act(() => new Promise((resolve) => setImmediate(resolve)));
 const select = () => document.querySelector('.network-proxy-select');
-const row = (title) => [...document.querySelectorAll('.network-proxy-row')].find((el) => el.querySelector('.mixdog-settings__row-title')?.textContent === title);
+const row = (title) =>
+  [...document.querySelectorAll('.network-proxy-row')].find(
+    (el) => el.querySelector('.mixdog-settings__row-title')?.textContent === title
+  );
 const desc = (title) => row(title)?.querySelector('.mixdog-settings__row-desc')?.textContent ?? '';
 const input = (title) => row(title)?.querySelector('input');
 const type = (el, text) =>
@@ -90,7 +106,10 @@ test('system mode shows one proxy row naming the route in effect, with the three
   reset({ route: route({ via: 'system', proxy: 'proxy.corp.local:8080' }) });
   await mounted(async () => {
     assert.equal(select().value, 'system');
-    assert.deepEqual([...select().options].map((option) => option.value), ['system', 'manual', 'off']);
+    assert.deepEqual(
+      [...select().options].map((option) => option.value),
+      ['system', 'manual', 'off']
+    );
     assert.match(desc('Proxy'), /Windows proxy proxy\.corp\.local:8080/);
     assert.equal(row('Proxy address'), undefined, 'the manual rows stay hidden');
     assert.equal(row('Exceptions'), undefined);
@@ -128,7 +147,11 @@ test('manual mode shows the address and exception rows; a bad address is refused
 });
 
 test('off names what it ignores, and leaving manual hides its rows', async () => {
-  reset({ mode: 'manual', url: 'http://proxy.company.com:8080', route: route({ via: 'manual', proxy: 'proxy.company.com:8080' }) });
+  reset({
+    mode: 'manual',
+    url: 'http://proxy.company.com:8080',
+    route: route({ via: 'manual', proxy: 'proxy.company.com:8080' }),
+  });
   await mounted(async () => {
     assert.ok(input('Proxy address'));
     host.route = route({ via: 'off', ignored: { system: true, env: ['HTTPS_PROXY'] } });
@@ -152,12 +175,24 @@ test('the connection check shows its result and latency in the row, and a failur
   await mounted(async () => {
     assert.match(desc('Check connection'), /Tries to connect to api\.openai\.com/);
     const button = row('Check connection').querySelector('button');
-    nextCheck = { ok: true, ms: 182, origin: 'https://api.openai.com', status: 401, route: route({ via: 'system', proxy: 'proxy.corp.local:8080' }) };
+    nextCheck = {
+      ok: true,
+      ms: 182,
+      origin: 'https://api.openai.com',
+      status: 401,
+      route: route({ via: 'system', proxy: 'proxy.corp.local:8080' }),
+    };
     await act(async () => button.click());
     await settle();
     assert.match(desc('Check connection'), /Connected\. It took 182ms to reach api\.openai\.com through the proxy\./);
 
-    nextCheck = { ok: false, ms: 9, origin: 'https://api.openai.com', code: 'ECONNREFUSED', route: route({ via: 'manual', proxy: 'proxy.corp.local:8080' }) };
+    nextCheck = {
+      ok: false,
+      ms: 9,
+      origin: 'https://api.openai.com',
+      code: 'ECONNREFUSED',
+      route: route({ via: 'manual', proxy: 'proxy.corp.local:8080' }),
+    };
     await act(async () => button.click());
     await settle();
     assert.match(desc('Check connection'), /Could not connect\. The proxy proxy\.corp\.local:8080 is not responding\./);

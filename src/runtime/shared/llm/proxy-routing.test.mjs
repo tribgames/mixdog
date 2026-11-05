@@ -209,11 +209,13 @@ test('manual mode sends fetch through the proxy, the exceptions go direct, and n
 test('a change of the setting applies to the next connection, without a restart', async () => {
   const service = await target();
   const proxy = await recordingProxy(service);
-  const toService = new Agent({ connect: (_options, callback) => {
-    const socket = net.connect(service.port, '127.0.0.1');
-    socket.once('connect', () => callback(null, socket));
-    socket.once('error', (error) => callback(error, null));
-  } });
+  const toService = new Agent({
+    connect: (_options, callback) => {
+      const socket = net.connect(service.port, '127.0.0.1');
+      socket.once('connect', () => callback(null, socket));
+      socket.once('error', (error) => callback(error, null));
+    },
+  });
   try {
     await isolated({}, async () => {
       setGlobalDispatcher(createProxyDispatcher({ direct: toService }));
@@ -237,7 +239,13 @@ test('a change of the setting retires the proxy legs: their tunnels close and th
   const legs = [];
   const direct = { dispatch: () => true, close: async () => {}, destroy: async () => {} };
   const proxied = (uri) => {
-    const leg = { uri, closed: false, dispatch: () => true, close: async () => (leg.closed = true), destroy: async () => {} };
+    const leg = {
+      uri,
+      closed: false,
+      dispatch: () => true,
+      close: async () => (leg.closed = true),
+      destroy: async () => {},
+    };
     legs.push(leg);
     return leg;
   };
@@ -269,7 +277,14 @@ test('a proxy decision that resolves after a change serves its request on a leg 
   const legs = [];
   const direct = { dispatch: () => true, close: async () => {}, destroy: async () => {} };
   const proxied = (uri) => {
-    const leg = { uri, closed: false, dispatched: 0, dispatch: () => ((leg.dispatched += 1), true), close: async () => (leg.closed = true), destroy: async () => {} };
+    const leg = {
+      uri,
+      closed: false,
+      dispatched: 0,
+      dispatch: () => ((leg.dispatched += 1), true),
+      close: async () => (leg.closed = true),
+      destroy: async () => {},
+    };
     legs.push(leg);
     return leg;
   };
@@ -394,11 +409,13 @@ test('manual mode without an address fails the request instead of connecting dir
 test('off connects directly whatever the environment and the system proxy say', async () => {
   const service = await target();
   const proxy = await recordingProxy(service);
-  const toService = new Agent({ connect: (_options, callback) => {
-    const socket = net.connect(service.port, '127.0.0.1');
-    socket.once('connect', () => callback(null, socket));
-    socket.once('error', (error) => callback(error, null));
-  } });
+  const toService = new Agent({
+    connect: (_options, callback) => {
+      const socket = net.connect(service.port, '127.0.0.1');
+      socket.once('connect', () => callback(null, socket));
+      socket.once('error', (error) => callback(error, null));
+    },
+  });
   try {
     const env = { HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url, ALL_PROXY: proxy.url };
     await isolated(env, async () => {

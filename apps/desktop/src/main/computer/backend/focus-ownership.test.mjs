@@ -385,8 +385,34 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     assert.deepEqual(
       rows.map((row) => row.restored),
       [
-        false, true, false, false, false, true, true, true, true, true, true, true, true, true, true, true, true,
-        false, false, true, false, false, false, false, true, true, true, false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
       ]
     );
     // Released first, then rechecked after that wait: input the user gave, or a
@@ -457,26 +483,46 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     // which no longer stops the restore.
     const [lockedLate, unlockedLate, lifted] = rows.slice(24, 27);
     assert.deepEqual(
-      [lockedLate.scenario, lockedLate.refused, lockedLate.calls, lockedLate.restored, lockedLate.locks, lockedLate.unlocks],
+      [
+        lockedLate.scenario,
+        lockedLate.refused,
+        lockedLate.calls,
+        lockedLate.restored,
+        lockedLate.locks,
+        lockedLate.unlocks,
+      ],
       ['locked_delayed_steal', 1, 0, true, 1, 1]
     );
     assert.ok(lockedLate.heldMs >= 200, JSON.stringify(lockedLate));
     assert.deepEqual(
-      [unlockedLate.scenario, unlockedLate.locks, unlockedLate.calls, unlockedLate.restored, unlockedLate.restore, unlockedLate.stealSeen],
+      [
+        unlockedLate.scenario,
+        unlockedLate.locks,
+        unlockedLate.calls,
+        unlockedLate.restored,
+        unlockedLate.restore,
+        unlockedLate.stealSeen,
+      ],
       ['unlocked_delayed_steal', 0, 1, true, 'restored', true]
     );
     assert.deepEqual(
-      [lifted.scenario, lifted.locks, lifted.unlocks, lifted.release, lifted.unlockErrors, lifted.calls, lifted.restore, lifted.restored],
+      [
+        lifted.scenario,
+        lifted.locks,
+        lifted.unlocks,
+        lifted.release,
+        lifted.unlockErrors,
+        lifted.calls,
+        lifted.restore,
+        lifted.restored,
+      ],
       ['own_lock_lifted', 1, 0, 'unknown', 3, 1, 'restored', true]
     );
     assert.equal(rows[9].failure, '');
     assert.match(rows[10].failure, /provider_failed/);
     // The late self-activation is refused while locked: nothing to restore, and
     // the lock is released exactly once.
-    assert.deepEqual(
-      [rows[7].refused, rows[7].locks, rows[7].unlocks, rows[7].locked],
-      [1, 1, 1, false]
-    );
+    assert.deepEqual([rows[7].refused, rows[7].locks, rows[7].unlocks, rows[7].locked], [1, 1, 1, false]);
     assert.equal(rows[8].refused, 0);
     assert.equal(rows[8].locked, false);
     // A window that would activate itself is disabled for the call and restored

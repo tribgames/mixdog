@@ -165,19 +165,31 @@ test('the worker accepts only the host answer naming its request and lease, and 
     assert.ok(requests.filter(({ op }) => op === 'acquire').every(({ answer_by }) => answer_by > 0));
 
     const { matching, unanswered, expired, own0, own1, own2, deadline } = rows;
-    assert.deepEqual([matching.locked, matching.held, matching.facts.holder, matching.facts.lease], [true, true, 'host', 12]);
+    assert.deepEqual(
+      [matching.locked, matching.held, matching.facts.holder, matching.facts.lease],
+      [true, true, 'host', 12]
+    );
     assert.equal(matching.command, '{"id":7,"action":"snapshot"}');
-    assert.deepEqual([matching.release, matching.again, matching.facts.host_answer], ['released', 'released', 'locked']);
+    assert.deepEqual(
+      [matching.release, matching.again, matching.facts.host_answer],
+      ['released', 'released', 'locked']
+    );
 
     assert.deepEqual([unanswered.locked, unanswered.held, unanswered.release], [false, false, 'no_ack']);
     assert.deepEqual([unanswered.facts.host_answer, unanswered.facts.holder], ['no_answer', 'none']);
 
-    assert.deepEqual([expired.locked, expired.facts.host_answer, expired.release], [false, 'expired_on_arrival', 'released']);
+    assert.deepEqual(
+      [expired.locked, expired.facts.host_answer, expired.release],
+      [false, 'expired_on_arrival', 'released']
+    );
 
     assert.deepEqual([own0.locked, own0.release, own0.facts.holder], [true, 'released', 'worker']);
     assert.deepEqual([own1.release, own1.facts.unlock_attempts], ['unknown', 3]);
     assert.deepEqual([own2.release, own2.facts.unlock_attempts], ['failed', 3]);
-    assert.deepEqual([deadline.locked, deadline.held, deadline.release, deadline.facts.released_by], [true, false, 'released', 'deadline']);
+    assert.deepEqual(
+      [deadline.locked, deadline.held, deadline.release, deadline.facts.released_by],
+      [true, false, 'released', 'deadline']
+    );
 
     // A false unlock ends the worker's own hold (reported unknown), so the next
     // request refused its own lock gets the host lease instead of already_held.
@@ -192,7 +204,14 @@ test('the worker accepts only the host answer naming its request and lease, and 
     // The next request retries the unlock first, on the request that held it.
     const { nextRequest, stillOpen } = rows;
     assert.deepEqual(
-      [nextRequest.failed, nextRequest.retried, nextRequest.oldRelease, nextRequest.oldBy, nextRequest.locked, nextRequest.release],
+      [
+        nextRequest.failed,
+        nextRequest.retried,
+        nextRequest.oldRelease,
+        nextRequest.oldBy,
+        nextRequest.locked,
+        nextRequest.release,
+      ],
       ['failed', 1, 'released', 'retry', true, 'released']
     );
     // Unproven and not superseded by a granted lock: nothing new starts.

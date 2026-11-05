@@ -85,10 +85,7 @@ test('an unreadable capture file means unknown silence, never a warning from the
   // is unknown: its recent output could be what cannot be seen.
   rmSync(paths.stderr_path);
   assert.equal(shellTaskSilenceNote(task, { now, warnMs: WARN_MS }), null);
-  assert.doesNotMatch(
-    readShellTaskOutput(task, paths, { digest: true, now, silenceWarnMs: WARN_MS }),
-    /may be hung/
-  );
+  assert.doesNotMatch(readShellTaskOutput(task, paths, { digest: true, now, silenceWarnMs: WARN_MS }), /may be hung/);
 
   // A non-ENOENT stat error (here ENOTDIR) is unknown as well.
   const notDir = { ...paths, stderr_path: join(paths.stdout_path, 'x') };
@@ -114,7 +111,10 @@ test('agent status shows the waited job tool silence and flags a hung one in the
   assert.equal(fields.silent_for, 6);
   assert.equal(fields.tool_silent_for, `23m (shell job ${task.taskId} no output)`);
   assert.match(fields.diagnostic, /^tool possibly hung: shell job .* no output for 23m/);
-  assert.match(renderResult({ task_id: 't1', status: 'running', ...fields }, 'status'), /tool_silent_for: 23m \(shell job/);
+  assert.match(
+    renderResult({ task_id: 't1', status: 'running', ...fields }, 'status'),
+    /tool_silent_for: 23m \(shell job/
+  );
 
   const fresh = waitedJobSilence([task.taskId], { now: base + 2 * MIN, warnMs: WARN_MS });
   const calm = buildAgentTaskProgressFields({ now: base + 2 * MIN, runtimeStage: 'tool_running', toolSilence: fresh });

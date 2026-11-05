@@ -41,7 +41,14 @@ test('replays every record type in sequence', () => {
     baseLines({ messages: [msg('sys', 'system'), msg('a')] }) +
     encodeAppend(2, 4, j([msg('b', 'assistant'), msg('c')])) +
     encodeEdit(3, 4, 0, 1, j([msg('sys2', 'system')])) +
-    encodePatch(4, [['title', '"renamed"'], ['usage', '{"in":3}']], []) +
+    encodePatch(
+      4,
+      [
+        ['title', '"renamed"'],
+        ['usage', '{"in":3}'],
+      ],
+      []
+    ) +
     encodeRollback(5, 3) +
     encodePatch(6, [], ['usage']) +
     encodeAppend(7, 4, j([msg('d', 'assistant')]));
@@ -81,7 +88,10 @@ test('a torn tail is skipped and reported; a torn line between records is skippe
   const log = parseSessionLog(Buffer.from(repaired));
   assert.equal(log.damage, null);
   assert.equal(log.skipped.length, 1);
-  assert.deepEqual(log.messages.map((m) => m.content), ['a', 'b', 'c']);
+  assert.deepEqual(
+    log.messages.map((m) => m.content),
+    ['a', 'b', 'c']
+  );
 });
 
 test('mid-file damage stops replay at the sequence gap', () => {
@@ -97,7 +107,10 @@ test('mid-file damage stops replay at the sequence gap', () => {
     foundSeq: 4,
     reason: 'sequence',
   });
-  assert.deepEqual(log.messages.map((m) => m.content), ['a', 'b']);
+  assert.deepEqual(
+    log.messages.map((m) => m.content),
+    ['a', 'b']
+  );
   // A record that does not fit the transcript before it is damage too.
   const bad = parseSessionLog(Buffer.from(head + encodeAppend(3, 9, j([msg('x')]))));
   assert.equal(bad.damage.reason, 'length');
@@ -107,9 +120,7 @@ test('mid-file damage stops replay at the sequence gap', () => {
 test('a log without its base pair is invalid', () => {
   assert.equal(parseSessionLog(Buffer.from('')).valid, false);
   assert.equal(parseSessionLog(Buffer.from(encodeAppend(0, 1, j([msg('a')])))).valid, false);
-  const onlySession = parseSessionLog(
-    Buffer.from(encodeSessionRecord({ logId: 'L', id: 's', header: { id: 's' } }))
-  );
+  const onlySession = parseSessionLog(Buffer.from(encodeSessionRecord({ logId: 'L', id: 's', header: { id: 's' } })));
   assert.equal(onlySession.valid, false);
   assert.equal(onlySession.damage.reason, 'no-history');
 });
@@ -158,8 +169,12 @@ test('the legacy seam: legacy, log, touched, diverged, orphan, absent', async ()
 
   writeFileSync(
     logPath,
-    baseLines({ id, header: { title: 'old', generation: 0, closed: false }, messages: doc.messages, legacy: legacy.legacy }) +
-      encodePatch(2, [['title', '"new"']], [])
+    baseLines({
+      id,
+      header: { title: 'old', generation: 0, closed: false },
+      messages: doc.messages,
+      legacy: legacy.legacy,
+    }) + encodePatch(2, [['title', '"new"']], [])
   );
   const fromLog = await resolveSessionRecord(args);
   assert.equal(fromLog.kind, 'log');

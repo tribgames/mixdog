@@ -146,9 +146,7 @@ export function _queueSessionSummaryUpsertRow(row, version = null) {
   } catch {
     /* unreadable stat: the row carries no fingerprint, as before */
   }
-  const durableRow = fingerprint
-    ? { ...row, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size }
-    : row;
+  const durableRow = fingerprint ? { ...row, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size } : row;
   _setCachedBaseSummary(durableRow);
   if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
     _summaryCacheUpserts.delete(row.id);

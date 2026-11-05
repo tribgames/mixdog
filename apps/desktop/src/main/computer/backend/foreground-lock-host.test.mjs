@@ -32,7 +32,12 @@ function leases(t) {
     },
   });
   t.after(() => lock.dispose());
-  const worker = { instance: 1, pid: 321, owns: (action) => action === 7 || action === 8, write: (line) => lines.push(line) };
+  const worker = {
+    instance: 1,
+    pid: 321,
+    owns: (action) => action === 7 || action === 8,
+    write: (line) => lines.push(line),
+  };
   const send = (message) => lock.handle(JSON.stringify(message), worker);
   return {
     lock,
@@ -57,7 +62,9 @@ function leases(t) {
   };
 }
 
-test('a lease ends at its deadline on the lease thread while the main event loop is blocked', { timeout: 20_000 }, async (t) => {
+test('a lease ends at its deadline on the lease thread while the main event loop is blocked', {
+  timeout: 20_000,
+}, async (t) => {
   const { lock, counts, times, acquire, answer } = leases(t);
   acquire(7, 1, 250);
   const [, , , lease, said, deadline] = await answer('ack', 7, 1);
@@ -74,11 +81,16 @@ test('a lease ends at its deadline on the lease thread while the main event loop
   assert.ok(hold >= 249.99 && hold < 251, `deadline ${hold} ms after the lock`);
   const late = times[UNLOCK_AT] - Number(deadline);
   assert.ok(late >= -0.01 && late < 50, `unlocked ${late} ms after the deadline`);
-  t.diagnostic(`unlocked ${late.toFixed(1)} ms after the deadline, seen ${(seenAt - blockedAt).toFixed(1)} ms into the block`);
+  t.diagnostic(
+    `unlocked ${late.toFixed(1)} ms after the deadline, seen ${(seenAt - blockedAt).toFixed(1)} ms into the block`
+  );
   // The thread's account arrives once this loop runs again.
   await sleep(50);
   const facts = lock.takeFacts(1, 7);
-  assert.deepEqual([facts.lease, facts.answer, facts.release, facts.released_by], [Number(lease), 'locked', 'released', 'deadline']);
+  assert.deepEqual(
+    [facts.lease, facts.answer, facts.release, facts.released_by],
+    [Number(lease), 'locked', 'released', 'deadline']
+  );
   assert.equal(facts.foreground_pid, 4242);
   assert.ok(facts.held_ms >= 250 && facts.held_ms < 300, JSON.stringify(facts));
 });
@@ -111,7 +123,9 @@ test('a request whose worker stopped waiting is refused before any lock is taken
   assert.equal(lock.takeFacts(1, 7).answer, 'expired');
 });
 
-test('an unlock that is not proven is retried, never reported released, and holds off new leases', { timeout: 20_000 }, async (t) => {
+test('an unlock that is not proven is retried, never reported released, and holds off new leases', {
+  timeout: 20_000,
+}, async (t) => {
   const { lock, counts, lines, acquire, release, answer } = leases(t);
   // A false unlock: Windows may have lifted the lock already, so it is unknown.
   Atomics.store(counts, UNLOCK_MODE, UNLOCK_FALSE);
@@ -157,7 +171,9 @@ async function until(ready, what) {
   }
 }
 
-test('a clock that throws at the deadline still ends the lease, and the thread lives on retrying', { timeout: 20_000 }, async (t) => {
+test('a clock that throws at the deadline still ends the lease, and the thread lives on retrying', {
+  timeout: 20_000,
+}, async (t) => {
   const { lock, counts, acquire, answer } = leases(t);
   acquire(7, 1, 100);
   assert.equal((await answer('ack', 7, 1))[4], 'locked');
@@ -176,7 +192,9 @@ test('a clock that throws at the deadline still ends the lease, and the thread l
   assert.equal((await answer('ack', 8, 1))[4], 'locked');
 });
 
-test('a lease thread that ends while holding a lease gets one unlock call from main', { timeout: 20_000 }, async (t) => {
+test('a lease thread that ends while holding a lease gets one unlock call from main', {
+  timeout: 20_000,
+}, async (t) => {
   const { lock, counts, fallbacks, acquire, release, answer } = leases(t);
   acquire(7, 1, 1_000);
   const lease = (await answer('ack', 7, 1))[3];
@@ -197,7 +215,9 @@ test('a lease thread that ends while holding a lease gets one unlock call from m
   assert.equal(fallbacks.length, 1);
 });
 
-test('dispose reports how the thread ended the lock, and main unlocks unless that was released', { timeout: 20_000 }, async (t) => {
+test('dispose reports how the thread ended the lock, and main unlocks unless that was released', {
+  timeout: 20_000,
+}, async (t) => {
   const failing = leases(t);
   failing.acquire(7, 1, 1_000);
   assert.equal((await failing.answer('ack', 7, 1))[4], 'locked');

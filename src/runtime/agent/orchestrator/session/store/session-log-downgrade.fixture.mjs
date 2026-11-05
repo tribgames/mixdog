@@ -15,8 +15,14 @@ if (op === 'seed') {
 } else if (op === 'view') {
   out = {
     sessions: Object.fromEntries(args.ids.map((id) => [id, store.loadSession(id)])),
-    listed: store.listStoredSessions().map((session) => session.id).sort(),
-    summaries: store.listStoredSessionSummaries().map((row) => row.id).sort(),
+    listed: store
+      .listStoredSessions()
+      .map((session) => session.id)
+      .sort(),
+    summaries: store
+      .listStoredSessionSummaries()
+      .map((row) => row.id)
+      .sort(),
   };
 } else if (op === 'write') {
   const session = store.loadSession(args.id);

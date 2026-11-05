@@ -98,7 +98,11 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
         return null;
       }
       type Deleted = {
-        removed?: { branchDeleted?: boolean; preservedBranch?: { name: string; head: string }; recoveryRefs?: string[] };
+        removed?: {
+          branchDeleted?: boolean;
+          preservedBranch?: { name: string; head: string };
+          recoveryRefs?: string[];
+        };
       };
       let deleted: Deleted;
       try {

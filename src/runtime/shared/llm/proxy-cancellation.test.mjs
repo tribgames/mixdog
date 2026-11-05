@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -42,9 +41,16 @@ async function slowProxy(delayMs) {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const url = `http://127.0.0.1:${server.address().port}`;
-  writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { networkProxy: { mode: 'manual', url } } }));
+  writeFileSync(
+    join(dataDir, 'mixdog-config.json'),
+    JSON.stringify({ agent: { networkProxy: { mode: 'manual', url } } })
+  );
   await eventually(() => currentProxySetting().url === url);
-  return { seen, address: `127.0.0.1:${server.address().port}`, close: () => (server.closeAllConnections(), server.close()) };
+  return {
+    seen,
+    address: `127.0.0.1:${server.address().port}`,
+    close: () => (server.closeAllConnections(), server.close()),
+  };
 }
 
 test('closing a Cursor stream while the proxy has not answered ends the CONNECT at once', async () => {
@@ -65,7 +71,10 @@ test('closing a Cursor stream while the proxy has not answered ends the CONNECT 
 test('a WebSocket handshake that gives up before the tunnel is up destroys the tunnel when it arrives', async () => {
   const proxy = await slowProxy(400);
   try {
-    const socket = new WebSocket('ws://203.0.113.9:9/x', { createConnection: createWsConnection, handshakeTimeout: 100 });
+    const socket = new WebSocket('ws://203.0.113.9:9/x', {
+      createConnection: createWsConnection,
+      handshakeTimeout: 100,
+    });
     const failed = await new Promise((resolve) => socket.once('error', resolve));
     assert.ok(failed, 'the handshake failed');
     await eventually(() => proxy.seen.answered === 1, { timeoutMs: 2_000 });
@@ -109,7 +118,13 @@ test('a Cursor unary call that times out first does not leave its tunnel behind'
   try {
     process.env.MIXDOG_CURSOR_CLIENT_VERSION = 'cli-test';
     await assert.rejects(
-      callCursorUnary({ accessToken: 't', path: '/p', body: Buffer.alloc(1), url: 'https://203.0.113.9', timeoutMs: 100 })
+      callCursorUnary({
+        accessToken: 't',
+        path: '/p',
+        body: Buffer.alloc(1),
+        url: 'https://203.0.113.9',
+        timeoutMs: 100,
+      })
     );
     await eventually(() => proxy.seen.closed === 1, { timeoutMs: 1_000 });
     assert.equal(proxy.seen.answered, 0);

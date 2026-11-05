@@ -205,10 +205,7 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
       const box = tab.getBoundingClientRect();
       const close = document.querySelector('.mixdog-settings__close');
       const closeBox = close.getBoundingClientRect();
-      const hit = document.elementFromPoint(
-        (closeBox.left + closeBox.right) / 2,
-        (closeBox.top + closeBox.bottom) / 2
-      );
+      const hit = document.elementFromPoint((closeBox.left + closeBox.right) / 2, (closeBox.top + closeBox.bottom) / 2);
       return {
         tab: tab.textContent.trim(),
         clipped: Math.max(0, row.left - box.left, box.right - row.right),

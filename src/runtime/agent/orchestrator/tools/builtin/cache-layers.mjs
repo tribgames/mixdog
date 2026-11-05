@@ -131,9 +131,7 @@ function cachePathMatcher(affectedPaths) {
   for (const affected of affectedPaths) someSepPrefix(affected, (prefix) => void contained.add(prefix));
   return (path) =>
     Boolean(path) &&
-    (exact.has(path) ||
-      contained.has(withTrailingSep(path)) ||
-      someSepPrefix(path, (prefix) => covering.has(prefix)));
+    (exact.has(path) || contained.has(withTrailingSep(path)) || someSepPrefix(path, (prefix) => covering.has(prefix)));
 }
 
 function cacheEntryOverlapsPaths(entry, matches) {

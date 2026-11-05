@@ -89,7 +89,11 @@ export async function checkProxyConnection(origin, setting) {
   const route = await explainProxyRoute(origin, setting);
   const started = performance.now();
   try {
-    const response = await fetch(origin, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) });
+    const response = await fetch(origin, {
+      method: 'HEAD',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    });
     await response.body?.cancel();
     return { ok: true, ms: Math.round(performance.now() - started), origin, status: response.status, route };
   } catch (error) {

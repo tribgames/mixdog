@@ -40,7 +40,14 @@ function fixture() {
         image: { mimeType: 'image/jpeg', data: 'model-image' },
         ocrImage: { data: pixels, width: 400, height: 200 },
         frameId: 'frame-1',
-        frame: { captureWidth: 400, captureHeight: 200, physicalWidth: 400, physicalHeight: 200, originX: 0, originY: 0 },
+        frame: {
+          captureWidth: 400,
+          captureHeight: 200,
+          physicalWidth: 400,
+          physicalHeight: 200,
+          originX: 0,
+          originY: 0,
+        },
       },
     });
   return { calls, read };

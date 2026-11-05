@@ -151,8 +151,9 @@ const DEFAULT_HIDDEN_GROUPS: ReadonlySet<PaneToggleId> = new Set(['agents']);
 export function hiddenPaneGroups(order: readonly string[] = current): ReadonlySet<PaneToggleId> {
   const entries = new Set(order);
   return new Set(
-    PANE_TOGGLE_IDS.filter((id) =>
-      entries.has(`${HIDDEN_PREFIX}${id}`) || (DEFAULT_HIDDEN_GROUPS.has(id) && !entries.has(`${SHOWN_PREFIX}${id}`))
+    PANE_TOGGLE_IDS.filter(
+      (id) =>
+        entries.has(`${HIDDEN_PREFIX}${id}`) || (DEFAULT_HIDDEN_GROUPS.has(id) && !entries.has(`${SHOWN_PREFIX}${id}`))
     )
   );
 }

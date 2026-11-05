@@ -179,7 +179,13 @@ async function spawnAdmittedShellChild({
   // Set before any child exists: a startup that fails after the child is
   // created still publishes a visible record and an owned termination hold.
   // The owner incarnation the command starts in travels with every later record and hold.
-  run.foregroundRecordInput = { command, cwd, ownerSessionId, clientHostPid, ownerEpoch: shellOwnerEpoch(ownerSessionId) };
+  run.foregroundRecordInput = {
+    command,
+    cwd,
+    ownerSessionId,
+    clientHostPid,
+    ownerEpoch: shellOwnerEpoch(ownerSessionId),
+  };
   const onChildError = (err) => {
     run.spawnError = run.spawnError || err;
     run.failurePhase = 'tool';

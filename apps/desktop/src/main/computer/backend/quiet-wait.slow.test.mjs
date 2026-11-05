@@ -50,7 +50,10 @@ $short = Wait-UntilQuiet 0.3 { 'same' }
   );
   assert.equal(result.stable.quiet, true);
   // 3 samples 200 ms apart: two intervals, far under the 3000 ms cap.
-  assert.ok(result.stable.waited_ms >= 390 && result.stable.waited_ms < 800, `stable waited ${result.stable.waited_ms} ms`);
+  assert.ok(
+    result.stable.waited_ms >= 390 && result.stable.waited_ms < 800,
+    `stable waited ${result.stable.waited_ms} ms`
+  );
   assert.equal(result.changing.quiet, false);
   assert.equal(result.changing.reason, 'still_changing');
   assert.ok(result.changing.waited_ms >= 990 && result.changing.waited_ms <= 1000 + CAP_TOLERANCE_MS);
@@ -83,8 +86,14 @@ function Start-QuietSleep([double]$untilMs, [System.Diagnostics.Stopwatch]$clock
 `;
 
 function assertCapContract(result, capMs) {
-  assert.ok(result.starts.every((start) => start < capMs), `a sample started at or after the ${capMs} ms cap: ${result.starts}`);
-  assert.ok(result.sleepUntil.every((until) => until <= capMs), `a sleep runs past the ${capMs} ms cap: ${result.sleepUntil}`);
+  assert.ok(
+    result.starts.every((start) => start < capMs),
+    `a sample started at or after the ${capMs} ms cap: ${result.starts}`
+  );
+  assert.ok(
+    result.sleepUntil.every((until) => until <= capMs),
+    `a sleep runs past the ${capMs} ms cap: ${result.sleepUntil}`
+  );
 }
 test('a slow sample does not carry the wait past its cap', {
   skip: process.platform !== 'win32' && 'Windows only',
@@ -130,7 +139,10 @@ test('quiet sampling reads window metadata only, and Do-Wait is a fixed pause un
   timeout: 90_000,
 }, async () => {
   const dowait = loadComputerSource('input-pointer.ps1');
-  const doWait = dowait.slice(dowait.indexOf('function Do-Wait'), dowait.indexOf('\n}\n', dowait.indexOf('function Do-Wait')) + 3);
+  const doWait = dowait.slice(
+    dowait.indexOf('function Do-Wait'),
+    dowait.indexOf('\n}\n', dowait.indexOf('function Do-Wait')) + 3
+  );
   const result = await runWaits(`
 function Do-WindowSnapshot { @{ windows = @(@{ id = 'w1'; title = 'A'; focused = $true; minimized = $false; maximized = $false; x = 1; y = 2; width = 3; height = 4 }) } }
 ${doWait}

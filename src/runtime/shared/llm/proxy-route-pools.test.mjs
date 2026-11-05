@@ -61,7 +61,7 @@ for (const [name, from, to] of TRANSITIONS) {
     assert.equal(hasPooledWebSocket(`idle:${name}`), true);
 
     adoptProxySetting(to);
-    assert.equal(first.entry.socket.readyState, 3, 'the old route\'s idle socket is closed');
+    assert.equal(first.entry.socket.readyState, 3, "the old route's idle socket is closed");
     assert.equal(hasPooledWebSocket(`idle:${name}`), false);
 
     const second = await acquire(`idle:${name}`);

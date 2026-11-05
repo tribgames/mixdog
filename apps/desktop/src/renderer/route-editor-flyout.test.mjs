@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { routeDrillBox, routeDropdownBox, routeFlyoutBox, routeFlyoutFit, routePanelStyle, routeSheetBox } from './route-editor-logic.ts';
+import {
+  routeDrillBox,
+  routeDropdownBox,
+  routeFlyoutBox,
+  routeFlyoutFit,
+  routePanelStyle,
+  routeSheetBox,
+} from './route-editor-logic.ts';
 
 const viewport = { left: 0, top: 0, width: 1400, height: 900 };
 

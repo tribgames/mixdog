@@ -27,7 +27,10 @@ const _verdicts = new Map(); // id → { stamp, value }
 
 function lifecycleOf(outcome, id) {
   if (outcome.kind === 'absent') return { state: 'absent', generation: 0 };
-  const session = outcome.kind === 'log' || outcome.kind === 'orphan' ? { ...outcome.log.header, id: outcome.log.sessionId } : outcome.session;
+  const session =
+    outcome.kind === 'log' || outcome.kind === 'orphan'
+      ? { ...outcome.log.header, id: outcome.log.sessionId }
+      : outcome.session;
   // Durable identity is MANDATORY: missing / empty / foreign identity fails
   // closed exactly like an unreadable record.
   if (!session || session.id !== id) return { state: 'unreadable', generation: 0 };
@@ -65,7 +68,9 @@ export function readSessionLifecycleStateFromDisk(id) {
     value = lifecycleOf(resolveSessionRecordSync({ ...files, loadLegacy: loadLegacySession, messages: false }), id);
   } catch (err) {
     value =
-      err?.code === 'ENOENT' || err?.code === 'ENOTDIR' ? { state: 'absent', generation: 0 } : { state: 'unreadable', generation: 0 };
+      err?.code === 'ENOENT' || err?.code === 'ENOTDIR'
+        ? { state: 'absent', generation: 0 }
+        : { state: 'unreadable', generation: 0 };
   }
   _verdicts.delete(id);
   let after = null;
