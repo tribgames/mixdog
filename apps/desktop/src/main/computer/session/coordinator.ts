@@ -59,6 +59,11 @@ export interface ComputerUseSnapshot {
   userControlActive: boolean;
   takeoverGeneration?: number;
   pausedSessionIds?: string[];
+  /** Sessions waiting for the user's hands to leave the input, each paused on
+   *  its own: every other session keeps working. */
+  yieldedSessionIds?: string[];
+  /** Counts yields, so the quiet interval restarts for each new one. */
+  yieldGeneration?: number;
   cleanupState?: 'pending' | 'failed' | 'ready';
   takeoverReason?: string;
   idleResumeSeconds?: number;
@@ -169,6 +174,8 @@ export class ComputerUseCoordinator {
   private userControlActive = false;
   private takeoverGeneration = 0;
   private readonly pausedSessionIds = new Set<string>();
+  private readonly yieldedSessionIds = new Set<string>();
+  private yieldGeneration = 0;
   private takeoverReason = '';
   private idleResumeSeconds = 5;
   private idleResumeRemaining: number | undefined;
@@ -189,6 +196,8 @@ export class ComputerUseCoordinator {
       idleResumeSeconds: this.idleResumeSeconds,
       idleResumeRemaining: this.idleResumeRemaining,
       pausedSessionIds: [...this.pausedSessionIds],
+      yieldedSessionIds: [...this.yieldedSessionIds],
+      yieldGeneration: this.yieldGeneration,
       cleanupState: this.cleanup.state,
       ...(this.takeoverReason ? { takeoverReason: this.takeoverReason } : {}),
       ...(this.attentionRequired ? { attentionRequired: { ...this.attentionRequired } } : {}),
@@ -544,6 +553,8 @@ export class ComputerUseCoordinator {
       ...additionalSessionIds,
     ]);
     if (sessionIds.size === 0) return [];
+    // The whole desktop is now paused, which covers every yielded session.
+    this.yieldedSessionIds.clear();
     this.takeoverGeneration += 1;
     for (const sessionId of sessionIds) this.pausedSessionIds.add(sessionId);
     this.userControlActive = true;
@@ -571,6 +582,29 @@ export class ComputerUseCoordinator {
     this.scheduleLeaseExpiry();
     this.changed();
     return [...sessionIds];
+  }
+
+  /** The user's input refused this session's foreground action. Only this
+   *  session waits, until the desktop has been quiet; false while the whole
+   *  desktop is already paused, which holds it anyway. */
+  yieldSession(sessionId: string): boolean {
+    if (this.userControlActive) return false;
+    if (!this.yieldedSessionIds.has(sessionId)) {
+      this.yieldedSessionIds.add(sessionId);
+      this.yieldGeneration += 1;
+      this.changed();
+    }
+    return true;
+  }
+
+  isYielded(sessionId: string): boolean {
+    return this.yieldedSessionIds.has(sessionId);
+  }
+
+  resumeYielded(sessionIds: Iterable<string>): void {
+    let resumed = false;
+    for (const sessionId of sessionIds) resumed = this.yieldedSessionIds.delete(sessionId) || resumed;
+    if (resumed) this.changed();
   }
 
   resumeAfterUserTakeover(expectedGeneration?: number): void {
@@ -608,6 +642,7 @@ export class ComputerUseCoordinator {
     this.activities.clear();
     this.cursors.clear();
     this.releasedPointers.clear();
+    this.yieldedSessionIds.clear();
     this.activeCounts.clear();
     this.targetLeases.clear();
     this.userControlActive = false;
@@ -716,6 +751,7 @@ export class ComputerUseCoordinator {
     this.activities.delete(sessionId);
     this.cursors.delete(sessionId);
     this.releasedPointers.delete(sessionId);
+    this.yieldedSessionIds.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
   }
 

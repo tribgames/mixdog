@@ -114,14 +114,14 @@ function recoveryForCode(code, args) {
       code,
       next: 'wait_for_user',
       guidance:
-        "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. Physical input alone never pauses the session; only an explicit Pause/Stop or uncertain cleanup/observation does, and those require the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
+        "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
     };
   }
   if (code === 'user_input_active') {
     return {
       code,
       next: 'capture',
-      guidance: `The user's own input interrupted this action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture ${target} again before any further input, and never replay the interrupted input, which may have been partly delivered. If the step needed foreground, retry it after the user pauses or use a supported background route.`,
+      guidance: `The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture ${target} again before any further input, and never replay the interrupted input, which may have been partly delivered.`,
     };
   }
   if (code === 'input_recovery_unconfirmed') {
@@ -219,6 +219,20 @@ export function computerResultRecovery(result, args = {}) {
       next: 'select_delivery',
       guidance:
         'This action was refused before input delivery. Choose a supported semantic action or explicit foreground delivery only within the user-approved scope. Keep the selected app/browser session. Reuse an observation only while it is still valid; do not assume earlier steps in a sequence were also unexecuted.',
+    };
+  }
+  if (result.code === 'user_input_active' && result.yielded === true && result.resume_mode === 'manual') {
+    return {
+      code: result.code,
+      next: 'wait_for_user',
+      guidance: `Computer Use yielded to the user's input for this agent only; other agents continue. Automatic resume is off, so it waits until the user presses Resume on the overlay. Neither retry now nor give up: call wait_for_user. After status "resumed", capture ${targetLabel(args)} again before any input. Never replay the interrupted input, which may have been partly delivered. After "timeout" or "cancelled" no input is authorized.`,
+    };
+  }
+  if (result.code === 'user_input_active' && result.yielded === true) {
+    return {
+      code: result.code,
+      next: 'wait_for_user',
+      guidance: `Computer Use yielded to the user's input for this agent only; other agents continue. It continues by itself once the user has been idle for the idle-resume interval. Neither retry now nor give up: call wait_for_user. After status "resumed", capture ${targetLabel(args)} again before any input. Never replay the interrupted input, which may have been partly delivered. After "timeout" or "cancelled" no input is authorized.`,
     };
   }
   return recoveryForCode(String(result.code || '').toLowerCase(), args);

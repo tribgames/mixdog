@@ -12,7 +12,8 @@ function fixture(t, reason = 'input_recovery_unconfirmed') {
     locked = false,
     lastInput = 0,
     reads = 0,
-    resumes = 0;
+    resumes = 0,
+    yieldResumes = 0;
   let beforeResume;
   const manager = createComputerUserWait({
     coordinator,
@@ -35,9 +36,18 @@ function fixture(t, reason = 'input_recovery_unconfirmed') {
       resumes++;
       coordinator.resumeAfterUserTakeover(generation);
     },
+    resumeYielded: async (signal, recheck) => {
+      beforeResume?.();
+      if (!(await recheck()) || signal.aborted) throw new Error('computer_resume_stale');
+      yieldResumes++;
+      coordinator.resumeYielded(coordinator.snapshot().yieldedSessionIds);
+    },
   });
   coordinator.beginCommand({ sessionId: 'a', action: 'type', mode: 'foreground' });
-  coordinator.pauseForUser(reason);
+  if (reason === 'yield') {
+    coordinator.beginCommand({ sessionId: 'other', action: 'type', mode: 'foreground' });
+    coordinator.yieldSession('a');
+  } else coordinator.pauseForUser(reason);
   t.after(() => {
     manager.dispose();
     coordinator.reset();
@@ -65,6 +75,7 @@ function fixture(t, reason = 'input_recovery_unconfirmed') {
       beforeResume = callback;
     },
     counts: () => ({ reads, resumes }),
+    yieldResumes: () => yieldResumes,
     async tick(ms = 500) {
       t.mock.timers.tick(ms);
       for (let i = 0; i < 12; i++) await Promise.resolve();
@@ -85,6 +96,36 @@ test('five quiet seconds release a pending user wait; new input restarts the ent
   await f.tick();
   assert.equal(await pending, 'resumed');
   assert.equal(f.counts().resumes, 1);
+});
+
+test('a yielded session waits for the quiet interval, restarts it on input, and resumes only itself', async (t) => {
+  const f = fixture(t, 'yield');
+  const pending = f.manager.wait('a');
+  const untouched = await Promise.race([f.manager.wait('other', 0), Promise.resolve('pending')]);
+  assert.equal(untouched, 'resumed', 'a wait for a session that is not yielded does not block');
+  await f.advance(4500);
+  f.input();
+  await f.advance(4500);
+  assert.deepEqual(f.coordinator.snapshot().yieldedSessionIds, ['a'], 'continued input keeps it waiting');
+  assert.equal(f.yieldResumes(), 0);
+  await f.advance(1500);
+  assert.equal(await pending, 'resumed');
+  assert.equal(f.yieldResumes(), 1);
+  assert.deepEqual(f.coordinator.snapshot().yieldedSessionIds, []);
+  assert.equal(f.counts().resumes, 0, 'no desktop-wide takeover was resumed');
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
+});
+
+test('a yielded session does not resume while keys or buttons are held, and a manual idle setting never resumes it', async (t) => {
+  const f = fixture(t, 'yield');
+  f.hold(true);
+  await f.advance(7000);
+  assert.equal(f.yieldResumes(), 0);
+  f.hold(false);
+  f.manager.configure(0);
+  await f.advance(10000);
+  assert.equal(f.yieldResumes(), 0);
+  assert.deepEqual(f.coordinator.snapshot().yieldedSessionIds, ['a']);
 });
 
 test('held keys/buttons wait without treating ordinary input as an observation failure', async (t) => {

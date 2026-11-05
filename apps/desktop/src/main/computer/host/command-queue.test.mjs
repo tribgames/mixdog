@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSessionLifecycle } from './session-lifecycle.ts';
 import { createExecutionState } from './execution-state.ts';
+import { UserInputBeforeDispatch } from './user-input-refusal.ts';
 import { ComputerUseCoordinator } from '../session/coordinator.ts';
 import { buildRecaptureRequiredPayload } from '../observation/recapture.ts';
 import { executeComputerSequenceSteps } from '../input/sequence.ts';
@@ -589,6 +590,176 @@ test('background commands run through user input while only the touched action i
     (await f.host.executeSerialized({ action: 'click', session_id: 'b', window_id: 'hwnd:0x2' })).text,
     'b:click'
   );
+});
+
+test('a foreground action the user input interrupts yields only its own session while another keeps running', {
+  timeout: 3000,
+}, async (t) => {
+  let releaseOther;
+  const dispatched = [];
+  const f = fixture(t, {
+    runCommand: async (command) => {
+      dispatched.push(`${command.session_id}:${command.action}`);
+      if (command.session_id === 'b' && command.action === 'capture') {
+        await new Promise((resolve) => {
+          releaseOther = resolve;
+        });
+      }
+      if (command.session_id === 'a' && command.action === 'click' && dispatched.filter((row) => row === 'a:click').length === 1) {
+        throw new Error('user_input_active: external input interrupted this action');
+      }
+      return { text: `${command.session_id}:${command.action}` };
+    },
+  });
+  t.after(() => releaseOther?.());
+  const other = f.host.executeSerialized({ action: 'capture', session_id: 'b', window_id: 'hwnd:0x2' });
+  await turn();
+  const refused = JSON.parse(
+    (
+      await f.host.executeSerialized({
+        action: 'click',
+        session_id: 'a',
+        window_id: 'hwnd:0x1',
+        delivery: 'foreground',
+      })
+    ).text
+  );
+  assert.equal(refused.code, 'user_input_active');
+  assert.equal(refused.yielded, true);
+  assert.equal(refused.status, 'yielded');
+  assert.equal(refused.verdict.recommended, 'wait_for_user');
+  assert.match(refused.message, /continues by itself once the user has been idle/);
+  const snapshot = f.coordinator.snapshot();
+  assert.deepEqual(snapshot.yieldedSessionIds, ['a']);
+  assert.equal(snapshot.userControlActive, false, 'the whole desktop is not paused');
+  f.coordinator.assertAutomationAllowed();
+  // Session b is still running and still gets its own commands through.
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'capture', session_id: 'c', window_id: 'hwnd:0x3' })).text,
+    'c:capture'
+  );
+  releaseOther();
+  assert.equal((await other).text, 'b:capture');
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'click', session_id: 'b', window_id: 'hwnd:0x2', delivery: 'foreground' }))
+      .text,
+    'b:click'
+  );
+  // The yielded session sends nothing, but may still look.
+  const held = JSON.parse(
+    (
+      await f.host.executeSerialized({
+        action: 'click',
+        session_id: 'a',
+        window_id: 'hwnd:0x1',
+        delivery: 'foreground',
+      })
+    ).text
+  );
+  assert.equal(held.yielded, true);
+  assert.equal(held.input_may_have_executed, false);
+  assert.equal(dispatched.filter((row) => row === 'a:click').length, 1, 'nothing is dispatched or replayed while yielded');
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'capture', session_id: 'a', window_id: 'hwnd:0x1' })).text,
+    'a:capture'
+  );
+  f.coordinator.resumeYielded(['a']);
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1', delivery: 'foreground' }))
+      .text,
+    'a:click'
+  );
+});
+
+test('a foreground refusal before dispatch and a returned post-dispatch refusal both yield the session', {
+  timeout: 3000,
+}, async (t) => {
+  const cases = [
+    {
+      throws: () => new UserInputBeforeDispatch('foreground_input_not_ready: user_input_during_capture'),
+      mayHaveExecuted: false,
+    },
+    {
+      returns: { ok: false, code: 'user_input_active', input_may_have_executed: true },
+      mayHaveExecuted: true,
+    },
+  ];
+  for (const row of cases) {
+    const f = fixture(t, {
+      runCommand: async () => {
+        if (row.throws) throw row.throws();
+        return { text: JSON.stringify(row.returns) };
+      },
+    });
+    const reply = JSON.parse(
+      (
+        await f.host.executeSerialized({
+          action: 'click',
+          session_id: 'a',
+          window_id: 'hwnd:0x1',
+          delivery: 'foreground',
+        })
+      ).text
+    );
+    assert.equal(reply.yielded, true);
+    assert.equal(reply.input_may_have_executed, row.mayHaveExecuted);
+    assert.deepEqual(f.coordinator.snapshot().yieldedSessionIds, ['a']);
+    assert.equal(f.coordinator.snapshot().userControlActive, false);
+    f.coordinator.reset();
+  }
+});
+
+test('with automatic resume off the yielded reply says it waits for Resume, not for idleness', {
+  timeout: 3000,
+}, async (t) => {
+  const f = fixture(t, {
+    runCommand: async () => {
+      throw new Error('user_input_active: external input interrupted this action');
+    },
+  });
+  f.coordinator.setIdleResume(0);
+  const send = async () =>
+    JSON.parse(
+      (
+        await f.host.executeSerialized({
+          action: 'click',
+          session_id: 'a',
+          window_id: 'hwnd:0x1',
+          delivery: 'foreground',
+        })
+      ).text
+    );
+  for (const reply of [await send(), await send()]) {
+    assert.equal(reply.yielded, true);
+    assert.equal(reply.resume_mode, 'manual');
+    assert.match(reply.message, /waiting for the user to press Resume/);
+    assert.doesNotMatch(reply.message, /by itself once/);
+  }
+});
+
+test('a background action the user input interrupts is only refused, and its session does not yield', {
+  timeout: 3000,
+}, async (t) => {
+  const f = fixture(t, {
+    runCommand: async () => {
+      throw new Error('user_input_active: external input interrupted this action');
+    },
+  });
+  const reply = JSON.parse(
+    (
+      await f.host.executeSerialized({
+        action: 'click',
+        session_id: 'a',
+        window_id: 'hwnd:0x1',
+        delivery: 'background',
+      })
+    ).text
+  );
+  assert.equal(reply.code, 'user_input_active');
+  assert.equal(reply.yielded, undefined);
+  assert.equal(reply.verdict.recommended, 'recapture');
+  assert.deepEqual(f.coordinator.snapshot().yieldedSessionIds, []);
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
 });
 
 test('an input observer outage refuses only that call; the next call runs once it recovers, with no resume', {

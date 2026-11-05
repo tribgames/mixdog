@@ -82,7 +82,14 @@ test('user input refuses one action and is not a session yield', () => {
   assert.equal(interrupted.next, 'capture');
   assert.match(interrupted.guidance, /Do not call wait_for_user/);
   assert.match(interrupted.guidance, /never replay/);
-  assert.match(interrupted.guidance, /after the user pauses or use a supported background route/);
+  assert.doesNotMatch(interrupted.guidance, /after the user pauses/);
+  const yielded = computerResultRecovery({ code: 'user_input_active', yielded: true }, input);
+  assert.equal(yielded.next, 'wait_for_user');
+  assert.match(yielded.guidance, /for this agent only/);
+  assert.match(yielded.guidance, /Neither retry now nor give up/);
+  const manual = computerResultRecovery({ code: 'user_input_active', yielded: true, resume_mode: 'manual' }, input);
+  assert.match(manual.guidance, /until the user presses Resume/);
+  assert.doesNotMatch(manual.guidance, /by itself/);
   assert.equal(computerToolErrorRecovery('user_input_active: interrupted', input).next, 'capture');
   assert.equal(computerResultRecovery({ code: 'computer_user_takeover' }, input).next, 'wait_for_user');
 });

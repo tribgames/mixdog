@@ -104,9 +104,14 @@ export function computerUseOverlayPresentation(
   const holding = (snapshot.targetLeases ?? []).length > 0;
   const waiting = paused && (snapshot.pausedSessionIds ?? []).length > 0;
   const titles = overlayTitles(locale);
+  // Yielded sessions resume by themselves, so the pill offers no Resume; it
+  // only says "Waiting" once every session still on screen is one of them.
+  const yielded = snapshot.yieldedSessionIds ?? [];
+  const everyoneYielded =
+    yielded.length > 0 && (snapshot.presentSessionIds ?? []).every((sessionId) => yielded.includes(sessionId));
   let title = titles.working;
   if (attention) title = titles.attention;
-  else if (paused) title = titles.paused;
+  else if (paused || everyoneYielded) title = titles.paused;
   return {
     visible: !stopInFlight && (working || holding || waiting || Boolean(snapshot.attentionRequired) || inputBlocked),
     sessionIds,
@@ -115,7 +120,8 @@ export function computerUseOverlayPresentation(
     // a lone session keeps the standard accent instead of a hash-picked one.
     accent: activity && snapshot.activities.length > 1 ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
     paused,
-    resumable: paused,
+    // With automatic resume off, yielded sessions wait for the user's Resume.
+    resumable: paused || (!snapshot.userControlActive && yielded.length > 0 && snapshot.idleResumeSeconds === 0),
     generation: snapshot.takeoverGeneration ?? 0,
     attention,
   };

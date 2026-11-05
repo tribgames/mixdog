@@ -28,6 +28,7 @@ export function createUserWaitService(options: {
         ms: elapsedMs,
       }),
     resume: (generation, signal, recheck) => options.lifecycle.resumeAfterTakeover(generation, signal, recheck),
+    resumeYielded: (signal, recheck) => options.lifecycle.resumeYielded(signal, recheck),
     observe: async () => {
       const response = await options.callPowerShell(
         {

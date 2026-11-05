@@ -1,4 +1,5 @@
 /** Execute one authorized input without owning routing, leases, or reply policy. */
+import { USER_INPUT_DURING_CAPTURE } from '../observation/capture-input-observation';
 import { electronWindowForNativeId } from '../observation/window-handles';
 import { CHROME_SETUP_SESSION_ID } from '../shared/common';
 import { computerUseCoordinator } from '../session/coordinator';
@@ -13,6 +14,7 @@ import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
 import { fillSavedLogin } from './saved-login';
 import { sequenceStepRequest } from './sequence-dispatch';
+import { UserInputBeforeDispatch } from './user-input-refusal';
 import { UNKNOWN_WINDOW_INTEGRITY } from './window-reads';
 
 type DispatchHost = Pick<
@@ -47,11 +49,12 @@ function foregroundInputObservation(
     // The reason travels with the observation, so the refusal itself separates
     // "the user is typing" from "the observer was unready" without sending the
     // caller back to a capture payload it may no longer hold.
-    throw new Error(
-      `foreground_input_not_ready: the last observation was not foreground-ready (foreground_input_reason=${
-        inputObservation.reason || 'unknown'
-      }); user input means wait for the user, an unready observer means diagnose`
-    );
+    const message = `foreground_input_not_ready: the last observation was not foreground-ready (foreground_input_reason=${
+      inputObservation.reason || 'unknown'
+    }); user input means wait for the user, an unready observer means diagnose`;
+    throw inputObservation.reason === USER_INPUT_DURING_CAPTURE
+      ? new UserInputBeforeDispatch(message)
+      : new Error(message);
   }
   return inputObservation;
 }

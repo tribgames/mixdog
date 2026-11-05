@@ -145,12 +145,21 @@ wins.
 
 ## User interruption, pause, stop
 
-- If the user's physical input interrupts an action, it fails alone with
-  `user_input_active` (input may have landed: capture fresh state, never
-  replay, no `wait_for_user`). Their cursor and focus stay theirs. Background
-  work continues while the user works; a foreground step is refused or
-  interrupted that way and never pauses the session — retry after the user
-  pauses.
+- If the user's physical input interrupts a **foreground** action (or the
+  capture it needs), the reply is `user_input_active` with `status:"yielded"`:
+  Computer Use yielded to the user for your session only, other agents keep
+  working, and it continues by itself once the user has been idle for the
+  idle-resume interval (with automatic resume off, `resume_mode:"manual"`: it
+  waits until the user presses Resume on the overlay). Do not retry now and do not give up: call
+  `wait_for_user`. After `resumed`, capture fresh state before any input (the
+  interrupted input may have landed; never replay it); after `timeout` or
+  `cancelled`, no input is authorized. Until then your session's input actions
+  are refused, and `capture`/`list` still work. Their cursor and focus stay
+  theirs.
+- A **background** action the user's input interrupts fails alone with
+  `user_input_active` and no yield (input may have landed: capture fresh
+  state, never replay, no `wait_for_user`). The user's input into other apps
+  does not refuse an action on your target.
 - Explicit Stop/Pause halts everything. Stop (or `Ctrl+Alt+Esc`) cancels the
   task, which reports the stop as a failure. The user's Resume on the overlay
   continues a pause; an unverified-recovery pause may also resume after the

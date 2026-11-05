@@ -57,6 +57,13 @@ export function guardsBackgroundFocus(command: ComputerCommand): boolean {
   return command.delivery !== 'foreground' && focusGuarded(command);
 }
 
+/** Whether the command, or a step of its sequence, sends foreground input on
+ *  the user's shared keyboard and pointer. */
+export function drivesForeground(command: ComputerCommand): boolean {
+  const steps = command.action === 'sequence' && Array.isArray(command.steps) ? command.steps : [];
+  return [command, ...steps].some((step) => computerDeliveryMode(step as ComputerCommand) === 'foreground');
+}
+
 /** Resource serialization does not change the chosen input delivery. */
 export function computerDeliveryMode(command: ComputerCommand): 'background' | 'foreground' {
   return command.delivery === 'foreground' ||
