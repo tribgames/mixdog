@@ -5,6 +5,7 @@
  * (loadSession, listings) see the slot's copy.
  */
 import { hasUnackedRecords } from './session-writers.mjs';
+import { hasWaitingSave } from './session-sequence.mjs';
 
 export const SAVE_DEBOUNCE_MS = 150;
 const _pending = new Map(); // id → { session, opts, summaryVersion, timer }
@@ -51,10 +52,10 @@ export function pendingSessionCopy(id) {
   return _pending.get(id)?.session ?? null;
 }
 
-/** Whether a write of `id` is still to land: a debounced slot, or records
- *  not yet acknowledged. */
+/** Whether a write of `id` is still to land: a debounced slot, a save
+ *  waiting behind a delete, or records not yet acknowledged. */
 export function hasPendingSessionWrite(id) {
-  return _pending.has(id) || hasUnackedRecords(id);
+  return _pending.has(id) || hasWaitingSave(id) || hasUnackedRecords(id);
 }
 
 /** `visit(id, session)` for every copy waiting in a slot. */

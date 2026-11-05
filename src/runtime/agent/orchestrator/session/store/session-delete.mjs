@@ -13,6 +13,7 @@ import { loadLegacySession } from './legacy-session.mjs';
 import { storedSessionSync } from './stored-session.mjs';
 import { getStoreDir, sessionLogPath, sessionPath } from './session-paths.mjs';
 import { resolveSessionRecordSync } from './session-log-reader.mjs';
+import { sha1Hex } from './session-log-format.mjs';
 import { holdsNoData, quarantinePath, renameWithRetry } from '../../../../shared/atomic-file.mjs';
 import {
   _clearLiveSession,
@@ -23,9 +24,10 @@ import {
   _recordLifecycleCommitFailure,
 } from './live-state.mjs';
 import { claimSessionWriter, forgetSessionWriter, releaseSessionWriter, sessionWriterRefusalError } from './session-writer-claim.mjs';
-import { finishRecorder } from './session-writers.mjs';
+import { forgetDeletedRecorder, settleRecorder } from './session-writers.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryRemoval, _cachedSummaryRows } from './summary-cache.mjs';
 import { takePendingWrite } from './pending-writes.mjs';
+import { inSessionOrder } from './session-sequence.mjs';
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { _runSessionPurgeHooks } from './session-observers.mjs';
 import { forgetSessionLoadCache } from './load-cache.mjs';
@@ -104,9 +106,12 @@ function _deletionPlan(id) {
   const logPath = sessionLogPath(id);
   let outcome;
   let json;
+  let jsonSha1 = null;
   try {
     outcome = resolveSessionRecordSync({ jsonPath, logPath, loadLegacy: loadLegacySession, messages: false });
     json = _jsonVerdict(id, jsonPath);
+    // A copy read from the json is bound to its sha1 (bindLoadedSession).
+    if (json === 'ours') jsonSha1 = sha1Hex(readFileSync(jsonPath));
   } catch {
     return null;
   }
@@ -122,6 +127,8 @@ function _deletionPlan(id) {
     logPresent,
     damaged: json === 'damaged' || outcome.kind === 'log-invalid',
     absent: outcome.kind === 'absent',
+    // What a copy of the session is bound to, for the copies the delete lets create it anew.
+    record: { logId: outcome.log?.logId ?? null, jsonSha1 },
   };
 }
 
@@ -155,6 +162,14 @@ function _asideCopies(logPath) {
  */
 export async function deleteSession(id, options = {}) {
   if (_runtimeLivenessVeto(id, options)) return false;
+  // One operation in the session's order (session-sequence.mjs): it runs once
+  // everything accepted before it ended, and owns the session from its claim
+  // through its file removal and claim release. Saves, barriers and deletes
+  // accepted after it wait behind it and then run on what it actually did.
+  return inSessionOrder(id, 'delete', () => _deleteAsWriter(id, options));
+}
+
+async function _deleteAsWriter(id, options) {
   // A session another process holds is that process's: deleting it under
   // its writer would only have the next save recreate it.
   let claim;
@@ -172,8 +187,8 @@ export async function deleteSession(id, options = {}) {
     return false;
   }
   const deleted = await _deleteSession(id, options);
-  if (deleted) void forgetSessionWriter(id);
-  else if (claim.fresh) void releaseSessionWriter(id);
+  if (deleted) await forgetSessionWriter(id);
+  else if (claim.fresh) await releaseSessionWriter(id);
   return deleted;
 }
 
@@ -181,23 +196,30 @@ async function _deleteSession(id, options) {
   const plan = _deletionPlan(id);
   if (!plan) return false;
   if (options.damagedOnly === true && !plan.damaged && !plan.absent) return false;
-  // Nothing of this process lands any more: the recorder drops its queue and
-  // its file closes before the files go.
-  await finishRecorder(id, { discard: true });
+  // What this process already accepted lands first (later saves wait behind
+  // this delete): a rewrite in flight would otherwise rename a file back over
+  // the removed log. Nothing is discarded or cancelled before the files are
+  // gone (v1.4.5 order): a delete that fails leaves the recorder, its
+  // position, the live copy and the debounced copy exactly as they were.
+  await settleRecorder(id);
   try {
-    // The json first: a delete cut short leaves at most the log, which reads
-    // as the session (orphan), never an older legacy copy of it.
+    // The copies kept aside first, then the json: a delete cut short leaves
+    // at most the log, which reads as the session (orphan), never an older
+    // legacy copy of it.
+    for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
     if (plan.json === 'damaged') await renameWithRetry(plan.jsonPath, quarantinePath(plan.jsonPath));
     else if (plan.json === 'ours') _unlinkIfThere(plan.jsonPath);
     if (plan.logPresent) _unlinkIfThere(plan.logPath);
-    for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
   } catch {
     return false;
   }
+  // Removed: only now does what this process holds of it go — the debounced
+  // copy is cancelled and the recorder's queue discarded.
+  takePendingWrite(id);
+  await forgetDeletedRecorder(id, plan.record);
   // An explicit user delete also fences the id: a still-running turn's later
   // saves would otherwise create the record again.
   if (options.fenceWrites === true) fenceSessionWrites(id);
-  takePendingWrite(id);
   _runSessionPurgeHooks(id, { cwds: knownSessionCwds(id) });
   // The display-only compaction archive has no meaning without its session.
   deleteCompactionArchive(getStoreDir(), id);

@@ -296,12 +296,17 @@ const _repositoryChangeStates = new Map();
 // off-thread probe answers; using a root before that falls back to the same
 // synchronous probe as a first use. Every probe records the generation it
 // started under, so an older answer never overwrites a newer one.
-function _startChangeStateProbe(root, entry) {
+// A prewarm's answer (`prewarm`) is as fresh as a first use's synchronous
+// probe: the use that takes it starts no refresh (`unserved`), so a session
+// created right after its prewarm spawns git once, not twice, and leaves no
+// probe running behind it.
+function _startChangeStateProbe(root, entry, { prewarm = false } = {}) {
   const generation = entry.generation;
   entry.pending = _probeRepositoryChangeState(root).then((value) => {
     if (entry.generation === generation) {
       entry.value = value;
       entry.ready = true;
+      entry.unserved = prewarm;
     }
     entry.pending = null;
   });
@@ -321,7 +326,8 @@ function _repositoryChangeState(root) {
     }
     return value;
   }
-  if (!entry.pending) _startChangeStateProbe(root, entry);
+  if (entry.unserved) entry.unserved = false;
+  else if (!entry.pending) _startChangeStateProbe(root, entry);
   return entry.value;
 }
 
@@ -430,6 +436,12 @@ function _gitIgnoredEntries(directory, names) {
     }
     return observation.ignored;
   }
+  // A prewarm's answer, taken by its first use: fresh, no refresh (see
+  // _startChangeStateProbe).
+  if (entry.unserved) {
+    entry.unserved = false;
+    return entry.observation.ignored;
+  }
   if (!entry.pending) {
     const probed = names.slice();
     const generation = entry.generation;
@@ -468,7 +480,7 @@ export function prewarmGitStartupProbes(directories) {
     if (!_repositoryChangeStates.has(found.root)) {
       const entry = { value: null, ready: false, generation: 0, pending: null };
       _repositoryChangeStates.set(found.root, entry);
-      _startChangeStateProbe(found.root, entry);
+      _startChangeStateProbe(found.root, entry, { prewarm: true });
     }
     if (!_gitIgnoreObservations.has(directory)) {
       const entry = { observation: null, generation: 0, pending: null };
@@ -479,7 +491,9 @@ export function prewarmGitStartupProbes(directories) {
           if (!probed.length) return;
           const generation = entry.generation;
           return _probeGitIgnoredEntries(directory, probed).then((ignored) => {
-            if (entry.generation === generation) entry.observation = { names: new Set(probed), ignored };
+            if (entry.generation !== generation) return;
+            entry.observation = { names: new Set(probed), ignored };
+            entry.unserved = true;
           });
         })
         .catch(() => {})

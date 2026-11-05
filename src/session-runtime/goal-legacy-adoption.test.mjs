@@ -1,7 +1,7 @@
 // Legacy Goal tasks move into the session's todo list, and leave the Goal
 // record only once the real session store has committed that list.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -11,6 +11,10 @@ const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = root;
 
 const { saveSessionAsync } = await import('../runtime/agent/orchestrator/session/store.mjs');
+// The record as a restarted process reads it (the log, never a cached copy).
+const { readDurableSessionRecord } = await import(
+  '../runtime/agent/orchestrator/session/store/transcript-durability.mjs'
+);
 const { settleSessionSummaryIndex } = await import('../runtime/agent/orchestrator/session/store/listing.mjs');
 const { createGoalRuntime } = await import('../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs');
 const { todoSnapshot } = await import('../runtime/agent/orchestrator/runtime-core/todo-list.mjs');
@@ -86,7 +90,7 @@ function fixture() {
         return outcome;
       },
     });
-  const disk = () => JSON.parse(readFileSync(join(root, 'sessions', `${sessionId}.json`), 'utf8'));
+  const disk = () => readDurableSessionRecord(sessionId);
   return { sessionId, load, session, facade, disk, outcomes };
 }
 

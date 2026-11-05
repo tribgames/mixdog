@@ -11,10 +11,15 @@ import test, { mock } from 'node:test';
 // bound (sync probes via spawnSync, off-thread probes via the git runner) and a
 // loaded machine cannot turn a slow git into a missing answer.
 const gitRunner = await import('../../../../shared/git-runner.mjs');
+// Every off-thread git run the probes start, by its arguments.
+const offThreadGit = [];
 mock.module(new URL('../../../../shared/git-runner.mjs', import.meta.url).href, {
   namedExports: {
     ...gitRunner,
-    runGitOffThread: (args, options) => gitRunner.runGitOffThread(args, { ...options, timeoutMs: 120_000 }),
+    runGitOffThread: (args, options) => {
+      offThreadGit.push(args);
+      return gitRunner.runGitOffThread(args, { ...options, timeoutMs: 120_000 });
+    },
   },
 });
 // The git program the probes start (the real binary behind a Git for Windows launcher).
@@ -269,6 +274,26 @@ test('awaiting the prewarm promise lets a never-probed root compose without spaw
     assert.deepEqual(spawns.calls, [], 'composition spawned git on the event loop thread');
     assert.match(gitLine, /; changes present\.$/);
     assert.equal(cwdLine, expectedCwdLine);
+  } finally {
+    await settleGitStartupProbes();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the composition right after an awaited prewarm starts no git probe; the next one refreshes', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const root = prewarmFixture();
+  try {
+    await prewarmGitStartupProbes([root]);
+    const prewarmed = offThreadGit.length;
+    assert.equal(describeGitStartupState({ cwd: root, capabilities: { available: ['git'] } }).endsWith('; changes present.'), true);
+    assert.equal(describeCwdStartupEntries({ cwd: root }), expectedCwdLine);
+    // Nothing is left running in the folder once the session is composed.
+    assert.deepEqual(offThreadGit.slice(prewarmed), [], 'the fresh prewarm answer was probed again');
+    describeGitStartupState({ cwd: root, capabilities: { available: ['git'] } });
+    describeCwdStartupEntries({ cwd: root });
+    assert.equal(offThreadGit.length - prewarmed, 2, 'a later composition refreshes both answers off-thread');
   } finally {
     await settleGitStartupProbes();
     rmSync(root, { recursive: true, force: true });

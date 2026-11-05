@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -118,6 +118,9 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   const { createMixdogSessionRuntime } = await import('./runtime-core.mjs');
   const { executeTool } = await import('../runtime/agent/orchestrator/session/loop/tool-exec.mjs');
   ({ drainSessionStore } = await import('../runtime/agent/orchestrator/session/store.mjs'));
+  const { readDurableSessionRecord } = await import(
+    '../runtime/agent/orchestrator/session/store/transcript-durability.mjs'
+  );
   ({ settleSummaryIndexWrites } = await import('../runtime/agent/orchestrator/session/store-summary-index.mjs'));
   const options = {
     provider: 'openai',
@@ -153,9 +156,8 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   assert.equal(process.env.MIXDOG_SESSION_CWD, 'process-global-must-not-change');
 
   drainSessionStore();
-  const persisted = JSON.parse(
-    readFileSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${callerSession.id}.json`), 'utf8')
-  );
+  // The record as a restarted process reads it (the log, never a cached copy).
+  const persisted = readDurableSessionRecord(callerSession.id);
   assert.equal(persisted.cwd, cwdNext);
   assert.deepEqual(persisted.desktopSession, callerSession.desktopSession);
   assert.ok(persisted.messages.some((message) => message.content === 'Keep this conversation across reentry.'));

@@ -18,7 +18,7 @@ export {
   _upsertSessionSummary,
   _removeSessionSummary,
 } from './store-summary-index.mjs';
-import { _ensureLifecycleFields } from './store/serialize.mjs';
+import { TRANSIENT_SESSION_KEYS, _ensureLifecycleFields } from './store/serialize.mjs';
 import { captureTranscriptSnapshot, recordLandedTranscript } from './store/transcript-durability.mjs';
 import {
   _cacheSessionSummary,
@@ -33,12 +33,14 @@ import {
   releaseSessionWriter,
 } from './store/session-writer-claim.mjs';
 import {
+  acceptSessionCopy,
   flushAllRecordersSync,
   recorderFor,
   redactSessionFiles,
   redactSessionFilesSync,
   redactionDue,
 } from './store/session-writers.mjs';
+import { deleteAhead, inSessionOrder, startWaitingSaves } from './store/session-sequence.mjs';
 import { SESSION_LOG_ERRORS } from './store/session-log-writer.mjs';
 import {
   hasPendingSessionWrite,
@@ -83,29 +85,38 @@ process.prependListener('exit', drainSessionStore);
  * (false) while a write of it is outstanding or its last save dropped or
  * failed — this process's copy is then the only complete one. Its in-memory
  * copy goes with the lock, so the next resume or turn takes the lock again and
- * reads the record. Resolves whether the lock went.
+ * reads the record. An operation in the session's order (session-sequence.mjs):
+ * it never lets go in the middle of a close, a detach or a delete. Resolves
+ * whether the lock went.
  */
 export function releaseIdleSessionWriter(id) {
-  if (!id || hasPendingSessionWrite(id) || _droppedSaveIds.has(id) || hasSessionSaveFailure(id)) {
-    return Promise.resolve(false);
-  }
-  const released = releaseIdleSessionWriterClaim(id);
-  if (!released) return Promise.resolve(false);
-  evictLiveSession(id);
-  return released;
+  if (!id) return Promise.resolve(false);
+  return inSessionOrder(id, 'release', () => {
+    if (hasPendingSessionWrite(id) || _droppedSaveIds.has(id) || hasSessionSaveFailure(id)) return false;
+    const released = releaseIdleSessionWriterClaim(id);
+    if (!released) return false;
+    evictLiveSession(id);
+    return released;
+  });
 }
 
-// The writer claim and the session's recorder: null (the refusal reported)
-// when another process holds the claim, this copy is older than the log, or
-// the record cannot be opened or converted.
+// The writer claim and the session's recorder: an error (the refusal
+// reported) when another process holds the claim, this copy is older than
+// the log, or the record cannot be opened or converted; `dropped` for a copy
+// issued before this process closed or detached the session: it writes
+// nothing and gives back the claim it took, like a stale generation.
 function _recorderOrRefusal(session) {
   const id = session.id;
   const { refusal, fresh } = sessionWriterRefusal(id);
   if (refusal) return { error: refuseSessionWrite(refusal) };
   try {
-    return { recorder: recorderFor(session) };
+    return { recorder: recorderFor(session, { claimedNow: fresh }) };
   } catch (err) {
     if (fresh) void releaseSessionWriter(id);
+    if (err?.code === SESSION_LOG_ERRORS.RELEASED) {
+      _recordSaveDrop(id);
+      return { dropped: true };
+    }
     process.stderr.write(`[session-store] ${id}: ${err?.message || err}\n`);
     _recordSaveFailure(id, err);
     return { error: err };
@@ -123,7 +134,7 @@ function _admit(session) {
     return { dropped: true };
   }
   const opened = _recorderOrRefusal(session);
-  if (opened.error) return opened;
+  if (opened.error || opened.dropped) return opened;
   setLiveSession(session);
   _publishLiveSession(session);
   return { summaryVersion: _cacheSessionSummary(session) };
@@ -156,13 +167,20 @@ async function _write(session, opts, summaryVersion) {
     rollback();
     throw opened.error;
   }
+  if (opened.dropped) {
+    rollback();
+    return SAVE_OUTCOME_DROPPED;
+  }
   const { recorder } = opened;
   if (_dropsAgainst(recorder, opts)) {
     _recordSaveDrop(id);
     rollback();
     return SAVE_OUTCOME_DROPPED;
   }
-  const transcript = captureTranscriptSnapshot(session);
+  // A copy accepted behind a delete: its transcript was fixed at acceptance,
+  // and its landing is the caller's session's (_acceptBehindDelete).
+  const accepted = _acceptedCopies.get(session);
+  const transcript = accepted?.transcript ?? captureTranscriptSnapshot(session);
   const row = _sessionSummary(session);
   try {
     // A value marked sensitive since the files were last written must leave
@@ -180,7 +198,7 @@ async function _write(session, opts, summaryVersion) {
     throw err;
   }
   _queueSessionSummaryUpsertRow(row, summaryVersion);
-  recordLandedTranscript(session, transcript);
+  recordLandedTranscript(accepted?.original ?? session, transcript);
   _recordSaveLanded(id);
   return SAVE_OUTCOME_SAVED;
 }
@@ -195,9 +213,50 @@ function _startWrite(session, opts, summaryVersion) {
  * Persist a session: debounced (150 ms) unless `opts.immediate`.
  * `opts.expectedGeneration` drops the write when the record's lifecycle moved
  * past it (see _dropsAgainst); `opts.compacted` writes the transcript as a
- * replacement history.
+ * replacement history. Behind a delete of the session it waits in the
+ * session's order and is made once the delete ended.
  */
 export function saveSession(session, opts) {
+  if (deleteAhead(session?.id)) {
+    const accepted = _acceptBehindDelete(session, opts);
+    void inSessionOrder(session.id, 'save', () => _saveSessionNow(accepted.copy, accepted.opts));
+    return;
+  }
+  _saveSessionNow(session, opts);
+}
+
+// Saves accepted behind a delete: copy → { original, transcript }.
+const _acceptedCopies = new WeakMap();
+
+/**
+ * What a save that waits behind a delete means, fixed when it is accepted,
+ * as the recorder's _accept fixes an operation: only its admission and write
+ * wait. The copy holds the message list as it is now (a recorded message is
+ * replaced, never edited, so membership is the whole of it), every stored
+ * header value as the JSON it is recorded as, the transient keys as they are
+ * (never recorded), and the options. It is judged by the caller's session's
+ * binding (session-writers.mjs acceptSessionCopy); its transcript is captured
+ * now and its landing recorded on the caller's session.
+ */
+function _acceptBehindDelete(session, opts) {
+  _ensureLifecycleFields(session);
+  const transcript = captureTranscriptSnapshot(session);
+  const copy = {};
+  for (const key of Object.keys(session)) {
+    const value = session[key];
+    if (key === 'messages') copy.messages = Array.isArray(value) ? value.slice() : value;
+    else if (TRANSIENT_SESSION_KEYS.includes(key)) copy[key] = value;
+    else {
+      const json = JSON.stringify(value);
+      copy[key] = json === undefined ? value : JSON.parse(json);
+    }
+  }
+  _acceptedCopies.set(copy, { original: session, transcript });
+  acceptSessionCopy(copy, session);
+  return { copy, opts: opts ? { ...opts } : opts };
+}
+
+function _saveSessionNow(session, opts) {
   const admitted = _admit(session);
   if (admitted.dropped || admitted.error) return;
   const id = session.id;
@@ -214,11 +273,22 @@ export function saveSession(session, opts) {
 /**
  * A save that resolves SAVE_OUTCOME_SAVED once its records are fsynced (or
  * DROPPED), and rejects when the write failed or the writer claim refused it.
+ * It supersedes a debounced copy still waiting (the newest save is the one
+ * that lands, as in v1.4.5). Behind a delete it waits as saveSession does.
  */
 export function saveSessionAsync(session, opts) {
+  if (deleteAhead(session?.id)) {
+    const accepted = _acceptBehindDelete(session, opts);
+    return inSessionOrder(session.id, 'save', () => _saveSessionAsyncNow(accepted.copy, accepted.opts));
+  }
+  return _saveSessionAsyncNow(session, opts);
+}
+
+function _saveSessionAsyncNow(session, opts) {
   const admitted = _admit(session);
   if (admitted.dropped) return Promise.resolve(SAVE_OUTCOME_DROPPED);
   if (admitted.error) return Promise.reject(admitted.error);
+  takePendingWrite(session.id);
   return _write(session, opts, admitted.summaryVersion);
 }
 
@@ -226,11 +296,12 @@ export function saveSessionAsync(session, opts) {
 export const saveSessionDurably = saveSessionAsync;
 
 /**
- * Process exit: every debounced copy is recorded, then every recorder writes
- * what it holds synchronously (an in-flight batch included), and the writer
- * locks go.
+ * Process exit: the saves waiting behind a delete are made, every debounced
+ * copy is recorded, then every recorder writes what it holds synchronously
+ * (an in-flight batch included), and the writer locks go.
  */
 export function drainSessionStore() {
+  startWaitingSaves();
   for (const slot of takeAllPendingWrites()) {
     try {
       const opened = _recorderOrRefusal(slot.session);

@@ -131,7 +131,9 @@ function assertSkillToolEnvelope(loadedSkill) {
   }
 }
 
-function assertLeadSkillSurface(skillManifestTmp) {
+// Each surface check closes its session before it returns: the close lands
+// and gives back the session's writer lock, so the temp data dir can go.
+async function assertLeadSkillSurface(skillManifestTmp) {
   const skillSession = createSession({
     provider: 'openai-oauth',
     model: 'tool-contracts-model',
@@ -158,11 +160,11 @@ function assertLeadSkillSurface(skillManifestTmp) {
       throw new Error(`non-GPT sessions must expose edit only: ${skillToolNames.join(', ')}`);
     }
   } finally {
-    closeSession(skillSession.id, 'tool-contracts');
+    await closeSession(skillSession.id, 'tool-contracts');
   }
 }
 
-function assertGptEditToolSurface(skillManifestTmp) {
+async function assertGptEditToolSurface(skillManifestTmp) {
   const gptEditSession = createSession({
     provider: 'openai-oauth',
     model: 'gpt-5.5',
@@ -177,11 +179,11 @@ function assertGptEditToolSurface(skillManifestTmp) {
       throw new Error(`GPT sessions must expose apply_patch only: ${names.join(', ')}`);
     }
   } finally {
-    closeSession(gptEditSession.id, 'tool-contracts');
+    await closeSession(gptEditSession.id, 'tool-contracts');
   }
 }
 
-function assertAgentSkillSurface(skillManifestTmp) {
+async function assertAgentSkillSurface(skillManifestTmp) {
   const agentSkillSession = createSession({
     provider: 'openai-oauth',
     model: 'tool-contracts-model',
@@ -234,7 +236,7 @@ function assertAgentSkillSurface(skillManifestTmp) {
       throw new Error(`agent Skill metadata must match the session Skill contract: ${JSON.stringify(agentSkillTool)}`);
     }
   } finally {
-    closeSession(agentSkillSession.id, 'tool-contracts');
+    await closeSession(agentSkillSession.id, 'tool-contracts');
   }
 }
 
@@ -247,9 +249,9 @@ test('skill loader, envelope, and lead/GPT/agent skill surfaces', async () => {
     invalidateSkillsCache();
     const loadedSkill = assertSkillLoaderResolution(skillManifestTmp);
     assertSkillToolEnvelope(loadedSkill);
-    assertLeadSkillSurface(skillManifestTmp);
-    assertGptEditToolSurface(skillManifestTmp);
-    assertAgentSkillSurface(skillManifestTmp);
+    await assertLeadSkillSurface(skillManifestTmp);
+    await assertGptEditToolSurface(skillManifestTmp);
+    await assertAgentSkillSurface(skillManifestTmp);
   } finally {
     invalidateSkillsCache();
     if (previousSkillDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -518,7 +520,8 @@ async function assertHiddenAgentSchemaAndPrompt(agent, hiddenPreset, hiddenRunti
       throw new Error(`hidden agent ${agent} BP3 must not add an Environment heading`);
     }
   } finally {
-    closeSession(session.id, 'tool-contracts');
+    // Landed before the next agent, so the temp data dir holds no writer lock.
+    await closeSession(session.id, 'tool-contracts');
   }
 }
 

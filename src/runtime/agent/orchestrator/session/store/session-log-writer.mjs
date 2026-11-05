@@ -75,6 +75,8 @@ export const SESSION_LOG_ERRORS = Object.freeze({
   CLOSED: 'ESESSIONLOGCLOSED',
   /** The session was deleted: what was queued never lands. */
   DISCARDED: 'ESESSIONLOGDISCARDED',
+  // A copy issued before this process closed or detached the session (session-writers.mjs).
+  RELEASED: 'ESESSIONRELEASED',
 });
 
 function logError(code, message, extra) {

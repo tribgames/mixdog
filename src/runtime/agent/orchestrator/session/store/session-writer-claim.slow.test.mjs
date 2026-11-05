@@ -3,7 +3,8 @@
 // other process's records and silently discard its messages.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   bumpSessionGeneration,
+  deleteSession,
   drainSessionStore,
   getSessionSaveError,
   loadSession,
@@ -193,6 +195,61 @@ test('a late save of a copy this process let go writes nothing', async (t) => {
   } finally {
     other.release();
   }
+});
+
+test('a copy of the session another process recreated after a local delete is refused once that process deletes it', async (t) => {
+  const f = fixture(t);
+  await saveSessionDurably(f.session);
+  assert.equal(await deleteSession(f.id), true);
+  const creator = startPeer(t, f.root);
+  assert.deepEqual(await creator.send({ op: 'create', id: f.id, text: 'peer-1' }), { saved: true });
+  await creator.exit();
+  // Read here from the record the other process created, not the one deleted here.
+  const copy = loadSession(f.id);
+  assert.deepEqual(copy.messages.map((m) => m.content), ['peer-1']);
+  const deleter = startPeer(t, f.root);
+  assert.deepEqual(await deleter.send({ op: 'delete', id: f.id }), { deleted: true, code: null });
+  await deleter.exit();
+  copy.messages.push({ role: 'assistant', content: 'parent-late' });
+  await assert.rejects(saveSessionDurably(copy), { code: 'ESESSIONCHANGED' });
+  assert.equal(f.record(), undefined, 'the copy recreated a session another process deleted');
+});
+
+test('a copy saved again behind a delete is judged by the session it was first taken from', async (t) => {
+  const f = fixture(t);
+  await saveSessionDurably(f.session);
+  // A save accepted behind a delete that fails: its accepted copy becomes the live session.
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = function (path, ...rest) {
+    if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+    return realUnlink.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    const deleting = deleteSession(f.id);
+    f.session.messages = [...f.session.messages, { role: 'assistant', content: 'parent-2' }];
+    const saving = saveSessionDurably(f.session);
+    assert.deepEqual(await Promise.all([deleting, saving]), [false, 'saved']);
+  } finally {
+    fs.unlinkSync = realUnlink;
+    syncBuiltinESMExports();
+  }
+  const accepted = loadSession(f.id);
+  assert.notEqual(accepted, f.session, 'the live session is not the accepted copy');
+  assert.deepEqual(accepted.messages.map((m) => m.content), ['parent-1', 'parent-2']);
+  // This process lets go; the session's binding stays with the original.
+  assert.equal(await releaseIdleSessionWriter(f.id), true);
+  const deleter = startPeer(t, f.root);
+  assert.deepEqual(await deleter.send({ op: 'delete', id: f.id }), { deleted: true, code: null });
+  await deleter.exit();
+  // Saved again behind a delete of the (now absent) record here: a copy of the
+  // accepted copy, still a copy of the record the other process deleted.
+  const deleting = deleteSession(f.id);
+  accepted.messages = [...accepted.messages, { role: 'assistant', content: 'parent-late' }];
+  const saving = saveSessionDurably(accepted);
+  assert.equal(await deleting, true);
+  await assert.rejects(saving, { code: 'ESESSIONCHANGED' });
+  assert.equal(f.record(), undefined, 'the copy recreated a session another process deleted');
 });
 
 test('a turn that fails to open gives back the claim it took', async (t) => {

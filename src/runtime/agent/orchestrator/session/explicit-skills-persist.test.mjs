@@ -4,7 +4,7 @@
 // disk restores the user row with appliedSkills — ask turns, header-only
 // selections and queued prompts alike.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -20,6 +20,7 @@ for (const name of ['selected-guide', 'other-guide']) {
 }
 
 const { saveSessionAsync } = await import('./store.mjs');
+const { readDurableSessionRecord } = await import('./store/transcript-durability.mjs');
 const { settleSessionSummaryIndex } = await import('./store/listing.mjs');
 const { invalidateSkillsCache } = await import('../context/collect.mjs');
 const { prepareExplicitSkills, recordAppliedSkills } = await import('./explicit-skills.mjs');
@@ -64,10 +65,10 @@ function newSession() {
   return session;
 }
 
-// The persisted transcript as a restarted app sees it: the session file on
-// disk, restored into desktop/TUI rows.
+// The persisted transcript as a restarted app sees it: the session record on
+// disk (its log, never a cached copy), restored into desktop/TUI rows.
 function restoredUserRows(session) {
-  const disk = JSON.parse(readFileSync(join(root, 'sessions', `${session.id}.json`), 'utf8'));
+  const disk = readDurableSessionRecord(session.id);
   return restoreTranscriptItems(disk.messages).filter((item) => item.kind === 'user');
 }
 

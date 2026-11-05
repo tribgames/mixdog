@@ -2,7 +2,7 @@
 // session store before it is acknowledged: a daemon that restarts right after
 // reads it back from disk and applies it when the next turn starts.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,10 @@ const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = root;
 
 const { saveSessionAsync } = await import('../runtime/agent/orchestrator/session/store.mjs');
+// The record as a restarted process reads it (the log, never a cached copy).
+const { readDurableSessionRecord } = await import(
+  '../runtime/agent/orchestrator/session/store/transcript-durability.mjs'
+);
 const { settleSessionSummaryIndex } = await import('../runtime/agent/orchestrator/session/store/listing.mjs');
 const { createToolPolicyRefresh } = await import('./tool-policy-refresh.mjs');
 const { orchestrationInstructions } = await import('../runtime/agent/orchestrator/runtime-core/orchestration.mjs');
@@ -82,7 +86,7 @@ test('a choice accepted during a turn is on disk when acknowledged and applies a
   assert.equal((await running.switchSessionWorkflow('beta')).deferred, true);
 
   // Crash right after the acknowledgement: only the file survives.
-  const disk = JSON.parse(readFileSync(join(root, 'sessions', `${session.id}.json`), 'utf8'));
+  const disk = readDurableSessionRecord(session.id);
   assert.equal(disk.pendingOrchestrationMode, 'none');
   assert.equal(disk.pendingWorkflowId, 'beta');
 
