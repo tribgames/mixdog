@@ -106,22 +106,26 @@ export function computerUseOverlayPresentation(
   const titles = overlayTitles(locale);
   // Yielded sessions resume by themselves, so the pill offers no Resume; it
   // only says "Waiting" once every session still on screen is one of them.
+  // With automatic resume off they wait for the user's Resume instead, so the
+  // pill stays up for them even when no session is on screen any more.
   const yielded = snapshot.yieldedSessionIds ?? [];
+  const awaitingResume = !snapshot.userControlActive && yielded.length > 0 && snapshot.idleResumeSeconds === 0;
   const everyoneYielded =
     yielded.length > 0 && (snapshot.presentSessionIds ?? []).every((sessionId) => yielded.includes(sessionId));
   let title = titles.working;
   if (attention) title = titles.attention;
   else if (paused || everyoneYielded) title = titles.paused;
   return {
-    visible: !stopInFlight && (working || holding || waiting || Boolean(snapshot.attentionRequired) || inputBlocked),
+    visible:
+      !stopInFlight &&
+      (working || holding || waiting || awaitingResume || Boolean(snapshot.attentionRequired) || inputBlocked),
     sessionIds,
     title,
     // Per-session colours only carry meaning while several agents work at once;
     // a lone session keeps the standard accent instead of a hash-picked one.
     accent: activity && snapshot.activities.length > 1 ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
     paused,
-    // With automatic resume off, yielded sessions wait for the user's Resume.
-    resumable: paused || (!snapshot.userControlActive && yielded.length > 0 && snapshot.idleResumeSeconds === 0),
+    resumable: paused || awaitingResume,
     generation: snapshot.takeoverGeneration ?? 0,
     attention,
   };

@@ -303,3 +303,20 @@ test('with automatic resume off, a yielded session makes the pill resumable and 
   coordinator.yieldSession('a');
   assert.equal(computerUseOverlayPresentation(coordinator.snapshot(), 'en').resumable, false);
 });
+
+test('with automatic resume off, a lone yielded session keeps the pill on screen so its Resume is reachable', async () => {
+  let now = 1_000;
+  const coordinator = new ComputerUseCoordinator({ now: () => now, targetLeaseGraceMs: 2_000 });
+  coordinator.setIdleResume(0);
+  // The refused action has returned and the session has waited past the
+  // presence grace, so nothing else keeps the pill up.
+  coordinator.beginCommand({ sessionId: 'a', action: 'click', mode: 'foreground' });
+  coordinator.finishCommand('a');
+  assert.equal(coordinator.yieldSession('a'), true);
+  now += 10_000;
+  assert.deepEqual(coordinator.snapshot().presentSessionIds ?? [], []);
+  const model = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
+  assert.equal(model.visible, true, 'no other session works, yet Resume must be on screen');
+  assert.equal(model.resumable, true);
+  assert.equal(model.title, 'Waiting');
+});
