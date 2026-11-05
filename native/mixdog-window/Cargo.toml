@@ -1,0 +1,28 @@
+[package]
+name = "mixdog-window"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+description = "Native window procedure that keeps a Mixdog desktop Mica window painted active"
+license = "Apache-2.0"
+publish = false
+
+# Loaded by the desktop main process (apps/desktop/src/main/window-mica.ts) and
+# called as plain functions; it calls nothing back into JavaScript.
+[lib]
+name = "mixdog_window"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[workspace]
+
+# no_std has no unwinding runtime.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -145,6 +145,8 @@ native/mixdog-spawn/target/
 native/mixdog-supervisor/target/
 native/mixdog-computer/target/
 native/mixdog-secure-desktop/target/
+native/mixdog-window/target/
+native/mixdog-window/dist/
 /.mixdog-probe/
 /native-tools/
 /.native-tools-install-*/
