@@ -4,7 +4,7 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-Questa versione aggiunge le approvazioni delle azioni, le autorizzazioni dei siti del browser e le impostazioni del proxy di rete, e risolve i rallentamenti quando ci sono molte sessioni aperte.
+Questa versione aggiunge le approvazioni delle azioni, le autorizzazioni dei siti del browser e le impostazioni del proxy di rete, passa le sessioni a un registro di sola aggiunta e risolve i rallentamenti quando ci sono molte sessioni aperte.
 
 ### Nuove funzionalità
 
@@ -12,18 +12,27 @@ Questa versione aggiunge le approvazioni delle azioni, le autorizzazioni dei sit
 - **Autorizzazioni dei siti del browser** — Aggiunte le autorizzazioni predefinite e le eccezioni per sito in Impostazioni › Autenticazione, con avvisi che ricordano le scelte per un sito, per tutti i siti o fino alla chiusura dell'app.
 - **Importazione automatica dei cookie di Chrome** — Aggiunto "Importa i cookie automaticamente" in Impostazioni › Autenticazione per reimportare i cookie alla chiusura di Chrome e mantenere l'accesso ai siti.
 - **Codici di verifica automatici** — Aggiunta la compilazione automatica dei codici di accesso monouso dalla casella di posta collegata, oltre agli avvisi sul telefono per password e codici.
-- **Proxy di rete** — Aggiunte le modalità proxy di sistema, `http`/`https`/`socks5` personalizzato e disattivato con regole di esclusione e test della connessione in Impostazioni › Sistema › Proxy di rete e nelle impostazioni sul telefono (#317).
+- **Proxy di rete** — Aggiunte le modalità proxy di sistema, `http`/`https`/`socks5` personalizzato e disattivato con regole di esclusione e test della connessione in Impostazioni › Sistema › Proxy di rete e nelle impostazioni sul telefono, applicando le modifiche già dalla richiesta successiva su tutti i provider (#317).
 
 ### Modifiche
 
+- Modificato il salvataggio delle sessioni in un registro di sola aggiunta per un salvataggio più rapido e sicuro alla chiusura, convertendo automaticamente in background le sessioni esistenti al primo avvio, mantenendo i file originali e mostrando lo stato in `/doctor`.
 - Modificate le azioni del browser per fare clic direttamente sui passaggi e provare prima le sessioni esistenti o gli accessi salvati, delegando solo password, carte, codici o verifiche d'identità.
 - Modificata l'app Android per mostrare una schermata di riconnessione, riconnettersi automaticamente al ritorno della rete o alla riapertura dell'app e offrire "Scegli un altro PC".
 - Modificata la rimozione dei worktree per eliminare un branch solo quando è stato creato da Mixdog e git lo considera unito, mantenendo i relativi commit recuperabili.
+- Modificato l'indirizzo di supporto in support@mixdog.ai e il link del sito web in mixdog.ai.
 
 ### Correzioni di bug
 
 - Risolto il rallentamento o il blocco dell'app con molte sessioni aperte e velocizzata l'apertura delle sessioni dopo l'avvio (#316).
-- Risolto il problema per cui i clic di Computer Use mancavano i bersagli su schermi HiDPI ridimensionati e le azioni in background sottraevano il focus facendo sfarfallare la finestra attiva.
+- Risolto il problema per cui i clic di Computer Use mancavano i bersagli su schermi HiDPI ridimensionati, le azioni in background sottraevano il focus facendo sfarfallare la finestra attiva e l'input del mouse o della tastiera dell'utente metteva in pausa tutti gli agenti invece del solo agente interrotto, che ora riprende quando sei inattivo o con Riprendi (#323).
+- Risolto il problema per cui lo stato di worker e sotto-agenti non mostrava lo stato reale dall'inizio alla fine e il ragionamento nascosto non veniva contato come avanzamento, evitando che un agente attivo venga trattato come bloccato (#319).
+- Risolto il problema per cui i dettagli dei ticket di ripristino nel popup di utilizzo si espandono ora sul posto, mantenendo leggibile la scadenza di ogni ticket (#324).
+- Risolto lo sfarfallio della cornice della finestra verso l'aspetto inattivo quando il focus passa a un'altra finestra o ritorna su Windows Mica.
+- Risolto il problema per cui il disco pieno arrestava il servizio in background invece di riprovare i salvataggi e continuare a consegnare i risultati della shell.
+- Risolto il problema per cui `/stop` sui processi della shell segnalava "Impossibile interrompere" invece di indicare i processi già terminati e liberare subito la cartella del progetto.
+- Risolto il problema per cui l'app sul telefono attendeva contenuti di grandi dimensioni all'apertura dei pannelli laterali, tagliava i valori nel menu dei modelli dell'editor dei percorsi, si disconnetteva dopo una singola conferma mancata e si bloccava durante l'avvio dell'input vocale.
+- Risolto il problema per cui il tour guidato e le schede di benvenuto spezzavano le parole coreane andando a capo, le cartelle di progetto senza repository git mostravano un errore invece di un menu dei branch vuoto e i nuovi tentativi per limite di richieste di Gemini venivano scambiati per un blocco.
 - Risolto il problema per cui i dispositivi HID scelti nel browser integrato non riuscivano a connettersi al sito (#313).
 - Risolto il problema per cui il selettore di dispositivi HID mostrava ovali piatti allungati lungo la riga invece dei nomi dei dispositivi (#314).
 - Risolto il problema per cui l'elenco Sessioni mostrava righe vuote tornando da un altro menu o saltava in cima superando le 40 righe (#315).

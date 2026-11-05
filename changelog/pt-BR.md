@@ -4,7 +4,7 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-Esta versão adiciona aprovações de ações, permissões de sites do navegador e configurações de proxy de rede, e corrige lentidões quando muitas sessões estão abertas.
+Esta versão adiciona aprovações de ações, permissões de sites do navegador e configurações de proxy de rede, muda o salvamento de sessões para um registro somente de adição e corrige lentidões quando muitas sessões estão abertas.
 
 ### Novos recursos
 
@@ -12,18 +12,27 @@ Esta versão adiciona aprovações de ações, permissões de sites do navegador
 - **Permissões de sites do navegador** — Adicionadas permissões padrão e exceções por site em Configurações › Autenticação, com avisos que lembram escolhas para um site, para todos os sites ou até o app ser fechado.
 - **Importação automática de cookies do Chrome** — Adicionado "Importar cookies automaticamente" em Configurações › Autenticação para reimportar cookies quando o Chrome é fechado e manter os sites conectados.
 - **Códigos de verificação automáticos** — Adicionado o preenchimento automático de códigos únicos de login da sua caixa de entrada conectada, além de avisos no celular para senhas e códigos.
-- **Proxy de rede** — Adicionados os modos de proxy do sistema, `http`/`https`/`socks5` personalizado e desativado com regras de exceção e teste de conexão em Configurações › Sistema › Proxy de rede e nas configurações pelo celular (#317).
+- **Proxy de rede** — Adicionados os modos de proxy do sistema, `http`/`https`/`socks5` personalizado e desativado com regras de exceção e teste de conexão em Configurações › Sistema › Proxy de rede e nas configurações pelo celular, aplicando alterações já na solicitação seguinte em todos os provedores (#317).
 
 ### Alterações
 
+- Alterado o salvamento de sessões para um registro somente de adição, tornando o salvamento ao fechar mais rápido e seguro, convertendo automaticamente as sessões existentes em segundo plano na primeira inicialização, mantendo os arquivos originais e exibindo o status em `/doctor`.
 - Alteradas as ações do navegador para clicar diretamente nas etapas e tentar primeiro sessões existentes ou logins salvos, repassando apenas senhas, cartões, códigos ou verificações de identidade.
 - Alterado o app Android para exibir uma tela de reconexão, reconectar automaticamente quando a rede voltar ou o app for reaberto e oferecer "Escolher outro PC".
 - Alterada a remoção de worktree para excluir uma branch apenas quando o Mixdog a tiver criado e o git a considerar mesclada, mantendo seus commits recuperáveis.
+- Alterado o endereço de suporte para support@mixdog.ai e o link do site para mixdog.ai.
 
 ### Correções de bugs
 
 - Corrigido o problema em que o app ficava lento ou travava com muitas sessões abertas e acelerada a abertura de sessões após iniciar o app (#316).
-- Corrigido o problema em que cliques do Computer Use erravam o alvo em telas HiDPI com escala e ações em segundo plano roubavam o foco fazendo a janela ativa piscar.
+- Corrigido o problema em que cliques do Computer Use erravam o alvo em telas HiDPI com escala, ações em segundo plano roubavam o foco fazendo a janela ativa piscar e a sua entrada de mouse ou teclado pausava todos os agentes em vez de apenas o agente interrompido, que agora retoma quando você fica ocioso ou com Retomar (#323).
+- Corrigido o status de workers e subagentes para mostrar o estado real do início ao fim e contar o raciocínio oculto como progresso, evitando que um agente em atividade seja tratado como travado (#319).
+- Corrigidos os detalhes dos tíquetes de redefinição no pop-up de uso para expandir no próprio local, mantendo legível a validade de cada tíquete (#324).
+- Corrigido o problema em que a moldura da janela piscava com a aparência inativa ao mudar o foco para outra janela ou voltar no Windows Mica.
+- Corrigido o problema em que o disco cheio encerrava o serviço em segundo plano em vez de tentar salvar novamente e continuar entregando os resultados do shell.
+- Corrigido o comando `/stop` em tarefas do shell para informar corretamente as tarefas já concluídas em vez de "Não foi possível parar" e liberar a pasta do projeto imediatamente.
+- Corrigido o problema em que o app no celular aguardava conteúdos grandes ao abrir painéis laterais, cortava valores no menu de modelos do editor de rotas, desconectava após uma única confirmação perdida e travava ao iniciar a entrada por voz.
+- Corrigido o problema em que o tour guiado e os cartões de boas-vindas quebravam palavras em coreano entre linhas, pastas de projeto sem repositório git exibiam um erro em vez de um menu de branches vazio e novas tentativas por limite de taxa do Gemini eram confundidas com travamento.
 - Corrigido o problema em que dispositivos HID escolhidos no navegador integrado não se conectavam ao site (#313).
 - Corrigido o problema em que o seletor de dispositivos HID exibia ovais achatados esticados pela linha em vez dos nomes dos dispositivos (#314).
 - Corrigido o problema em que a lista Sessões exibia linhas em branco ao retornar de outro menu ou saltava para o topo ao passar de 40 linhas (#315).

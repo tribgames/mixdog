@@ -5,7 +5,7 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-Cette version ajoute les approbations d'actions, les autorisations des sites du navigateur et les réglages de proxy réseau, et corrige les ralentissements lorsque de nombreuses sessions sont ouvertes.
+Cette version ajoute les approbations d'actions, les autorisations des sites du navigateur et les réglages de proxy réseau, passe les sessions à un journal en ajout seul et corrige les ralentissements lorsque de nombreuses sessions sont ouvertes.
 
 ### Nouvelles fonctionnalités
 
@@ -13,18 +13,27 @@ Cette version ajoute les approbations d'actions, les autorisations des sites du 
 - **Autorisations des sites du navigateur** — Ajout des autorisations par défaut et des exceptions par site dans Réglages › Authentification, avec des invites mémorisant le choix pour un site, tous les sites ou jusqu'à la fermeture de l'application.
 - **Importation automatique des cookies Chrome** — Ajout d'« Importer les cookies automatiquement » dans Réglages › Authentification pour réimporter les cookies à la fermeture de Chrome et garder les sites connectés.
 - **Codes de vérification automatiques** — Ajout du remplissage automatique des codes de connexion à usage unique depuis votre boîte mail connectée, ainsi que d'invites sur téléphone pour les mots de passe et les codes.
-- **Proxy réseau** — Ajout des modes proxy système, `http`/`https`/`socks5` personnalisé et désactivé avec règles de contournement et test de connexion dans Réglages › Système › Proxy réseau et dans les réglages sur téléphone (#317).
+- **Proxy réseau** — Ajout des modes proxy système, `http`/`https`/`socks5` personnalisé et désactivé avec règles de contournement et test de connexion dans Réglages › Système › Proxy réseau et dans les réglages sur téléphone, en appliquant les changements dès la requête suivante chez tous les fournisseurs (#317).
 
 ### Modifications
 
+- Modification de l'enregistrement des sessions vers un journal en ajout seul pour une sauvegarde plus rapide et plus sûre à la fermeture, avec conversion automatique des sessions existantes en arrière-plan au premier lancement tout en conservant les fichiers d'origine et en affichant l'état dans `/doctor`.
 - Modification des actions du navigateur pour cliquer directement à travers les étapes et essayer d'abord les sessions existantes ou identifiants enregistrés, ne déléguant que mots de passe, cartes, codes ou contrôles d'identité.
 - Modification de l'application Android pour afficher un écran de reconnexion, se reconnecter automatiquement au retour du réseau ou à la réouverture de l'application, et proposer « Choisir un autre PC ».
 - Modification de la suppression d'un worktree pour ne supprimer une branche que lorsque Mixdog l'a créée et que git la considère fusionnée, tout en gardant ses commits récupérables.
+- Modification de l'adresse d'assistance en support@mixdog.ai et du lien du site web en mixdog.ai.
 
 ### Corrections de bugs
 
 - Correction du ralentissement ou du blocage de l'application avec de nombreuses sessions ouvertes, et accélération de l'ouverture des sessions après le lancement (#316).
-- Correction des clics Computer Use manquant leur cible sur les écrans HiDPI mis à l'échelle et des actions en arrière-plan volant le focus et faisant clignoter la fenêtre active.
+- Correction des clics Computer Use manquant leur cible sur les écrans HiDPI mis à l'échelle, des actions en arrière-plan volant le focus et faisant clignoter la fenêtre active, et de la mise en pause par vos entrées souris ou clavier de tous les agents au lieu du seul agent interrompu, qui reprend désormais à l'inactivité ou avec Reprendre (#323).
+- Correction de l'état des workers et sous-agents pour afficher l'état réel du début à la fin et compter la réflexion masquée comme une progression, afin qu'un agent actif ne soit plus considéré comme bloqué (#319).
+- Correction des détails des tickets de réinitialisation dans la fenêtre d'utilisation afin qu'ils se déplient sur place et que la date d'expiration de chaque ticket reste lisible (#324).
+- Correction du clignotement du cadre de fenêtre vers son apparence inactive lors du passage du focus à une autre fenêtre ou au retour sous Windows Mica.
+- Correction de l'arrêt du service d'arrière-plan lorsque le disque est plein, au lieu de réessayer les sauvegardes et de continuer à livrer les résultats shell.
+- Correction de `/stop` sur les tâches shell pour signaler correctement les tâches déjà terminées au lieu d'afficher « Impossible d'arrêter » et libérer immédiatement le dossier du projet.
+- Correction de l'attente sur les contenus volumineux à l'ouverture des panneaux latéraux de l'application sur téléphone, de la troncature des valeurs dans le menu des modèles de l'éditeur de routes, de la déconnexion après un seul accusé de réception manqué et du blocage au démarrage de la saisie vocale.
+- Correction de la coupure des mots coréens lors du retour à la ligne dans la visite guidée et les cartes d'accueil, de l'affichage d'une erreur au lieu d'un menu de branches vide pour les dossiers de projet sans dépôt git, et des nouvelles tentatives liées aux limites de débit Gemini prises à tort pour un blocage.
 - Correction de l'échec de connexion au site des périphériques HID choisis dans le navigateur intégré (#313).
 - Correction du sélecteur de périphériques HID qui affichait des ovales plats étirés sur toute la ligne au lieu du nom des périphériques (#314).
 - Correction de la liste Sessions qui affichait des lignes vides en revenant d'un autre menu ou sautait tout en haut au-delà de 40 lignes (#315).

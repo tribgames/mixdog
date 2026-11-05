@@ -4,7 +4,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-Bản phát hành này bổ sung phê duyệt thao tác, quyền trang web của trình duyệt và cài đặt proxy mạng, đồng thời khắc phục tình trạng chậm khi mở nhiều phiên.
+Bản phát hành này bổ sung phê duyệt thao tác, quyền trang web của trình duyệt và cài đặt proxy mạng, chuyển việc lưu phiên sang nhật ký chỉ ghi nối tiếp, đồng thời khắc phục tình trạng chậm khi mở nhiều phiên.
 
 ### Tính năng mới
 
@@ -12,18 +12,27 @@ Bản phát hành này bổ sung phê duyệt thao tác, quyền trang web của
 - **Quyền trang web của trình duyệt** — Bổ sung quyền mặc định và ngoại lệ theo từng trang trong Cài đặt › Xác thực, với lời nhắc ghi nhớ lựa chọn cho một trang, mọi trang hoặc cho đến khi thoát ứng dụng.
 - **Tự động nhập cookie Chrome** — Bổ sung "Tự động nhập cookie" trong Cài đặt › Xác thực để nhập lại cookie khi đóng Chrome và duy trì đăng nhập trên các trang web.
 - **Mã xác minh tự động** — Bổ sung tính năng tự động điền mã đăng nhập dùng một lần từ hộp thư đã kết nối, cùng lời nhắc trên điện thoại cho mật khẩu và mã xác minh.
-- **Proxy mạng** — Bổ sung các chế độ proxy hệ thống, `http`/`https`/`socks5` tùy chỉnh và tắt kèm quy tắc bỏ qua cùng kiểm tra kết nối trong Cài đặt › Hệ thống › Proxy mạng và cài đặt trên điện thoại (#317).
+- **Proxy mạng** — Bổ sung các chế độ proxy hệ thống, `http`/`https`/`socks5` tùy chỉnh và tắt kèm quy tắc bỏ qua cùng kiểm tra kết nối trong Cài đặt › Hệ thống › Proxy mạng và cài đặt trên điện thoại, áp dụng thay đổi ngay từ yêu cầu tiếp theo trên mọi nhà cung cấp (#317).
 
 ### Thay đổi
 
+- Thay đổi cách lưu phiên sang nhật ký chỉ ghi nối tiếp để lưu nhanh và an toàn hơn khi đóng ứng dụng, tự động chuyển đổi các phiên hiện có trong nền ở lần khởi động đầu tiên trong khi vẫn giữ tệp gốc và hiển thị trạng thái trong `/doctor`.
 - Thay đổi thao tác trình duyệt để trực tiếp nhấp qua các bước và thử phiên hiện có hoặc thông tin đăng nhập đã lưu trước, chỉ chuyển giao mật khẩu, thẻ, mã hoặc bước xác minh danh tính.
 - Thay đổi ứng dụng Android để hiển thị màn hình kết nối lại, tự động kết nối lại khi có mạng trở lại hoặc khi mở lại ứng dụng và cung cấp tùy chọn "Chọn máy tính khác".
 - Thay đổi việc xóa worktree để chỉ xóa nhánh khi nhánh đó do Mixdog tạo và được git coi là đã gộp, đồng thời vẫn giữ cho các commit có thể khôi phục.
+- Thay đổi địa chỉ hỗ trợ thành support@mixdog.ai và liên kết trang web thành mixdog.ai.
 
 ### Sửa lỗi
 
 - Sửa lỗi ứng dụng bị chậm hoặc treo khi mở nhiều phiên và tăng tốc độ mở phiên sau khi khởi động (#316).
-- Sửa lỗi nhấp chuột của Computer Use lệch mục tiêu trên màn hình HiDPI có thu phóng và thao tác chạy nền chiếm tiêu điểm làm nhấp nháy cửa sổ đang dùng.
+- Sửa lỗi nhấp chuột của Computer Use lệch mục tiêu trên màn hình HiDPI có thu phóng, thao tác chạy nền chiếm tiêu điểm làm nhấp nháy cửa sổ đang dùng, và thao tác chuột hoặc bàn phím của bạn làm tạm dừng mọi agent thay vì chỉ agent bị gián đoạn — nay agent đó sẽ tiếp tục khi bạn ngừng thao tác hoặc bấm Tiếp tục (#323).
+- Sửa lỗi trạng thái của worker và sub-agent để hiển thị đúng trạng thái thực từ đầu đến cuối và tính cả quá trình suy nghĩ ẩn vào tiến độ, nhờ đó agent đang làm việc không còn bị coi là bị treo (#319).
+- Sửa lỗi chi tiết vé đặt lại trong cửa sổ bật lên về mức sử dụng để mở rộng ngay tại chỗ, giúp thời hạn của từng vé không bị cắt mất (#324).
+- Sửa lỗi khung cửa sổ nhấp nháy sang giao diện không hoạt động khi chuyển tiêu điểm sang cửa sổ khác hoặc quay lại trên Windows Mica.
+- Sửa lỗi đầy ổ đĩa làm tắt dịch vụ chạy nền thay vì thử lưu lại và vẫn tiếp tục trả về kết quả shell.
+- Sửa lỗi lệnh `/stop` trên tác vụ shell để báo đúng các tác vụ đã hoàn tất thay vì báo "Không thể dừng" và giải phóng thư mục dự án ngay lập tức.
+- Sửa lỗi ứng dụng điện thoại phải chờ nội dung lớn khi mở bảng bên, bị cắt giá trị trong menu mô hình của trình chỉnh sửa tuyến, mất kết nối sau một lần lỡ xác nhận và bị kẹt khi bắt đầu nhập giọng nói.
+- Sửa lỗi hướng dẫn làm quen và thẻ chào mừng làm ngắt từ tiếng Hàn khi xuống dòng, thư mục dự án không phải kho git hiển thị lỗi thay vì menu nhánh trống, và các lần thử lại do giới hạn tần suất của Gemini bị nhầm là treo.
 - Sửa lỗi thiết bị HID được chọn trong trình duyệt tích hợp không kết nối được với trang web (#313).
 - Sửa lỗi hộp thoại chọn thiết bị HID hiển thị các hình bầu dục dẹt kéo giãn ngang hàng thay vì tên thiết bị (#314).
 - Sửa lỗi danh sách Phiên hiển thị các hàng trống khi quay lại từ menu khác hoặc nhảy lên đầu khi vượt quá 40 hàng (#315).
