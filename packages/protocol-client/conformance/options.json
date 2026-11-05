@@ -1,0 +1,42 @@
+{
+  "clientInfo": { "name": "conformance", "title": "Conformance", "version": "1.4.6", "kind": "cli", "build": "b1" },
+  "capabilities": { "optOutNotificationMethods": [], "experimentalApi": false },
+  "ladder": { "baseMs": 250, "capMs": 5000 },
+  "jitterUnit": 0.5,
+  "initializeResult": {
+    "userAgent": "mixdog-core/1.4.6",
+    "platformFamily": "windows",
+    "platformOs": "windows",
+    "serverVersion": "1.4.6",
+    "serverBuild": "b1",
+    "coreState": { "state": "serving" },
+    "limits": {
+      "maxInboundFrameBytes": 262144,
+      "maxMediaFrameBytes": 67108864,
+      "maxItemFieldBytes": 262144,
+      "maxFrameBytes": 327680,
+      "queueBytes": 8388608,
+      "controlReserveBytes": 524288,
+      "eventBudgetBytes": 7864320,
+      "maxSnapshotBytes": 3145728,
+      "ringBytes": 4194304,
+      "appRingBytes": 1048576,
+      "terminalRingChars": 200000,
+      "maxBlobPageBytes": 1048576,
+      "maxBlobPutChunkBytes": 196608,
+      "inflight": { "c0": 64, "c1": 16, "c2": 8, "c3": 4 },
+      "maxConnections": 128,
+      "heartbeatTickMs": 15000,
+      "maxProcesses": 64,
+      "terminalInputBufferBytes": 1048576
+    },
+    "capabilities": {
+      "office": { "state": "available" },
+      "jsSkills": { "state": "available" },
+      "browser": { "state": "available" },
+      "computer": { "state": "available" },
+      "voice": { "state": "available" }
+    },
+    "connection": { "origin": "local", "device": "conformance" }
+  }
+}

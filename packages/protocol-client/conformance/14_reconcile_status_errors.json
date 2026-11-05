@@ -1,0 +1,23 @@
+{
+  "name": "op/status is an ordinary call: -32001 retries on the class fact, a hard error ends only that scope with opOutcomeUnknown carrying the cause",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "m1", "method": "config/value/write", "params": { "path": "a", "value": 1} },
+    { "do": "expectSend", "frame": { "id": "$cap:m1", "method": "config/value/write", "params": { "path": "a", "value": 1, "opId": "op-1"}} },
+    { "do": "call", "as": "m2", "method": "thread/name/set", "params": { "threadId": "t1", "name": "n"} },
+    { "do": "expectSend", "frame": { "id": "$cap:m2", "method": "thread/name/set", "params": { "threadId": "t1", "name": "n", "opId": "op-2"}} },
+    { "do": "serverClose", "code": 1006 },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "expectSend", "frame": { "id": "$cap:s1", "method": "op/status", "params": { "scope": "config", "opIds": ["op-1"], "fence": true}} },
+    { "do": "expectSend", "frame": { "id": "$cap:s2", "method": "op/status", "params": { "scope": "thread:t1", "opIds": ["op-2"], "fence": true}} },
+    { "do": "serverSend", "frame": { "id": "$cap:s1", "error": { "code": -32001, "message": "busy", "data": { "reason": "inflightLimit", "class": "C0", "limit": 64}}} },
+    { "do": "expectNoSend" },
+    { "do": "serverSend", "frame": { "id": "$cap:s2", "error": { "code": -32603, "message": "boom"}} },
+    { "do": "result", "as": "m2", "error": { "kind": "opOutcomeUnknown", "cause": { "kind": "rpc"}} },
+    { "do": "expectSend", "frame": { "id": "$cap:s1b", "method": "op/status", "params": { "scope": "config", "opIds": ["op-1"], "fence": true}} },
+    { "do": "serverSend", "frame": { "id": "$cap:s1b", "result": { "ops": [{ "opId": "op-1", "state": "applied", "result": { "ok": true}}]}} },
+    { "do": "result", "as": "m1", "ok": { "ok": true} }
+  ]
+}

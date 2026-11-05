@@ -1,0 +1,24 @@
+{
+  "name": "app feed sections: snapshot replaces, highest revision wins, removed deletes",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "a", "fn": "subscribeApp" },
+    { "do": "expectSend", "frame": { "id": "$cap:a", "method": "app/subscribe", "params": {} } },
+    { "do": "serverSend", "frame": { "id": "$cap:a", "result": { "subscription": { "id": "as", "mode": "snapshot", "epoch": "ae", "startSeq": 3 } } } },
+    { "do": "serverSend", "frame": { "method": "app/snapshot", "params": { "sections": [{ "section": "agentPool", "key": null, "revision": 1, "value": ["x"] }, { "section": "config", "key": "k", "revision": 1, "value": 1 }] }, "feed": { "id": "app", "epoch": "ae", "seq": 2 } } },
+    { "do": "serverSend", "frame": { "method": "agent/pool/updated", "params": { "section": "agentPool", "key": null, "revision": 3, "value": ["y"] }, "feed": { "id": "app", "epoch": "ae", "seq": 3 } } },
+    { "do": "serverSend", "frame": { "method": "agent/pool/updated", "params": { "section": "agentPool", "key": null, "revision": 2, "value": ["stale"] }, "feed": { "id": "app", "epoch": "ae", "seq": 4 } } },
+    { "do": "serverSend", "frame": { "method": "notice/updated", "params": { "section": "notice", "key": "n1", "revision": 1, "value": { "t": 1 } }, "feed": { "id": "app", "epoch": "ae", "seq": 5 } } },
+    { "do": "serverSend", "frame": { "method": "notice/updated", "params": { "section": "notice", "key": "n1", "revision": 2, "removed": true }, "feed": { "id": "app", "epoch": "ae", "seq": 6 } } },
+    { "do": "result", "as": "a", "ok": null },
+    { "do": "settle" },
+    { "do": "expectSection", "section": "agentPool", "key": null, "revision": 3, "value": ["y"] },
+    { "do": "expectSection", "section": "notice", "key": "n1", "absent": true },
+    { "do": "expectSection", "section": "config", "key": "k", "revision": 1, "value": 1 },
+    { "do": "serverClose", "code": 1006 },
+    { "do": "handshake", "instance": "s2" },
+    { "do": "expectSend", "frame": { "id": "$cap:a2", "method": "app/subscribe", "params": { "resumeFrom": { "epoch": "ae", "seq": 6 } } } }
+  ]
+}

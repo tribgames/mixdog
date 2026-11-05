@@ -1,0 +1,41 @@
+{
+  "name": "-32001 retries on facts: own response (also if it already arrived), next feed event for windowFull; opId kept",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "a", "method": "config/value/write", "params": { "k": "a" } },
+    { "do": "expectSend", "frame": { "id": "$cap:a", "method": "config/value/write", "params": { "k": "a", "opId": "op-1" } } },
+    { "do": "call", "as": "b", "method": "config/value/write", "params": { "k": "b" } },
+    { "do": "expectSend", "frame": { "id": "$cap:b", "method": "config/value/write", "params": { "k": "b", "opId": "op-2" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:b", "error": { "code": -32001, "message": "busy", "data": { "reason": "inflightLimit", "class": "C2", "limit": 1 } } } },
+    { "do": "settle" },
+    { "do": "expectNoSend" },
+    { "do": "serverSend", "frame": { "id": "$cap:a", "result": 1 } },
+    { "do": "result", "as": "a", "ok": 1 },
+    { "do": "expectSend", "frame": { "id": "$cap:b2", "method": "config/value/write", "params": { "k": "b", "opId": "op-2" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:b2", "result": 2 } },
+    { "do": "result", "as": "b", "ok": 2 },
+
+    { "do": "call", "as": "c", "method": "config/value/write", "params": { "k": "c" } },
+    { "do": "expectSend", "frame": { "id": "$cap:c", "method": "config/value/write", "params": { "k": "c", "opId": "op-3" } } },
+    { "do": "call", "as": "d", "method": "config/value/write", "params": { "k": "d" } },
+    { "do": "expectSend", "frame": { "id": "$cap:d", "method": "config/value/write", "params": { "k": "d", "opId": "op-4" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:c", "result": 3 } },
+    { "do": "serverSend", "frame": { "id": "$cap:d", "error": { "code": -32001, "message": "busy", "data": { "reason": "inflightLimit", "class": "C2", "limit": 1 } } } },
+    { "do": "result", "as": "c", "ok": 3 },
+    { "do": "expectSend", "frame": { "id": "$cap:d2", "method": "config/value/write", "params": { "k": "d", "opId": "op-4" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:d2", "result": 4 } },
+    { "do": "result", "as": "d", "ok": 4 },
+
+    { "do": "call", "as": "w", "method": "turn/start", "params": { "threadId": "t1" } },
+    { "do": "expectSend", "frame": { "id": "$cap:w", "method": "turn/start", "params": { "threadId": "t1", "opId": "op-5" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:w", "error": { "code": -32001, "message": "full", "data": { "reason": "windowFull", "threadId": "t1" } } } },
+    { "do": "settle" },
+    { "do": "expectNoSend" },
+    { "do": "serverSend", "frame": { "method": "thread/runtime/updated", "params": {}, "feed": { "id": "t1", "epoch": "e", "seq": 5 } } },
+    { "do": "expectSend", "frame": { "id": "$cap:w2", "method": "turn/start", "params": { "threadId": "t1", "opId": "op-5" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:w2", "result": { "queued": false } } },
+    { "do": "result", "as": "w", "ok": { "queued": false } }
+  ]
+}

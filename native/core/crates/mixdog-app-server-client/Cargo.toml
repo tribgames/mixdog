@@ -9,3 +9,15 @@ workspace = true
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
+mixdog-protocol = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time"] }
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time"] }

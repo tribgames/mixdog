@@ -1,0 +1,27 @@
+{
+  "name": "blob stubs resolve in pages before the fold, order preserved; binary stubs stay; putBlob chunks",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1", "limits": { "maxBlobPageBytes": 6, "maxBlobPutChunkBytes": 2 } },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "r", "fn": "resumeThread", "threadId": "t1", "window": { "none": true } },
+    { "do": "expectSend", "frame": { "id": "$cap:r", "method": "thread/resume", "params": { "threadId": "t1", "window": { "none": true } } } },
+    { "do": "serverSend", "frame": { "id": "$cap:r", "result": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null }, "subscription": { "id": "sub", "mode": "snapshot", "epoch": "e", "startSeq": 2 } } } },
+    { "do": "serverSend", "frame": { "method": "thread/snapshot", "params": { "text": { "blob": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 11, "mediaType": "text/plain" } }, "img": { "blob": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bytes": 3, "mediaType": "image/png" } } }, "feed": { "id": "t1", "epoch": "e", "seq": 1 } } },
+    { "do": "serverSend", "frame": { "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e", "seq": 2 } } },
+    { "do": "expectSend", "frame": { "id": "$cap:p1", "method": "blob/read", "params": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "offset": 0, "length": 6 } } },
+    { "do": "serverSend", "frame": { "id": "$cap:p1", "result": { "bytesB64": "aGVsbG8g" } } },
+    { "do": "expectSend", "frame": { "id": "$cap:p2", "method": "blob/read", "params": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "offset": 6, "length": 5 } } },
+    { "do": "serverSend", "frame": { "id": "$cap:p2", "result": { "bytesB64": "d29ybGQ=" } } },
+    { "do": "result", "as": "r", "ok": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null }, "subscription": { "id": "sub", "mode": "snapshot", "epoch": "e", "startSeq": 2 } } },
+    { "do": "settle" },
+    { "do": "expectThreadState", "thread": "t1", "state": { "snap": { "text": "hello world", "img": { "blob": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bytes": 3, "mediaType": "image/png" } } }, "log": ["item/completed@2"] } },
+
+    { "do": "call", "as": "put", "fn": "putBlob", "text": "abc", "mediaType": "text/plain" },
+    { "do": "expectSend", "frame": { "id": "$cap:b1", "method": "blob/put", "params": { "digest": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "offset": 0, "bytesB64": "YWI=" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:b1", "result": {} } },
+    { "do": "expectSend", "frame": { "id": "$cap:b2", "method": "blob/put", "params": { "digest": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "offset": 2, "bytesB64": "Yw==" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:b2", "result": {} } },
+    { "do": "result", "as": "put", "ok": { "blob": { "digest": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "bytes": 3, "mediaType": "text/plain" } } }
+  ]
+}

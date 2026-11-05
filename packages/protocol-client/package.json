@@ -1,0 +1,1 @@
+{"name":"@mixdog/protocol-client","version":"0.0.0","private":true,"type":"module","scripts":{"typecheck":"tsc -p .","test":"node --test test/*.test.ts"},"devDependencies":{"@types/node":"^22.0.0","typescript":"^5.9.0"},"dependencies":{"@mixdog/protocol":"file:../protocol"}}

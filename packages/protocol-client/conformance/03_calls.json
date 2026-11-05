@@ -1,0 +1,21 @@
+{
+  "name": "typed calls: result, typed error, unknown method never reaches the wire",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "a", "method": "thread/list", "params": {} },
+    { "do": "expectSend", "frame": { "id": "$cap:a", "method": "thread/list", "params": {} } },
+    { "do": "serverSend", "frame": { "id": "$cap:a", "result": { "data": [] } } },
+    { "do": "result", "as": "a", "ok": { "data": [] } },
+    { "do": "call", "as": "b", "method": "thread/list", "params": { "cursor": "c" } },
+    { "do": "expectSend", "frame": { "id": "$cap:b", "method": "thread/list", "params": { "cursor": "c" } } },
+    { "do": "serverSend", "frame": { "id": "$cap:b", "error": { "code": -32600, "message": "m", "data": { "reason": "threadNotFound", "threadId": "t" } } } },
+    { "do": "result", "as": "b", "error": { "kind": "rpc", "reason": "threadNotFound" } },
+    { "do": "call", "as": "c", "method": "nope/x", "params": {} },
+    { "do": "result", "as": "c", "error": { "kind": "unknownMethod" } },
+    { "do": "expectNoSend" },
+    { "do": "notify", "method": "terminal/input", "params": { "id": "t", "data": "ls" } },
+    { "do": "expectSend", "frame": { "method": "terminal/input", "params": { "id": "t", "data": "ls" } } }
+  ]
+}

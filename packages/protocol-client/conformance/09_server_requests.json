@@ -1,0 +1,26 @@
+{
+  "name": "server requests: delivered, answered by id, cleared by serverRequest/resolved and by socket loss, re-delivered",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "serverSend", "frame": { "id": "ap_1", "method": "item/tool/requestApproval", "params": { "threadId": "t1", "requestedAt": 1, "order": 1, "kind": "shell", "tool": "bash", "request": {} } } },
+    { "do": "settle" },
+    { "do": "expectServerRequests", "ids": ["ap_1"] },
+    { "do": "respond", "id": "ap_1", "answer": { "result": { "decision": "once" } } },
+    { "do": "expectSend", "frame": { "id": "ap_1", "result": { "decision": "once" } } },
+    { "do": "expectServerRequests", "ids": ["ap_1"] },
+    { "do": "serverSend", "frame": { "method": "serverRequest/resolved", "params": { "threadId": "t1", "requestId": "ap_1", "resolution": { "kind": "timedOut", "at": 1 } } } },
+    { "do": "settle" },
+    { "do": "expectServerRequests", "ids": [] },
+    { "do": "serverSend", "frame": { "id": "ap_2", "method": "item/tool/requestUserInput", "params": { "threadId": "t1", "requestedAt": 1, "order": 2, "questions": [] } } },
+    { "do": "settle" },
+    { "do": "serverClose", "code": 1006 },
+    { "do": "settle" },
+    { "do": "expectServerRequests", "ids": [] },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "serverSend", "frame": { "id": "ap_2", "method": "item/tool/requestUserInput", "params": { "threadId": "t1", "requestedAt": 1, "order": 2, "questions": [] } } },
+    { "do": "settle" },
+    { "do": "expectServerRequests", "ids": ["ap_2"] }
+  ]
+}

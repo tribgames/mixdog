@@ -1,0 +1,10 @@
+{
+  "name": "handshake: initialize, initialized, ready; version refusal rejects connect",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "expectStatus", "states": ["ready"] },
+    { "do": "expectNoSend" }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "blob failures: blobNotFound/blobCorrupt fail only that one read or stub resolution, typed; feed continues, connection stays open",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "r", "fn": "resumeThread", "threadId": "t1", "window": { "lastItems": 50 } },
+    { "do": "expectSend", "frame": { "id": "$cap:r", "method": "thread/resume", "params": { "threadId": "t1", "window": { "lastItems": 50 } } } },
+    { "do": "serverSend", "frame": { "id": "$cap:r", "result": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null }, "subscription": { "id": "sub", "mode": "snapshot", "epoch": "e1", "startSeq": 2 } } } },
+    { "do": "serverSend", "frame": { "method": "thread/snapshot", "params": { "gone": { "blob": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 5, "mediaType": "text/plain" } }, "ok": { "blob": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bytes": 2, "mediaType": "text/plain" } } }, "feed": { "id": "t1", "epoch": "e1", "seq": 1 } } },
+    { "do": "serverSend", "frame": { "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e1", "seq": 2 } } },
+    { "do": "result", "as": "r", "ok": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null }, "subscription": { "id": "sub", "mode": "snapshot", "epoch": "e1", "startSeq": 2 } } },
+    { "do": "expectSend", "frame": { "id": "$cap:p1", "method": "blob/read", "params": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "offset": 0, "length": 5 } } },
+    { "do": "serverSend", "frame": { "id": "$cap:p1", "error": { "code": -32600, "message": "gone", "data": { "reason": "blobNotFound", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } } },
+    { "do": "expectSend", "frame": { "id": "$cap:p2", "method": "blob/read", "params": { "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "offset": 0, "length": 2 } } },
+    { "do": "serverSend", "frame": { "id": "$cap:p2", "result": { "bytesB64": "aGk=" } } },
+    { "do": "settle" },
+    { "do": "expectThreadState", "thread": "t1", "state": { "snap": { "gone": { "blob": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 5, "mediaType": "text/plain" } }, "ok": "hi" }, "log": ["item/completed@2"] } },
+    { "do": "expectBlobUnavailable", "errors": [{ "kind": "blobNotFound", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] },
+
+    { "do": "call", "as": "rd", "fn": "readBlob", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "bytes": 4, "mediaType": "application/octet-stream" },
+    { "do": "expectSend", "frame": { "id": "$cap:p3", "method": "blob/read", "params": { "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "offset": 0, "length": 4 } } },
+    { "do": "serverSend", "frame": { "id": "$cap:p3", "error": { "code": -32603, "message": "bad", "data": { "reason": "blobCorrupt", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } } } },
+    { "do": "result", "as": "rd", "error": { "kind": "blobCorrupt", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } },
+
+    { "do": "settle" },
+    { "do": "expectClientClose", "none": true },
+    { "do": "expectNoSend" },
+    { "do": "expectStatus", "states": ["ready"] }
+  ]
+}

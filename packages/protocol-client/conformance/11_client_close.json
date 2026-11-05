@@ -1,0 +1,16 @@
+{
+  "name": "close(): pending call rejects clientClosed, socket closed 1000, no reconnect",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "a", "method": "thread/list", "params": {} },
+    { "do": "expectSend", "frame": { "id": "$cap:a", "method": "thread/list", "params": {} } },
+    { "do": "close" },
+    { "do": "result", "as": "a", "error": { "kind": "clientClosed" } },
+    { "do": "expectClientClose", "code": 1000 },
+    { "do": "settle" },
+    { "do": "expectSleeps", "ms": [] },
+    { "do": "expectStatus", "states": ["ready", "closed"] }
+  ]
+}
