@@ -110,6 +110,25 @@ async function buildComputerBackend() {
   }
 }
 
+// The Windows dev app loads the Mica window library from
+// native/mixdog-window/target/release (src/main/window-mica.ts); without it the
+// window falls back to a repaint after each deactivation.
+export async function buildWindowLibrary() {
+  if (process.platform !== 'win32') return;
+  const code = await new Promise((resolve) => {
+    // The crate's linker setup (.cargo/config.toml) applies from its directory.
+    const child = spawn('cargo', ['build', '--locked', '--release'], {
+      cwd: join(desktopDir, '..', '..', 'native', 'mixdog-window'),
+      stdio: 'inherit',
+    });
+    child.once('error', () => resolve(null));
+    child.once('exit', resolve);
+  });
+  if (code !== 0) {
+    console.warn('Mica window library was not built (cargo failed or Rust is not installed); the fallback is used.');
+  }
+}
+
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -145,6 +164,7 @@ async function main() {
   console.log(`Test debug port: ${port}`);
   if (!values.preview) console.log(`Renderer dev server port: ${env.MIXDOG_DEV_RENDERER_PORT}`);
   await buildComputerBackend();
+  await buildWindowLibrary();
   await refreshStaleLocalBinaries();
   // Electron 42+ has no install script; electron-vite only reads path.txt, so
   // download the binary on first use and hand it over.

@@ -4,7 +4,13 @@ import { release } from 'node:os';
 import * as electron from 'electron';
 import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from 'electron';
 import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
-import { installMicaActiveAppearance } from './window-mica';
+import {
+  installMicaActiveAppearance,
+  type MicaNative,
+  type MicaReport,
+  micaLibraryPath,
+  nativeMica,
+} from './window-mica';
 
 /* Dark window band — must track --mx-window-band in desktop.css :root. */
 export const DESKTOP_BACKGROUND_COLOR = '#18181b';
@@ -20,6 +26,7 @@ const DESKTOP_WINDOW_MICA = process.platform === 'win32' && Number(release().spl
 const HAS_TITLEBAR_OVERLAY = process.platform === 'win32' || process.platform === 'linux';
 const CLEAR_BACKGROUND_COLOR = '#00000000';
 const micaWindows = new WeakSet<object>();
+let micaNative: MicaNative | undefined;
 
 type DesktopTitleBarWindow = Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>;
 
@@ -153,8 +160,9 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
 /** Binds a window built with initialTitleBarWindowOverrides() to its Mica
  *  backdrop: theme changes keep its background clear, and every loaded page
  *  gets html[data-window-material="mica"] so the renderer opens the
- *  titlebar and rail to the material (03-titlebar.css). */
-export function installDesktopWindowMaterial(window: BrowserWindow): void {
+ *  titlebar and rail to the material (03-titlebar.css). `report` receives
+ *  a failure to load the native window library. */
+export function installDesktopWindowMaterial(window: BrowserWindow, report: MicaReport): void {
   if (process.platform === 'linux') {
     // GTK restyles the native controls on focus changes and drops back to its
     // own (light, dim when unfocused) palette; re-assert ours on every change.
@@ -166,7 +174,15 @@ export function installDesktopWindowMaterial(window: BrowserWindow): void {
   }
   if (!DESKTOP_WINDOW_MICA) return;
   micaWindows.add(window);
-  installMicaActiveAppearance(window);
+  micaNative ??= nativeMica(
+    micaLibraryPath({
+      isPackaged: electron.app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: electron.app.getAppPath(),
+    }),
+    report
+  );
+  installMicaActiveAppearance(window, micaNative);
   window.webContents.on('dom-ready', () => {
     void window.webContents.executeJavaScript("document.documentElement.dataset.windowMaterial = 'mica'");
   });

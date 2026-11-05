@@ -191,6 +191,11 @@ const configuredSecureDesktopNativeSourceDir = String(process.env.MIXDOG_SECURE_
 const secureDesktopNativeFileNames = ['mixdog-secure-desktop.exe', 'secure-desktop-NOTICE.txt'];
 let secureDesktopNativeSourceDir = '';
 let secureDesktopInputIdentity = null;
+// The Windows window library that keeps the Mica frame painted active
+// (apps/desktop/src/main/window-mica.ts). Shipped with every Windows build.
+const windowLibraryFileNames = ['mixdog_window.dll'];
+let windowLibrarySourceDir = '';
+let windowLibraryInputIdentity = null;
 const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
 // onnxruntime's Windows binaries import the MSVC C++ runtime, which Windows
 // does not ship; without the VC++ Redistributable the addon fails to load.
@@ -409,6 +414,18 @@ async function prepareSecureDesktopNativeSource() {
   });
 }
 
+/** The Mica window library for a Windows target; '' for other targets. */
+async function prepareWindowLibrarySource() {
+  if (embeddingTarget.platform !== 'win32') return '';
+  return buildWindowsNativeCrate({
+    crate: 'mixdog-window',
+    cacheName: 'window-library',
+    label: 'window library',
+    schemaVersion: 1,
+    fileNames: windowLibraryFileNames,
+  });
+}
+
 /**
  * Build an in-repo Windows crate for the target through its build.ps1, into a
  * per-target cache keyed on a digest of the crate source (and any build-time
@@ -587,6 +604,7 @@ async function runtimeInputFingerprint(manifest) {
       desktopLockfileSha256: sha256(desktopLockfile),
       browserImport: browserImportInputIdentity,
       secureDesktop: secureDesktopInputIdentity,
+      windowLibrary: windowLibraryInputIdentity,
       computer: computerInputIdentity,
       packageFiles,
     })
@@ -621,6 +639,9 @@ async function canReusePreparedRuntime(fingerprint, packageManifest) {
         : []),
       ...(secureDesktopInputIdentity
         ? secureDesktopNativeFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
+        : []),
+      ...(windowLibraryInputIdentity
+        ? windowLibraryFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
         : []),
       ...(computerNativeBinary ? [access(join(desktopNativeToolsDir, computerNativeFileName))] : []),
     ]);
@@ -707,6 +728,13 @@ async function prepareDesktopNativeTools() {
       const destination = join(desktopNativeToolsDir, name);
       await cp(join(secureDesktopNativeSourceDir, name), destination);
       if (name.endsWith('.exe')) await assertTargetArchitecture(destination, `Secure-desktop helper ${name}`);
+    }
+  }
+  if (windowLibraryInputIdentity) {
+    for (const name of windowLibraryFileNames) {
+      const destination = join(desktopNativeToolsDir, name);
+      await cp(join(windowLibrarySourceDir, name), destination);
+      await assertTargetArchitecture(destination, `Window library ${name}`);
     }
   }
   await rm(downloadDataDir, { recursive: true, force: true });
@@ -1186,6 +1214,10 @@ try {
   secureDesktopNativeSourceDir = await timed('secure-desktop-native', () => prepareSecureDesktopNativeSource());
   secureDesktopInputIdentity = secureDesktopNativeSourceDir
     ? await nativeFilesIdentity(secureDesktopNativeSourceDir, secureDesktopNativeFileNames)
+    : null;
+  windowLibrarySourceDir = await timed('window-library-native', () => prepareWindowLibrarySource());
+  windowLibraryInputIdentity = windowLibrarySourceDir
+    ? await nativeFilesIdentity(windowLibrarySourceDir, windowLibraryFileNames)
     : null;
   ({ binary: computerNativeBinary, identity: computerInputIdentity } = await timed('computer-native', () =>
     prepareComputerNative()

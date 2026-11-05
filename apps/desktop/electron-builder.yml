@@ -73,6 +73,10 @@ extraResources:
 win:
   icon: build/mixdog.ico
   verifyUpdateCodeSignature: false
+  # Only .exe files are signed by default; the main process also loads this
+  # in-repo library (native-tools). Matched by file-name suffix.
+  signExts:
+    - mixdog_window.dll
   target:
     - nsis
 nsis:

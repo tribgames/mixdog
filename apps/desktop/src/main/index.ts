@@ -2545,7 +2545,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   // answered by this connection, and nothing else.
   windowRoutes.register(window.webContents, connection.id);
   connectionWindows.set(connection.id, window);
-  installDesktopWindowMaterial(window);
+  installDesktopWindowMaterial(window, writeBootDiagnostic);
   // The user's operations in this window reach its connection's runtime.
   const inputReporter = createUserInputReporter({
     report: (at) => connection.client.invokeCapability('noteUserInput', [at]),

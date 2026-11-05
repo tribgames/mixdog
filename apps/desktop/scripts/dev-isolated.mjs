@@ -34,6 +34,7 @@ import { ONBOARDING_VERSION } from '../../../src/session-runtime/quick-web-searc
 
 import {
   assertDebugPortAvailable,
+  buildWindowLibrary,
   createPersistentDevEnv,
   DEV_DEBUG_PORT,
   devRendererPortFor,
@@ -720,6 +721,7 @@ export async function startInstance({
     // Source checkouts prefer native/*/target/release over the pinned download;
     // never launch against a binary older than its sources.
     await refreshStaleLocalBinaries();
+    await buildWindowLibrary();
     // Electron 42+ has no install script; electron-vite only reads path.txt, so
     // download the binary on first use and hand it over.
     env.ELECTRON_EXEC_PATH = electronBinary();
