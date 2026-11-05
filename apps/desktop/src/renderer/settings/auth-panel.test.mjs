@@ -352,6 +352,53 @@ test('automatic cookie import: toggle, status line and forget-key act on the hos
   assert.ok(![...doc.querySelectorAll('.settings-action')].some((button) => button.textContent === 'Forget saved key'));
 });
 
+test('automatic cookie import on by default shows no status line before the first import', async (t) => {
+  const status = {
+    enabled: true,
+    profileId: '',
+    keySaved: false,
+    keyStorageAvailable: true,
+    running: false,
+    needsManualImport: false,
+  };
+  const api = {
+    ...makeApi(),
+    browserProfileImportSources: async () => [
+      { id: 'chrome', name: 'Google Chrome', supports: { cookies: true }, profiles: [{ id: 'Default', name: 'Me' }] },
+    ],
+    browserCookieAutoImportStatus: async () => status,
+    browserCookieAutoImportConfigure: async () => status,
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  assert.equal(doc.querySelector('input[aria-label="Import cookies automatically"]').checked, true);
+  assert.equal(doc.querySelector('.settings-empty[role="status"]'), null);
+  assert.ok(!doc.body.textContent.includes('Needs one manual import'));
+});
+
+test('automatic cookie import shows the bound profile as missing instead of substituting another', async (t) => {
+  const status = {
+    enabled: true,
+    profileId: 'Profile 1',
+    keySaved: true,
+    keyStorageAvailable: true,
+    running: false,
+    needsManualImport: false,
+  };
+  const api = {
+    ...makeApi(),
+    browserProfileImportSources: async () => [
+      { id: 'chrome', name: 'Google Chrome', supports: { cookies: true }, profiles: [{ id: 'Default', name: 'Me' }] },
+    ],
+    browserCookieAutoImportStatus: async () => status,
+    browserCookieAutoImportConfigure: async () => status,
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  assert.ok(doc.body.textContent.includes('Profile 1 (profile not found)'), 'the runs\' target is named, as missing');
+  assert.ok(!/\bMe\b/.test(doc.body.textContent), 'the first listed profile is not shown in its place');
+});
+
 test('automatic cookie import is not offered where the host has no such setting', async (t) => {
   const dom = await mount(t, makeApi());
   assert.equal(dom.window.document.querySelector('input[aria-label="Import cookies automatically"]'), null);

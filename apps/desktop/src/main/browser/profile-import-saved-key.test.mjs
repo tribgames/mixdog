@@ -265,6 +265,43 @@ test('a profile with nothing App-Bound imports automatically with no key at all'
   assert.equal(existsSync(w.keyFile), false);
 });
 
+test('only an import that left a key saved marks its profile ready; a successful import without a key does not', {
+  skip: !isWindows,
+}, async (t) => {
+  const keyed = world(t);
+  await keyed.manual();
+  assert.deepEqual((await keyed.service.cookieAutoImportState.read()).readyProfiles, ['Default']);
+
+  // Saving the key fails (its encryption throws once); the cookies still import.
+  const good = fakeEncryption();
+  let failures = 1;
+  const keyless = world(t, {
+    encryption: {
+      ...good,
+      encryptString: (text) => {
+        if (failures-- > 0) throw new Error('cannot protect the key');
+        return good.encryptString(text);
+      },
+    },
+  });
+  const result = await keyless.manual();
+  assert.deepEqual(result.errors, {}, 'the import itself worked');
+  const state = await keyless.service.cookieAutoImportState.read();
+  assert.equal(typeof state.lastImportAt, 'number');
+  assert.equal(state.readyProfiles, undefined, 'a bare timestamp is no evidence of a key');
+});
+
+test('an automatic run has no profile fallback: without a bound profile nothing is imported', {
+  skip: !isWindows,
+}, async (t) => {
+  const w = world(t);
+  await w.manual();
+  const before = w.calls().length;
+  const outcome = await w.service.runAutomaticCookieImport('');
+  assert.equal(outcome.state, 'failed');
+  assert.equal(w.calls().length, before, 'the importer was not called');
+});
+
 test('when Chrome rotates its key the saved one is discarded: automatic stops, manual elevates once and re-saves', {
   skip: !isWindows,
 }, async (t) => {

@@ -20,9 +20,13 @@ import {
   type BrowserImportResult,
   type BrowserImportSource,
   type BrowserProfileImportService,
-  isChromeRunning,
 } from './profile-import';
-import { CookieAutoImporter, type CookieAutoImporterDeps } from './profile-import-auto';
+import {
+  chromeLockHeld,
+  CookieAutoImporter,
+  type CookieAutoImporterDeps,
+  watchChromeLock,
+} from './profile-import-auto';
 import { type BrowserSessionRegistry, browserSessionId } from './session-registry';
 import type { BrowserSignedInSite, createBrowserSignIns } from './signed-in-sites';
 
@@ -38,7 +42,15 @@ export function createCookieAutoImporter(options: {
     settings: options.settings,
     state: profileImporter.cookieAutoImportState,
     run: (profileId) => profileImporter.runAutomaticCookieImport(profileId),
-    chromeRunning: () => isChromeRunning(),
+    chromeRunning: async () => chromeLockHeld(profileImporter.chromeLockFile()),
+    watchChromeExit: (onExit, onStopped) => {
+      try {
+        return watchChromeLock(profileImporter.chromeLockFile(), onExit, onStopped);
+      } catch {
+        // No Chrome profile location on this account: nothing to watch.
+        return undefined;
+      }
+    },
     keyStatus: () => profileImporter.savedKeyStatus(),
     forgetKey: () => profileImporter.forgetSavedKey(),
     onError: options.onError,
@@ -48,7 +60,7 @@ export function createCookieAutoImporter(options: {
 export function createBrowserProfileHostMethods(options: {
   profileImporter: BrowserProfileImportService;
   /** Absent where automatic cookie import does not exist (not Windows, or no settings store). */
-  cookieAutoImport: Pick<CookieAutoImporter, 'status' | 'configure' | 'forgetKey'> | null;
+  cookieAutoImport: Pick<CookieAutoImporter, 'status' | 'configure' | 'forgetKey' | 'manualImportDone'> | null;
   signIns: ReturnType<typeof createBrowserSignIns>;
   vault: Pick<CredentialVault, 'list' | 'saveManual' | 'remove' | 'mergeImport'>;
   /** The remembered "Continue with Google/GitHub" sign-ins (linked-sign-in-store.ts). */
@@ -86,10 +98,15 @@ export function createBrowserProfileHostMethods(options: {
       return await profileImporter.sources();
     },
     async browserImport(request: BrowserImportRequest): Promise<BrowserImportResult> {
-      return await profileImporter.importProfile(request, (progress) => {
+      const result = await profileImporter.importProfile(request, (progress) => {
         options.sendToRenderer(DESKTOP_IPC.browserProfileImportProgress, progress);
         void options.publishRemoteImportProgress?.(progress)?.catch(() => undefined);
       });
+      if (request.items.includes('cookies') && !result.errors.cookies) {
+        // The first one binds the automatic target; the key it saved opens the Chrome-exit watch.
+        await options.cookieAutoImport?.manualImportDone(request.profileId).catch(() => undefined);
+      }
+      return result;
     },
     browserCookieAutoImportStatus(): Promise<DesktopCookieAutoImportStatus> {
       return requiredCookieAutoImport().status();

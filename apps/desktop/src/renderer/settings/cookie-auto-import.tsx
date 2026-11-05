@@ -1,6 +1,7 @@
 // 설정 › 인증 관리: re-import Chrome's cookies by itself whenever Chrome is
 // closed. It reuses the Chrome key a manual import saved, so it never asks for
-// administrator approval; without that key it says one manual import is needed.
+// administrator approval. Before the first manual import it stays silent; a
+// saved key that stops working makes it say one manual import is needed.
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi, DesktopBrowserImportProfile, DesktopCookieAutoImportStatus } from '../../shared/contract';
@@ -47,7 +48,6 @@ export function CookieAutoImportGroup({
 }) {
   const [status, setStatus] = useState<DesktopCookieAutoImportStatus | null>(null);
   const [profiles, setProfiles] = useState<DesktopBrowserImportProfile[]>([]);
-  const [profileId, setProfileId] = useState('');
   const [error, setError] = useState('');
   const latestRead = useRef(0);
   const [refresh, setRefresh] = useState(0);
@@ -63,7 +63,6 @@ export function CookieAutoImportGroup({
         const list = sources.find((source) => source.supports.cookies)?.profiles ?? [];
         setStatus(next);
         setProfiles(list);
-        setProfileId((current) => current || next.profileId || list[0]?.id || '');
       })
       .catch(() => {
         // Not available here (another platform or surface): the section stays hidden.
@@ -89,14 +88,18 @@ export function CookieAutoImportGroup({
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
-  const selected = profiles.some((profile) => profile.id === profileId) ? profileId : (profiles[0]?.id ?? '');
+  // The profile the runs use, even when Chrome no longer lists it (shown as missing, never replaced).
+  // Until one is bound, the first listed is what a toggle or choice here binds.
+  const bound = status.profileId;
+  const missing = bound !== '' && !profiles.some((profile) => profile.id === bound);
+  const selected = bound !== '' ? bound : (profiles[0]?.id ?? '');
 
   return (
     <Group>
       <ToggleRow
         title={t('Import cookies automatically')}
         description={t(
-          'While Chrome is closed, cookies are imported again from the chosen profile: when the app starts, after Chrome exits, and every hour. No administrator approval is asked.'
+          'While Chrome is closed, cookies are imported again from the chosen profile: when the app starts and each time Chrome exits. No administrator approval is asked.'
         )}
         showDescription
         checked={status.enabled}
@@ -105,12 +108,14 @@ export function CookieAutoImportGroup({
       <SelectRow
         title={t('Chrome profile to import')}
         value={selected}
-        options={profiles.map((profile) => ({
-          value: profile.id,
-          label: profile.accountEmail ? `${profile.name} (${profile.accountEmail})` : profile.name,
-        }))}
+        options={[
+          ...(missing ? [{ value: bound, label: t('{{id}} (profile not found)', { id: bound }) }] : []),
+          ...profiles.map((profile) => ({
+            value: profile.id,
+            label: profile.accountEmail ? `${profile.name} (${profile.accountEmail})` : profile.name,
+          })),
+        ]}
         onChange={(value) => {
-          setProfileId(value);
           run(api.browserCookieAutoImportConfigure?.({ enabled: status.enabled, profileId: value }));
         }}
       />
