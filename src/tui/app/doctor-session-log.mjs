@@ -54,7 +54,7 @@ export function reportSessionLogMigration(status, row) {
   // A legacy session added after the recorded completion is still pending.
   const complete = status.complete && pending === 0;
   const parts = [];
-  if (complete) parts.push(`complete · ${logs} session logs`);
+  if (complete) parts.push(`complete · ${logs} session ${logs === 1 ? 'log' : 'logs'}`);
   else if (!started) parts.push(`not started · ${pending} pending`);
   else parts.push(`in progress · ${pending} pending`);
   if (skipped.length) {
