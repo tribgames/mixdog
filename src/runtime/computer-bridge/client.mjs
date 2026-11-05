@@ -181,7 +181,7 @@ async function postWithBridgeRecovery(discovery, command, encoded, sessionId, co
     try {
       const response = await postComputerCommand(bridge, encoded, { signal: context?.signal });
       if (response.status === 401 && attempt === 0 && isReplaySafeComputerCommand(command)) {
-        const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+        const replacement = readBridgeDiscovery(DISCOVERY_FILE, { fresh: true });
         if (bridgeDiscoveryChanged(bridge, replacement)) {
           await response.body?.cancel().catch(() => undefined);
           bridge = replacement;
@@ -194,7 +194,7 @@ async function postWithBridgeRecovery(discovery, command, encoded, sessionId, co
       const timedOut = error?.name === 'TimeoutError';
       const mutationMayHaveExecuted = computerMutationMayHaveExecuted(command);
       if (attempt === 0 && !externallyAborted && !timedOut) {
-        const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+        const replacement = readBridgeDiscovery(DISCOVERY_FILE, { fresh: true });
         if (bridgeDiscoveryChanged(bridge, replacement)) {
           if (isReplaySafeComputerCommand(command)) {
             bridge = replacement;

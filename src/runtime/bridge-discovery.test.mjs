@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { bridgeDiscoveryChanged, readBridgeDiscovery } from './bridge-discovery.mjs';
+import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from './bridge-discovery.mjs';
 import { _resetWatchedFileCachesForTest } from './shared/watched-file-cache.mjs';
 import { eventually, settle, spySyncFs } from './shared/watched-file-cache.test-helpers.mjs';
 
@@ -23,7 +25,7 @@ function discoveryFixture(t) {
   });
   const publish = (port) =>
     writeFileSync(join(dir, FILE), JSON.stringify({ version: 1, port, token: 't', pid: process.pid }));
-  return { publish };
+  return { dir, publish };
 }
 
 const port = () => readBridgeDiscovery(FILE)?.port ?? null;
@@ -48,6 +50,39 @@ test('an atomic replacement of the advertisement is seen through the watch', asy
   assert.equal(port(), 4000);
   publish(4001);
   await eventually(() => port() === 4001);
+});
+
+test('fresh recovery reads bypass the cache and retain discovery validation', { timeout: 5_000 }, async (t) => {
+  const { dir, publish } = discoveryFixture(t);
+  publish(4000);
+  assert.equal(port(), 4000);
+  publish(4001);
+  assert.equal(readBridgeDiscovery(FILE, { fresh: true }).port, 4001);
+  const calls = spySyncFs(t);
+  assert.equal(port(), 4001);
+  assert.deepEqual([...calls], [], 'the fresh value is cached for later warm reads');
+  calls.paused = true;
+
+  const exited = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore', windowsHide: true });
+  await once(exited, 'exit');
+  const valid = { version: 1, port: 4002, token: 'replacement', pid: process.pid };
+  for (const [record, reason] of [
+    [{ ...valid, version: 2 }, 'invalid'],
+    [{ ...valid, port: 0 }, 'invalid'],
+    [{ ...valid, token: '' }, 'invalid'],
+    [{ ...valid, pid: exited.pid }, `stale (writer pid ${exited.pid} has exited)`],
+  ]) {
+    writeFileSync(join(dir, FILE), JSON.stringify(record));
+    assert.deepEqual(readBridgeDiscoveryDetail(FILE, { fresh: true }), { discovery: null, reason });
+  }
+  writeFileSync(join(dir, FILE), JSON.stringify(valid));
+  const stale = new Date(Date.now() - 6 * 60_000);
+  utimesSync(join(dir, FILE), stale, stale);
+  assert.deepEqual(readBridgeDiscoveryDetail(FILE, { fresh: true }), { discovery: null, reason: 'expired' });
+  writeFileSync(join(dir, FILE), '{');
+  assert.deepEqual(readBridgeDiscoveryDetail(FILE, { fresh: true }), { discovery: null, reason: 'invalid' });
+  rmSync(join(dir, FILE));
+  assert.deepEqual(readBridgeDiscoveryDetail(FILE, { fresh: true }), { discovery: null, reason: 'missing' });
 });
 
 test('a re-read that cannot read the advertisement keeps the last one', async (t) => {
