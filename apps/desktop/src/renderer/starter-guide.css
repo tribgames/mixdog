@@ -68,10 +68,15 @@
 .starter-guide-step[data-done="true"] .starter-guide-step-mark {
   color: var(--mx-text-faint);
 }
+/* Korean breaks by 어절 and the last line never holds one orphan (the
+   22-markdown.css paragraph rules), in the step title and its hint alike. */
 .starter-guide-step-text {
   min-width: 0;
   display: grid;
   gap: 2px;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-wrap: pretty;
 }
 .starter-guide-step-text b {
   color: var(--mx-text);
@@ -83,15 +88,10 @@
   color: var(--mx-text-faint);
   font-weight: var(--mx-weight-medium);
 }
-/* Korean breaks by 어절 and the last line never holds one orphan (the
-   22-markdown.css paragraph rules). */
 .starter-guide-step-text small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
-  overflow-wrap: anywhere;
-  word-break: keep-all;
-  text-wrap: pretty;
 }
 
 /* Completion notice: pops over the pill the moment a step completes, over
