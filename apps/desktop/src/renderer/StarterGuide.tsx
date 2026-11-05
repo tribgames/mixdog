@@ -140,11 +140,11 @@ function markVisited(step: StepId): (current: GuideState) => GuideState {
       : { ...current, visited: [...current.visited, step] };
 }
 
-/** The completion notice covers the pill itself, bottom edges aligned: above
- *  it, it hid the side panel's list (or, with Settings open, the dialog's
- *  section list). It is at least the pill's width and grows right, over the
- *  main area, to fit the step name. With the side panel closed (no visible
- *  pill) it takes the window's bottom-left corner. */
+/** The completion notice takes the pill's exact box — same left, bottom,
+ *  width and height — and never extends past it: larger, it covered the
+ *  Connectors pill above or the main area beside it (a long step name
+ *  ellipsizes instead). With the side panel closed (no visible pill) it takes
+ *  a pill-sized box in the window's bottom-left corner. */
 function toastPosition(pill: HTMLElement | null): CSSProperties {
   // On a phone the fixed toast's containing block is the body, pinned to the
   // visual viewport (soft keyboard): measure from that box, not the window.
@@ -152,15 +152,30 @@ function toastPosition(pill: HTMLElement | null): CSSProperties {
     ? document.body.getBoundingClientRect()
     : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
   const box = pill?.getBoundingClientRect();
-  if (!box || box.width === 0) return { left: 60, bottom: 16, maxWidth: Math.max(0, frame.width - 60 - 16) };
-  const left = box.left - frame.left;
+  if (!box || box.width === 0) {
+    return { left: 60, bottom: 16, width: Math.max(0, Math.min(240, frame.width - 60 - 16)), height: 32 };
+  }
   return {
-    left,
-    minWidth: box.width,
-    maxWidth: Math.max(box.width, frame.width - left - 16),
+    left: box.left - frame.left,
     bottom: frame.height - (box.bottom - frame.top),
+    width: box.width,
+    height: box.height,
   };
 }
+
+/** A step-completion notice: the count it fills from and to. */
+interface StepNotice {
+  step: StepId;
+  from: number;
+  to: number;
+}
+/** enter: fades in at the old count; filled: the count and meter step to the
+ *  new one; leaving: fades out (and, after the last step, the pill folds). */
+type NoticePhase = 'enter' | 'filled' | 'leaving';
+const NOTICE_FILL_MS = 400;
+const NOTICE_LEAVE_MS = 3200;
+// The pill's fold (starter-guide.css) outlasts the notice's fade-out.
+const NOTICE_END_MS = NOTICE_LEAVE_MS + 260;
 
 /** The coach-mark stops of each step's tour. */
 export function starterTours(): Record<StepId, TourStop[]> {
@@ -307,9 +322,14 @@ export function StarterGuide({
   // Closing retires the guide for good, so X asks once before it does.
   const [confirmClose, setConfirmClose] = useState(false);
   const [tour, setTour] = useState<{ step: StepId; chain: boolean } | null>(null);
-  const [justDone, setJustDone] = useState<StepId | null>(null);
-  const previousDone = useRef<string | null>(null);
+  const [notice, setNotice] = useState<StepNotice | null>(null);
+  const [noticePhase, setNoticePhase] = useState<NoticePhase>('enter');
+  // The done steps last seen once the real state was known.
+  const [seenDone, setSeenDone] = useState<string | null>(null);
   const pillRef = useRef<HTMLElement>(null);
+  const pillBarRef = useRef<HTMLDivElement>(null);
+  const noticeBox = useRef<CSSProperties>({});
+  const [, setPillMoves] = useState(0);
   const listId = useId();
   const { values, loading: referencesLoading } = useSidebarReferences(api, REFERENCE_KEYS, !state.closed);
   // Mixy's status follows the host; it counts as loading until known so an
@@ -485,20 +505,32 @@ export function StarterGuide({
     .join(',');
 
   // Completing a step says so right away, whichever way it happened (a tour
-  // finished, a provider connected, a project added).
+  // finished, a provider connected, a project added). Derived while
+  // rendering, so the last step's notice holds the pill in the same commit
+  // that finishes the guide — an effect let the pill vanish first.
+  if (!loading && diskRead && seenDone !== doneKey) {
+    setSeenDone(doneKey);
+    if (seenDone !== null) {
+      const earlier = seenDone.split(',').filter(Boolean);
+      const added = doneKey.split(',').filter((id) => id && !earlier.includes(id));
+      if (added.length) {
+        setNotice({ step: added[added.length - 1] as StepId, from: earlier.length, to: doneCount });
+        setNoticePhase('enter');
+      }
+    }
+  }
   useEffect(() => {
-    if (loading || !diskRead) return undefined;
-    const before = previousDone.current;
-    previousDone.current = doneKey;
-    if (before === null) return undefined;
-    const earlier = new Set(before.split(','));
-    const added = doneKey.split(',').filter((id) => id && !earlier.has(id));
-    if (!added.length) return undefined;
-    setJustDone(added[added.length - 1] as StepId);
-    const timer = window.setTimeout(() => setJustDone(null), 3200);
-    return () => window.clearTimeout(timer);
-  }, [doneKey, loading, diskRead]);
-  const justDoneLabel = justDone ? steps.find((step) => step.id === justDone)?.label : undefined;
+    if (!notice) return undefined;
+    const timers = [
+      window.setTimeout(() => setNoticePhase('filled'), NOTICE_FILL_MS),
+      window.setTimeout(() => setNoticePhase('leaving'), NOTICE_LEAVE_MS),
+      window.setTimeout(() => setNotice(null), NOTICE_END_MS),
+    ];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [notice]);
+  const noticeLabel = notice ? steps.find((step) => step.id === notice.step)?.label : undefined;
+  // The last step's notice plays over the pill, which folds away as it ends.
+  const lastNotice = notice !== null && notice.to === steps.length;
 
   useEffect(() => {
     // Finishing retires the guide for good: a provider disconnected later
@@ -522,7 +554,8 @@ export function StarterGuide({
 
   // No pill until the real state is known, so it never paints 0 and jumps.
   // A running tour outlives the pill: its last step may be what finishes it.
-  const hidden = state.closed || finished || loading || !diskRead;
+  // The finished pill stays under the last step's notice until it ends.
+  const hidden = ((state.closed || finished) && !lastNotice) || loading || !diskRead;
   const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour && !mixyDialogOpen;
   // The welcome and the tour cover the window: the What's new notice waits for
   // them. Layout phase, so the gate is set before any passive effect looks.
@@ -537,6 +570,7 @@ export function StarterGuide({
       ref={pillRef}
       className="starter-guide"
       data-expanded={expanded ? 'true' : undefined}
+      data-folding={lastNotice && noticePhase === 'leaving' ? 'true' : undefined}
       aria-label={t('Getting started')}
     >
       {expanded && (
@@ -566,7 +600,7 @@ export function StarterGuide({
           })}
         </ul>
       )}
-      <div className="starter-guide-pill">
+      <div ref={pillBarRef} className="starter-guide-pill">
         <button
           type="button"
           className="starter-guide-toggle"
@@ -594,6 +628,22 @@ export function StarterGuide({
       </div>
     </section>
   );
+  // From the pill's live box; frozen while it leaves, as the pill may be folding under it.
+  const noticeTracksPill = notice !== null && noticePhase !== 'leaving';
+  if (noticeTracksPill) noticeBox.current = toastPosition(pillBarRef.current);
+  // A pill resized or moved while the notice shows (panel or window resize)
+  // re-renders it, so the notice never overflows the pill it covers.
+  useLayoutEffect(() => {
+    if (!noticeTracksPill) return undefined;
+    const follow = () => setPillMoves((count) => count + 1);
+    const observer = new ResizeObserver(follow);
+    if (pillBarRef.current) observer.observe(pillBarRef.current);
+    window.addEventListener('resize', follow);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', follow);
+    };
+  }, [noticeTracksPill]);
   return (
     <>
       {activeTour && <StarterTour key={activeTour.id} stops={activeTour.tour} onClose={endTour} />}
@@ -610,17 +660,26 @@ export function StarterGuide({
       )}
       {/* Portaled above every layer: a step completed inside Settings would
           otherwise announce itself under the dialog, unseen. */}
-      {justDoneLabel &&
+      {notice &&
+        noticeLabel &&
         createPortal(
           <output
             className="starter-guide-toast"
             data-modal-above=""
+            data-phase={noticePhase}
+            data-full={notice.to === steps.length && noticePhase !== 'enter' ? 'true' : undefined}
             aria-live="polite"
-            style={toastPosition(pillRef.current)}
+            style={noticeBox.current}
           >
             <Check size={14} aria-hidden="true" />
-            <span>{justDoneLabel}</span>
-            <b>{t('Done')}</b>
+            <span className="starter-guide-toast-label">{noticeLabel}</span>
+            {/* The check and the meter say "done"; the live text is the step name. */}
+            <span className="starter-guide-count" aria-hidden="true">
+              {noticePhase === 'enter' ? notice.from : notice.to}/{steps.length}
+            </span>
+            <span className="starter-guide-meter" aria-hidden="true">
+              <span style={{ width: `${((noticePhase === 'enter' ? notice.from : notice.to) / steps.length) * 100}%` }} />
+            </span>
           </output>,
           document.body
         )}

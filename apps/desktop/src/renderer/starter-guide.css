@@ -94,18 +94,19 @@
   line-height: var(--mx-line-meta);
 }
 
-/* Completion notice: pops over the pill the moment a step completes, over
-   every layer (Settings included), positioned and bounded from the pill's
-   box (toastPosition). */
+/* Completion notice: fades in over the pill the moment a step completes, over
+   every layer (Settings included), in exactly the pill's box (toastPosition):
+   one line that never sticks out of it. */
 .starter-guide-toast {
   position: fixed;
   z-index: calc(var(--mx-toast-z-index) + 60);
   box-sizing: border-box;
-  min-height: 32px;
-  padding: 7px 12px;
+  padding: 0 10px 0 12px;
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
   border-radius: var(--mx-radius-pill);
   /* A plain popup: only the check keeps the success ink. */
   color: var(--mx-success);
@@ -114,31 +115,68 @@
     var(--mx-popup-shadow),
     inset 0 0 0 var(--mx-hairline) var(--mx-border);
   font-size: var(--mx-font-ui);
-  animation: starter-guide-toast-in 220ms var(--mx-ease-standard);
+  /* Clicks reach the pill under it. */
+  pointer-events: none;
+  animation: starter-guide-toast-in 200ms var(--mx-ease-standard);
 }
-/* The full step name, wrapping by word (22-markdown.css paragraph rules) when
-   even the widest notice cannot hold it; the check and "Done" never shrink. */
+.starter-guide-toast[data-phase="leaving"] {
+  animation: starter-guide-toast-out 200ms var(--mx-ease-standard) forwards;
+}
 .starter-guide-toast span {
-  min-width: 0;
   color: var(--mx-text);
-  overflow-wrap: anywhere;
-  word-break: keep-all;
-  text-wrap: pretty;
+}
+/* The step name ends in an ellipsis only when it cannot fit; the full name
+   stays the notice's live text. */
+.starter-guide-toast-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .starter-guide-toast svg {
   flex: none;
 }
-.starter-guide-toast b {
-  flex: none;
-  white-space: nowrap;
-  margin-left: auto;
+.starter-guide-toast .starter-guide-count {
+  padding-left: 6px;
   color: var(--mx-text-muted);
-  font-weight: var(--mx-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.starter-guide-toast .starter-guide-meter {
+  width: 40px;
+}
+/* The meter fills one step from the old width; the last step's full meter
+   then turns success green. */
+.starter-guide-toast .starter-guide-meter > span {
+  transition:
+    width 700ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    background-color 200ms var(--mx-ease-standard) 700ms;
+}
+.starter-guide-toast[data-full="true"] .starter-guide-meter > span {
+  background: var(--mx-success);
 }
 @keyframes starter-guide-toast-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
+  }
+}
+@keyframes starter-guide-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* After the last step the pill folds away under its fading notice. */
+.starter-guide[data-folding="true"] {
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  animation: starter-guide-fold 260ms var(--mx-ease-standard) forwards;
+}
+@keyframes starter-guide-fold {
+  to {
+    height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    opacity: 0;
   }
 }
 
@@ -215,10 +253,18 @@
   background: var(--mx-hover);
 }
 @media (prefers-reduced-motion: reduce) {
-  .starter-guide-meter > span {
+  .starter-guide-meter > span,
+  .starter-guide-toast .starter-guide-meter > span {
     transition: none;
   }
-  .starter-guide-toast {
+  .starter-guide-toast,
+  .starter-guide-toast[data-phase="leaving"] {
     animation: none;
+  }
+  /* No fold: the finished pill and its notice just go. */
+  .starter-guide-toast[data-phase="leaving"],
+  .starter-guide[data-folding="true"] {
+    animation: none;
+    visibility: hidden;
   }
 }
