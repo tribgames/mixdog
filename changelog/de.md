@@ -28,6 +28,7 @@ Diese Version fügt Aktionsfreigaben, Website-Berechtigungen im Browser und Netz
 - Behoben, dass Klicks von Computer Use auf skalierten HiDPI-Displays Ziele verfehlten, Hintergrundaktionen den Fokus entzogen und das aktive Fenster flackern ließen sowie eigene Maus- oder Tastatureingaben jeden Agenten statt nur des unterbrochenen pausierten, der nun bei Inaktivität oder über „Fortsetzen“ weiterläuft (#323).
 - Behoben, dass der Status von Workern und Unteragenten von Anfang bis Ende den tatsächlichen Zustand anzeigt und verdecktes Nachdenken als Fortschritt zählt, sodass arbeitende Agenten nicht mehr als hängend gelten (#319).
 - Behoben, dass sich Details zu Reset-Tickets im Nutzungs-Popup direkt an Ort und Stelle ausklappen, sodass das Ablaufdatum jedes Tickets lesbar bleibt (#324).
+- Behoben, dass sich der Text in der Live-Statuszeile unter einem laufenden Durchgang in schmalen Fenstern bei längerer Wartezeit überlagerte (#326).
 - Behoben, dass der Fensterrahmen unter Windows Mica beim Fokuswechsel zu einem anderen Fenster oder zurück kurz in die inaktive Darstellung flackerte.
 - Behoben, dass ein voller Datenträger den Hintergrunddienst beendete, statt Speichervorgänge erneut zu versuchen und Shell-Ergebnisse weiterhin zuzustellen.
 - Behoben, dass `/stop` bei Shell-Aufträgen bereits abgeschlossene Aufträge nicht mehr als „Konnte nicht gestoppt werden“ meldet und den Projektordner sofort freigibt.

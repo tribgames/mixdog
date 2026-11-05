@@ -29,6 +29,7 @@ This release adds action approvals, browser site permissions and network proxy s
 - Fixed Computer Use clicks missing targets on scaled high-DPI displays, background actions pulling focus and flickering the active window, and your own mouse or keyboard input pausing every agent instead of only the one it interrupted, which now resumes when you're idle or with Resume (#323).
 - Fixed worker and sub-agent status to show the real state from start to finish and count hidden thinking as progress, so working agents are no longer treated as stalled (#319).
 - Fixed reset-ticket details in the usage popup to expand in place so every ticket's expiry stays readable (#324).
+- Fixed the live status line under a running turn overlapping its text in narrow windows during a long wait (#326).
 - Fixed the window frame flickering to its inactive look when focus moves to another window or back on Windows Mica.
 - Fixed a full disk shutting down the background service instead of retrying saves and still delivering shell results.
 - Fixed `/stop` on shell jobs to report jobs that had already finished instead of "Couldn't stop" and free the project folder right away.

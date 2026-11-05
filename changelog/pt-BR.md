@@ -28,6 +28,7 @@ Esta versão adiciona aprovações de ações, permissões de sites do navegador
 - Corrigido o problema em que cliques do Computer Use erravam o alvo em telas HiDPI com escala, ações em segundo plano roubavam o foco fazendo a janela ativa piscar e a sua entrada de mouse ou teclado pausava todos os agentes em vez de apenas o agente interrompido, que agora retoma quando você fica ocioso ou com Retomar (#323).
 - Corrigido o status de workers e subagentes para mostrar o estado real do início ao fim e contar o raciocínio oculto como progresso, evitando que um agente em atividade seja tratado como travado (#319).
 - Corrigidos os detalhes dos tíquetes de redefinição no pop-up de uso para expandir no próprio local, mantendo legível a validade de cada tíquete (#324).
+- Corrigido o problema em que a linha de status ao vivo sob um turno em execução sobrepunha o texto em janelas estreitas durante uma espera prolongada (#326).
 - Corrigido o problema em que a moldura da janela piscava com a aparência inativa ao mudar o foco para outra janela ou voltar no Windows Mica.
 - Corrigido o problema em que o disco cheio encerrava o serviço em segundo plano em vez de tentar salvar novamente e continuar entregando os resultados do shell.
 - Corrigido o comando `/stop` em tarefas do shell para informar corretamente as tarefas já concluídas em vez de "Não foi possível parar" e liberar a pasta do projeto imediatamente.

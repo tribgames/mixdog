@@ -29,6 +29,7 @@ Cette version ajoute les approbations d'actions, les autorisations des sites du 
 - Correction des clics Computer Use manquant leur cible sur les écrans HiDPI mis à l'échelle, des actions en arrière-plan volant le focus et faisant clignoter la fenêtre active, et de la mise en pause par vos entrées souris ou clavier de tous les agents au lieu du seul agent interrompu, qui reprend désormais à l'inactivité ou avec Reprendre (#323).
 - Correction de l'état des workers et sous-agents pour afficher l'état réel du début à la fin et compter la réflexion masquée comme une progression, afin qu'un agent actif ne soit plus considéré comme bloqué (#319).
 - Correction des détails des tickets de réinitialisation dans la fenêtre d'utilisation afin qu'ils se déplient sur place et que la date d'expiration de chaque ticket reste lisible (#324).
+- Correction du chevauchement du texte de la ligne d'état en direct sous un tour en cours dans les fenêtres étroites lors d'une longue attente (#326).
 - Correction du clignotement du cadre de fenêtre vers son apparence inactive lors du passage du focus à une autre fenêtre ou au retour sous Windows Mica.
 - Correction de l'arrêt du service d'arrière-plan lorsque le disque est plein, au lieu de réessayer les sauvegardes et de continuer à livrer les résultats shell.
 - Correction de `/stop` sur les tâches shell pour signaler correctement les tâches déjà terminées au lieu d'afficher « Impossible d'arrêter » et libérer immédiatement le dossier du projet.

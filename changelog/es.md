@@ -29,6 +29,7 @@ Esta versión añade aprobaciones de acciones, permisos de sitios del navegador 
 - Se corrigió que los clics de Computer Use fallaran el objetivo en pantallas HiDPI escaladas, que las acciones en segundo plano quitaran el foco haciendo parpadear la ventana activa y que la entrada propia de ratón o teclado pausara a todos los agentes en lugar de solo al interrumpido, que ahora se reanuda al quedar inactivo o con Reanudar (#323).
 - Se corrigió que el estado de workers y subagentes muestre el estado real de principio a fin y cuente el razonamiento oculto como progreso, evitando tratar a un agente activo como bloqueado (#319).
 - Se corrigió que los detalles de los tickets de reinicio en la ventana emergente de uso se desplieguen en el mismo lugar para que el vencimiento de cada ticket siga siendo legible (#324).
+- Se corrigió que la línea de estado en vivo bajo un turno en curso superpusiera su texto en ventanas estrechas durante una espera prolongada (#326).
 - Se corrigió que el marco de la ventana parpadeara con su aspecto inactivo al cambiar el foco a otra ventana o al volver en Windows Mica.
 - Se corrigió que un disco lleno cerrara el servicio en segundo plano en lugar de reintentar el guardado y seguir entregando los resultados de shell.
 - Se corrigió que `/stop` en tareas de shell informe correctamente de las tareas que ya habían terminado en lugar de mostrar "No se pudo detener" y libere la carpeta del proyecto de inmediato.
