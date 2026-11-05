@@ -85,6 +85,11 @@ impl UsageProbe for NoProbe {
     async fn measure(&self, _: &str, _: &str, _: bool) {}
 }
 
+/// A manual clock at a realistic wall time.
+fn clock() -> Arc<FakePace> {
+    Arc::new(FakePace { now: std::sync::atomic::AtomicU64::new(1_800_000_000_000), ..FakePace::default() })
+}
+
 async fn rotation(dir: &tempfile::TempDir, pace: Arc<FakePace>) -> (AccountRotation, AccountStore) {
     let s = store(dir);
     s.register(PROVIDER, ID_A, "A", false).await.unwrap();
@@ -106,7 +111,7 @@ fn ctx() -> SendContext {
 async fn a_quota_refusal_blocks_the_account_rotates_and_commits_the_fallback() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let (rotation, s) = rotation(&dir, Arc::default()).await;
+    let (rotation, s) = rotation(&dir, clock()).await;
     let script = Script::new(vec![
         (ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]),
         (ID_B, vec![Ok("answer")]),
@@ -127,7 +132,7 @@ async fn a_quota_refusal_blocks_the_account_rotates_and_commits_the_fallback() {
 async fn every_account_spent_proves_quota_exhaustion_with_the_last_error() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let (rotation, _) = rotation(&dir, Arc::default()).await;
+    let (rotation, _) = rotation(&dir, clock()).await;
     let script = Script::new(vec![
         (ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]),
         (ID_B, vec![Err(refusal(ErrorKind::Billing, 402))]),
@@ -142,7 +147,7 @@ async fn every_account_spent_proves_quota_exhaustion_with_the_last_error() {
 async fn server_side_failures_and_auth_refusals_never_block_or_rotate() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let (rotation, s) = rotation(&dir, Arc::default()).await;
+    let (rotation, s) = rotation(&dir, clock()).await;
     for failed in [refusal(ErrorKind::Overloaded, 529), refusal(ErrorKind::QuotaExhausted, 403)] {
         let script = Script::new(vec![(ID_A, vec![Err(failed)])]);
         let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
@@ -156,7 +161,7 @@ async fn server_side_failures_and_auth_refusals_never_block_or_rotate() {
 async fn manual_policy_serves_the_selected_account_only() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let (rotation, s) = rotation(&dir, Arc::default()).await;
+    let (rotation, s) = rotation(&dir, clock()).await;
     s.change(PROVIDER, AccountChange { policy: Some(Policy::Manual), ..AccountChange::default() }).await.unwrap();
     let script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))])]);
     let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
@@ -164,14 +169,17 @@ async fn manual_policy_serves_the_selected_account_only() {
     assert_eq!(script.calls(), [ID_A], "B is never tried");
 }
 
+/// A manual clock: the stored cooldown and the wait read it, and the wait
+/// moves it, so the cooldown ends exactly when the wait does, with no real time.
 #[tokio::test]
 async fn a_cooldown_only_roster_waits_within_the_policy_bound_then_retries() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let pace = Arc::new(FakePace::default());
     let s = store(&dir);
     s.register(PROVIDER, ID_A, "A", false).await.unwrap();
+    let pace = clock();
     let rotation = AccountRotation::new(s, Arc::new(NoProbe), pace.clone());
+    let started = pace.now_ms();
     let mut script = Script::new(vec![(
         ID_A,
         vec![Err(refusal(ErrorKind::RateLimited, 429)), Ok("late")],
@@ -184,15 +192,23 @@ async fn a_cooldown_only_roster_waits_within_the_policy_bound_then_retries() {
     });
     assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap(), "late@11/11");
     assert_eq!(script.calls(), [ID_A, ID_A]);
-    assert_eq!(pace.waits.lock().unwrap().len(), 1, "waited once through the pace seam");
-    assert!(script.stages.lock().unwrap().iter().any(|s| matches!(s, Stage::Reconnecting { wait_ms: Some(_), .. })));
+    let waits: Vec<i64> = script
+        .stages
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|s| if let Stage::Reconnecting { wait_ms: Some(w), .. } = s { Some(*w) } else { None })
+        .collect();
+    assert_eq!(waits, [40], "waited once, for the cooldown");
+    assert_eq!(pace.now_ms() - started, 40);
+    assert_eq!(*pace.waits.lock().unwrap(), [std::time::Duration::from_millis(40)]);
 }
 
 #[tokio::test]
 async fn without_a_wait_policy_a_cooldown_surfaces_the_provider_error() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let (rotation, _) = rotation(&dir, Arc::default()).await;
+    let (rotation, _) = rotation(&dir, clock()).await;
     let mut script = Script::new(vec![
         (ID_A, vec![Err(refusal(ErrorKind::RateLimited, 429))]),
         (ID_B, vec![Err(refusal(ErrorKind::RateLimited, 429))]),
@@ -207,7 +223,7 @@ async fn without_a_wait_policy_a_cooldown_surfaces_the_provider_error() {
 async fn output_already_emitted_is_never_re_sent_to_another_account() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let (rotation, _) = rotation(&dir, Arc::default()).await;
+    let (rotation, _) = rotation(&dir, clock()).await;
     let mut failed = refusal(ErrorKind::QuotaExhausted, 429);
     failed.emitted = true;
     let script = Script::new(vec![(ID_A, vec![Err(failed)])]);
@@ -220,7 +236,7 @@ async fn output_already_emitted_is_never_re_sent_to_another_account() {
 async fn a_provider_without_a_roster_sends_unscoped() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
-    let rotation = AccountRotation::new(store(&dir), Arc::new(NoProbe), Arc::new(FakePace::default()));
+    let rotation = AccountRotation::new(store(&dir), Arc::new(NoProbe), clock());
     let script = Script::new(vec![("default", vec![Ok("plain")])]);
     assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap(), "plain");
 }

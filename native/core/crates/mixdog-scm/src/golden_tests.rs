@@ -32,6 +32,9 @@ fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
     std::fs::create_dir_all(repo.join("src")).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
+    // The engine's own git commands read the repository config; the helper above only sets it
+    // per call, so a machine-wide `core.autocrlf=true` would rewrite files the engine resets.
+    git(&repo, &["config", "core.autocrlf", "false"]);
     std::fs::write(repo.join("a.txt"), "one\ntwo\nthree\n").unwrap();
     std::fs::write(repo.join("src/b.mjs"), "export const b = 1;\n").unwrap();
     git(&repo, &["add", "."]);
@@ -379,6 +382,60 @@ async fn a_captured_review_base_diffs_only_what_changed_since() {
     assert!(bases.base(&thread, mixdog_app_protocol::v2::domain::ReviewScope::Session, None).await.is_none());
 }
 
+#[tokio::test]
+async fn claiming_the_setup_detaches_an_old_dependency_link_without_touching_the_main_checkout() {
+    use crate::worktree::include::IncludeItem;
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let (_guard, repo, _head) = fixture_repo();
+    std::fs::create_dir_all(repo.join("node_modules").join("pkg")).unwrap();
+    std::fs::write(repo.join("node_modules").join("pkg").join("x.txt"), "kept\n").unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let created = worktrees
+        .create_full(
+            CreateRequest {
+                project_path: repo.clone(),
+                session_id: "s1".into(),
+                runtime_token: "rt".into(),
+                tx_id: "t1".into(),
+                name_hint: "links".into(),
+                carry: Some("leave".into()),
+                ..CreateRequest::default()
+            },
+            &cancel,
+        )
+        .await
+        .unwrap();
+    // What an earlier version recorded: node_modules linked into the main checkout.
+    let link = std::path::Path::new(&created.record.path).join("node_modules");
+    let source = repo.join("node_modules");
+    #[cfg(windows)]
+    assert!(std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&source).output().unwrap().status.success());
+    #[cfg(not(windows))]
+    std::os::unix::fs::symlink(&source, &link).unwrap();
+    let mut record = created.record.clone();
+    let item = IncludeItem {
+        mode: "link".into(),
+        rel: "node_modules".into(),
+        path: link.to_string_lossy().into_owned(),
+        status: "created".into(),
+        digest: None,
+        source: Some(source.to_string_lossy().into_owned()),
+        link_type: None,
+        dependency: true,
+    };
+    record.extra.insert("resources".into(), serde_json::json!({ "includes": [item] }));
+    worktrees.put_record(&cancel, record).await.unwrap();
+
+    let claim = worktrees.claim_setup(&created.record.id, &cancel).await.unwrap().unwrap();
+    assert!(claim.blocked.is_empty() && claim.prepared.is_some(), "{claim:?}");
+    assert!(std::fs::symlink_metadata(&link).is_err(), "the link is gone");
+    assert_eq!(std::fs::read_to_string(source.join("pkg").join("x.txt")).unwrap(), "kept\n");
+    assert!(worktrees.claim_setup(&created.record.id, &cancel).await.unwrap().is_none());
+}
+
 struct TinyThreshold;
 #[async_trait::async_trait]
 impl crate::worktree::settings::SettingsSource for TinyThreshold {
@@ -432,7 +489,7 @@ async fn creation_asks_before_a_large_repo_and_before_pending_changes_and_carrie
     assert_eq!(changes["count"], 3);
     // The project folder is clean (its ignored/env file stays), the worktree holds the changes
     // with the staged state kept, and the env file was copied.
-    assert_eq!(git(&repo, &["status", "--porcelain", "--untracked-files=all"]), "");
+    assert_eq!(git(&repo, &["status", "--porcelain", "--untracked-files=all"]), "", "{changes}");
     let work = std::path::Path::new(&created.record.path);
     let status = git(work, &["status", "--porcelain", "--untracked-files=all"]);
     assert!(status.contains("M  src/b.mjs"), "{status}");

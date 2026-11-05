@@ -57,7 +57,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 fn text(value: Option<&Value>, name: &str) -> Result<String, ScmFailure> {
     match value {
-        Some(Value::String(s)) if !s.trim().is_empty() => Ok(s.clone()),
+        Some(Value::String(s)) if !mixdog_js::js_trim(s).is_empty() => Ok(s.clone()),
         _ => Err(plain(format!("{name} must be a non-empty string."))),
     }
 }

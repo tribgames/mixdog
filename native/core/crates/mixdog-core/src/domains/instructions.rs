@@ -9,6 +9,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::PoisonError;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::InstructionsGetInstructionFileParams;
@@ -18,11 +19,11 @@ use mixdog_app_protocol::v2::params::InstructionsSetInstructionFilesParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
-use mixdog_core_api::error::Precondition;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_js::value_to_string;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneTokens;
@@ -34,16 +35,24 @@ use sha2::Digest as _;
 use sha2::Sha256;
 
 use super::support::OpScopes;
+use super::support::coded;
 use super::support::decode;
 use super::support::failed;
+use super::support::holds_no_data;
+use super::support::io_failure;
 use super::support::is_js_space;
 use super::support::js_trim;
 use super::support::on_lane;
+use super::support::path_lock;
+use super::support::remove_file_forced;
+use super::support::write_atomic;
 use super::support::wrong_method;
 use crate::tool_modules::ToolModules;
 use crate::tool_modules::ToolModulesError;
 
 const DOMAIN: &str = "instructions";
+/// The code (and the message prefix) of a write or reset against a moved-on state.
+const CONFLICT: &str = "INSTRUCTION_FILE_CONFLICT";
 /// The agent editor's text limit.
 const FILE_MAX_BYTES: usize = 256 * 1024;
 const MODES: [&str; 4] = ["none", "focused", "balanced", "swarm"];
@@ -117,7 +126,9 @@ fn mode_label(mode: &str) -> &'static str {
 
 fn frontmatter() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^---[ \t]*\r?\n(?s:.*?)\r?\n---[ \t]*(?:\r?\n|$)").expect("static pattern"))
+    RE.get_or_init(|| {
+        Regex::new(r"^---[ \t]*\r?\n(?s:.*?)\r?\n---[ \t]*(?:\r?\n|$)").expect("static pattern")
+    })
 }
 
 fn meta_block() -> &'static Regex {
@@ -135,7 +146,7 @@ fn style_slug(value: &str) -> String {
     let mut slug = String::new();
     let mut in_separator = false;
     for c in lowered.chars() {
-        if c == '_' || c.is_whitespace() {
+        if c == '_' || is_js_space(c) {
             if !in_separator {
                 slug.push('-');
             }
@@ -146,7 +157,11 @@ fn style_slug(value: &str) -> String {
         }
     }
     let slug = slug.trim_matches('-');
-    if !slug.is_empty() && slug.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-')) {
+    if !slug.is_empty()
+        && slug
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-'))
+    {
         slug.to_owned()
     } else {
         String::new()
@@ -160,8 +175,14 @@ fn style_id_of(markdown: &str, file_id: &str) -> Option<String> {
     if let Some(block) = meta_block().captures(markdown) {
         for line in block[1].split(['\n']) {
             let line = line.strip_suffix('\r').unwrap_or(line);
-            let Some((key, value)) = line.split_once(':') else { continue };
-            if key.is_empty() || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            if key.is_empty()
+                || !key
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            {
                 continue;
             }
             let value = js_trim(value);
@@ -174,11 +195,20 @@ fn style_id_of(markdown: &str, file_id: &str) -> Option<String> {
     let partial = meta
         .get("partial")
         .and_then(Value::as_str)
-        .is_some_and(|raw| matches!(js_trim(raw).to_lowercase().as_str(), "true" | "1" | "yes" | "on"));
+        .is_some_and(|raw| {
+            matches!(
+                js_trim(raw).to_lowercase().as_str(),
+                "true" | "1" | "yes" | "on"
+            )
+        });
     if file_id == "common" || partial {
         return None;
     }
-    let named = meta.get("name").and_then(Value::as_str).map(style_slug).unwrap_or_default();
+    let named = meta
+        .get("name")
+        .and_then(Value::as_str)
+        .map(style_slug)
+        .unwrap_or_default();
     let id = if named.is_empty() { file_id } else { named };
     (!id.is_empty()).then_some(id)
 }
@@ -186,7 +216,10 @@ fn style_id_of(markdown: &str, file_id: &str) -> Option<String> {
 /// `normalizeText`: LF line ends, no trailing blanks on a line or at the end.
 fn normalize_text(text: &str) -> String {
     let lf = text.replace("\r\n", "\n");
-    let lines: Vec<&str> = lf.split('\n').map(|line| line.trim_end_matches(is_js_space)).collect();
+    let lines: Vec<&str> = lf
+        .split('\n')
+        .map(|line| line.trim_end_matches(is_js_space))
+        .collect();
     lines.join("\n").trim_end_matches(is_js_space).to_owned()
 }
 
@@ -205,10 +238,6 @@ fn decode_file(bytes: &[u8]) -> Result<String, &'static str> {
     Ok(text.strip_prefix('\u{feff}').unwrap_or(text).to_owned())
 }
 
-fn holds_no_data(bytes: &[u8]) -> bool {
-    bytes.iter().all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
-}
-
 /// What `readInstructionFile` finds.
 enum Found {
     Absent,
@@ -219,7 +248,12 @@ enum Found {
 fn read_instruction_file(path: &Path) -> Found {
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
-        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
             return Found::Absent;
         }
         Err(_) => return Found::Problem("unreadable"),
@@ -227,9 +261,15 @@ fn read_instruction_file(path: &Path) -> Found {
     if !meta.is_file() {
         return Found::Problem("unreadable");
     }
-    let Ok(bytes) = std::fs::read(path) else { return Found::Problem("unreadable") };
+    let Ok(bytes) = std::fs::read(path) else {
+        return Found::Problem("unreadable");
+    };
     match decode_file(&bytes) {
-        Ok(text) => Found::Text(text.replace("\r\n", "\n").trim_end_matches(is_js_space).to_owned()),
+        Ok(text) => Found::Text(
+            text.replace("\r\n", "\n")
+                .trim_end_matches(is_js_space)
+                .to_owned(),
+        ),
         Err(problem) => Found::Problem(problem),
     }
 }
@@ -283,11 +323,24 @@ impl Item {
             (Found::Problem(problem), false) => Some(problem),
             (Found::Text(_), false) => Some(if accepted { "empty" } else { "invalid" }),
         };
-        let body = if usable { user_body.clone() } else { default_body.clone() };
+        let body = if usable {
+            user_body.clone()
+        } else {
+            default_body.clone()
+        };
         let digest = Sha256::digest(
-            format!("{}\0{}\0{body}", if usable { "user" } else { "default" }, problem.unwrap_or("")).as_bytes(),
+            format!(
+                "{}\0{}\0{body}",
+                if usable { "user" } else { "default" },
+                problem.unwrap_or("")
+            )
+            .as_bytes(),
         );
-        let revision: String = digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..24].to_owned();
+        let revision: String = digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()[..24]
+            .to_owned();
         let mut state = Map::new();
         state.insert("group".into(), json!(self.group_name()));
         state.insert("id".into(), json!(self.id));
@@ -317,45 +370,23 @@ impl Item {
     }
 }
 
+/// `String(payload.field ?? '')`.
 fn js_string(value: &Value) -> String {
     match value {
-        Value::String(text) => text.clone(),
         Value::Null => String::new(),
-        other => other.to_string(),
+        other => value_to_string(other),
     }
 }
 
-fn remove_if_present(path: &Path) -> std::io::Result<()> {
-    match std::fs::remove_file(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
-    }
-}
-
-/// `writeFileAtomicSync(..., { backup: true })`: the replaced version stays as `<file>.bak`
-/// unless it held no data.
-fn write_with_backup(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    if let Ok(previous) = std::fs::read(path)
-        && !holds_no_data(&previous)
-    {
-        let mut backup = path.as_os_str().to_owned();
-        backup.push(".bak");
-        std::fs::write(backup, previous)?;
-    }
-    let mut staging = path.as_os_str().to_owned();
-    staging.push(format!(".{}.tmp", std::process::id()));
-    let staging = PathBuf::from(staging);
-    std::fs::write(&staging, bytes)?;
-    std::fs::rename(&staging, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&staging);
-    })
+/// Runs `job` while holding the lock of `path`.
+fn locked<T>(path: &Path, job: impl FnOnce() -> T) -> T {
+    let lock = path_lock(path);
+    let _held = lock.lock().unwrap_or_else(PoisonError::into_inner);
+    job()
 }
 
 fn bad_argument(message: String) -> CoreError {
-    failed(DOMAIN, "INVALID_ARGUMENT", message)
+    failed(DOMAIN, message)
 }
 
 pub struct InstructionsService {
@@ -390,45 +421,63 @@ impl InstructionsService {
         match group {
             "delegation" => {
                 if !MODES.contains(&id) {
-                    return Err(bad_argument(format!("orchestration mode must be one of {}", MODES.join(", "))));
+                    return Err(bad_argument(format!(
+                        "orchestration mode must be one of {}",
+                        MODES.join(", ")
+                    )));
                 }
                 Ok(Item {
                     group: Group::Delegation,
                     id: id.to_owned(),
                     label: mode_label(id),
                     shipped: self.paths.shipped_orchestration.join(format!("{id}.md")),
-                    user: self.paths.data_dir.join("orchestration").join(format!("{id}.md")),
+                    user: self
+                        .paths
+                        .data_dir
+                        .join("orchestration")
+                        .join(format!("{id}.md")),
                 })
             }
             "outputStyle" => {
                 let Some((_, label)) = STYLES.iter().find(|(style, _)| *style == id) else {
                     let ids: Vec<&str> = STYLES.iter().map(|(style, _)| *style).collect();
-                    return Err(bad_argument(format!("output style must be one of {}", ids.join(", "))));
+                    return Err(bad_argument(format!(
+                        "output style must be one of {}",
+                        ids.join(", ")
+                    )));
                 };
                 Ok(Item {
                     group: Group::OutputStyle,
                     id: id.to_owned(),
                     label,
                     shipped: self.paths.shipped_output_styles.join(format!("{id}.md")),
-                    user: self.paths.data_dir.join("output-styles").join(format!("{id}.md")),
+                    user: self
+                        .paths
+                        .data_dir
+                        .join("output-styles")
+                        .join(format!("{id}.md")),
                 })
             }
-            _ => Err(bad_argument("instruction group must be one of delegation, outputStyle".into())),
+            _ => Err(bad_argument(
+                "instruction group must be one of delegation, outputStyle".into(),
+            )),
         }
     }
 
-    /// A write or reset made against a state that has moved on is refused.
+    /// A write or reset made against a state that has moved on is refused. Only an absent
+    /// revision is exempt: `null` is `String(null)`, which matches no revision.
     fn assert_current(expected: Option<&Value>, before: &Value, id: &str) -> Result<(), CoreError> {
-        let Some(expected) = expected.filter(|value| !value.is_null()) else { return Ok(()) };
-        let actual = before["revision"].as_str().unwrap_or_default();
-        let expected = js_string(expected);
-        if expected == actual {
+        let Some(expected) = expected else {
+            return Ok(());
+        };
+        if value_to_string(expected) == before["revision"].as_str().unwrap_or_default() {
             return Ok(());
         }
-        let _ = id;
-        Err(CoreError::PreconditionFailed {
-            precondition: Precondition::Revision { expected: expected.into(), actual: actual.into() },
-        })
+        Err(coded(
+            DOMAIN,
+            CONFLICT,
+            format!("{CONFLICT}: \"{id}\" changed since it was loaded"),
+        ))
     }
 
     async fn state(&self, req: &CoreRequest, item: Item) -> Result<Value, CoreError> {
@@ -472,32 +521,39 @@ impl InstructionsService {
         let write = {
             let item = item.clone();
             move || -> Result<(), CoreError> {
-                let before = item.state();
-                Self::assert_current(expected.as_ref(), &before, &item.id)?;
-                let default_body = before["defaultBody"].as_str().unwrap_or_default();
-                if normalize_text(&body) == normalize_text(default_body) {
-                    // Equal to the shipped text: no copy is kept, so it follows the shipped version.
-                    return remove_if_present(&item.user).map_err(io_failure);
-                }
-                let shipped_text = match read_instruction_file(&item.shipped) {
-                    Found::Text(text) => text,
-                    _ => String::new(),
-                };
-                // The bytes that reach the disk, front matter and newline included, must pass
-                // the reader's check, or the saved file would be ignored.
-                let bytes = item.file(&body, &shipped_text).into_bytes();
-                if bytes.len() > FILE_MAX_BYTES {
-                    return Err(bad_argument("instruction text is larger than 256 KB".into()));
-                }
-                if let Err(problem) = decode_file(&bytes) {
-                    return Err(bad_argument(format!("instruction text cannot be saved ({problem})")));
-                }
-                write_with_backup(&item.user, &bytes).map_err(io_failure)
+                locked(&item.user, || {
+                    let before = item.state();
+                    Self::assert_current(expected.as_ref(), &before, &item.id)?;
+                    let default_body = before["defaultBody"].as_str().unwrap_or_default();
+                    if normalize_text(&body) == normalize_text(default_body) {
+                        // Equal to the shipped text: no copy is kept, so it follows the shipped version.
+                        return remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e));
+                    }
+                    let shipped_text = match read_instruction_file(&item.shipped) {
+                        Found::Text(text) => text,
+                        _ => String::new(),
+                    };
+                    // The bytes that reach the disk, front matter and newline included, must pass
+                    // the reader's check, or the saved file would be ignored.
+                    let bytes = item.file(&body, &shipped_text).into_bytes();
+                    if bytes.len() > FILE_MAX_BYTES {
+                        return Err(bad_argument(
+                            "instruction text is larger than 256 KB".into(),
+                        ));
+                    }
+                    if let Err(problem) = decode_file(&bytes) {
+                        return Err(bad_argument(format!(
+                            "instruction text cannot be saved ({problem})"
+                        )));
+                    }
+                    write_atomic(&item.user, &bytes, true).map_err(|e| io_failure(DOMAIN, &e))
+                })
             }
         };
         let changed = self.changed.clone();
         let durability = self.durability;
         let cancel = req.ctx.cancel.clone();
+        let replay_cancel = req.ctx.cancel.clone();
         let again = item.clone();
         let interactive = self.interactive;
         let state_item = item.clone();
@@ -508,7 +564,9 @@ impl InstructionsService {
                 changed.changed().await;
                 on_lane(interactive, &cancel, move |_| state_item.state()).await
             },
-            move || async move { Ok(again.state()) },
+            // A duplicate whose result was too large to store reads the files again, on the
+            // lane like the first execution.
+            move || async move { on_lane(interactive, &replay_cancel, move |_| again.state()).await },
         )
         .await
     }
@@ -516,24 +574,31 @@ impl InstructionsService {
     async fn reset(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: InstructionsResetInstructionFileParams = decode(req)?;
         let item = self.item(&params.group, &params.id)?;
-        let expected = params.expected_revision.clone();
+        // Read raw: the typed field folds `null` into absent, which Node tells apart.
+        let expected = req.params.get("expectedRevision").cloned();
         let remove = {
             let item = item.clone();
             move || -> Result<(), CoreError> {
-                if !item.user.exists() {
-                    return Err(bad_argument(format!("\"{}\" has no user override to reset", item.id)));
-                }
-                Self::assert_current(expected.as_ref(), &item.state(), &item.id)?;
-                remove_if_present(&item.user).map_err(io_failure)?;
-                let mut backup = item.user.as_os_str().to_owned();
-                backup.push(".bak");
-                remove_if_present(Path::new(&backup)).map_err(io_failure)
+                locked(&item.user, || {
+                    if !item.user.exists() {
+                        return Err(bad_argument(format!(
+                            "\"{}\" has no user override to reset",
+                            item.id
+                        )));
+                    }
+                    Self::assert_current(expected.as_ref(), &item.state(), &item.id)?;
+                    remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e))?;
+                    let mut backup = item.user.as_os_str().to_owned();
+                    backup.push(".bak");
+                    remove_file_forced(Path::new(&backup)).map_err(|e| io_failure(DOMAIN, &e))
+                })
             }
         };
         let changed = self.changed.clone();
         let durability = self.durability;
         let interactive = self.interactive;
         let cancel = req.ctx.cancel.clone();
+        let replay_cancel = req.ctx.cancel.clone();
         let again = item.clone();
         let state_item = item.clone();
         self.ops_run(
@@ -543,7 +608,7 @@ impl InstructionsService {
                 changed.changed().await;
                 on_lane(interactive, &cancel, move |_| state_item.state()).await
             },
-            move || async move { Ok(again.state()) },
+            move || async move { on_lane(interactive, &replay_cancel, move |_| again.state()).await },
         )
         .await
     }
@@ -558,7 +623,7 @@ impl InstructionsService {
             move || async move {
                 modules.set(&mode).await.map_err(|error| match error {
                     ToolModulesError::InvalidArgument(message) => bad_argument(message),
-                    other => failed(DOMAIN, "FAILED", other.to_string()),
+                    other => failed(DOMAIN, other.to_string()),
                 })
             },
             move || async move { Ok(again.current().await) },
@@ -566,7 +631,12 @@ impl InstructionsService {
         .await
     }
 
-    async fn ops_run<E, EF, R, RF>(&self, req: &CoreRequest, execute: E, reproduce: R) -> Result<Value, CoreError>
+    async fn ops_run<E, EF, R, RF>(
+        &self,
+        req: &CoreRequest,
+        execute: E,
+        reproduce: R,
+    ) -> Result<Value, CoreError>
     where
         E: FnOnce() -> EF,
         EF: std::future::Future<Output = Result<Value, CoreError>>,
@@ -575,13 +645,11 @@ impl InstructionsService {
     {
         match self.ops.run(req, None, execute, reproduce).await? {
             Reply::Value(value) => Ok(value),
-            Reply::Subscribe(_) => Err(CoreError::Internal { incident_id: "instructions-subscribe".into() }),
+            Reply::Subscribe(_) => Err(CoreError::Internal {
+                incident_id: "instructions-subscribe".into(),
+            }),
         }
     }
-}
-
-fn io_failure(error: std::io::Error) -> CoreError {
-    failed(DOMAIN, "FAILED", error.to_string())
 }
 
 #[async_trait]
@@ -596,6 +664,16 @@ impl DomainService for InstructionsService {
             other => return Err(wrong_method(DOMAIN, other)),
         };
         Ok(Reply::Value(value))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "instructions/listInstructionFiles",
+            "instructions/getInstructionFile",
+            "instructions/saveInstructionFile",
+            "instructions/resetInstructionFile",
+            "instructions/setInstructionFiles",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

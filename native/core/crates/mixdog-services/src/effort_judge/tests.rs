@@ -22,6 +22,7 @@ fn golden() -> Value {
     serde_json::from_str(GOLDEN).expect("golden parses")
 }
 
+/// The real judge and runtime, for the ignored integration tests only.
 fn config() -> ModelConfig {
     ModelConfig {
         dir: PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR")),
@@ -108,6 +109,7 @@ fn step_text_matches_recorded_text() {
 }
 
 #[test]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR)"]
 fn token_ids_match_recorded_ids() {
     let c = config();
     let tokenizer = BpeTokenizer::load(&c.dir.join("tokenizer.json")).expect("tokenizer loads");
@@ -127,6 +129,7 @@ fn token_ids_match_recorded_ids() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn probabilities_and_efforts_match_the_node_judge() {
     let model = EffortJudgeModel::new(config(), lane()).expect("model");
     let g = golden();
@@ -173,7 +176,7 @@ async fn a_corrupt_model_answers_none() {
     std::fs::write(dir.path().join("model.onnx"), b"not an onnx model").expect("write");
     std::fs::write(dir.path().join("tokenizer.json"), b"{}").expect("write");
     let model = EffortJudgeModel::new(
-        ModelConfig { dir: dir.path().to_owned(), explicit: true, ..config() },
+        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: PathBuf::from("unused") },
         lane(),
     ).expect("model");
     let case = &golden()["cases"][0];
@@ -182,6 +185,7 @@ async fn a_corrupt_model_answers_none() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn concurrent_judgments_all_complete_and_dropping_one_does_not_block_the_rest() {
     let model = EffortJudgeModel::new(config(), lane()).expect("model");
     let g = golden();
@@ -206,6 +210,7 @@ async fn concurrent_judgments_all_complete_and_dropping_one_does_not_block_the_r
 }
 
 #[test]
+#[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 fn a_model_without_step_support_is_refused() {
     let dir = tempfile::tempdir().expect("dir");
     let c = config();
@@ -253,7 +258,7 @@ async fn status_follows_load_failure_and_ticks_on_each_change() {
     let tick = StateTick::default();
     let rx = tick.subscribe();
     let model = EffortJudgeModel::with_options(
-        ModelConfig { dir: dir.path().to_owned(), explicit: true, ..config() },
+        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: PathBuf::from("unused") },
         lane(),
         crate::effort_judge::judge::JudgeOptions { tick, ..Default::default() },
     )

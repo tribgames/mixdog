@@ -56,6 +56,7 @@ fn preprocessing_matches_recorded_text() {
 }
 
 #[test]
+#[ignore = "integration: needs the e5 files (MIXDOG_MEMORY_MODELS)"]
 fn tokenizer_ids_match_recorded_ids() {
     let (cache, id) = model_dir();
     let max_length = golden()["artifacts"]["modelMaxLength"].as_u64().expect("max length") as usize;
@@ -71,6 +72,7 @@ fn tokenizer_ids_match_recorded_ids() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn vectors_match_recorded_vectors() {
     let (cache, model_id) = model_dir();
     let embedder = Embedder::load(EmbedConfig {

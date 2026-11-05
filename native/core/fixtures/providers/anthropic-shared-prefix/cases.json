@@ -1,0 +1,2181 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-anthropic-shared-prefix.mjs",
+  "requests": [
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "saved.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": null,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "ordinary.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": null,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "fork.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 4,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "count-zero.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 0,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "prefix-lowers-empty.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 1,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "count-equals-length.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 7,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "count-beyond-length.oauth",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 8,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "saved.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": null,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "ordinary.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": null,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "fork.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": 4,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "count-zero.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": 0,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "prefix-lowers-empty.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": 1,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "count-equals-length.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": 7,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14",
+        "body": {
+          "max_tokens": 16384,
+          "messages": [
+            {
+              "content": "Refactor the parser.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Reading it.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_1",
+                  "input": {
+                    "path": "a"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "export function parse() {}",
+                  "tool_use_id": "call_1",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Now editing.",
+                  "type": "text"
+                },
+                {
+                  "id": "call_2",
+                  "input": {
+                    "path": "b"
+                  },
+                  "name": "read",
+                  "type": "tool_use"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "tool_use_id": "call_2",
+                  "type": "tool_result"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-4-5",
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are the Lead.",
+              "type": "text"
+            }
+          ],
+          "tools": [
+            {
+              "description": "Read a file",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {},
+                "type": "object"
+              },
+              "name": "read"
+            }
+          ]
+        }
+      },
+      "id": "count-beyond-length.api",
+      "messages": [
+        {
+          "content": "You are the Lead.",
+          "role": "system"
+        },
+        {
+          "content": "Refactor the parser.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "export function parse() {}",
+          "role": "tool",
+          "toolCallId": "call_1"
+        },
+        {
+          "content": "Now editing.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "b"
+              },
+              "id": "call_2",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "handled by the main task",
+          "role": "tool",
+          "toolCallId": "call_2"
+        },
+        {
+          "content": "<side-question>Where is parse?</side-question>",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5",
+      "route": "anthropic",
+      "sharedCachePrefixCount": 8,
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    }
+  ],
+  "threads": [
+    {
+      "expected": {
+        "mode": "create",
+        "thread": {
+          "type": "create"
+        },
+        "threadBeta": true
+      },
+      "id": "thread.ordinary.oauth",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": null
+    },
+    {
+      "expected": {
+        "mode": "none",
+        "thread": null,
+        "threadBeta": false
+      },
+      "id": "thread.fork.oauth",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 4
+    },
+    {
+      "expected": {
+        "mode": "create",
+        "thread": {
+          "type": "create"
+        },
+        "threadBeta": true
+      },
+      "id": "thread.ordinary.api",
+      "route": "anthropic",
+      "sharedCachePrefixCount": null
+    },
+    {
+      "expected": {
+        "mode": "none",
+        "thread": null,
+        "threadBeta": false
+      },
+      "id": "thread.fork.api",
+      "route": "anthropic",
+      "sharedCachePrefixCount": 4
+    }
+  ]
+}

@@ -103,7 +103,7 @@ RECORDS = [
                                       "origin": {"pending": {"divider": True, "cleared_through": 1, "max_bytes": 33554432}}},
                           "refs": [], "body": {"inline": {"content": "pending archived answer", "role": "assistant"}}}),
     ("item_user_prompt", {"k": "item", "iid": "msg_p1", "turn": "run_2", "role": "user", "form": "message", "model": True,
-                          "visible": True, "prompt": "fix it [Pasted text #1 +12 lines]", "refs": [],
+                          "visible": True, "prompt": {"inline": "fix it [Pasted text #1 +12 lines]"}, "refs": [],
                           "body": {"inline": {"content": "fix it\n" + "line\n" * 12, "role": "user"}}}),
     ("item_blob_body", {"k": "item", "iid": "msg_big", "turn": "run_1", "role": "tool", "form": "message", "model": True,
                         "visible": True, "refs": [BIG],

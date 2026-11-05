@@ -149,6 +149,46 @@ impl CronExpr {
     }
 }
 
+/// What one heartbeat of node-cron decides (`planBeat`, node-cron `_shared.cjs`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BeatPlan {
+    /// Slots that passed unrun: only logged, never run.
+    pub missed: Vec<DateTime<Utc>>,
+    /// The slot to run now: the one the beat is at most `tolerance_ms` late for.
+    pub run: Option<DateTime<Utc>>,
+    /// The slot the next beat waits for, computed from the present, never replayed.
+    pub next: Option<DateTime<Utc>>,
+}
+
+/// Port of node-cron's `planBeat`: walks from the expected slot; a slot more than the
+/// tolerance late (or at least a whole gap late) is missed, and the walk ends at the first
+/// slot still ahead or runnable.
+pub fn plan_beat(
+    expected: DateTime<Utc>,
+    now: DateTime<Utc>,
+    tolerance_ms: i64,
+    next_match: impl Fn(DateTime<Utc>) -> Option<DateTime<Utc>>,
+) -> BeatPlan {
+    let mut missed = Vec::new();
+    let mut slot = expected;
+    loop {
+        if now < slot {
+            return BeatPlan { missed, run: None, next: Some(slot) };
+        }
+        let next = match next_match(slot) {
+            Some(next) if next > slot => next,
+            _ => return BeatPlan { missed, run: None, next: next_match(now) },
+        };
+        let gap = (next - slot).num_milliseconds();
+        let late_by = (now - slot).num_milliseconds();
+        if late_by <= tolerance_ms && late_by < gap {
+            return BeatPlan { missed, run: Some(slot), next: Some(next) };
+        }
+        missed.push(slot);
+        slot = next;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +241,24 @@ mod tests {
         let c = CronExpr::parse("30 2 * * *").unwrap();
         let ny = chrono_tz::America::New_York;
         assert_eq!(c.next_after(utc("2025-03-09T00:00:00Z"), ny), Some(utc("2025-03-10T06:30:00Z")));
+    }
+
+    #[test]
+    fn plan_beat_runs_an_on_time_slot_and_only_logs_the_missed_ones() {
+        let c = CronExpr::parse("0 9 * * *").unwrap();
+        let next = |d| c.next_after(d, Tz::UTC);
+        let expected = utc("2025-01-01T09:00:00Z");
+        // On time (within the 1 s tolerance): run it, wait for the next day.
+        let plan = plan_beat(expected, utc("2025-01-01T09:00:01Z"), 1000, next);
+        assert_eq!((plan.run, plan.next, plan.missed.len()), (Some(expected), Some(utc("2025-01-02T09:00:00Z")), 0));
+        // Early (a capped wait): nothing runs, the same slot is awaited.
+        let plan = plan_beat(expected, utc("2025-01-01T08:00:00Z"), 1000, next);
+        assert_eq!((plan.run, plan.next), (None, Some(expected)));
+        // A two-day jump: both elapsed slots are missed, none runs, the next is from now.
+        let plan = plan_beat(expected, utc("2025-01-03T09:30:00Z"), 1000, next);
+        assert_eq!(plan.run, None);
+        assert_eq!(plan.missed, vec![expected, utc("2025-01-02T09:00:00Z"), utc("2025-01-03T09:00:00Z")]);
+        assert_eq!(plan.next, Some(utc("2025-01-04T09:00:00Z")));
     }
 
     #[test]

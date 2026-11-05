@@ -256,11 +256,23 @@ fn the_bundled_manifest_is_valid() {
     assert_eq!(m.files().count(), 3);
 }
 
+/// The staged ONNX Runtime, for the integration tests that run real inference
+/// (those are `#[ignore]`d with the reason; run them with `--ignored`).
+pub(super) fn real_ort() -> PathBuf {
+    PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY names the staged onnxruntime"))
+}
+
+/// A config whose runtime library does not exist: every load fails, which is
+/// all the install and trigger logic needs.
 pub(super) fn embed_config(cache: &Path) -> EmbedConfig {
+    embed_config_with(cache, PathBuf::from("unused"))
+}
+
+pub(super) fn embed_config_with(cache: &Path, ort_library: PathBuf) -> EmbedConfig {
     EmbedConfig {
         model_id: crate::memory::embed::config::DEFAULT_MODEL_ID.into(),
         cache_dir: cache.to_owned(),
-        ort_library: PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY")),
+        ort_library,
         dtype: None,
         sessions: 1,
         lane: lane(),
@@ -268,6 +280,7 @@ pub(super) fn embed_config(cache: &Path) -> EmbedConfig {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_and_works() {
     let source = PathBuf::from(std::env::var_os("MIXDOG_MEMORY_MODELS").expect("MIXDOG_MEMORY_MODELS"))
         .join("Xenova")
@@ -280,7 +293,7 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     ])
     .await;
     let cache = tempfile::tempdir().expect("cache");
-    let provider = EmbeddingProvider::new(embed_config(cache.path())).with_hub(server.base.clone());
+    let provider = EmbeddingProvider::new(embed_config_with(cache.path(), real_ort())).with_hub(server.base.clone());
 
     assert!(!provider.is_installed());
     assert_eq!(provider.query_vector("staging cluster").await, None, "not installed is a defined state, not a wait");

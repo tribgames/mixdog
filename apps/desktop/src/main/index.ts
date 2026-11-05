@@ -117,6 +117,7 @@ import { createProtocolConnection } from './protocol/connection';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
 import { readLocalDiscovery, resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
+import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
 import { resolveRuntimeRoot } from '../../../../src/runtime/shared/runtime-root.mjs';
@@ -1385,6 +1386,11 @@ const hostRole = createLocalHostRole({
     snapshot: () => visualize.hostSnapshot(),
   }),
   onVisualizePublishFailed: (error) => reportVisualizePublishFailure('host', error),
+  onBrowserViewFailed: (error) =>
+    diagnostics?.write('browser-view-frames-failed', {
+      errorName: error instanceof Error ? error.name : 'Error',
+      message: String((error as Error)?.message ?? error).slice(0, 300),
+    }),
   onUpdaterInstallFailed: (error) =>
     diagnostics?.write('updater-install-failed', {
       errorName: error instanceof Error ? error.name : 'Error',
@@ -1417,6 +1423,20 @@ const hostRole = createLocalHostRole({
     diagnostics?.write('host-claim-failed', { message: error instanceof Error ? error.message : String(error) }),
 });
 hostRoleReady = true;
+// The core's open requests (browser surface, terminal run, visualize open) reach the window as Node's own flows did.
+const sendToMainWindow = (channel: string, request: unknown): void => {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send(channel, request);
+};
+localProtocol.onEvent(
+  createOpenRequestedHandler({
+    browser: (request) => sendToMainWindow(DESKTOP_IPC.browserOpenRequested, request),
+    terminal: (request) => sendToMainWindow(DESKTOP_IPC.terminalRunRequested, request),
+    visualize: (event) => visualize.openRequested(event),
+    watchNewTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),
+    notify: (method, params) => localProtocol.notify(method, params),
+  })
+);
 // A saved PC's presence is part of the core's pushed `remote` section: windows re-read their PC lists on it.
 localProtocol.watchSection('remote', () => notifyHostListsChanged());
 // Paired browsers show this machine's updater, so its state travels to the core.
@@ -2780,7 +2800,6 @@ function installWindowIpc(
         }
       : {}),
     terminals: connection.terminals,
-    terminalRuns,
     remoteHosts: remoteHostsHandle(),
     paneLayoutFile: connectionPaneLayoutFile(connection),
   });

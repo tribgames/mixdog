@@ -5,6 +5,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
+use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::retry::RetryClass;
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::domain::retry::RetryState;
@@ -24,6 +25,10 @@ use crate::retry::random_samples;
 pub trait AttemptSink: Send {
     fn event(&mut self, event: StreamEvent);
     fn discard(&mut self);
+    /// A retried attempt the provider still billed (`noteAbandonedUsage`):
+    /// the usage its failure reported, called before `discard`. The default
+    /// ignores it; the accounting sink records it as `<requestId>:abandoned:<i>`.
+    fn abandoned(&mut self, _usage: &Usage, _model: &str) {}
 }
 
 pub struct SendRequest {
@@ -86,7 +91,10 @@ impl ModelBroker {
         loop {
             attempts += 1;
             let mut streamed = false;
-            let failure = match self.attempt(adapter, &send.request, sink, cancel, &mut streamed).await
+            let mut reported = None;
+            let failure = match self
+                .attempt(adapter, &send.request, sink, cancel, &mut streamed, &mut reported)
+                .await
             {
                 Ok(()) => {
                     permit.finish(Outcome::Success);
@@ -96,7 +104,14 @@ impl ModelBroker {
                     permit.finish(Outcome::Abandoned);
                     return Err(SendError::Cancelled);
                 }
-                Err(Stop::Failed(err)) => err,
+                Err(Stop::Failed(mut err)) => {
+                    // The usage the stream reported is billed even when the
+                    // failure did not carry it.
+                    if err.partial_usage.is_none() {
+                        err.partial_usage = reported.map(Box::new);
+                    }
+                    err
+                }
             };
             if failure.status == Some(429) {
                 permit.report_rate_limit(failure.retry_after);
@@ -119,6 +134,9 @@ impl ModelBroker {
             };
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
+                    if let Some(usage) = &failure.partial_usage {
+                        sink.abandoned(usage, &send.request.model);
+                    }
                     sink.discard();
                     if !pause(delay, cancel).await {
                         permit.finish(Outcome::Abandoned);
@@ -144,6 +162,7 @@ impl ModelBroker {
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
         streamed: &mut bool,
+        reported: &mut Option<Usage>,
     ) -> Result<(), Stop> {
         let mut stream = tokio::select! {
             biased;
@@ -159,6 +178,9 @@ impl ModelBroker {
             match item {
                 Some(Ok(event)) => {
                     *streamed = true;
+                    if let StreamEvent::Usage(usage) = &event {
+                        *reported = Some(usage.clone());
+                    }
                     let done = matches!(event, StreamEvent::Completed { .. });
                     sink.event(event);
                     if done {

@@ -1,0 +1,406 @@
+{
+  "domain": "notification-readers-twin",
+  "entries": [
+    {
+      "devices": {
+        "pc": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "bots",
+          "taskbarFlash": false
+        },
+        "phone-a": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": true,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": true,
+            "end": "08:00",
+            "start": "22:15"
+          },
+          "scope": "off",
+          "taskbarFlash": true
+        },
+        "phone.b:2": {
+          "automaticRuns": false,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": false,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "all",
+          "taskbarFlash": true
+        },
+        "unknown-client": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "all",
+          "taskbarFlash": true
+        }
+      },
+      "input": {
+        "devices": {
+          "pc": {
+            "scope": "bots",
+            "taskbarFlash": false
+          },
+          "phone-a": {
+            "events": {
+              "error": true
+            },
+            "quietHours": {
+              "enabled": true,
+              "start": "22:15"
+            },
+            "scope": "off"
+          },
+          "phone.b:2": {
+            "automaticRuns": false,
+            "holdWhileDesktopActive": false
+          }
+        },
+        "migratedAt": 5,
+        "overrides": []
+      },
+      "now": 1000,
+      "overrides": []
+    },
+    {
+      "devices": {
+        "pc": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "bots",
+          "taskbarFlash": false
+        },
+        "phone-a": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": true,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": true,
+            "end": "08:00",
+            "start": "22:15"
+          },
+          "scope": "off",
+          "taskbarFlash": true
+        },
+        "phone.b:2": {
+          "automaticRuns": false,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": false,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "all",
+          "taskbarFlash": true
+        },
+        "unknown-client": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "all",
+          "taskbarFlash": true
+        }
+      },
+      "input": {
+        "devices": {
+          "pc": {
+            "scope": "bots",
+            "taskbarFlash": false
+          },
+          "phone-a": {
+            "events": {
+              "error": true
+            },
+            "quietHours": {
+              "enabled": true,
+              "start": "22:15"
+            },
+            "scope": "off"
+          },
+          "phone.b:2": {
+            "automaticRuns": false,
+            "holdWhileDesktopActive": false
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": null
+            },
+            "target": {
+              "id": "a:1",
+              "kind": "agent"
+            }
+          }
+        ]
+      },
+      "now": 1000,
+      "overrides": [
+        {
+          "setting": {
+            "mode": "muted",
+            "until": null
+          },
+          "target": {
+            "id": "a:1",
+            "kind": "agent"
+          }
+        }
+      ]
+    },
+    {
+      "devices": {
+        "pc": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "bots",
+          "taskbarFlash": false
+        },
+        "phone-a": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": true,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": true,
+            "end": "08:00",
+            "start": "22:15"
+          },
+          "scope": "off",
+          "taskbarFlash": true
+        },
+        "phone.b:2": {
+          "automaticRuns": false,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": false,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "all",
+          "taskbarFlash": true
+        },
+        "unknown-client": {
+          "automaticRuns": true,
+          "events": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          },
+          "holdWhileDesktopActive": true,
+          "quietHours": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          },
+          "scope": "all",
+          "taskbarFlash": true
+        }
+      },
+      "input": {
+        "devices": {
+          "pc": {
+            "scope": "bots",
+            "taskbarFlash": false
+          },
+          "phone-a": {
+            "events": {
+              "error": true
+            },
+            "quietHours": {
+              "enabled": true,
+              "start": "22:15"
+            },
+            "scope": "off"
+          },
+          "phone.b:2": {
+            "automaticRuns": false,
+            "holdWhileDesktopActive": false
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 500
+            },
+            "target": {
+              "id": "old",
+              "kind": "agent"
+            }
+          },
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1000
+            },
+            "target": {
+              "id": "edge",
+              "kind": "room"
+            }
+          },
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1001
+            },
+            "target": {
+              "id": "live",
+              "kind": "room"
+            }
+          },
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s",
+              "kind": "session"
+            }
+          }
+        ]
+      },
+      "now": 1000,
+      "overrides": [
+        {
+          "setting": {
+            "mode": "muted",
+            "until": 1001
+          },
+          "target": {
+            "id": "live",
+            "kind": "room"
+          }
+        },
+        {
+          "setting": {
+            "mode": "always"
+          },
+          "target": {
+            "id": "s",
+            "kind": "session"
+          }
+        }
+      ]
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-notification-readers.mjs"
+}

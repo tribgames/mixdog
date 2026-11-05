@@ -154,7 +154,7 @@ await step('ports', 'mergeListeningSockets', ['lsof', 100], () => ports.mergeLis
 
 // Only this recorder's own domains are replaced; settings/github/terminal/... belong to record-desktop-services.
 const finalDir = join(FIXTURES_ROOT, 'desktop');
-const outDir = stageSet(finalDir, Object.keys(corpora));
+const outDir = stageSet(finalDir, Object.keys(corpora).map((domain) => `${domain}/corpus.json`));
 for (const [domain, cases] of Object.entries(corpora)) writeJson(join(outDir, domain, 'corpus.json'), { domain, cases });
 writeSetManifest(outDir, {
   set: 'desktop-golden-twin',

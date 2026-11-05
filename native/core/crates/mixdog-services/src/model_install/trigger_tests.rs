@@ -11,7 +11,7 @@ use std::time::Duration;
 use mixdog_agent::step_effort::StepInput;
 use tokio_util::sync::CancellationToken;
 
-use super::tests::{Route, Server, big, config, embed_config, lane, manifest};
+use super::tests::{Route, Server, big, config, embed_config, embed_config_with, lane, manifest, real_ort};
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::judge::JudgeOptions;
@@ -22,10 +22,6 @@ use crate::memory::recall::QueryEmbedder;
 use crate::memory::runtime::{MemoryRuntime, RuntimeFlags, WarmupReply};
 use crate::model_install::InstallError;
 use crate::tool_state::{StateTick, onnx_runtime_supported};
-
-fn ort() -> PathBuf {
-    PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY"))
-}
 
 fn step() -> StepInput {
     StepInput { request: "fix the failing build".into(), step: 1, plan: String::new(), calls: Vec::new() }
@@ -71,10 +67,15 @@ impl Files {
     }
 }
 
+/// A judge over a runtime library that does not exist, so every load fails.
 fn judge(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool) -> Arc<EffortJudgeModel> {
+    judge_over(dir, manifest, tick, explicit, PathBuf::from("unused"))
+}
+
+fn judge_over(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf) -> Arc<EffortJudgeModel> {
     let mut model = config(dir);
     model.explicit = explicit;
-    model.ort_library = ort();
+    model.ort_library = ort_library;
     EffortJudgeModel::with_options(model, lane(), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), progress: None })
         .expect("judge")
 }
@@ -213,12 +214,13 @@ async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_fail
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: loads the real judge; needs MIXDOG_EFFORT_JUDGE_DIR and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn prewarm_loads_the_real_model_ahead_of_the_first_step_and_shutdown_unloads_it() {
     let dir = PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR"));
     let files = Files::new();
     let server = files.serve().await;
     let tick = StateTick::default();
-    let model = judge(&dir, &files.manifest(&server, "r1"), &tick, true);
+    let model = judge_over(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort());
 
     assert!(model.prewarm());
     until(&tick, || model.is_ready()).await;
@@ -244,7 +246,17 @@ async fn e5_server() -> Server {
 }
 
 fn runtime(server: &Server, cache: &Path, flags: RuntimeFlags, tick: &StateTick) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
-    let embedder = Arc::new(EmbeddingProvider::with_tick(embed_config(cache), tick.clone()).with_hub(server.base.clone()));
+    runtime_over(server, cache, flags, tick, PathBuf::from("unused"))
+}
+
+fn runtime_over(
+    server: &Server,
+    cache: &Path,
+    flags: RuntimeFlags,
+    tick: &StateTick,
+    ort_library: PathBuf,
+) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
+    let embedder = Arc::new(EmbeddingProvider::with_tick(embed_config_with(cache, ort_library), tick.clone()).with_hub(server.base.clone()));
     (MemoryRuntime::new(embedder.clone(), flags, None), embedder)
 }
 
@@ -267,7 +279,7 @@ fn the_gates_follow_node_for_every_flag_combination() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_secondary_process_never_fetches_or_loads() {
-    let server = e5_server().await;
+    let server = Server::start(Vec::new()).await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
     let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags { secondary: true, eager_warmup: true }, &tick);
@@ -283,11 +295,13 @@ async fn a_secondary_process_never_fetches_or_loads() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn without_eager_warmup_only_the_explicit_install_route_loads_the_model() {
     let server = e5_server().await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
-    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags { secondary: false, eager_warmup: false }, &tick);
+    let (runtime, embedder) =
+        runtime_over(&server, cache.path(), RuntimeFlags { secondary: false, eager_warmup: false }, &tick, real_ort());
 
     runtime.cold_warmup().await.expect("skipped");
     runtime.prewarm_recall();
@@ -303,11 +317,12 @@ async fn without_eager_warmup_only_the_explicit_install_route_loads_the_model() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn a_session_start_prewarm_installs_and_loads_in_the_background_and_repeats_are_free() {
     let server = e5_server().await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
-    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags::default(), &tick);
+    let (runtime, embedder) = runtime_over(&server, cache.path(), RuntimeFlags::default(), &tick, real_ort());
 
     runtime.prewarm_recall();
     until(&tick, || embedder.is_ready()).await;

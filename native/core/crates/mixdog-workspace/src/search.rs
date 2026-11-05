@@ -318,7 +318,9 @@ mod tests {
         assert!(publisher.state()["files"].to_string().contains("needle-file.rs"));
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    // Current-thread runtime: the 30 launched tasks cannot start before the test first awaits, so
+    // every earlier query is already superseded when it runs.
+    #[tokio::test(flavor = "current_thread")]
     async fn thirty_updates_end_with_the_last_query_and_stop_frees_the_index() {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = Lanes {
@@ -341,7 +343,22 @@ mod tests {
             sessions.update("s1", format!("q{i}")).unwrap();
         }
         sessions.update("s1", "main".into()).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Every launched search task holds a clone of `sessions` until it ends, so the strong count
+        // returning to 1 means all 30 ended. A missing launch never changes the count, so the wait
+        // is bounded by the position check below instead.
+        let all_ended = async {
+            while Arc::strong_count(&sessions) > 1 {
+                tokio::task::yield_now().await;
+            }
+        };
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), all_ended).await;
+        assert_eq!(Arc::strong_count(&sessions), 1, "searches are still running");
+        // All 30 are superseded but the last: one search published (an updated and a completed
+        // frame), so a stale one did not.
+        assert_eq!(publisher.position().seq, 2, "update did not publish exactly the last query's search");
+        let state = publisher.state();
+        assert_eq!(state["query"], "main");
+        assert!(state["files"].to_string().contains("src/main.rs"), "{state}");
         let position = publisher.source().feed_id();
         assert_eq!(position.to_string(), "search:s1");
         assert_eq!(sessions.index_count(), 1);

@@ -16,6 +16,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
+#[cfg(test)]
+mod model_tests;
+
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
@@ -66,8 +69,9 @@ const READ_POOL: usize = 4;
 pub enum DbError {
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
-    /// Missing tables, another `application_id`/`user_version`: rebuild from the logs.
-    #[error("index database needs a rebuild: {0}")]
+    /// Another `application_id`/`user_version`. `SqliteStore::open` rebuilds the index
+    /// from the logs instead of returning it; `state/core.sqlite` (user data) returns it.
+    #[error("database needs a rebuild: {0}")]
     Rebuild(String),
     /// The transaction carrying this request failed (the writer reports it to every
     /// waiter of that transaction).
@@ -116,6 +120,64 @@ pub(crate) fn open_schema(path: &Path, ddl: &str, app_id: i32, user_version: i32
 
 fn open_writer(path: &Path) -> Result<Connection, DbError> {
     open_schema(path, INDEX_DDL, INDEX_APPLICATION_ID, INDEX_USER_VERSION)
+}
+
+/// The index database of a data dir.
+pub const INDEX_FILE: &str = "index/store.sqlite";
+
+/// Whether an open of the index failed because of the file itself: another identity, or
+/// bytes SQLite cannot read as a database.
+fn needs_rebuild(e: &DbError) -> bool {
+    match e {
+        DbError::Rebuild(_) => true,
+        DbError::Sqlite(e) => matches!(
+            e.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)
+        ),
+        _ => false,
+    }
+}
+
+/// Projects every session of `data` into a staged database and publishes it over `path`.
+/// The old file's WAL and shared memory go first, so they never pair with the new file; a
+/// crash before the publish leaves a file that still fails its open and rebuilds again.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
+fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path) -> Result<(), DbError> {
+    let failed = |e: String| DbError::Write(format!("index rebuild: {e}"));
+    let dir = path.parent().expect("index file in a directory");
+    crate::fsio::create_dir_durable(dir).map_err(|e| failed(e.to_string()))?;
+    crate::fsio::sweep_tmp_unlaned(dir).map_err(|e| failed(e.to_string()))?;
+    let staged = crate::fsio::tmp_path(path);
+    project_index(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?).map_err(failed)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut side = path.as_os_str().to_owned();
+        side.push(suffix);
+        match std::fs::remove_file(&side) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e.to_string())),
+            _ => {}
+        }
+    }
+    crate::fsio::durable_rename(&staged, path).map_err(|e| failed(e.to_string()))
+}
+
+/// Every session directory holding its first log file, in name order.
+#[allow(clippy::disallowed_methods, reason = "called from the rebuild's maintenance lane job")]
+fn session_ids(sessions: &Path) -> Result<Vec<String>, String> {
+    let entries = match std::fs::read_dir(sessions) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", sessions.display())),
+    };
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("{}: {e}", sessions.display()))?;
+        let Ok(name) = entry.file_name().into_string() else { continue };
+        if entry.path().join(crate::log::log_name(0)).is_file() {
+            ids.push(name);
+        }
+    }
+    ids.sort();
+    Ok(ids)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -214,15 +276,23 @@ impl SessionStatus {
     }
 }
 
+/// The one write of a session's damage state (FORMAT.md §3.4), live and rebuild alike.
+fn set_status_on(tx: &Transaction, session: &str, status: SessionStatus, damage: Option<&str>) -> rusqlite::Result<()> {
+    tx.prepare_cached("UPDATE sessions SET status = ?2, damage = ?3 WHERE id = ?1")?
+        .execute(params![session, status.as_str(), damage])?;
+    Ok(())
+}
+
 const UPSERT_SQL: &str = "
 INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, newest_file_no,
     projected_file_no, projected_offset, projected_ordinal, history_rev, row_count, visible_count,
     activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id,
     parent_session_id, agent, source_type, classification, archived, title_kind, id_key,
-    title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary)
+    title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary,
+    title)
 VALUES (?1, ?2, 'ok', NULL, 0, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
+    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29)
 ON CONFLICT(id) DO UPDATE SET
     dirty = CASE WHEN ?28 THEN dirty ELSE excluded.dirty END,
     activity = excluded.activity, created_at = excluded.created_at,
@@ -235,7 +305,7 @@ ON CONFLICT(id) DO UPDATE SET
     preview_fold = excluded.preview_fold, cwd_fold = excluded.cwd_fold,
     project_fold = excluded.project_fold, id_fold = excluded.id_fold,
     model_fold = excluded.model_fold, source_fold = excluded.source_fold,
-    summary = excluded.summary";
+    summary = excluded.summary, title = excluded.title";
 
 /// Writes the catalog row of `head` with the message state projected so far; the bytes
 /// of the list row.
@@ -282,6 +352,7 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         folds.source,
         row.summary,
         dirty == DirtyMark::Keep,
+        row.title,
     ])?;
     Ok(())
 }
@@ -305,22 +376,30 @@ struct Pending {
     projection: Projection,
     next: usize,
     ack: Option<Ack>,
+    /// Arrival order among projections and upserts.
+    seq: u64,
 }
+
+/// A catalog row to write: its head, the dirty mark, the acks to answer, and the arrival
+/// order of the head.
+type Upsert = (Box<CatalogHead>, DirtyMark, Vec<Ack>, u64);
 
 struct Writer {
     conn: Connection,
     labels: PlaceholderLabels,
-    upserts: HashMap<String, (Box<CatalogHead>, DirtyMark, Vec<Ack>)>,
+    upserts: HashMap<String, Upsert>,
     small: VecDeque<Command>,
     projections: VecDeque<Pending>,
     refold: bool,
-    /// The newest header side seen per session (arrival order): the row a finished
-    /// projection writes is built from it, so a later header change is never lost.
-    heads: HashMap<String, CatalogHead>,
-    /// Sessions whose row waits for an inherited state still being computed.
-    waiting: std::collections::HashSet<String>,
+    /// Sessions whose row waits for an inherited state still being computed, with the head
+    /// the row is to be built from.
+    waiting: HashMap<String, CatalogHead>,
     /// Pending fork views may need a maintenance step.
     views: bool,
+    seq: u64,
+    /// Rows per append transaction and per maintenance step (tests shrink them).
+    append_rows: usize,
+    step_rows: usize,
 }
 
 const LABELS_KEY: &str = "ui:placeholder_labels";
@@ -351,7 +430,7 @@ impl Writer {
             .optional()?
             .is_some();
         let views: bool = conn
-            .query_row("SELECT 1 FROM message_views WHERE state = 'pending' AND superseded_rev IS NULL LIMIT 1", [], |_| Ok(()))
+            .query_row("SELECT 1 FROM message_views WHERE state = 'pending' LIMIT 1", [], |_| Ok(()))
             .optional()?
             .is_some();
         Ok(Writer {
@@ -361,30 +440,33 @@ impl Writer {
             small: VecDeque::new(),
             projections: VecDeque::new(),
             refold,
-            heads: HashMap::new(),
-            waiting: std::collections::HashSet::new(),
+            waiting: HashMap::new(),
             views,
+            seq: 0,
+            append_rows: APPEND_ROWS,
+            step_rows: STEP_ROWS,
         })
     }
 
     fn take(&mut self, cmd: Command) {
+        self.seq += 1;
+        let seq = self.seq;
         match cmd {
             Command::Upsert { head, dirty, ack } => {
-                self.heads.insert(head.session.clone(), (*head).clone());
                 let entry = self
                     .upserts
                     .entry(head.session.clone())
-                    .or_insert_with(|| (head.clone(), dirty, Vec::new()));
+                    .or_insert_with(|| (head.clone(), dirty, Vec::new(), seq));
                 // Coalesce: newest fields; a Set/Clear outranks an earlier Keep.
                 entry.0 = head;
+                entry.3 = seq;
                 if dirty != DirtyMark::Keep {
                     entry.1 = dirty;
                 }
                 entry.2.extend(ack);
             }
             Command::Project { projection, ack } => {
-                self.heads.insert(projection.session.clone(), projection.head.clone());
-                self.projections.push_back(Pending { projection, next: 0, ack });
+                self.projections.push_back(Pending { projection, next: 0, ack, seq });
             }
             other => self.small.push_back(other),
         }
@@ -398,20 +480,32 @@ impl Writer {
     fn view_step(&mut self) {
         let step = (|| -> rusqlite::Result<crate::message_index::Step> {
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            let step = crate::message_index::view_step(&tx, STEP_ROWS)?;
+            let step = crate::message_index::view_step(&tx, self.step_rows)?;
+            if let crate::message_index::Step::Done(session) = &step
+                && !self.waiting.contains_key(session)
+            {
+                // The head was lost with a restart: the reconcile re-derives the row.
+                tx.prepare_cached("UPDATE sessions SET dirty = 1 WHERE id = ?1")?.execute([session])?;
+            }
             tx.commit()?;
             Ok(step)
         })();
         match step {
             Ok(crate::message_index::Step::Progress) => {}
             Ok(crate::message_index::Step::Done(session)) => {
-                self.waiting.remove(&session);
-                if let Some(head) = self.heads.get(&session) {
-                    self.upserts.entry(session).or_insert_with(|| (Box::new(head.clone()), DirtyMark::Keep, Vec::new()));
+                if let Some(head) = self.waiting.remove(&session) {
+                    self.seq += 1;
+                    let seq = self.seq;
+                    // A newer head queued meanwhile wins.
+                    self.upserts.entry(session).or_insert_with(|| (Box::new(head), DirtyMark::Keep, Vec::new(), seq));
                 }
             }
             // Idle, or failed: new work re-arms it.
-            Ok(crate::message_index::Step::Idle) | Err(_) => self.views = false,
+            Ok(crate::message_index::Step::Idle) => self.views = false,
+            Err(e) => {
+                debug_assert!(false, "view step failed: {e}");
+                self.views = false;
+            }
         }
     }
 
@@ -445,11 +539,11 @@ impl Writer {
         let mut done_projections = 0usize;
         let mut rows = 0usize;
         let mut bytes = 0usize;
-        let mut waiting: Vec<String> = Vec::new();
+        let mut waiting: Vec<(String, CatalogHead)> = Vec::new();
         let result = (|| -> rusqlite::Result<()> {
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             // Small commands (dirty marks, status): one row each.
-            while rows < APPEND_ROWS
+            while rows < self.append_rows
                 && let Some(cmd) = self.small.pop_front()
             {
                 rows += 1;
@@ -459,8 +553,7 @@ impl Writer {
                         acks.push(ack);
                     }
                     Command::Status { session, status, damage, ack } => {
-                        tx.prepare_cached("UPDATE sessions SET status = ?2, damage = ?3 WHERE id = ?1")?
-                            .execute(params![session, status.as_str(), damage])?;
+                        set_status_on(&tx, &session, status, damage.as_deref())?;
                         acks.push(ack);
                     }
                     Command::Delete { session, ack } => {
@@ -485,11 +578,12 @@ impl Writer {
             'outer: for pending in self.projections.iter_mut() {
                 while pending.next < pending.projection.frames.len() {
                     let frame = &pending.projection.frames[pending.next];
-                    let budget = APPEND_ROWS.saturating_sub(rows);
+                    let budget = self.append_rows.saturating_sub(rows);
                     if budget == 0 || bytes >= APPEND_BYTES {
                         break 'outer;
                     }
-                    let (used, complete) = apply_frame(&tx, &pending.projection.session, frame, budget)?;
+                    let (used, complete) =
+                        apply_frame(&tx, &pending.projection.session, frame, budget, self.append_rows)?;
                     rows += used;
                     bytes += 64 * used;
                     if !complete {
@@ -498,26 +592,33 @@ impl Writer {
                     pending.next += 1;
                 }
                 done_projections += 1;
-                // The frames are in: the row is rebuilt from the header side they carry
-                // and the message state (an explicit upsert of the session wins).
-                let latest = Box::new(self.heads.get(&pending.projection.session).unwrap_or(&pending.projection.head).clone());
+                // The frames are in: the row is built from this projection's own head (a
+                // newer explicit upsert of the session wins); queued projections wait.
+                let latest = Box::new(pending.projection.head.clone());
+                let seq = pending.seq;
                 let entry = self
                     .upserts
                     .entry(pending.projection.session.clone())
-                    .or_insert_with(|| (latest.clone(), DirtyMark::Keep, Vec::new()));
-                entry.0 = latest;
+                    .or_insert_with(|| (latest.clone(), DirtyMark::Keep, Vec::new(), seq));
+                if entry.3 < seq {
+                    entry.0 = latest;
+                    entry.3 = seq;
+                }
             }
             // Catalog rows, coalesced per session, after the frames so they see their state.
-            let ids: Vec<String> = self.upserts.keys().cloned().collect();
+            // A session with a projection still queued is published by that projection.
+            let in_flight: std::collections::HashSet<&str> =
+                self.projections.iter().skip(done_projections).map(|p| p.projection.session.as_str()).collect();
+            let ids: Vec<String> = self.upserts.keys().filter(|id| !in_flight.contains(id.as_str())).cloned().collect();
             for id in ids {
-                if rows >= APPEND_ROWS || bytes >= APPEND_BYTES {
+                if rows >= self.append_rows || bytes >= APPEND_BYTES {
                     break;
                 }
-                let (head, dirty, waiters) = self.upserts.remove(&id).expect("listed");
+                let (head, dirty, waiters, _) = self.upserts.remove(&id).expect("listed");
                 rows += 1;
                 let written = upsert(&tx, &head, dirty, &self.labels)?;
                 if written == 0 {
-                    waiting.push(id.clone());
+                    waiting.push((id.clone(), (*head).clone()));
                 }
                 bytes += written;
                 acks.extend(waiters);
@@ -525,6 +626,7 @@ impl Writer {
             tx.commit()
         })();
         let result = result.map_err(|e| e.to_string());
+        debug_assert!(result.is_ok(), "append transaction failed: {result:?}");
         // Projections: finished ones are acked (and their blob pins released); on a
         // failure every projection in flight is dropped, to be reconciled from its cursor.
         let finished: Vec<Pending> = if result.is_ok() {
@@ -532,21 +634,15 @@ impl Writer {
         } else {
             self.projections.drain(..).collect()
         };
-        // A fork or a rewind may have opened a view that needs steps.
-        let opens_view = finished.iter().any(|p| {
-            p.projection.frames.iter().any(|f| matches!(f.kind, FrameKind::Session { base: Some(_) } | FrameKind::Rewind { .. }))
-        });
+        // A projection that finished may have opened a view, or advanced the watermark a
+        // pending view waits for.
+        let advanced = !finished.is_empty();
         for p in finished {
             acks.extend(p.ack);
         }
         if result.is_ok() {
             self.waiting.extend(waiting);
-            self.views |= opens_view;
-            // Forget the heads nothing waits on.
-            let (projections, upserts, waiting) = (&self.projections, &self.upserts, &self.waiting);
-            self.heads.retain(|s, _| {
-                waiting.contains(s) || upserts.contains_key(s) || projections.iter().any(|p| p.projection.session == *s)
-            });
+            self.views |= advanced;
         }
         send(acks, &result);
     }
@@ -600,9 +696,10 @@ fn apply_frame(
     session: &str,
     frame: &ProjectedFrame,
     budget: usize,
+    cap: usize,
 ) -> rusqlite::Result<(usize, bool)> {
     let need = frame.rows();
-    if need > budget && need <= APPEND_ROWS {
+    if need > budget && need <= cap {
         return Ok((0, false));
     }
     let (ordinal, file_no, offset) = pos_params(&frame.pos);
@@ -620,12 +717,13 @@ fn apply_frame(
             if let Some(base) = base {
                 tx.prepare_cached("INSERT OR IGNORE INTO fork_edges (base, child) VALUES (?1, ?2)")?
                     .execute(params![base.session.as_str(), session])?;
-                crate::message_index::open_view(tx, session, ordinal, base.session.as_str(), base.end_ordinal_exclusive as i64)?;
+                let end = base.end_ordinal_exclusive as i64;
+                crate::message_index::open_view(tx, session, ordinal, base.session.as_str(), end, end)?;
             }
         }
-        FrameKind::Item { iid, turn, form, model, visible, refs: r, prompt, msg } => {
+        FrameKind::Item { iid, turn, form, model, visible, refs: r, prompt, msg, facets } => {
             if let Some(msg) = msg {
-                crate::message_index::add_item(tx, session, ordinal, iid, msg)?;
+                crate::message_index::add_item(tx, session, ordinal, (file_no, offset, len), iid, msg)?;
             }
             if let Some(text) = prompt {
                 let key = crate::title::prompt_history_key(text);
@@ -642,8 +740,8 @@ fn apply_frame(
             }
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO history (session, ordinal, iid, turn, form, model, visible, file_no,
-                 frame_offset, frame_len, amend_ordinal, superseded_rev)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL)",
+                 frame_offset, frame_len, amend_ordinal, superseded_rev, facets)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11)",
             )?
             .execute(params![
                 session,
@@ -655,13 +753,14 @@ fn apply_frame(
                 visible,
                 file_no,
                 offset,
-                len
+                len,
+                facets.as_ref().map(|f| serde_json::to_string(f).expect("facets are plain data"))
             ])?;
             refs(r)?;
         }
         FrameKind::Amend { iid, refs: r, msg } => {
             if let Some(msg) = msg {
-                crate::message_index::amend(tx, session, iid, ordinal, msg)?;
+                crate::message_index::amend(tx, session, iid, ordinal, (file_no, offset, len), msg)?;
             }
             let target: Option<i64> = tx
                 .prepare_cached(
@@ -683,7 +782,9 @@ fn apply_frame(
         }
         FrameKind::Rewind { to_ordinal } => {
             let to = *to_ordinal as i64;
-            let mut left = budget.saturating_sub(1);
+            // The smallest unit of progress is one version (three writes): a budget below
+            // that is raised, so a tiny budget still advances.
+            let mut left = budget.saturating_sub(1).max(3);
             used = 1;
             // Prompts first: each superseded occurrence moves its key to the newest live
             // one (two rows per occurrence).
@@ -717,6 +818,7 @@ fn apply_frame(
                 }
             }
             let (n, complete) = crate::message_index::rewind(tx, session, to, ordinal, left)?;
+            debug_assert!(n <= left, "rewind wrote {n} rows with {left} left");
             left = left.saturating_sub(n);
             used += n;
             if !complete || left == 0 {
@@ -755,7 +857,7 @@ fn apply_frame(
                 return Ok((used, false));
             }
         }
-        FrameKind::Compacted { cid, rows } => {
+        FrameKind::Compacted { cid, at, rows, mode, dropped } => {
             // The divider precedes the oldest row the compaction kept.
             let mut boundary = ordinal;
             let mut kept = tx.prepare_cached(
@@ -769,11 +871,22 @@ fn apply_frame(
             }
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
-                 boundary, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
+                 boundary, at, drop_mode, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
             )?
-            .execute(params![session, ordinal, cid, file_no, offset, len, boundary])?;
+            .execute(params![session, ordinal, cid, file_no, offset, len, boundary, at, *mode as i64])?;
+            if let Some(dropped) = dropped {
+                let mut put = tx.prepare_cached(
+                    "INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)",
+                )?;
+                for id in &dropped.message_ids {
+                    put.execute(params![session, 0, id, ordinal])?;
+                }
+                for id in &dropped.call_ids {
+                    put.execute(params![session, 1, id, ordinal])?;
+                }
+            }
             // The context restarts here: a new epoch whose totals count from the replacement.
-            crate::message_index::add_compaction(tx, session, ordinal, rows)?;
+            crate::message_index::add_compaction(tx, session, ordinal, (file_no, offset, len), rows)?;
         }
         FrameKind::Run { rid, phase } => match phase {
             RunPhase::Started => {
@@ -885,6 +998,12 @@ pub struct HistoryRow {
     /// A model message a compaction took out of the context: shown, but out of the
     /// context (1.4.5 `archived: true`). The rows the compaction kept are live.
     pub archived: bool,
+    /// Its text row left the context (the message id is in a later compaction's identities,
+    /// or the compaction takes every row before its divider).
+    pub dropped_text: bool,
+    /// The tool calls of this message that left the context. A message that lost only
+    /// part of itself is not `archived`: the transcript shows these parts as archived rows.
+    pub dropped_calls: Vec<String>,
     /// The compactions (oldest first) whose replacement kept this message: where its
     /// rewritten copies are. A kept message that lost part of itself shows that part as an
     /// archived row before the compaction's divider (1.4.5 `compactionArchiveProjection`:
@@ -936,10 +1055,31 @@ pub struct SearchCursor {
 }
 
 impl SqliteStore {
-    /// Opens (creating if empty) the database and starts its writer thread.
-    /// Reads run as jobs on `read_lane`.
-    pub fn open(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<SqliteStore, DbError> {
-        let writer = Writer::start(path)?;
+    /// The one entry point of the index: opens `<data>/index/store.sqlite` and starts its
+    /// writer thread; reads run as jobs on `read_lane`. A missing or unreadable file, or
+    /// one of another `application_id`/`user_version`, is first rebuilt on this maintenance
+    /// job from every log under `<data>/sessions` (FORMAT.md §8.2): it is never opened or
+    /// altered in place, and `DbError::Rebuild` never reaches the caller.
+    #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
+    pub fn open(
+        lane: &InLane<MaintenanceIo>,
+        thread: SqliteWriterThread,
+        read_lane: InteractiveIo,
+        data: &Path,
+    ) -> Result<SqliteStore, DbError> {
+        let path = data.join(INDEX_FILE);
+        let path = path.as_path();
+        let writer = match path.exists().then(|| Writer::start(path)) {
+            Some(Ok(writer)) => writer,
+            Some(Err(e)) if !needs_rebuild(&e) => return Err(e),
+            _ => {
+                rebuild(lane, data, path)?;
+                Writer::start(path).map_err(|e| match e {
+                    DbError::Rebuild(why) => DbError::Write(format!("rebuilt index refused: {why}")),
+                    e => e,
+                })?
+            }
+        };
         let (sender, rx) = mpsc::channel();
         thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
@@ -1100,28 +1240,48 @@ impl SqliteStore {
         .await
     }
 
-    /// The compaction dividers of the display history whose position lies in ordinals
-    /// `[from, to)` (a page's span, `to` exclusive; `u64::MAX` for the newest page), oldest
-    /// first. Each live `compacted` frame of the lineage is one divider
-    /// (1.4.5's "Conversation compacted" row), shown immediately before the first
-    /// displayed row with ordinal ≥ `boundary`. A compaction a rewind or `clear` superseded has none.
+    /// The compaction dividers of the display history placed before rows of
+    /// `lineage[level]` with ordinals in `[from, to)` (a page's span, `to` exclusive;
+    /// `u64::MAX` for the newest page), in display order. Each live `compacted` frame of the
+    /// lineage is one divider (1.4.5's "Conversation compacted" row), shown immediately
+    /// before the first displayed row of `lineage[level]` with ordinal ≥ `boundary`: the
+    /// oldest message row its replacement kept, wherever the lineage holds it (a fork keeps
+    /// rows it inherited: 1.4.5 restores the fork's own copy of them after the divider), else
+    /// the end of the rows before the compaction. A compaction a rewind or `clear`
+    /// superseded has none. Finding an inherited kept row costs one indexed lookup per
+    /// replacement entry and deeper level, on the read lane.
     pub async fn dividers(
         &self,
         lineage: Vec<LineageLevel>,
         cut: Option<u64>,
+        level: usize,
         from: u64,
         to: u64,
     ) -> Result<Vec<Divider>, DbError> {
-        self.read(move |c| dividers_on(c, &lineage, cut, from, to)).await
+        self.read(move |c| dividers_on(c, &lineage, cut, level, from, to)).await
     }
 
-    /// The JSON list row of a session.
+    /// The JSON list row of a session; `None` for a session whose log has no readable
+    /// `session` frame (1.4.5 reads such a file as no session).
     pub async fn summary(&self, session: &str) -> Result<Option<String>, DbError> {
         let session = session.to_owned();
         self.read(move |c| {
-            Ok(c.prepare_cached("SELECT summary FROM sessions WHERE id = ?1")?
+            Ok(c.prepare_cached("SELECT summary FROM sessions WHERE id = ?1 AND log_id <> ''")?
                 .query_row([&session], |r| r.get(0))
                 .optional()?)
+        })
+        .await
+    }
+
+    /// The raw header `title` of a session (1.4.5 `readStoredSessionMetadata`'s
+    /// `session.title || null`); `None` when it has none or is not listed.
+    pub async fn title(&self, session: &str) -> Result<Option<String>, DbError> {
+        let session = session.to_owned();
+        self.read(move |c| {
+            Ok(c.prepare_cached("SELECT title FROM sessions WHERE id = ?1 AND log_id <> ''")?
+                .query_row([&session], |r| r.get(0))
+                .optional()?
+                .flatten())
         })
         .await
     }
@@ -1162,6 +1322,24 @@ impl SqliteStore {
         self.read(move |c| page_on(c, &lineage, cut, cursor, limit)).await
     }
 
+    /// Step 1 of a model-context read (`crate::context`, FORMAT.md §6.4), inside a job on
+    /// the read lane: the next page of the context of `lineage` (`lineage[0]` the thread,
+    /// then its bases; `cut` its `Fold::base_cut`) from `cursor` (`None`: the start), at
+    /// most `limit` rows and `PAGE_MAX_BYTES` of frames (at least one row), with its frames
+    /// read from `sessions/<session>/` under `sessions`.
+    pub fn context_page_on_lane(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        sessions: &Path,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        cursor: Option<crate::context::ContextCursor>,
+        limit: usize,
+    ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
+        let (rows, next) = self.shared.pool.with(|c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
+        crate::context::read_frames(lane, sessions, rows, next)
+    }
+
     /// `history_page` inside a job already on the read lane (the open's J2 window read).
     pub fn history_page_on_lane(
         &self,
@@ -1180,6 +1358,9 @@ impl SqliteStore {
 /// before the call; closed, without WAL, after it). Each log is read forward from its
 /// `session` frame and folded in memory, frames are written in the writer's bounded
 /// transactions, and the catalog row (`summary::catalog_row`) is written clean.
+/// A log that cannot be read to its end is a damaged session (FORMAT.md §3.4, §8.2): the
+/// frames before the failure stay projected, and a log without a readable `session` frame
+/// keeps only an unlisted row carrying its damage. Only an index write error fails the call.
 /// Blocking: the migration runs it on its own thread before the runtime starts.
 pub fn project_index(
     data: &Path,
@@ -1190,7 +1371,14 @@ pub fn project_index(
     let blobs = crate::blobs::BlobStore::new(data);
     let mut heads = Vec::new();
     for id in sessions {
-        heads.push(project_session(&mut conn, &data.join("sessions").join(id), &blobs).map_err(|e| format!("{id}: {e}"))?);
+        let dir = data.join("sessions").join(id);
+        let mut fold = None;
+        let damage = project_session(&mut conn, &dir, &blobs, &mut fold)
+            .map_err(|e| format!("{id}: {e}"))?
+            .err()
+            .map(|(error, at)| damage_text(&dir, at, &error));
+        let head = fold.as_ref().map_or_else(|| unreadable_head(id), CatalogHead::of);
+        heads.push((head, damage));
     }
     // Forks projected before their base wait on it: finish their views, then rebuild the
     // rows that were held back.
@@ -1203,9 +1391,12 @@ pub fn project_index(
         }
     }
     let labels = PlaceholderLabels::default();
-    for head in heads {
+    for (head, damage) in heads {
         let tx = conn.transaction().map_err(|e| e.to_string())?;
         upsert(&tx, &head, DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
+        if let Some(damage) = damage {
+            set_status_on(&tx, &head.session, SessionStatus::Damaged, Some(&damage)).map_err(|e| e.to_string())?;
+        }
         tx.commit().map_err(|e| e.to_string())?;
     }
     conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).map_err(|e| e.to_string())?;
@@ -1213,50 +1404,73 @@ pub fn project_index(
     Ok(())
 }
 
+/// Why a log stopped before its end, and the damaged frame when the reader names it.
+type LogFailure = (String, Option<crate::log::Damage>);
+
+/// Projects the log in `dir` forward into `conn`, folding into `fold`. The outer error is
+/// an index write failure; the inner one is the log's own failure, after which the frames
+/// before it stay projected.
 fn project_session(
     conn: &mut Connection,
     dir: &Path,
     blobs: &crate::blobs::BlobStore,
-) -> Result<CatalogHead, String> {
-    let row_of = |fold: &crate::fold::Fold| CatalogHead::of(fold);
+    fold: &mut Option<crate::fold::Fold>,
+) -> Result<Result<(), LogFailure>, String> {
     use crate::fold::Fold;
     use crate::fold::NoIndex;
     use crate::log::ForwardEnd;
     use crate::schema::record::Record;
     let labels = PlaceholderLabels::default();
-    let first = crate::log::first_ordinal_unlaned(dir).map_err(|e| e.to_string())?;
+    let log = |e: String| (e, None);
+    let first = match crate::log::first_ordinal_unlaned(dir) {
+        Ok(first) => first,
+        Err(e) => return Ok(Err(log(e.to_string()))),
+    };
     let mut pos = FramePos { ordinal: first, file_no: 0, offset: 0 };
-    let mut fold: Option<Fold> = None;
     let mut resolve = |b: &crate::schema::blob::BodyBlob| {
         blobs.read_unlaned(&b.descriptor().digest).map_err(|e| e.to_string())
     };
     loop {
-        let read = crate::log::read_forward_unlaned(dir, pos, APPEND_BYTES as u64).map_err(|e| e.to_string())?;
+        let read = match crate::log::read_forward_unlaned(dir, pos, APPEND_BYTES as u64) {
+            Ok(read) => read,
+            Err(e) => return Ok(Err(log(e.to_string()))),
+        };
         let mut frames = Vec::with_capacity(read.frames.len());
+        let mut failure = None;
         for (record, at, frame_len) in &read.frames {
-            match fold.as_mut() {
-                None => {
-                    let Record::Session(s) = record else {
-                        return Err("the first frame is not a session frame".into());
-                    };
-                    let header = crate::fold::resolve_slot(&s.header, &mut resolve)?;
-                    let started = Fold::from_session(s, header, *at);
-                    let tx = conn.transaction().map_err(|e| e.to_string())?;
-                    upsert(&tx, &row_of(&started), DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
-                    tx.commit().map_err(|e| e.to_string())?;
-                    fold = Some(started);
+            let folded = match fold.as_mut() {
+                None => match record {
+                    Record::Session(s) => crate::fold::resolve_slot(&s.header, &mut resolve).map(|header| {
+                        *fold = Some(Fold::from_session(s, header, *at));
+                        true
+                    }),
+                    _ => Err("the first frame is not a session frame".to_owned()),
+                },
+                Some(f) => f.prepare([record], &NoIndex, &mut resolve).map_err(|e| e.to_string()).map(|mut effects| {
+                    f.apply(effects.pop().expect("one effect"), *at);
+                    false
+                }),
+            };
+            let started = match folded {
+                Ok(started) => started,
+                Err(e) => {
+                    failure = Some(log(e));
+                    break;
                 }
-                Some(f) => {
-                    let effect = f
-                        .prepare([record], &NoIndex, &mut resolve)
-                        .map_err(|e| e.to_string())?
-                        .pop()
-                        .expect("one effect");
-                    f.apply(effect, *at);
-                }
-            }
+            };
             let f = fold.as_ref().expect("folded");
-            let (kind, op) = crate::projection::project(record, &mut resolve)?;
+            if started {
+                let tx = conn.transaction().map_err(|e| e.to_string())?;
+                upsert(&tx, &CatalogHead::of(f), DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
+                tx.commit().map_err(|e| e.to_string())?;
+            }
+            let (kind, op) = match crate::projection::project(record, &mut resolve) {
+                Ok(projected) => projected,
+                Err(e) => {
+                    failure = Some(log(e));
+                    break;
+                }
+            };
             frames.push(ProjectedFrame {
                 pos: *at,
                 frame_len: *frame_len,
@@ -1269,13 +1483,40 @@ fn project_session(
         }
         let session = fold.as_ref().map(|f| f.session.clone()).unwrap_or_default();
         apply_all(conn, &session, &frames).map_err(|e| e.to_string())?;
+        if let Some(failure) = failure {
+            return Ok(Err(failure));
+        }
         match read.next {
             ForwardEnd::More(next) => pos = next,
-            ForwardEnd::Done { .. } => break,
-            ForwardEnd::Damaged(d) => return Err(format!("damaged at {d:?}")),
+            ForwardEnd::Done { .. } if fold.is_some() => return Ok(Ok(())),
+            ForwardEnd::Done { .. } => return Ok(Err(log("the log holds no frame".into()))),
+            ForwardEnd::Damaged(d) => return Ok(Err(("a frame fails its check".into(), Some(d)))),
         }
     }
-    Ok(row_of(&fold.ok_or("empty log")?))
+}
+
+/// `sessions.damage` (FORMAT.md §3.4): the log file, the error, and the damaged frame
+/// when the reader names it.
+fn damage_text(dir: &Path, at: Option<crate::log::Damage>, error: &str) -> String {
+    let file_no = at.as_ref().map_or(0, |d| d.file_no);
+    let mut damage = serde_json::json!({
+        "path": dir.join(crate::log::log_name(file_no)).to_string_lossy(),
+        "error": error,
+    });
+    if let Some(d) = at {
+        damage["file_no"] = d.file_no.into();
+        damage["offset"] = d.offset.into();
+        damage["ordinal"] = d.ordinal.into();
+    }
+    damage.to_string()
+}
+
+/// The row of a session whose log has no readable `session` frame: no header, no
+/// `log_id`, so it is never listed, searched or summarized; only its damage is kept.
+fn unreadable_head(id: &str) -> CatalogHead {
+    let mut header = serde_json::Map::new();
+    header.insert("id".into(), id.into());
+    CatalogHead { session: id.to_owned(), log_id: String::new(), base_session: None, header }
 }
 
 /// `Date.now()` for a header without `updatedAt`.
@@ -1292,7 +1533,7 @@ fn apply_all(conn: &mut Connection, session: &str, frames: &[ProjectedFrame]) ->
         let tx = conn.transaction()?;
         let mut rows = 0;
         while i < frames.len() && rows < APPEND_ROWS {
-            let (used, complete) = apply_frame(&tx, session, &frames[i], APPEND_ROWS - rows)?;
+            let (used, complete) = apply_frame(&tx, session, &frames[i], APPEND_ROWS - rows, APPEND_ROWS)?;
             rows += used;
             if !complete {
                 break;
@@ -1312,39 +1553,54 @@ pub struct Divider {
     /// The `compacted` frame.
     pub pos: FramePos,
     pub frame_len: u64,
-    /// The divider precedes the first displayed row with an ordinal at or above this.
+    /// The divider precedes the first displayed row of `lineage[level]` with an ordinal at
+    /// or above `boundary`.
+    pub level: usize,
     pub boundary: u64,
+    /// The compaction's `Date.now()` in milliseconds, when the record carries it.
+    pub at: Option<i64>,
 }
 
 fn dividers_on(
     c: &Connection,
     lineage: &[LineageLevel],
     cut: Option<u64>,
+    level: usize,
     from: u64,
     to: u64,
 ) -> Result<Vec<Divider>, DbError> {
     let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
     let mut out = Vec::new();
-    for (i, level) in lineage.iter().enumerate() {
-        let asof = level.end.map_or(i64::MAX, clamp);
-        let bound = if i > 0 { level.end.into_iter().chain(cut).min().map_or(i64::MAX, clamp) } else { i64::MAX };
+    for (i, home) in lineage.iter().enumerate() {
+        let asof = home.end.map_or(i64::MAX, clamp);
         let mut stmt = c.prepare_cached(
-            "SELECT ordinal, file_no, frame_offset, frame_len, cid, boundary FROM compactions
-             WHERE session = ?1 AND ordinal < ?5 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
-               AND boundary >= ?3 AND boundary < ?4",
+            "SELECT ordinal, file_no, frame_offset, frame_len, cid, boundary, at FROM compactions
+             WHERE session = ?1 AND ordinal < ?3 AND (superseded_rev IS NULL OR superseded_rev >= ?2)",
         )?;
-        let rows = stmt.query_map(params![level.session, asof, clamp(from), clamp(to), bound], |r| {
-            let ordinal = r.get::<_, i64>(0)? as u64;
-            Ok(Divider {
-                session: level.session.clone(),
-                cid: r.get(4)?,
-                pos: FramePos { ordinal, file_no: r.get(1)?, offset: r.get::<_, i64>(2)? as u64 },
-                frame_len: r.get::<_, i64>(3)? as u64,
-                boundary: r.get::<_, i64>(5)? as u64,
-            })
-        })?;
-        for row in rows {
-            out.push(row?);
+        let found = stmt
+            .query_map(params![home.session, asof, crate::archive_index::level_bound(lineage, cut, i)], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    (r.get::<_, u32>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?),
+                    r.get::<_, String>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, Option<i64>>(6)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        for (ordinal, (file_no, offset, len), cid, own_boundary, at) in found {
+            let place = crate::archive_index::divider_place(c, lineage, cut, i, ordinal as u64, own_boundary as u64)?;
+            if place.0 == level && place.1 >= from && place.1 < to {
+                out.push(Divider {
+                    session: home.session.clone(),
+                    cid,
+                    pos: FramePos { ordinal: ordinal as u64, file_no, offset: offset as u64 },
+                    frame_len: len as u64,
+                    level: place.0,
+                    boundary: place.1,
+                    at,
+                });
+            }
         }
     }
     out.sort_by_key(|d| (d.boundary, d.pos.ordinal));
@@ -1375,6 +1631,7 @@ fn page_on(
             };
             let mut out = Vec::new();
             let mut bytes = 0u64;
+            let mut compactions = crate::archive_index::Compactions::new(c, lineage, cut);
             while cur.level < lineage.len() && out.len() < limit {
                 let level = &lineage[cur.level];
                 // A child sees a base row unless a rewind before the fork point superseded it.
@@ -1411,7 +1668,14 @@ fn page_on(
                     let iid: String = r.get(1)?;
                     let form = if r.get::<_, i64>(3)? == 1 { Form::Display } else { Form::Message };
                     let model: bool = r.get(4)?;
-                    let archived: bool = r.get(12)?;
+                    let facets: Option<String> = r.get(12)?;
+                    let mut verdict = crate::archive_index::Verdict::default();
+                    if model
+                        && form == Form::Message
+                        && let Some(facets) = facets.and_then(|f| serde_json::from_str::<crate::message_facets::Facets>(&f).ok())
+                    {
+                        verdict = compactions.verdict(cur.level, ordinal, &iid, &facets)?;
+                    }
                     let mut kept = Vec::new();
                     if model && form == Form::Message {
                         let mut copies = c.prepare_cached(KEPT_SQL)?;
@@ -1440,7 +1704,9 @@ fn page_on(
                         pos: FramePos { ordinal, file_no: r.get(5)?, offset: r.get::<_, i64>(6)? as u64 },
                         frame_len,
                         amend,
-                        archived,
+                        archived: verdict.archived,
+                        dropped_text: verdict.text,
+                        dropped_calls: verdict.calls,
                         kept,
                     });
                     cur.before = ordinal;
@@ -1472,12 +1738,7 @@ pub(crate) const KEPT_SQL: &str =
 pub(crate) const PAGE_SQL: &str =
     "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
-       (h.model = 1 AND h.form = 0 AND h.ordinal < COALESCE((SELECT max(c.ordinal) FROM compactions c
-          WHERE c.session = h.session AND c.ordinal < ?3 AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?3)), 0)
-        AND NOT EXISTS (SELECT 1 FROM message_rows m WHERE m.session = h.session AND m.iid = h.iid
-          AND m.ordinal = (SELECT max(c.ordinal) FROM compactions c WHERE c.session = h.session AND c.ordinal < ?3
-            AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?3))
-          AND (m.superseded_rev IS NULL OR m.superseded_rev >= ?3)))
+       h.facets
      FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
      WHERE h.session = ?1 AND h.ordinal < ?2 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)

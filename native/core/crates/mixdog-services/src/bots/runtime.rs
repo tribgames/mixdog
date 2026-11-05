@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use super::host::RoutineHost;
 use super::routine::RoutineKind;
-use crate::scheduler::{Clock, ScheduleRecords, ScheduleStore};
+use crate::scheduler::{Clock, ScheduleRecords};
 use crate::webhooks::{EndpointRecords, RunStamp};
 
 /// The part of a stored routine the run guards and the redelivery read.
@@ -156,10 +156,6 @@ impl AutomationRuns {
     pub fn begin(self: &Arc<Self>, kind: RoutineKind, name: &str) -> Option<Reservation> {
         let key = run_key(kind, name);
         self.active.lock().unwrap().insert(key.clone()).then(|| Reservation { runs: Arc::clone(self), key })
-    }
-
-    pub(super) fn is_active(&self, kind: RoutineKind, name: &str) -> bool {
-        self.active.lock().unwrap().contains(&run_key(kind, name))
     }
 }
 

@@ -299,7 +299,7 @@ impl WireCodec for MockCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         Box::<MockDecoder>::default()
     }
 
@@ -432,7 +432,7 @@ impl ProviderAdapter for MockProvider {
                 return Err(ProviderError::transport(fault, reached));
             }
         };
-        let mut decoder = self.codec.decoder();
+        let mut decoder = self.codec.decoder(&request);
         let mut events = VecDeque::new();
         let decoded = match decoder.feed(&wire) {
             Ok(mut head) => decoder.finish().map(|tail| {

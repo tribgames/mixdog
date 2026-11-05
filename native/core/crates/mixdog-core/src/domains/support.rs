@@ -1,8 +1,15 @@
 //! Plumbing the domain services of this module share: params decoding, coded failures that
 //! carry a sentence for the user, lane jobs, and the op gate of a mutation (P §9).
 
+use std::collections::HashMap;
 use std::future::Future;
+use std::io::Write as _;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::PoisonError;
 
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
@@ -45,21 +52,139 @@ pub(crate) fn wrong_method(namespace: &str, method: &str) -> CoreError {
     invalid("method", &format!("a method of {namespace}, not {method}"))
 }
 
-/// A refusal the user reads verbatim: `code` is the stable part, `message` the sentence the
-/// 1.4.5 daemon answered with.
-pub(crate) fn failed(domain: &'static str, code: &'static str, message: impl Into<String>) -> CoreError {
+/// A failure the 1.4.5 daemon threw as a plain `Error`: its wire answer is `{ error: message }`
+/// and no `code` (`call-route.mjs` adds one only when the error has it), so the sentence is the
+/// whole answer.
+pub(crate) fn failed(domain: &'static str, message: impl Into<String>) -> CoreError {
     CoreError::DomainError {
         domain: domain.into(),
-        code: code.into(),
+        code: None,
         detail: Some(Box::new(DomainErrorDetail::CommandFailed {
             message: message.into(),
         })),
     }
 }
 
+/// A failure whose `Error` carried `code` (`INSTRUCTION_FILE_CONFLICT`, a Node errno).
+pub(crate) fn coded(domain: &'static str, code: &str, message: impl Into<String>) -> CoreError {
+    CoreError::DomainError {
+        domain: domain.into(),
+        code: Some(code.into()),
+        detail: Some(Box::new(DomainErrorDetail::CommandFailed {
+            message: message.into(),
+        })),
+    }
+}
+
+/// The `fs` call of Node's code path that failed (`atomic-file.mjs` `publishFileSync`,
+/// `keepBackupSync`, and `rimraf`'s unlink for `rmSync`), which names the syscall and paths in
+/// the error text.
+#[derive(Debug)]
+pub(crate) enum FsStep {
+    /// `mkdirSync(dir, { recursive: true })`.
+    Mkdir(PathBuf),
+    /// `openSync(path, 'wx')` of the temp file, or `readFileSync` of the file being replaced.
+    Open(PathBuf),
+    /// `readFileSync` of a directory: the failing call is the `read` after the open.
+    Read,
+    /// `writeFileSync(fd, …)`.
+    Write,
+    /// `fsyncSync(fd)`.
+    Fsync,
+    /// `renameSync(from, to)`.
+    Rename(PathBuf, PathBuf),
+    /// `unlinkSync(path)`, as `rmSync(path, { force: true })` ends in for a file.
+    Unlink(PathBuf),
+    /// `rmSync(path)` on a directory, which Node refuses before any syscall.
+    RemoveDirectory(PathBuf),
+}
+
+/// A file operation that failed, with the step Node would have failed at.
+#[derive(Debug)]
+pub(crate) struct FsFailure {
+    pub error: std::io::Error,
+    pub step: FsStep,
+}
+
+impl FsFailure {
+    fn at(step: FsStep) -> impl FnOnce(std::io::Error) -> FsFailure {
+        move |error| FsFailure { error, step }
+    }
+}
+
+/// libuv's errno name and description for a failed call. Windows reports a denied access as
+/// `EPERM` (libuv translates `ERROR_ACCESS_DENIED` so), other systems as `EACCES`.
+fn errno_of(error: &std::io::Error) -> Option<(&'static str, &'static str)> {
+    use std::io::ErrorKind as Kind;
+    Some(match error.kind() {
+        Kind::NotFound => ("ENOENT", "no such file or directory"),
+        Kind::PermissionDenied if cfg!(windows) => ("EPERM", "operation not permitted"),
+        Kind::PermissionDenied => ("EACCES", "permission denied"),
+        Kind::AlreadyExists => ("EEXIST", "file already exists"),
+        Kind::IsADirectory => ("EISDIR", "illegal operation on a directory"),
+        Kind::NotADirectory => ("ENOTDIR", "not a directory"),
+        Kind::DirectoryNotEmpty => ("ENOTEMPTY", "directory not empty"),
+        Kind::StorageFull => ("ENOSPC", "no space left on device"),
+        Kind::ReadOnlyFilesystem => ("EROFS", "read-only file system"),
+        Kind::ResourceBusy => ("EBUSY", "resource busy or locked"),
+        _ => return None,
+    })
+}
+
+/// A failed file operation as Node throws it: `code` is the errno name and the text
+/// `<code>: <description>, <syscall> '<path>'` (`rename '<from>' -> '<to>'`). Kinds without a
+/// known errno keep Rust's text and no code.
+pub(crate) fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
+    if let FsStep::RemoveDirectory(path) = &failure.step {
+        return coded(
+            domain,
+            "ERR_FS_EISDIR",
+            format!(
+                "Path is a directory: rm returned EISDIR (is a directory) {}",
+                path.display()
+            ),
+        );
+    }
+    let Some((code, description)) = errno_of(&failure.error) else {
+        return failed(domain, failure.error.to_string());
+    };
+    let call = match &failure.step {
+        FsStep::Mkdir(path) => format!("mkdir '{}'", path.display()),
+        FsStep::Open(path) => format!("open '{}'", path.display()),
+        FsStep::Read => "read".to_owned(),
+        FsStep::Write => "write".to_owned(),
+        FsStep::Fsync => "fsync".to_owned(),
+        FsStep::Rename(from, to) => format!("rename '{}' -> '{}'", from.display(), to.display()),
+        FsStep::Unlink(path) => format!("unlink '{}'", path.display()),
+        FsStep::RemoveDirectory(_) => unreachable!("answered above"),
+    };
+    coded(domain, code, format!("{code}: {description}, {call}"))
+}
+
+/// `rmSync(path, { force: true })`: an absent file is fine, a directory is refused.
+pub(crate) fn remove_file_forced(path: &Path) -> Result<(), FsFailure> {
+    if path.is_dir() {
+        return Err(FsFailure {
+            error: std::io::ErrorKind::IsADirectory.into(),
+            step: FsStep::RemoveDirectory(path.to_owned()),
+        });
+    }
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(FsFailure {
+            error,
+            step: FsStep::Unlink(path.to_owned()),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// Runs `job` on `lane`. A full queue answers `queueFull` at once; a cancelled caller drops
 /// a job that has not started.
-pub(crate) async fn on_lane<L, R, F>(lane: L, cancel: &CancellationToken, job: F) -> Result<R, CoreError>
+pub(crate) async fn on_lane<L, R, F>(
+    lane: L,
+    cancel: &CancellationToken,
+    job: F,
+) -> Result<R, CoreError>
 where
     L: LaneToken,
     R: Send + 'static,
@@ -67,7 +192,9 @@ where
 {
     lane.submit(cancel, job)?
         .await
-        .map_err(|_| CoreError::Cancelled { by: "caller".into() })
+        .map_err(|_| CoreError::Cancelled {
+            by: "caller".into(),
+        })
 }
 
 /// The op gates of the mutating methods of one domain: its own scope's gate, and the
@@ -101,7 +228,11 @@ impl OpScopes {
         RF: Future<Output = Result<Value, CoreError>>,
     {
         let id = req.op.clone().ok_or(CoreError::OpIdRequired)?;
-        let thread = req.params.get("threadId").and_then(Value::as_str).map(ThreadId::from);
+        let thread = req
+            .params
+            .get("threadId")
+            .and_then(Value::as_str)
+            .map(ThreadId::from);
         let gate = match thread {
             Some(thread) => self.threads.gate(&thread, &req.ctx).await?,
             None => self.domain.clone(),
@@ -118,13 +249,18 @@ impl OpScopes {
             Begin::Execute(ticket) => ticket,
         };
         if let Some((effect, target)) = external {
-            ticket.external_pending(effect.into(), target.into()).await?;
+            ticket
+                .external_pending(effect.into(), target.into())
+                .await?;
         }
         match execute().await {
             Ok(value) => {
                 let stored = (value.to_string().len() <= STORED_RESULT_MAX).then(|| value.clone());
                 ticket
-                    .finish(OpOutcome::Applied(AppliedOp { seq: None, result: stored }))
+                    .finish(OpOutcome::Applied(AppliedOp {
+                        seq: None,
+                        result: stored,
+                    }))
                     .await?;
                 Ok(Reply::Value(value))
             }
@@ -136,13 +272,92 @@ impl OpScopes {
     }
 }
 
-/// What JavaScript's `trim()` treats as space.
-pub(crate) fn is_js_space(c: char) -> bool {
-    c.is_whitespace() || c == '\u{feff}'
+/// JavaScript's `\s` and `trim()` set, which is not `char::is_whitespace` (that one counts
+/// U+0085 and lacks U+FEFF).
+pub(crate) use mixdog_js::is_js_space;
+pub(crate) use mixdog_js::js_trim;
+
+/// A file that holds nothing but NULs and blanks has no data to keep.
+pub(crate) fn holds_no_data(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
 }
 
-pub(crate) fn js_trim(text: &str) -> &str {
-    text.trim_matches(is_js_space)
+/// The lock of one file: a mutation reads the state it checks and writes under it, so two
+/// writers (of any thread scope) never interleave their check and their write.
+pub(crate) fn path_lock(path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    locks.entry(path.to_owned()).or_default().clone()
+}
+
+/// `writeFileAtomicSync(path, bytes, { backup })`: the bytes go to a uniquely named sibling
+/// that is synced and renamed over `path`, so a reader sees the old file or the new one. With
+/// `backup`, the replaced version stays as `<path>.bak` unless it held no data.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8], backup: bool) -> Result<(), FsFailure> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(FsFailure::at(FsStep::Mkdir(dir.to_owned())))?;
+    }
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // No leading dot: cloud-sync drives refuse to create such a file. 8 random bytes in hex.
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let staging = path.with_file_name(format!("{name}.mixdog-tmp-{}", &suffix[..16]));
+    let published = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staging)
+            .map_err(FsFailure::at(FsStep::Open(staging.clone())))?;
+        file.write_all(bytes)
+            .map_err(FsFailure::at(FsStep::Write))?;
+        file.sync_all().map_err(FsFailure::at(FsStep::Fsync))?;
+        drop(file);
+        if backup {
+            keep_backup(path)?;
+        }
+        std::fs::rename(&staging, path).map_err(FsFailure::at(FsStep::Rename(
+            staging.clone(),
+            path.to_owned(),
+        )))
+    })();
+    if published.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    published
+}
+
+/// `keepBackupSync`: the file being replaced becomes `<path>.bak` unless it is absent or held
+/// no data. Any other read failure fails the write, as in Node.
+fn keep_backup(path: &Path) -> Result<(), FsFailure> {
+    let previous = match std::fs::read(path) {
+        Ok(previous) => previous,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) if path.is_dir() => {
+            return Err(FsFailure {
+                error: std::io::ErrorKind::IsADirectory.into(),
+                step: FsStep::Read,
+            });
+        }
+        Err(error) => {
+            return Err(FsFailure {
+                error,
+                step: FsStep::Open(path.to_owned()),
+            });
+        }
+    };
+    if holds_no_data(&previous) {
+        return Ok(());
+    }
+    let mut kept = path.as_os_str().to_owned();
+    kept.push(".bak");
+    write_atomic(Path::new(&kept), &previous, false)
 }
 
 /// Fixtures the tests of every domain service share.
@@ -177,9 +392,17 @@ pub(crate) mod testing {
     /// The op scopes of domain `name` over a `state/core.sqlite` in `dir`.
     pub(crate) async fn scopes(dir: &std::path::Path, name: &str) -> OpScopes {
         let t = mixdog_rt::testing::tokens();
-        let state = CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.join("core.sqlite")).unwrap().0;
+        let state = CoreState::open(
+            t.sqlite_writer_thread,
+            t.interactive_io,
+            &dir.join("core.sqlite"),
+        )
+        .unwrap()
+        .0;
         let store = Arc::new(StateOpStore::new(state, name.into()));
-        let gate = OpGate::domain(OpScope::Domain(name.into()), store).await.unwrap();
+        let gate = OpGate::domain(OpScope::Domain(name.into()), store)
+            .await
+            .unwrap();
         OpScopes::new(gate.clone(), Arc::new(SharedGate(gate)))
     }
 
@@ -203,7 +426,10 @@ pub(crate) mod testing {
         params
     }
 
-    pub(crate) async fn value(service: &dyn DomainService, req: CoreRequest) -> Result<Value, CoreError> {
+    pub(crate) async fn value(
+        service: &dyn DomainService,
+        req: CoreRequest,
+    ) -> Result<Value, CoreError> {
         match service.call(req).await? {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => panic!("never subscribes"),

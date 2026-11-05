@@ -3,12 +3,9 @@
 //! `checkpoint`; rotated at `ROTATE_AT` with a `checkpoint` first in each later file.
 //! Byte-identical on every run (SM §11.3.4).
 
-use mixdog_protocol::BlobDescriptor;
-use mixdog_protocol::BlobDigest;
 use mixdog_protocol::INLINE_MAX;
 use mixdog_protocol::MAX_BLOB_BYTES;
-use mixdog_store::schema::blob::BODY_MEDIA_TYPE;
-use mixdog_store::schema::blob::BodyBlob;
+use mixdog_store::encode::EncodeError;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::bounded::Digest;
 use mixdog_store::schema::bounded::List;
@@ -61,27 +58,21 @@ pub fn log_id(manifest_sha256: &str, id: &str) -> String {
 
 /// A body slot: inline up to `INLINE_MAX` encoded bytes, else a published blob.
 fn slot<T: Serialize>(cx: &ItemContext<'_>, value: T) -> R<(Slot<T>, Option<String>)> {
-    let bytes = serde_json::to_vec(&value).expect("values encode");
-    if bytes.len() <= INLINE_MAX {
-        return Ok((Slot::Inline(value), None));
-    }
-    if bytes.len() as u64 > MAX_BLOB_BYTES {
-        return Err(Fail::Quarantine(
+    slot_within(cx, value, INLINE_MAX).map(|(slot, hex, _)| (slot, hex))
+}
+
+/// The store's slot rule with `budget` inline bytes (FORMAT.md §4.2), its blob published:
+/// the slot, the blob's hex, and the inline bytes taken (0 for a blob).
+fn slot_within<T: Serialize>(cx: &ItemContext<'_>, value: T, budget: usize) -> R<(Slot<T>, Option<String>, usize)> {
+    match mixdog_store::encode::slot_within(value, budget) {
+        Ok((slot, None, used)) => Ok((slot, None, used)),
+        Ok((slot, Some(blob), used)) => Ok((slot, Some(cx.put_blob(&blob.bytes)?), used)),
+        Err(EncodeError::ItemTooLarge { bytes }) => Err(Fail::Quarantine(
             QuarantineCode::ItemTooLarge,
-            format!("a body of {} bytes exceeds {MAX_BLOB_BYTES}", bytes.len()),
-        ));
+            format!("a body of {bytes} bytes exceeds {MAX_BLOB_BYTES}"),
+        )),
+        Err(e) => panic!("a slot value encodes: {e}"),
     }
-    let hex = cx.put_blob(&bytes)?;
-    let digest = format!("sha256:{hex}");
-    let descriptor = BlobDescriptor {
-        digest: BlobDigest::try_from(digest).expect("a computed digest is well formed"),
-        bytes: bytes.len() as u64,
-        media_type: BODY_MEDIA_TYPE.to_string(),
-    };
-    Ok((
-        Slot::Blob(BodyBlob::try_from(descriptor).expect("a body descriptor")),
-        Some(hex),
-    ))
 }
 
 struct Builder<'a> {
@@ -144,10 +135,18 @@ impl Builder<'_> {
     }
 
     fn row(&mut self, row: &Row) -> R<()> {
-        let (body, blob) = slot(self.cx, row.body.clone())?;
+        let (body, blob, used) = slot_within(self.cx, row.body.clone(), INLINE_MAX)?;
+        let (prompt, prompt_blob) = match row.prompt.clone() {
+            Some(text) => {
+                let (slot, hex, _) = slot_within(self.cx, text, INLINE_MAX - used)?;
+                (Some(slot), hex)
+            }
+            None => (None, None),
+        };
         let mut refs = std::collections::BTreeSet::new();
         attachment_refs(&row.body, &mut refs);
         refs.extend(blob);
+        refs.extend(prompt_blob);
         let refs: Vec<Digest> = refs
             .into_iter()
             .map(|h| Digest::try_from(format!("sha256:{h}")).expect("hex digest"))
@@ -162,7 +161,7 @@ impl Builder<'_> {
             visible: row.visible,
             archive: row.archive.clone(),
             op: None,
-            prompt: row.prompt.clone(),
+            prompt,
             refs: List::try_from(refs).or_else(|e| violation(format!("refs: {e}")))?,
             body,
         });

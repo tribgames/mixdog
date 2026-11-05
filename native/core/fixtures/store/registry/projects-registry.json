@@ -1,0 +1,1483 @@
+{
+  "cases": [
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 10,
+            "name": "b",
+            "path": "<ABS>/b"
+          },
+          {
+            "addedAt": 10,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": 5,
+            "lastSelectedAt": 50,
+            "name": "c",
+            "path": "<ABS>/c"
+          },
+          {
+            "addedAt": 10,
+            "name": "a",
+            "path": "<ABS>/z"
+          },
+          {
+            "addedAt": 10,
+            "name": "Z",
+            "path": "<ABS>/zz"
+          },
+          {
+            "addedAt": 10,
+            "name": "é",
+            "path": "<ABS>/e"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"name\":\"b\",\"path\":\"<ABS>/b\",\"addedAt\":10},{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":10},{\"name\":\"c\",\"path\":\"<ABS>/c\",\"addedAt\":5,\"lastSelectedAt\":50},{\"name\":\"a\",\"path\":\"<ABS>/z\",\"addedAt\":10},{\"name\":\"Z\",\"path\":\"<ABS>/zz\",\"addedAt\":10},{\"name\":\"é\",\"path\":\"<ABS>/e\",\"addedAt\":10}]}",
+      "markers": {},
+      "name": "sorted-by-recency-then-name-then-path",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "listStrict"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": [
+            {
+              "addedAt": 5,
+              "lastSelectedAt": 50,
+              "name": "c",
+              "path": "<ABS>/c"
+            },
+            {
+              "addedAt": 10,
+              "name": "a",
+              "path": "<ABS>/a"
+            },
+            {
+              "addedAt": 10,
+              "name": "a",
+              "path": "<ABS>/z"
+            },
+            {
+              "addedAt": 10,
+              "name": "b",
+              "path": "<ABS>/b"
+            },
+            {
+              "addedAt": 10,
+              "name": "é",
+              "path": "<ABS>/e"
+            },
+            {
+              "addedAt": 10,
+              "name": "Z",
+              "path": "<ABS>/zz"
+            }
+          ]
+        },
+        {
+          "ok": [
+            {
+              "addedAt": 5,
+              "lastSelectedAt": 50,
+              "name": "c",
+              "path": "<ABS>/c"
+            },
+            {
+              "addedAt": 10,
+              "name": "a",
+              "path": "<ABS>/a"
+            },
+            {
+              "addedAt": 10,
+              "name": "a",
+              "path": "<ABS>/z"
+            },
+            {
+              "addedAt": 10,
+              "name": "b",
+              "path": "<ABS>/b"
+            },
+            {
+              "addedAt": 10,
+              "name": "é",
+              "path": "<ABS>/e"
+            },
+            {
+              "addedAt": 10,
+              "name": "Z",
+              "path": "<ABS>/zz"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "path": "rel/dir"
+          },
+          {
+            "addedAt": "bad",
+            "lastSelectedAt": -4,
+            "name": "",
+            "path": "<ABS>/x"
+          },
+          {
+            "name": "nopath"
+          },
+          {
+            "path": "   "
+          },
+          null,
+          7,
+          {
+            "addedAt": 3,
+            "extra": 1,
+            "lastSelectedAt": 9,
+            "name": "y",
+            "path": "<ABS>/y"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"path\":\"rel/dir\"},{\"path\":\"<ABS>/x\",\"name\":\"\",\"addedAt\":\"bad\",\"lastSelectedAt\":-4},{\"name\":\"nopath\"},{\"path\":\"   \"},null,7,{\"path\":\"<ABS>/y\",\"name\":\"y\",\"addedAt\":3,\"lastSelectedAt\":9,\"extra\":1}]}",
+      "markers": {},
+      "name": "tolerant-list-keeps-relative-and-fills-defaults",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "listStrict"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": [
+            {
+              "addedAt": 3,
+              "lastSelectedAt": 9,
+              "name": "y",
+              "path": "<ABS>/y"
+            },
+            {
+              "addedAt": 0,
+              "name": "dir",
+              "path": "rel/dir"
+            },
+            {
+              "addedAt": 0,
+              "name": "x",
+              "path": "<ABS>/x"
+            }
+          ]
+        },
+        {
+          "ok": [
+            {
+              "addedAt": 3,
+              "lastSelectedAt": 9,
+              "name": "y",
+              "path": "<ABS>/y"
+            },
+            {
+              "addedAt": 0,
+              "name": "x",
+              "path": "<ABS>/x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 0,
+            "name": "5",
+            "path": "<ABS>/n1"
+          },
+          {
+            "addedAt": 0,
+            "name": "true",
+            "path": "<ABS>/n2"
+          },
+          {
+            "addedAt": 0,
+            "name": "1,2,3",
+            "path": "<ABS>/n3"
+          },
+          {
+            "addedAt": 0,
+            "name": "[object Object]",
+            "path": "<ABS>/n4"
+          },
+          {
+            "addedAt": 0,
+            "name": "n5",
+            "path": "<ABS>/n5"
+          },
+          {
+            "addedAt": 0,
+            "name": "n6",
+            "path": "<ABS>/n6"
+          },
+          {
+            "addedAt": 0,
+            "name": "n7",
+            "path": "<ABS>/n7"
+          },
+          {
+            "addedAt": 0,
+            "name": "n8",
+            "path": "<ABS>/n8"
+          },
+          {
+            "addedAt": 0,
+            "name": "1.5",
+            "path": "<ABS>/n9"
+          },
+          {
+            "addedAt": 0,
+            "name": "",
+            "path": "<ABS>/n10"
+          },
+          {
+            "addedAt": 0,
+            "name": ",[object Object],x",
+            "path": "<ABS>/n11"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "added",
+            "path": "<ABS>/added"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": {
+        "projects": [
+          {
+            "name": 5,
+            "path": "<ABS>/n1"
+          },
+          {
+            "name": true,
+            "path": "<ABS>/n2"
+          },
+          {
+            "name": [
+              1,
+              [
+                2,
+                3
+              ]
+            ],
+            "path": "<ABS>/n3"
+          },
+          {
+            "name": {},
+            "path": "<ABS>/n4"
+          },
+          {
+            "name": 0,
+            "path": "<ABS>/n5"
+          },
+          {
+            "name": false,
+            "path": "<ABS>/n6"
+          },
+          {
+            "name": null,
+            "path": "<ABS>/n7"
+          },
+          {
+            "name": "",
+            "path": "<ABS>/n8"
+          },
+          {
+            "name": 1.5,
+            "path": "<ABS>/n9"
+          },
+          {
+            "name": [],
+            "path": "<ABS>/n10"
+          },
+          {
+            "name": [
+              null,
+              {
+                "a": 1
+              },
+              "x"
+            ],
+            "path": "<ABS>/n11"
+          }
+        ]
+      },
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"path\":\"<ABS>/n1\",\"name\":5},{\"path\":\"<ABS>/n2\",\"name\":true},{\"path\":\"<ABS>/n3\",\"name\":[1,[2,3]]},{\"path\":\"<ABS>/n4\",\"name\":{}},{\"path\":\"<ABS>/n5\",\"name\":0},{\"path\":\"<ABS>/n6\",\"name\":false},{\"path\":\"<ABS>/n7\",\"name\":null},{\"path\":\"<ABS>/n8\",\"name\":\"\"},{\"path\":\"<ABS>/n9\",\"name\":1.5},{\"path\":\"<ABS>/n10\",\"name\":[]},{\"path\":\"<ABS>/n11\",\"name\":[null,{\"a\":1},\"x\"]}]}",
+      "markers": {},
+      "name": "name-is-coerced_with_string_semantics",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "add",
+          "path": "<ABS>/added"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": [
+            {
+              "addedAt": 0,
+              "name": "",
+              "path": "<ABS>/n10"
+            },
+            {
+              "addedAt": 0,
+              "name": ",[object Object],x",
+              "path": "<ABS>/n11"
+            },
+            {
+              "addedAt": 0,
+              "name": "[object Object]",
+              "path": "<ABS>/n4"
+            },
+            {
+              "addedAt": 0,
+              "name": "1,2,3",
+              "path": "<ABS>/n3"
+            },
+            {
+              "addedAt": 0,
+              "name": "1.5",
+              "path": "<ABS>/n9"
+            },
+            {
+              "addedAt": 0,
+              "name": "5",
+              "path": "<ABS>/n1"
+            },
+            {
+              "addedAt": 0,
+              "name": "n5",
+              "path": "<ABS>/n5"
+            },
+            {
+              "addedAt": 0,
+              "name": "n6",
+              "path": "<ABS>/n6"
+            },
+            {
+              "addedAt": 0,
+              "name": "n7",
+              "path": "<ABS>/n7"
+            },
+            {
+              "addedAt": 0,
+              "name": "n8",
+              "path": "<ABS>/n8"
+            },
+            {
+              "addedAt": 0,
+              "name": "true",
+              "path": "<ABS>/n2"
+            }
+          ]
+        },
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "added",
+            "path": "<ABS>/added"
+          }
+        },
+        {
+          "ok": [
+            {
+              "addedAt": "<now>",
+              "name": "added",
+              "path": "<ABS>/added"
+            },
+            {
+              "addedAt": 0,
+              "name": ",[object Object],x",
+              "path": "<ABS>/n11"
+            },
+            {
+              "addedAt": 0,
+              "name": "[object Object]",
+              "path": "<ABS>/n4"
+            },
+            {
+              "addedAt": 0,
+              "name": "1,2,3",
+              "path": "<ABS>/n3"
+            },
+            {
+              "addedAt": 0,
+              "name": "1.5",
+              "path": "<ABS>/n9"
+            },
+            {
+              "addedAt": 0,
+              "name": "5",
+              "path": "<ABS>/n1"
+            },
+            {
+              "addedAt": 0,
+              "name": "n10",
+              "path": "<ABS>/n10"
+            },
+            {
+              "addedAt": 0,
+              "name": "n5",
+              "path": "<ABS>/n5"
+            },
+            {
+              "addedAt": 0,
+              "name": "n6",
+              "path": "<ABS>/n6"
+            },
+            {
+              "addedAt": 0,
+              "name": "n7",
+              "path": "<ABS>/n7"
+            },
+            {
+              "addedAt": 0,
+              "name": "n8",
+              "path": "<ABS>/n8"
+            },
+            {
+              "addedAt": 0,
+              "name": "true",
+              "path": "<ABS>/n2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "name": "ok",
+            "path": "<ABS>/ok"
+          },
+          {
+            "name": {
+              "toString": 1
+            },
+            "path": "<ABS>/bad"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"path\":\"<ABS>/ok\",\"name\":\"ok\"},{\"path\":\"<ABS>/bad\",\"name\":{\"toString\":1}}]}",
+      "markers": {},
+      "name": "name-that-cannot-be-stringified",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "listStrict"
+        },
+        {
+          "op": "add",
+          "path": "<ABS>/added"
+        },
+        {
+          "op": "remove",
+          "path": "<ABS>/ok"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": []
+        },
+        {
+          "thrown": true
+        },
+        {
+          "thrown": true
+        },
+        {
+          "thrown": true
+        },
+        {
+          "ok": []
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "name": [
+              1,
+              {
+                "toString": null
+              }
+            ],
+            "path": "<ABS>/bad"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"path\":\"<ABS>/bad\",\"name\":[1,{\"toString\":null}]}]}",
+      "markers": {},
+      "name": "name-with-nested-unstringifiable-element",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "name": "x",
+          "op": "rename",
+          "path": "<ABS>/bad"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": []
+        },
+        {
+          "thrown": true
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": {
+          "a": 1
+        }
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":{\"a\":1}}",
+      "markers": {},
+      "name": "projects-not-an-array",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "listStrict"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": []
+        },
+        {
+          "ok": []
+        }
+      ]
+    },
+    {
+      "after": null,
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": null,
+      "markers": {},
+      "name": "missing-file",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "listStrict"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": []
+        },
+        {
+          "ok": []
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "﻿{\"projects\":[{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100}]}",
+      "markers": {},
+      "name": "bom-prefixed-file",
+      "ops": [
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": [
+            {
+              "addedAt": 100,
+              "name": "a",
+              "path": "<ABS>/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": null,
+      "aside": 1,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{ \"projects\": [",
+      "markers": {},
+      "name": "damaged-without-backup",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": []
+        },
+        {
+          "ok": []
+        }
+      ]
+    },
+    {
+      "after": null,
+      "aside": 1,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "\u0000\u0000\u0000\u0000",
+      "markers": {},
+      "name": "nul-filled-file",
+      "ops": [
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": []
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 7,
+            "name": "good",
+            "path": "<ABS>/good"
+          }
+        ]
+      },
+      "aside": 1,
+      "backup": {
+        "projects": [
+          {
+            "addedAt": 7,
+            "name": "good",
+            "path": "<ABS>/good"
+          }
+        ]
+      },
+      "bak": "{\"projects\":[{\"name\":\"good\",\"path\":\"<ABS>/good\",\"addedAt\":7}]}",
+      "dirs": [],
+      "file": "{ nope",
+      "markers": {},
+      "name": "damaged-with-backup-restores-it",
+      "ops": [
+        {
+          "op": "list"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": [
+            {
+              "addedAt": 7,
+              "name": "good",
+              "path": "<ABS>/good"
+            }
+          ]
+        },
+        {
+          "ok": [
+            {
+              "addedAt": 7,
+              "name": "good",
+              "path": "<ABS>/good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "n",
+            "path": "<ABS>/n"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "a",
+            "path": "<ABS>/a"
+          }
+        ]
+      },
+      "bak": null,
+      "dirs": [
+        "a",
+        "n"
+      ],
+      "file": "{\"projects\":[{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100}]}",
+      "markers": {
+        "a": "a\n",
+        "n": "n\n"
+      },
+      "name": "add-dedupes-by-normalized-path",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/a"
+        },
+        {
+          "op": "add",
+          "path": "<ABS>/a/"
+        },
+        {
+          "op": "add",
+          "path": "<ABS>/n"
+        },
+        {
+          "op": "add",
+          "path": ""
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "a",
+            "path": "<ABS>/a"
+          }
+        },
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "a",
+            "path": "<ABS>/a"
+          }
+        },
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "n",
+            "path": "<ABS>/n"
+          }
+        },
+        {
+          "ok": null
+        },
+        {
+          "ok": [
+            {
+              "addedAt": "<now>",
+              "name": "n",
+              "path": "<ABS>/n"
+            },
+            {
+              "addedAt": "<now>",
+              "name": "a",
+              "path": "<ABS>/a"
+            },
+            {
+              "addedAt": 100,
+              "name": "a",
+              "path": "<ABS>/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": "<now>",
+            "name": "proj",
+            "path": "<ABS>/rel/proj"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [
+        "rel/proj"
+      ],
+      "file": null,
+      "markers": {
+        "rel/proj": "proj\n"
+      },
+      "name": "add-resolves-relative-against-cwd",
+      "ops": [
+        {
+          "op": "add",
+          "path": "rel/proj"
+        },
+        {
+          "op": "add",
+          "path": "rel/../rel/proj/."
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "proj",
+            "path": "<ABS>/rel/proj"
+          }
+        },
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "proj",
+            "path": "<ABS>/rel/proj"
+          }
+        },
+        {
+          "ok": [
+            {
+              "addedAt": "<now>",
+              "name": "proj",
+              "path": "<ABS>/rel/proj"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": "<now>",
+            "name": "m",
+            "path": "<ABS>/m"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [
+        "m/.mixdog"
+      ],
+      "file": null,
+      "markers": {},
+      "name": "add-existing-marker-is-preserved",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/m"
+        }
+      ],
+      "preset": {
+        "m/.mixdog/project.id": "custom\n"
+      },
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "m",
+            "path": "<ABS>/m"
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": "<now>",
+            "name": "m",
+            "path": "<ABS>/m"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [
+        "m/.mixdog"
+      ],
+      "file": null,
+      "markers": {},
+      "name": "add-blank-marker-is-rewritten",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/m"
+        }
+      ],
+      "preset": {
+        "m/.mixdog/project.id": "\u0000\u0000"
+      },
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "m",
+            "path": "<ABS>/m"
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": "<now>",
+            "name": "ghost",
+            "path": "<ABS>/ghost"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": null,
+      "markers": {},
+      "name": "add-missing-directory-writes-no-marker",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/ghost"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "ghost",
+            "path": "<ABS>/ghost"
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": "<now>",
+            "name": "common",
+            "path": "<ABS>/common"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [
+        "common"
+      ],
+      "file": null,
+      "markers": {},
+      "name": "add-common-name-writes-no-marker",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/common"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "common",
+            "path": "<ABS>/common"
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": 100,
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [
+        "a"
+      ],
+      "file": "{\"projects\":[{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100},{\"name\":\"b\",\"path\":\"<ABS>/b\",\"addedAt\":100}]}",
+      "markers": {},
+      "name": "touch-selected",
+      "ops": [
+        {
+          "op": "touch",
+          "path": "<ABS>/b"
+        },
+        {
+          "op": "touch",
+          "path": "<ABS>/none"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": null
+        },
+        {
+          "ok": null
+        },
+        {
+          "ok": [
+            {
+              "addedAt": 100,
+              "name": "a",
+              "path": "<ABS>/a"
+            },
+            {
+              "addedAt": 100,
+              "name": "b",
+              "path": "<ABS>/b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": 100,
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100},{\"name\":\"b\",\"path\":\"<ABS>/b\",\"addedAt\":100}]}",
+      "markers": {},
+      "name": "remove",
+      "ops": [
+        {
+          "op": "remove",
+          "path": "<ABS>/a"
+        },
+        {
+          "op": "remove",
+          "path": "<ABS>/a"
+        },
+        {
+          "op": "remove",
+          "path": ""
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": false
+        },
+        {
+          "ok": false
+        },
+        {
+          "ok": false
+        },
+        {
+          "ok": [
+            {
+              "addedAt": 100,
+              "name": "a",
+              "path": "<ABS>/a"
+            },
+            {
+              "addedAt": 100,
+              "name": "b",
+              "path": "<ABS>/b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": 100,
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": null,
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100},{\"name\":\"b\",\"path\":\"<ABS>/b\",\"addedAt\":100}]}",
+      "markers": {},
+      "name": "rename",
+      "ops": [
+        {
+          "name": "  Alpha ",
+          "op": "rename",
+          "path": "<ABS>/a"
+        },
+        {
+          "name": "   ",
+          "op": "rename",
+          "path": "<ABS>/b"
+        },
+        {
+          "name": "x",
+          "op": "rename",
+          "path": "<ABS>/none"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": null
+        },
+        {
+          "ok": null
+        },
+        {
+          "ok": null
+        },
+        {
+          "ok": [
+            {
+              "addedAt": 100,
+              "name": "a",
+              "path": "<ABS>/a"
+            },
+            {
+              "addedAt": 100,
+              "name": "b",
+              "path": "<ABS>/b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": {
+        "projects": [
+          {
+            "path": "rel"
+          },
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          }
+        ]
+      },
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"path\":\"rel\"},{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100}]}",
+      "markers": {},
+      "name": "mutation-drops-entries-without-absolute-path",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/b"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        },
+        {
+          "ok": [
+            {
+              "addedAt": "<now>",
+              "name": "b",
+              "path": "<ABS>/b"
+            },
+            {
+              "addedAt": 100,
+              "name": "a",
+              "path": "<ABS>/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "old",
+            "path": "<ABS>/old"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "new",
+            "path": "<ABS>/new"
+          }
+        ]
+      },
+      "aside": 1,
+      "backup": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "old",
+            "path": "<ABS>/old"
+          }
+        ]
+      },
+      "bak": "{\"projects\":[{\"name\":\"old\",\"path\":\"<ABS>/old\",\"addedAt\":100}]}",
+      "dirs": [],
+      "file": "{ x",
+      "markers": {},
+      "name": "mutation-on-damaged-file-keeps-it-aside-and-restores-backup",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/new"
+        },
+        {
+          "op": "list"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "new",
+            "path": "<ABS>/new"
+          }
+        },
+        {
+          "ok": [
+            {
+              "addedAt": "<now>",
+              "name": "new",
+              "path": "<ABS>/new"
+            },
+            {
+              "addedAt": 100,
+              "name": "old",
+              "path": "<ABS>/old"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          },
+          {
+            "addedAt": "<now>",
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        ]
+      },
+      "aside": 0,
+      "backup": {
+        "projects": [
+          {
+            "addedAt": 100,
+            "name": "a",
+            "path": "<ABS>/a"
+          }
+        ]
+      },
+      "bak": null,
+      "dirs": [],
+      "file": "{\"projects\":[{\"name\":\"a\",\"path\":\"<ABS>/a\",\"addedAt\":100}]}",
+      "markers": {},
+      "name": "mutation-keeps-previous-version-as-backup",
+      "ops": [
+        {
+          "op": "add",
+          "path": "<ABS>/b"
+        }
+      ],
+      "preset": {},
+      "results": [
+        {
+          "ok": {
+            "addedAt": "<now>",
+            "name": "b",
+            "path": "<ABS>/b"
+          }
+        }
+      ]
+    }
+  ],
+  "domain": "projects-registry",
+  "recorder": "benchmarks/rust-core/recorders/record-store-registry.mjs"
+}

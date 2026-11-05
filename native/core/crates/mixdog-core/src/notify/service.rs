@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 use super::engine::{Audience, NotificationEngine, Plan, PushRequest, TestTarget};
 use crate::domains::OpScopes;
-use crate::domains::support::{decode, failed, wrong_method};
+use crate::domains::support::{coded, decode, wrong_method};
 
 /// `target` of `notify/test` that names this PC (`NOTIFICATION_PC_DEVICE_ID`).
 const PC_DEVICE: &str = "pc";
@@ -120,8 +120,12 @@ impl DomainService for NotifyService {
             .await;
         outcome.map_err(|error| match error {
             CoreError::DomainError { .. } => error,
-            other => failed("notify", "testFailed", format!("{other:?}")),
+            other => coded("notify", "testFailed", format!("{other:?}")),
         })
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &["notify/test"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

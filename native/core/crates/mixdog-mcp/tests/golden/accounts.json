@@ -1,0 +1,1117 @@
+{
+ "scenarios": [
+  {
+   "name": "defaults and naming",
+   "connector": "linear",
+   "accounts": [
+    {
+     "name": "linear",
+     "id": "linear|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "linear-2",
+     "id": "linear-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "linear-2",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "LINEAR-2",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "  B@Example.com  ",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": " b@example.com ",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "nobody",
+     "expect": {
+      "error": "No connected Linear account is \"nobody\". Usable Linear accounts: a@example.com, b@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": 5,
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "   ",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": null,
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "shared address makes labels and ambiguity",
+   "connector": "notion",
+   "accounts": [
+    {
+     "name": "notion",
+     "id": "notion|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "notion-2",
+     "id": "notion-2|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "notion-3",
+     "id": "notion-3|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "notion",
+       "label": "a@example.com (notion)"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "a@example.com",
+     "expect": {
+      "error": "\"a@example.com\" is more than one Notion account (notion, notion-2); name one. Usable Notion accounts: a@example.com (notion), a@example.com (notion-2), b@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "a@example.com (notion-2)",
+     "expect": {
+      "ok": {
+       "name": "notion-2",
+       "label": "a@example.com (notion-2)"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "notion-3",
+     "expect": {
+      "ok": {
+       "name": "notion-3",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "b@example.com",
+     "expect": {
+      "ok": {
+       "name": "notion-3",
+       "label": "b@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "account without an address is called by its name",
+   "connector": "postgres",
+   "accounts": [
+    {
+     "name": "postgres",
+     "id": "postgres|",
+     "email": "",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "postgres-2",
+     "id": "postgres-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "postgres",
+       "label": "postgres"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "postgres",
+     "expect": {
+      "ok": {
+       "name": "postgres",
+       "label": "postgres"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "x",
+     "expect": {
+      "error": "No connected Postgres account is \"x\". Usable Postgres accounts: postgres, b@example.com. Pass one as `account`."
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "last used in the conversation and by the connector",
+   "connector": "linear",
+   "accounts": [
+    {
+     "name": "linear",
+     "id": "linear|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "linear-2",
+     "id": "linear-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\n  \"linear\": {\n    \"name\": \"linear-2\",\n    \"id\": \"linear-2|b@example.com\"\n  }\n}\n"
+    },
+    {
+     "op": "state",
+     "file": "conv",
+     "raw": "{\n  \"conv-1\": {\n    \"accounts\": {\n      \"linear\": {\n        \"name\": \"linear-2\",\n        \"id\": \"linear-2|b@example.com\"\n      }\n    }\n  }\n}\n"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-1",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-2",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\n  \"linear\": {\n    \"name\": \"linear\",\n    \"id\": \"linear|a@example.com\"\n  }\n}\n"
+    },
+    {
+     "op": "state",
+     "file": "conv",
+     "raw": "{\n  \"conv-1\": {\n    \"accounts\": {\n      \"linear\": {\n        \"name\": \"linear-2\",\n        \"id\": \"linear-2|b@example.com\"\n      }\n    }\n  },\n  \"conv-2\": {\n    \"accounts\": {\n      \"linear\": {\n        \"name\": \"linear\",\n        \"id\": \"linear|a@example.com\"\n      }\n    }\n  }\n}\n"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-1",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-2",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-3",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "a remembered account is its identity",
+   "connector": "linear",
+   "accounts": [
+    {
+     "name": "linear",
+     "id": "linear|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "linear-2",
+     "id": "added-later",
+     "email": "new@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l1",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":\"linear-2\"}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l3",
+     "expect": {
+      "error": "The Linear account used last (linear-2) cannot be confirmed as the same account. Usable Linear accounts: a@example.com, new@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":{\"name\":\"linear-2\",\"id\":\"linear-2|b@example.com\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l2",
+     "expect": {
+      "error": "The Linear account used last (linear-2 (removed)) is not connected now. Usable Linear accounts: a@example.com, new@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":{\"name\":\"linear-2\",\"id\":\"added-later\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l2",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "new@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":{\"name\":\"gone\",\"id\":\"x\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l2",
+     "expect": {
+      "error": "The Linear account used last (gone) is not connected now. Usable Linear accounts: a@example.com, new@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":{\"name\":\"linear\",\"id\":\"\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l2",
+     "expect": {
+      "error": "The Linear account used last (linear) cannot be confirmed as the same account. Usable Linear accounts: a@example.com, new@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":{\"name\":\"\",\"id\":\"x\"},\"#ids\":true}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l2",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":7}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l2",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "conv",
+     "raw": "{\"conv-l9\":{\"accounts\":{\"linear\":{\"name\":\"linear-2\",\"id\":\"linear-2|b@example.com\"}}}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l9",
+     "expect": {
+      "error": "The Linear account used last (linear-2 (removed)) is not connected now. Usable Linear accounts: a@example.com, new@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "state",
+     "file": "conv",
+     "raw": "{\"conv-l9\":{\"accounts\":\"x\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l9",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "conv",
+     "raw": "{\"conv-l9\":\"x\"}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "conv-l9",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "an account that needs a sign-in",
+   "connector": "stripe",
+   "accounts": [
+    {
+     "name": "stripe",
+     "id": "stripe|a@example.com",
+     "email": "a@example.com",
+     "authRequired": true,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "stripe-2",
+     "id": "stripe-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "stripe-3",
+     "id": "stripe-3|c@example.com",
+     "email": "c@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "error": "a@example.com needs a sign-in in Connectors. Usable Stripe accounts: b@example.com, c@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "stripe",
+     "expect": {
+      "error": "a@example.com needs a sign-in in Connectors. Usable Stripe accounts: b@example.com, c@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "stripe-2",
+     "expect": {
+      "ok": {
+       "name": "stripe-2",
+       "label": "b@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "every account needs a sign-in",
+   "connector": "stripe",
+   "accounts": [
+    {
+     "name": "stripe",
+     "id": "stripe|a@example.com",
+     "email": "a@example.com",
+     "authRequired": true,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": []
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "error": "a@example.com needs a sign-in in Connectors. Usable Stripe accounts: none. Pass one as `account`."
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "an account without the tool",
+   "connector": "jira",
+   "accounts": [
+    {
+     "name": "jira",
+     "id": "jira|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "jira-2",
+     "id": "jira-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "choose",
+     "tool": "create",
+     "conversation": "",
+     "wanted": "jira-2",
+     "expect": {
+      "error": "b@example.com has no create tool. Usable Jira accounts: a@example.com, b@example.com. Pass one as `account`."
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "jira-2",
+     "expect": {
+      "ok": {
+       "name": "jira-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "unlisted_helper",
+     "conversation": "",
+     "wanted": "jira-2",
+     "expect": {
+      "ok": {
+       "name": "jira-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "create",
+     "conversation": "",
+     "wanted": "jira",
+     "expect": {
+      "ok": {
+       "name": "jira",
+       "label": "a@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "a tool two accounts list differently is left out and not checked",
+   "connector": "jira",
+   "accounts": [
+    {
+     "name": "jira",
+     "id": "jira|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "x",
+      "search"
+     ]
+    },
+    {
+     "name": "jira-2",
+     "id": "jira-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "x"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search"
+     ]
+    },
+    {
+     "op": "choose",
+     "tool": "x",
+     "conversation": "",
+     "wanted": "jira-2",
+     "expect": {
+      "ok": {
+       "name": "jira-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "wanted": "jira-2",
+     "expect": {
+      "error": "b@example.com has no search tool. Usable Jira accounts: a@example.com, b@example.com. Pass one as `account`."
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "before any account answered nothing is checked against its tools",
+   "connector": "jira",
+   "accounts": [
+    {
+     "name": "jira",
+     "id": "jira|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "choose",
+     "tool": "create",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "jira",
+       "label": "a@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 0
+  },
+  {
+   "name": "damaged state files",
+   "connector": "linear",
+   "accounts": [
+    {
+     "name": "linear",
+     "id": "linear|a@example.com",
+     "email": "a@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "name": "linear-2",
+     "id": "linear-2|b@example.com",
+     "email": "b@example.com",
+     "authRequired": false,
+     "tools": [
+      "search",
+      "create"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "op": "init",
+     "listed": [
+      "search",
+      "create"
+     ]
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "not json"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "[]"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "linear",
+       "label": "a@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "﻿{\"linear\":{\"name\":\"linear-2\",\"id\":\"linear-2|b@example.com\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "in-use",
+     "raw": "{\"linear\":"
+    },
+    {
+     "op": "backup",
+     "file": "in-use",
+     "raw": "{\"linear\":{\"name\":\"linear-2\",\"id\":\"linear-2|b@example.com\"}}"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    },
+    {
+     "op": "state",
+     "file": "conv",
+     "raw": "\u0000\u0000"
+    },
+    {
+     "op": "choose",
+     "tool": "search",
+     "conversation": "c",
+     "expect": {
+      "ok": {
+       "name": "linear-2",
+       "label": "b@example.com"
+      }
+     }
+    }
+   ],
+   "leftover": 4
+  }
+ ],
+ "names": [
+  {
+   "name": "mcp__a__b",
+   "parts": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "name": "mcp__a__b__c",
+   "parts": [
+    "a",
+    "b__c"
+   ]
+  },
+  {
+   "name": "mcp____x__y",
+   "parts": [
+    "__x",
+    "y"
+   ]
+  },
+  {
+   "name": "mcp__a__",
+   "parts": []
+  },
+  {
+   "name": "mcp__a",
+   "parts": []
+  },
+  {
+   "name": "mcp__a\n__b",
+   "parts": []
+  },
+  {
+   "name": "mcp__a__b\nc",
+   "parts": []
+  },
+  {
+   "name": "mcp__ __x",
+   "parts": []
+  },
+  {
+   "name": "mcp__x__ ",
+   "parts": []
+  },
+  {
+   "name": "mcp_a__b",
+   "parts": []
+  },
+  {
+   "name": "read",
+   "parts": []
+  },
+  {
+   "name": "",
+   "parts": []
+  },
+  {
+   "name": "mcp__linear-2__create_issue",
+   "parts": [
+    "linear-2",
+    "create_issue"
+   ]
+  },
+  {
+   "name": "mcp__a____b",
+   "parts": [
+    "a",
+    "__b"
+   ]
+  },
+  {
+   "name": "mcp____",
+   "parts": []
+  },
+  {
+   "name": "mcp_____",
+   "parts": []
+  }
+ ]
+}

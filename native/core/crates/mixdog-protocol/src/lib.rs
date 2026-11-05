@@ -9,10 +9,12 @@ pub mod config;
 pub mod ids;
 pub mod item;
 pub mod json;
+pub mod message_class;
 pub mod section;
 pub mod text_class;
 pub mod thread;
 pub mod tool_modules;
+pub mod tool_visibility;
 
 pub use approval::*;
 pub use blob::*;

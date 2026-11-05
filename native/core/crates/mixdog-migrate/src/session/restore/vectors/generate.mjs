@@ -1,8 +1,8 @@
 // Regenerates corpus_rows.json: what Node's restore shows for every user-role and room
 // message of the migrated corpus sessions, from the Node functions themselves.
 //
-//   cargo test -p mixdog-migrate --lib restore::tests::dump_corpus_messages -- --ignored
-//       (with MIXDOG_RESTORE_DUMP=<dump.json>)
+//   MIXDOG_RESTORE_DUMP=<dump.json> cargo run -p mixdog-migrate --example dump_corpus_messages
+//       (crates/mixdog-migrate/examples/dump_corpus_messages.rs)
 //   node generate.mjs <mixdog repo root> <dump.json> > corpus_rows.json
 //
 // For each session, one `createUserTextRestore()` serves the whole load (one shared read

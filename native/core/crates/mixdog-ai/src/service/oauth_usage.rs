@@ -34,6 +34,7 @@ use crate::accounts::ACCOUNT_PROVIDERS;
 use crate::accounts::AccountStore;
 use crate::accounts::QuotaWindowInput;
 use crate::accounts::rotation::UsageProbe;
+use crate::oauth::CredentialIo;
 
 const CACHE_FILE: &str = "gateway-oauth-usage-cache.json";
 const LIVE_CACHE_TTL_MS: i64 = 60_000;
@@ -176,6 +177,8 @@ pub struct UsageDeps {
     pub grok: Arc<dyn GrokClient>,
     pub history: Arc<dyn QuotaHistory>,
     pub store: AccountStore,
+    /// The lanes the cache file's reads and writes run on.
+    pub io: CredentialIo,
     pub log: Arc<dyn Fn(&str) + Send + Sync>,
     /// The plugin data directory holding `gateway-oauth-usage-cache.json`.
     pub data_dir: PathBuf,
@@ -271,25 +274,41 @@ fn newest_provider_snapshot<'a>(
 
 // -- disk cache -----------------------------------------------------------------------
 
+// The file functions below are the bodies of lane jobs (`CredentialIo`): reads run on the
+// interactive lane, the locked read-modify-write on the durability lane.
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
 fn read_json_file(path: &std::path::Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// `readForMutationSync`: absent is `None`; a file that does not parse is kept
-/// aside as `<file>.corrupt-<ms>` (never overwritten) and the read starts
-/// empty; any other I/O failure is an error, since an unreadable file is not
-/// an empty one. Runs under the file's lock.
-fn read_for_mutation(path: &std::path::Path) -> std::io::Result<Option<Value>> {
+/// The file's bytes and parsed JSON; `None` when absent. A leading byte order
+/// mark does not make a file damaged; other I/O failures are errors.
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
+fn read_json_state(path: &std::path::Path) -> std::io::Result<Option<(Vec<u8>, Option<Value>)>> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
     let text = String::from_utf8_lossy(&bytes);
-    // A leading byte order mark does not make a file damaged.
-    if let Ok(value) = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(&text)) {
+    let value = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(&text)).ok();
+    Ok(Some((bytes, value)))
+}
+
+/// `readForMutationSync`: absent is `None`; a file that does not parse is kept
+/// aside as `<file>.corrupt-<ms>` (never overwritten) and replaced by the last
+/// good copy `<file>.bak` when that one parses, else the read starts empty;
+/// any other I/O failure is an error, since an unreadable file is not an empty
+/// one. Runs under the file's lock.
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
+fn read_for_mutation(path: &std::path::Path) -> std::io::Result<Option<Value>> {
+    let Some((_, value)) = read_json_state(path)? else { return Ok(None) };
+    if let Some(value) = value {
         return Ok(Some(value));
     }
+    let mut backup_name = path.as_os_str().to_owned();
+    backup_name.push(".bak");
+    let backup = read_json_state(&PathBuf::from(backup_name))?.and_then(|(bytes, value)| value.map(|v| (bytes, v)));
     let mut stamp = now_ms();
     let aside = loop {
         let mut name = path.as_os_str().to_owned();
@@ -301,8 +320,15 @@ fn read_for_mutation(path: &std::path::Path) -> std::io::Result<Option<Value>> {
         stamp += 1;
     };
     std::fs::rename(path, &aside)?;
-    tracing::warn!("[state] {} is damaged; kept as {}; starting empty", path.display(), aside.display());
-    Ok(None)
+    let outcome = if backup.is_some() { "restored the last good copy" } else { "starting empty" };
+    tracing::warn!("[state] {} is damaged; kept as {}; {outcome}", path.display(), aside.display());
+    match backup {
+        Some((bytes, value)) => {
+            crate::oauth::publish_bytes(path, &bytes)?;
+            Ok(Some(value))
+        }
+        None => Ok(None),
+    }
 }
 
 /// `updateJsonAtomicSync` for the usage cache: one writer per file at a time
@@ -310,6 +336,7 @@ fn read_for_mutation(path: &std::path::Path) -> std::io::Result<Option<Value>> {
 /// content read under that lock, and the new content published through a
 /// uniquely named temp file and an atomic rename. Errors are returned; Node's
 /// callers drop them because usage display must never affect the request path.
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
 fn update_json_atomic(
     path: &std::path::Path,
     mutate: impl FnOnce(Option<Value>) -> Value,
@@ -325,7 +352,8 @@ fn update_json_atomic(
     })
 }
 
-/// Rewrites the routes of the cache file through `edit`.
+/// Rewrites the routes of the cache file through `edit`. A lane job body: callers on the
+/// request path go through [`OAuthUsage::update_disk_cache`].
 fn update_disk_cache(path: &std::path::Path, edit: impl FnOnce(&mut Obj)) -> std::io::Result<()> {
     update_json_atomic(path, |current| {
         let mut routes = current
@@ -430,6 +458,12 @@ impl OAuthUsage {
         self.deps.data_dir.join(CACHE_FILE)
     }
 
+    /// `edit`s the cache file's routes under the file lock, on the durability lane.
+    async fn update_disk_cache(&self, edit: impl FnOnce(&mut Obj) + Send + 'static) -> std::io::Result<()> {
+        let path = self.cache_path();
+        self.deps.io.write_job(move || update_disk_cache(&path, edit)).await
+    }
+
     fn log(&self, message: &str) {
         (self.deps.log)(message);
     }
@@ -449,7 +483,7 @@ impl OAuthUsage {
     }
 
     /// The cached reading for a route without measuring (`readCachedOAuthUsageSnapshot`).
-    pub fn read_cached(&self, route: &RouteInfo, allow_stale: bool) -> Option<Value> {
+    pub async fn read_cached(&self, route: &RouteInfo, allow_stale: bool) -> Option<Value> {
         let key = route_key(route);
         let provider_only = cache_provider_key(route);
         let disk_ttl = if allow_stale { STALE_DISK_CACHE_TTL_MS } else { DISK_CACHE_TTL_MS };
@@ -463,7 +497,8 @@ impl OAuthUsage {
                 return mem;
             }
         }
-        let raw = read_json_file(&self.cache_path());
+        let path = self.cache_path();
+        let raw = self.deps.io.read_job(move || Ok(read_json_file(&path))).await.ok().flatten();
         let routes = raw.as_ref().and_then(|r| r.get("routes")).and_then(Value::as_object).cloned().unwrap_or_default();
         fresh(routes.get(&key), disk_ttl, now)
             .or_else(|| fresh(routes.get(&provider_only), disk_ttl, now))
@@ -473,19 +508,19 @@ impl OAuthUsage {
     /// Drops every cached reading of one provider (memory and disk): a
     /// mutation that changes quota server-side must not keep serving the
     /// pre-mutation meters.
-    pub fn invalidate(&self, provider: &str) {
+    pub async fn invalidate(&self, provider: &str) {
         let provider_only = provider.to_lowercase();
         if provider_only.is_empty() {
             return;
         }
-        let owned = |key: &str| {
+        let owned = move |key: &str| {
             key == provider_only
                 || key.starts_with(&format!("{provider_only}\u{1}"))
                 || key.starts_with(&format!("{provider_only}\u{2}"))
         };
         self.caches().memory.retain(|k, _| !owned(k));
         // Dropped like Node's catch: the reset path must not fail on display state.
-        let _ = update_disk_cache(&self.cache_path(), |routes| routes.retain(|k, _| !owned(k)));
+        let _ = self.update_disk_cache(move |routes| routes.retain(|k, _| !owned(k))).await;
     }
 
     // -- Codex ------------------------------------------------------------------------
@@ -547,7 +582,7 @@ impl OAuthUsage {
             return Err(UsageError::new(format!("Codex reset failed: HTTP {}", response.status)));
         }
         let outcome = codex_reset_outcome(response.json()?.get("code"))?;
-        self.invalidate("openai-oauth");
+        self.invalidate("openai-oauth").await;
         let reset_credits = self.reset_credits_with_auth(&auth).await.ok().flatten();
         Ok(ResetCreditResult { outcome, reset_credits })
     }
@@ -751,7 +786,7 @@ impl OAuthUsage {
 
     /// Caches the reading under the provider key and, when the route names a
     /// model, under the model-qualified key; returns the route's own view.
-    fn cache_snapshot(&self, snapshot: &Value, route: &RouteInfo, provider: &str, provider_only: &str) -> Value {
+    async fn cache_snapshot(&self, snapshot: &Value, route: &RouteInfo, provider: &str, provider_only: &str) -> Value {
         let model = cache_model_id(Some(&Value::String(route.model.clone()))).or_else(|| cache_model_id(snapshot.get("model")));
         let mut provider_snapshot = snapshot.as_object().cloned().unwrap_or_default();
         let provider_name = if route.provider.is_empty() {
@@ -777,11 +812,13 @@ impl OAuthUsage {
             }
         }
         // Dropped like Node's catch: usage display never affects the request path.
-        let _ = update_disk_cache(&self.cache_path(), |routes| {
-            for (k, v) in updates {
-                routes.insert(k, v);
-            }
-        });
+        let _ = self
+            .update_disk_cache(move |routes| {
+                for (k, v) in updates {
+                    routes.insert(k, v);
+                }
+            })
+            .await;
         Value::Object(route_snapshot)
     }
 
@@ -899,7 +936,7 @@ impl OAuthUsage {
             self.record_account_usage(provider, &route.account_id, &snapshot).await;
         }
         self.record_quota_history(provider, &route.account_id, &snapshot).await;
-        Some(self.cache_snapshot(&snapshot, route, provider, provider_only))
+        Some(self.cache_snapshot(&snapshot, route, provider, provider_only).await)
     }
 }
 

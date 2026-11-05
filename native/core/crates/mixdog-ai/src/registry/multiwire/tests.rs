@@ -15,7 +15,7 @@ impl WireCodec for NoCodec {
     fn encode(&self, _: &ModelRequest) -> Result<WireRequest, ProviderError> {
         unreachable!()
     }
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _: &ModelRequest) -> Box<dyn WireDecoder> {
         unreachable!()
     }
     fn classify(&self, _: &ErrorResponse) -> ProviderError {

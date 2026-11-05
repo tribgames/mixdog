@@ -84,6 +84,11 @@ impl Publisher {
         let _ = self.feed.publish(&[FeedFrame { seq, bytes }], Some(self.model.clone()));
     }
 
+    /// The last published position.
+    pub fn position(&self) -> FeedPosition {
+        self.feed.position()
+    }
+
     /// The current read model (what a snapshot frame carries).
     pub fn state(&self) -> Value {
         self.model.state.lock().expect("feed model").clone()

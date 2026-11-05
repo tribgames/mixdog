@@ -88,6 +88,7 @@ impl SensitiveValues for Gate {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn closing_a_session_cancels_running_and_queued_writes() {
     let pg = TestPg::start().await;
     let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
@@ -155,6 +156,7 @@ impl StoredSessions for Stored {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn backfill_indexes_changed_sessions_once_and_drops_vanished_ones() {
     let pg = TestPg::start().await;
     let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
@@ -188,6 +190,7 @@ async fn backfill_indexes_changed_sessions_once_and_drops_vanished_ones() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn ingest_search_redact_and_delete() {
     let pg = TestPg::start().await;
     let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
@@ -213,7 +216,7 @@ async fn ingest_search_redact_and_delete() {
     ];
     db.append("masked", &secret).await.expect("plain rows");
     ingest.ingest_turn(IngestSession { id: "masked".into(), messages: secret.clone(), agent_only: false });
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    ingest.settle("masked").await;
     assert!(db.search("682419", 10).await.expect("search secret").is_empty(), "plaintext is gone");
     assert_eq!(db.search("redacted", 10).await.expect("search marker").len(), 1);
 

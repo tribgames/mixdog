@@ -152,6 +152,7 @@ fn ensure(
         exe: installed.exe.clone(),
         args: vec!["serve".to_owned()],
         env: launch_env(&paths, args.model_login),
+        env_remove: if args.wants_model_proxy() { Vec::new() } else { vec!["MIXDOG_MODEL_PROXY".to_owned()] },
         log: paths.log.clone(),
     })?;
     let core = match access.await_core()? {

@@ -15,6 +15,7 @@ use crate::orch::util::JsStr;
 
 use super::host::HostCommands;
 use super::host::command_error;
+use super::pending::PendingWaits;
 use crate::orch::util::cancelled;
 use crate::orch::util::invalid;
 use crate::orch::util::spec_from_def;
@@ -187,11 +188,31 @@ pub fn format_success(value: &Value) -> String {
 pub struct VisualizeTool {
     spec: ToolSpec,
     host: Arc<dyn HostCommands>,
+    waits: PendingWaits,
 }
 
 impl VisualizeTool {
-    pub fn new(host: Arc<dyn HostCommands>) -> Self {
-        Self { spec: spec_from_def(include_str!("defs/visualize.json"), false, &[]), host }
+    /// `waits` is the registry the `ui/newTab/created` notification settles.
+    pub fn new(host: Arc<dyn HostCommands>, waits: PendingWaits) -> Self {
+        Self { spec: spec_from_def(include_str!("defs/visualize.json"), false, &[]), host, waits }
+    }
+}
+
+/// An `open` of one web URL: the pane creates a tab for it and reports the tab's page.
+fn opens_web_url(input: &Map<String, Value>) -> bool {
+    static SCHEME: std::sync::OnceLock<mixdog_js::JsRegex> = std::sync::OnceLock::new();
+    let scheme = SCHEME.get_or_init(|| mixdog_js::JsRegex::new_static("^[a-z][a-z0-9+.-]*://", "i"));
+    match input.get("targets").and_then(Value::as_array).map(Vec::as_slice) {
+        Some([Value::String(target)]) => scheme.is_match(target),
+        _ => false,
+    }
+}
+
+/// The reply to an open of a web URL, from the page id the pane reported (if it did).
+fn opened_text(url: &str, page: Option<&str>) -> String {
+    match page {
+        Some(page) => format!("Opened {url} in the session's browser panel as page {page}; pass tab:\"{page}\" to the browser tool."),
+        None => format!("Opened {url} in the session's browser panel; its page id (p…) is not known yet, so find it with the browser tool's list_tabs."),
     }
 }
 
@@ -202,21 +223,45 @@ impl Tool for VisualizeTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let (action, input) = validate(&args).map_err(|m| invalid("input", m))?;
+        let (action, mut input) = validate(&args).map_err(|m| invalid("input", m))?;
+        // The wait starts before the open is published, and the request id names the tab the
+        // pane creates, so no other tab (an older page, the user's "+") answers for it.
+        let mut watch = None;
+        if action == "open" && opens_web_url(&input) {
+            let request_id = uuid::Uuid::new_v4().to_string();
+            watch = Some(self.waits.watch_new_tab(ctx.thread_id.as_str(), &request_id));
+            input.insert("openRequestId".to_owned(), Value::String(request_id));
+        }
         let answer = tokio::select! {
             biased;
             _ = ctx.cancel.cancelled() => return Err(cancelled()),
             r = self.host.visualize(&ctx.thread_id, &action, Value::Object(input)) => r,
         };
-        match answer {
-            Ok(value) => text(format_success(&value)),
-            Err(error) => Err(command_error(UNAVAILABLE, error)),
+        let mut value = match answer {
+            Ok(value) => value,
+            Err(error) => return Err(command_error(UNAVAILABLE, error)),
+        };
+        if let Some(mut watch) = watch {
+            let page = watch.wait_or_cancel(&ctx.cancel).await;
+            if ctx.cancel.is_cancelled() {
+                return Err(cancelled());
+            }
+            let url = value
+                .pointer("/tabs/0")
+                .filter(|tab| tab.get("kind").and_then(Value::as_str) == Some("url"))
+                .and_then(|tab| tab.get("target").and_then(Value::as_str))
+                .map(|url| opened_text(url, page.as_deref()));
+            if let (Some(opened), Some(object)) = (url, value.as_object_mut()) {
+                object.insert("text".to_owned(), Value::String(opened));
+            }
         }
+        text(format_success(&value))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use mixdog_protocol::ThreadId;
     use serde_json::json;
 
     use super::*;
@@ -236,6 +281,87 @@ mod tests {
             "export requires input.output ending in .pdf"
         );
         assert_eq!(validate(&json!({"action":"close"})).map(|r| r.0), Ok("close".to_owned()));
+    }
+
+    /// A host that opens the URL tab and, like the pane, reports the page it made (or not).
+    struct Pane {
+        waits: PendingWaits,
+        report: Option<&'static str>,
+        seen: std::sync::Mutex<Vec<Value>>,
+    }
+
+    #[async_trait]
+    impl HostCommands for Pane {
+        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue) -> Result<JsonValue, super::super::host::HostCommandError> {
+            unreachable!()
+        }
+
+        async fn visualize(&self, thread: &ThreadId, _: &str, input: JsonValue) -> Result<JsonValue, super::super::host::HostCommandError> {
+            if let Some(page) = self.report {
+                self.waits.new_tab_created(thread.as_str(), input["openRequestId"].as_str().unwrap(), page);
+            }
+            self.seen.lock().unwrap().push(input);
+            // The shape of Node's reply (`VisualizeResult`): the tab record of the open.
+            Ok(json!({"text": "host text", "tabs": golden()["known"]["tabs"].clone()}))
+        }
+    }
+
+    async fn open_url(report: Option<&'static str>, wait_ms: u64) -> (String, Value) {
+        let waits = crate::desktop::pending::tests::waits(wait_ms, 1000);
+        let pane = Arc::new(Pane { waits: waits.clone(), report, seen: Default::default() });
+        let tool = VisualizeTool::new(pane.clone(), waits);
+        let target = golden()["url"].clone();
+        let out = tool.call(&crate::orch::tests::ctx(), json!({"action":"open","input":{"targets":[target]}})).await.unwrap();
+        let mixdog_core_api::domain::tool::ToolPart::Text(reply) = &out.parts[0] else { panic!("text expected") };
+        let sent = pane.seen.lock().unwrap()[0].clone();
+        (reply.clone(), sent)
+    }
+
+    /// Node's `createVisualizeService().execute({action:"open"})` for one web URL, recorded for
+    /// a page id the pane reported (`known`) and for none (`unknown`).
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("golden/web_open.json")).unwrap()
+    }
+
+    /// Node's whole reply: the recorded text, then the tab line `format_success` prints.
+    fn node_reply(outcome: &Value) -> String {
+        let tab = &outcome["tabs"][0];
+        format!(
+            "{}\n{} {} {} → {}",
+            outcome["text"].as_str().unwrap(),
+            tab["id"].as_str().unwrap(),
+            tab["kind"].as_str().unwrap(),
+            tab["label"].as_str().unwrap(),
+            tab["target"].as_str().unwrap()
+        )
+    }
+
+    #[tokio::test]
+    async fn a_web_url_open_answers_with_the_page_the_pane_made() {
+        let (reply, sent) = open_url(Some("p7"), 1000).await;
+        assert_eq!(reply, node_reply(&golden()["known"]));
+        assert!(uuid::Uuid::parse_str(sent["openRequestId"].as_str().unwrap()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_web_url_open_with_an_empty_page_id_points_to_list_tabs() {
+        let (reply, _) = open_url(Some(""), 1000).await;
+        assert_eq!(reply, node_reply(&golden()["empty"]));
+    }
+
+    #[tokio::test]
+    async fn a_web_url_open_with_no_report_points_to_list_tabs() {
+        let (reply, _) = open_url(None, 40).await;
+        assert_eq!(reply, node_reply(&golden()["unknown"]));
+    }
+
+    #[test]
+    fn only_one_url_target_is_a_web_open() {
+        let open = |v: Value| opens_web_url(v.as_object().unwrap());
+        assert!(open(json!({"targets":["HTTP://a.com"]})));
+        assert!(!open(json!({"targets":["a.md"]})));
+        assert!(!open(json!({"targets":[" https://a.com"]})));
+        assert!(!open(json!({"content":{"kind":"svg","source":"x"}})));
     }
 
     #[test]

@@ -1,23 +1,21 @@
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
-    reason = "test fixtures read the corpus and write the regeneration dump with blocking std::fs"
+    reason = "test fixtures read the corpus with blocking std::fs"
 )]
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use mixdog_store::schema::migration::Manifest;
-use mixdog_store::schema::migration::MANIFEST_PATH;
 use mixdog_store::schema::record::Form;
 use serde_json::Value;
 use serde_json::json;
 
 use super::*;
-use crate::framework::BlobStatuses;
 use crate::json::js_stable;
 use crate::run::tests::corpus;
 use crate::run::tests::migrate_corpus;
+use crate::session::target::FoldedRow;
 
 /// An attachment store held in memory.
 #[derive(Default)]
@@ -141,34 +139,27 @@ const SCENARIOS: [(&str, &str); 2] = [("v145", "v145"), ("dev146", "dev146")];
 type SessionRows = BTreeMap<String, Vec<(bool, Option<String>, Value)>>;
 
 fn migrated(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> SessionRows {
+    folded_rows(data_rel, edit)
+        .into_iter()
+        .map(|(id, rows)| {
+            let rows = rows
+                .into_iter()
+                .filter(|r| r.form == Form::Message && r.archive.is_none())
+                .map(|r| (r.visible, r.prompt, r.body))
+                .collect();
+            (id, rows)
+        })
+        .collect()
+}
+
+/// Every folded row of every session of the migrated corpus data dir `data_rel`.
+fn folded_rows(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> BTreeMap<String, Vec<FoldedRow>> {
     let (_dir, roots, complete) = migrate_corpus(data_rel, edit);
-    let disk: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let states = BTreeMap::new();
-    let blobs = BlobStatuses::default();
-    let cx = ItemContext {
-        roots: &roots,
-        manifest: &disk,
-        manifest_sha256: &complete.manifest_sha256,
-        fault: None,
-        blobs: &blobs,
-        states: &states,
-    };
-    let sessions = roots.data.join("sessions");
-    let mut out = SessionRows::new();
-    for (id, is_dir) in crate::durable::list_dir(&sessions).unwrap() {
-        if !is_dir {
-            continue;
-        }
-        let folded = crate::session::target::read_session(&cx, &sessions.join(&id)).unwrap();
-        let rows = folded
-            .rows
-            .into_iter()
-            .filter(|r| r.form == Form::Message && r.archive.is_none())
-            .map(|r| (r.visible, r.prompt, r.body))
-            .collect();
-        out.insert(id, rows);
-    }
-    out
+    crate::session::target::read_sessions(&roots, &complete.manifest_sha256)
+        .unwrap()
+        .into_iter()
+        .map(|(id, folded)| (id, folded.rows))
+        .collect()
 }
 
 fn js_number(value: f64) -> Value {
@@ -236,22 +227,6 @@ fn projected(visible: bool, prompt: &Option<String>, body: &Value) -> Option<(Ve
 }
 
 #[test]
-#[ignore = "regenerates the Node vectors' input (MIXDOG_RESTORE_DUMP); see vectors/generate.mjs"]
-fn dump_corpus_messages() {
-    let path = std::env::var_os("MIXDOG_RESTORE_DUMP").expect("MIXDOG_RESTORE_DUMP");
-    let mut dump = serde_json::Map::new();
-    for (scenario, data_rel) in SCENARIOS {
-        let sessions: serde_json::Map<String, Value> = migrated(data_rel, |_| {})
-            .into_iter()
-            .map(|(id, rows)| (id, Value::Array(rows.into_iter().map(|(_, _, body)| body).collect())))
-            .collect();
-        let data_dir = corpus().join(data_rel).to_string_lossy().into_owned();
-        dump.insert(scenario.into(), json!({"dataDir": data_dir, "sessions": sessions}));
-    }
-    std::fs::write(path, serde_json::to_vec(&Value::Object(dump)).unwrap()).unwrap();
-}
-
-#[test]
 #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn restored_rows_match_node() {
     let vectors: Value = serde_json::from_str(include_str!("vectors/corpus_rows.json")).unwrap();
@@ -287,6 +262,118 @@ fn restored_rows_match_node() {
         }
     }
     assert!(failures.is_empty(), "{} of {compared} differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+#[test]
+fn only_segments_the_archive_index_reads_are_shown() {
+    use crate::session::source::indexed_segment;
+    let line = |bytes: usize, body: &str| format!(r#"{{"v":1,"seq":2,"id":"seg2","prev":"seg1","at":5,"count":1,"bytes":{bytes},"items":{body}}}"#);
+    assert!(indexed_segment(line(9, r#"[{"a":1}]"#).as_bytes()));
+    assert!(!indexed_segment(line(8, r#"[{"a":1}]"#).as_bytes()), "bytes short of the line");
+    assert!(!indexed_segment(line(10, r#"[{"a":1}]"#).as_bytes()), "bytes past the line");
+    let reordered = r#"{"seq":2,"v":1,"id":"seg2","prev":null,"at":5,"count":1,"bytes":2,"items":[]}"#;
+    assert!(!indexed_segment(reordered.as_bytes()));
+}
+
+/// The transcript-display recorder's one credential shape.
+const REDACTION_PATTERN: &str = r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.";
+
+/// Every string of `value` with `REDACTION_PATTERN` matches replaced by `marker`.
+fn redact(value: &mut Value, marker: &str) {
+    match value {
+        Value::String(text) => *text = redact_text(text, marker),
+        Value::Array(items) => items.iter_mut().for_each(|v| redact(v, marker)),
+        Value::Object(map) => map.values_mut().for_each(|v| redact(v, marker)),
+        _ => {}
+    }
+}
+
+fn redact_text(text: &str, marker: &str) -> String {
+    let bytes = text.as_bytes();
+    let word = |b: &u8| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-';
+    // At least ten word bytes from `at`, then a dot: the index after the dot.
+    let run = |at: usize| {
+        let end = at + bytes[at..].iter().take_while(|b| word(b)).count();
+        (end - at >= 10 && bytes.get(end) == Some(&b'.')).then_some(end + 1)
+    };
+    let (mut out, mut copied, mut from) = (String::with_capacity(text.len()), 0, 0);
+    while let Some(found) = text[from..].find("eyJ") {
+        let start = from + found;
+        match run(start + 3).and_then(run) {
+            Some(end) => {
+                out.push_str(&text[copied..start]);
+                out.push_str(marker);
+                (copied, from) = (end, end);
+            }
+            None => from = start + 1,
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+#[test]
+fn redaction_replaces_the_recorders_credential_shape() {
+    let token = format!("eyJ{}.{}.sig", "a".repeat(10), "b-_".repeat(4));
+    assert_eq!(redact_text(&format!("x {token} eyJshort.y"), "«r»"), "x «r»sig eyJshort.y");
+}
+
+/// The archive/live split of migrated sessions is the one Node shows (WP-TRANSCRIPT's
+/// display golden): the visible archive rows, in order, are exactly the archive page's
+/// rows, and they precede every live row.
+#[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn archived_rows_match_the_transcript_display() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/migration/transcript-display/display.json");
+    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(golden["redact"]["patterns"], json!([REDACTION_PATTERN]));
+    let marker = golden["redact"]["marker"].as_str().unwrap();
+    let golden = golden["sessions"].as_array().unwrap();
+    let (mut failures, mut seen, mut compared) = (Vec::new(), 0usize, 0usize);
+    for data_rel in ["v145", "dev146", "fixture-busy-seed/data"] {
+        let sessions = folded_rows(data_rel, |_| {});
+        let prefix = format!("{data_rel}/sessions/");
+        for want in golden.iter().filter(|s| s["key"].as_str().unwrap().starts_with(&prefix)) {
+            seen += 1;
+            let id = want["id"].as_str().unwrap();
+            // The recorder reads the json alone; a dev log beside it is the dev runtime's
+            // source (SM §11.4.2), which the golden does not describe.
+            if corpus().join(data_rel).join("sessions").join(format!("{id}.log.jsonl")).exists() {
+                continue;
+            }
+            compared += 1;
+            let Some(rows) = sessions.get(id) else {
+                failures.push(format!("{data_rel}/{id}: not migrated"));
+                continue;
+            };
+            let first_live = rows.iter().position(|r| r.archive.is_none()).unwrap_or(rows.len());
+            if rows[first_live..].iter().any(|r| r.archive.is_some()) {
+                failures.push(format!("{data_rel}/{id}: an archive row after a live row"));
+            }
+            let got: Vec<Value> = rows[..first_live]
+                .iter()
+                .filter(|r| r.visible)
+                .map(|r| {
+                    let mut body = r.body.clone();
+                    redact(&mut body, marker);
+                    body
+                })
+                .collect();
+            let archived = want["archived"].as_u64().unwrap() as usize;
+            let want = &want["rows"].as_array().unwrap()[..archived];
+            if got != want {
+                let at = got.iter().zip(want).position(|(g, w)| g != w);
+                failures.push(format!(
+                    "{data_rel}/{id}: {} visible archive rows, node {archived}; first difference at {at:?}",
+                    got.len()
+                ));
+            }
+        }
+    }
+    assert_eq!(seen, golden.len(), "every golden session is a corpus session json");
+    assert!(compared >= 30, "{compared} sessions compared");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// The legacy replay fields on the 1.4.5 corpus: the corpus sessions carry none, so they
@@ -341,13 +428,15 @@ fn legacy_replay_fields_convert_on_the_corpus() {
     let body = |id: &str, index: usize| &sessions[id][index].2;
     let at = assistants(&plain, false);
     let (first, second) = (at[0], at[1]);
-    assert_eq!(
-        body(lead, first)["providerReplay"],
-        json!({"version": 1, "provider": "openai-responses", "items": [
-            {"type": "reasoning", "id": "rs_a", "encrypted_content": "E1", "summary": [{"type": "summary_text", "text": "plan"}]},
-            {"type": "reasoning", "id": "rs_b", "encrypted_content": "E2", "summary": [], "afterText": true},
-        ]})
-    );
+    // The envelope is the converter's (golden-checked against Node in `reasoning`), and it
+    // carries the message's text and calls besides the reasoning.
+    let mut want = plain[first].clone();
+    super::reasoning::convert(&mut want);
+    let replay = &body(lead, first)["providerReplay"];
+    assert_eq!(serde_json::to_string(replay).unwrap(), serde_json::to_string(&want["providerReplay"]).unwrap());
+    let kinds: Vec<&str> = replay["items"].as_array().unwrap().iter().map(|i| i["type"].as_str().unwrap_or("")).collect();
+    assert_eq!(kinds[0], "reasoning", "{kinds:?}");
+    assert!(kinds.iter().any(|k| *k != "reasoning"), "{kinds:?}");
     assert_eq!(body(lead, second)["providerMetadata"]["gemini"]["thoughtParts"], thoughts);
     let at = assistants(&beside, true)[0];
     assert_eq!(body(imported, at)["providerReplay"], beside[at]["providerReplay"]);

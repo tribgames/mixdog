@@ -23,8 +23,9 @@ use super::AccountError;
 use super::MAX_ACCOUNTS;
 use super::is_account_provider;
 use super::valid_account_id;
+use crate::oauth::LOCK_TIMEOUT;
 use crate::oauth::publish_bytes;
-use crate::oauth::with_lock;
+use crate::oauth::with_lock_within;
 
 pub(crate) fn empty_roster() -> Value {
     json!({ "version": 1, "providers": {} })
@@ -137,14 +138,20 @@ fn recover_locked(path: &Path) -> io::Result<Parsed> {
 }
 
 /// The roster, or the empty one when missing, unsupported, or damaged with no
-/// good copy. Never throws for damage.
+/// good copy. Never throws for damage. While another writer holds the lock
+/// for the whole wait (`readJsonStateSync`, `LOCK_BUSY_CODES`), a damaged file
+/// is left in place and the answer is the empty roster.
 pub(crate) fn read_roster(path: &Path) -> io::Result<Value> {
     match parse(read_content(path)?) {
         Parsed::Ok(value, _) => Ok(value),
         Parsed::Absent | Parsed::Unsupported => Ok(empty_roster()),
-        Parsed::Damaged(_) => match with_lock(path, || recover_locked(path))? {
-            Parsed::Ok(value, _) => Ok(value),
-            _ => Ok(empty_roster()),
+        Parsed::Damaged(why) => match with_lock_within(path, LOCK_TIMEOUT, || recover_locked(path))? {
+            Some(Parsed::Ok(value, _)) => Ok(value),
+            Some(_) => Ok(empty_roster()),
+            None => {
+                tracing::warn!(path = %path.display(), reason = %why, "provider accounts file is damaged: left in place while another writer holds its lock");
+                Ok(empty_roster())
+            }
         },
     }
 }
@@ -160,7 +167,8 @@ pub(crate) fn update_roster(
     path: &Path,
     mutate: impl FnOnce(&mut Value) -> Result<(), AccountError>,
 ) -> io::Result<Result<Value, AccountError>> {
-    with_lock(path, || {
+    // `ELOCKTIMEOUT`: a write cannot go on without the lock.
+    with_lock_within(path, LOCK_TIMEOUT, || {
         let previous = read_content(path)?;
         let mut roster = match parse(previous.clone()) {
             Parsed::Absent => empty_roster(),
@@ -186,5 +194,6 @@ pub(crate) fn update_roster(
         }
         publish_bytes(path, &serde_json::to_vec_pretty(&roster).map_err(io::Error::other)?)?;
         Ok(Ok(roster))
-    })
+    })?
+    .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "atomic lock timeout"))
 }

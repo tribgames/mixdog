@@ -47,11 +47,15 @@ pub(super) fn abs_from(base: &Path, input: &str) -> PathBuf {
     out
 }
 
+/// The one path-key rule for the code graph — manifest keys, root comparisons and exclusions:
+/// the workspace's shared key (`mixdog_scm::locks::path_key`: forward slashes, no trailing slash,
+/// case-insensitive on Windows) without a verbatim `\\?\` prefix.
+pub(super) fn path_key(path: &Path) -> String {
+    mixdog_scm::locks::path_key(path).trim_start_matches("//?/").to_owned()
+}
+
 fn canonical_key(path: &Path) -> String {
-    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let text = resolved.to_string_lossy().replace('\\', "/");
-    let text = text.trim_start_matches("//?/").trim_end_matches('/').to_string();
-    if cfg!(windows) { text.to_lowercase() } else { text }
+    path_key(&std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
 /// Home and temp: an implicit ancestor walk never crosses them.

@@ -3,7 +3,7 @@
 
 use std::sync::LazyLock;
 
-use regex::Regex;
+use mixdog_js::{JsRegex, cut_utf16, is_js_space, js_trim, js_trim_start, js_words, slice_utf16, utf16_len};
 use serde::{Deserialize, Serialize};
 
 use super::RoomError;
@@ -55,7 +55,7 @@ pub struct RoomConfigInput {
 
 /// A room's settings in canonical shape. Members keep the order given, each once.
 pub fn normalize_room_config(input: &RoomConfigInput) -> Result<RoomConfig, RoomError> {
-    let name: String = input.name.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(NAME_LIMIT).collect();
+    let name = slice_utf16(&js_words(&input.name).collect::<Vec<_>>().join(" "), NAME_LIMIT);
     if name.is_empty() {
         return Err(RoomError::Invalid("A room needs a name.".into()));
     }
@@ -86,15 +86,16 @@ pub struct MemberName {
 
 /// The member `text` starts with, by id or name, when the character after it passes `boundary`
 /// (or the text ends). The longest label wins ("Bench" never shadows "Bench lead"); two members
-/// sharing that label match neither. Returns the member id and the label's length in characters.
-fn member_at(text: &str, members: &[MemberName], boundary: impl Fn(char) -> bool) -> Option<(String, usize)> {
-    let lower: Vec<char> = text.to_lowercase().chars().collect();
-    let original: Vec<char> = text.chars().collect();
+/// sharing that label match neither. Lengths are UTF-16 units (JS `length`); `boundary` sees the
+/// unit that follows the label in `text`.
+fn member_at(text: &str, members: &[MemberName], boundary: impl Fn(u16) -> bool) -> Option<(String, usize)> {
+    let lower: Vec<u16> = text.to_lowercase().encode_utf16().collect();
+    let original: Vec<u16> = text.encode_utf16().collect();
     let mut best: Option<(&str, usize)> = None;
     let mut tie = false;
     for member in members {
         for label in [member.id.as_str(), member.name.as_str()] {
-            let label: Vec<char> = label.to_lowercase().chars().collect();
+            let label: Vec<u16> = label.to_lowercase().encode_utf16().collect();
             if label.is_empty() || !lower.starts_with(&label) {
                 continue;
             }
@@ -121,11 +122,20 @@ fn member_at(text: &str, members: &[MemberName], boundary: impl Fn(char) -> bool
 /// The member `value` names exactly (id or display name, any case); `None` for none or for a name
 /// two members share.
 pub fn room_member_named(value: &str, members: &[MemberName]) -> Option<String> {
-    let text = value.trim();
+    let text = js_trim(value);
     if text.is_empty() {
         return None;
     }
     member_at(text, members, |_| false).map(|(id, _)| id)
+}
+
+fn unit_is(unit: u16, test: impl Fn(char) -> bool) -> bool {
+    char::from_u32(u32::from(unit)).is_some_and(test)
+}
+
+/// `text.slice(units)`.
+fn after_units(text: &str, units: usize) -> &str {
+    &text[cut_utf16(text, units).head.len()..]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,29 +157,28 @@ pub struct ParsedAsk {
 /// A user message to the room: `/ask <agent>[, <agent>…] <message>` addresses those members, in
 /// that order, by id or by name.
 pub fn parse_room_ask(text: &str, members: &[MemberName]) -> ParsedAsk {
-    let raw = text.trim();
+    let raw = js_trim(text);
     let is_ask = raw.get(..4).is_some_and(|head| head.eq_ignore_ascii_case("/ask"))
-        && raw[4..].chars().next().is_none_or(char::is_whitespace);
+        && raw[4..].chars().next().is_none_or(is_js_space);
     if !is_ask {
         return ParsedAsk { to: vec![], text: raw.to_owned(), error: None };
     }
-    let mut rest = raw[4..].trim_start().to_owned();
+    let mut rest = js_trim_start(&raw[4..]).to_owned();
     let mut to: Vec<String> = Vec::new();
     loop {
-        let Some((id, length)) = member_at(&rest, members, |c| c.is_whitespace() || c == ',') else {
+        let Some((id, length)) = member_at(&rest, members, |u| unit_is(u, is_js_space) || u == u16::from(b',')) else {
             return ParsedAsk { to: vec![], text: String::new(), error: Some(AskError::Member) };
         };
         if !to.contains(&id) {
             to.push(id);
         }
-        rest = rest.chars().skip(length).collect();
-        let trimmed = rest.trim_start();
-        match trimmed.strip_prefix(',') {
-            Some(after) => rest = after.trim_start().to_owned(),
+        rest = after_units(&rest, length).to_owned();
+        match js_trim_start(&rest).strip_prefix(',') {
+            Some(after) => rest = js_trim_start(after).to_owned(),
             None => break,
         }
     }
-    let message = rest.trim().to_owned();
+    let message = js_trim(&rest).to_owned();
     if message.is_empty() {
         ParsedAsk { to, text: String::new(), error: Some(AskError::Message) }
     } else {
@@ -178,20 +187,20 @@ pub fn parse_room_ask(text: &str, members: &[MemberName]) -> ParsedAsk {
 }
 
 /// Text a mention never counts in: code, block quotes and quoted strings.
-static UNSPOKEN: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+static UNSPOKEN: LazyLock<Vec<JsRegex>> = LazyLock::new(|| {
     [
-        r"(?s)```.*?(?:```|\z)",
-        r"(?s)~~~.*?(?:~~~|\z)",
-        r"`[^`\n]*`",
-        r"(?m)^[ \t]*>.*$",
-        r#""[^"\n]*""#,
-        r"“[^”\n]*”",
+        (r"```[\s\S]*?(?:```|$)", "g"),
+        (r"~~~[\s\S]*?(?:~~~|$)", "g"),
+        (r"`[^`\n]*`", "g"),
+        (r"^[ \t]*>.*$", "gm"),
+        (r#""[^"\n]*""#, "g"),
+        (r"“[^”\n]*”", "g"),
     ]
     .iter()
-    .map(|pattern| Regex::new(pattern).expect("static pattern"))
+    .map(|(pattern, flags)| JsRegex::new_static(pattern, flags))
     .collect()
 });
-static MENTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[\s(])@").expect("static pattern"));
+static MENTION: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(^|[\s(])@", "g"));
 
 /// The one peer a member's words address: the first `@Name` (id or name of another member) that
 /// leads the text or stands apart from the words around it, outside code and quotes. Unknown,
@@ -199,11 +208,11 @@ static MENTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[\s(])@").e
 pub fn room_mention_of(text: &str, members: &[MemberName], self_id: &str) -> Option<String> {
     let mut value = text.to_owned();
     for pattern in UNSPOKEN.iter() {
-        value = pattern.replace_all(&value, " ").into_owned();
+        value = pattern.replace_all_with(&value, |_| " ".to_owned());
     }
     for found in MENTION.find_iter(&value) {
-        let rest = &value[found.end()..];
-        let boundary = |c: char| c.is_whitespace() || ".,:;!?)]}…".contains(c);
+        let rest = &value[found.end..];
+        let boundary = |u: u16| unit_is(u, |c| is_js_space(c) || ".,:;!?)]}…".contains(c));
         if let Some((id, _)) = member_at(rest, members, boundary) {
             if id != self_id {
                 return Some(id);
@@ -215,15 +224,15 @@ pub fn room_mention_of(text: &str, members: &[MemberName], self_id: &str) -> Opt
 
 /// A member passes by replying nothing, or with "(pass)" as its last words.
 pub fn is_pass_reply(text: &str) -> bool {
-    let value = text.trim();
+    let value = js_trim(text);
     value.is_empty() || value.to_lowercase().ends_with(ROOM_PASS_REPLY)
 }
 
 /// A reply without its trailing "(pass)" marker, trimmed.
 pub fn without_pass_marker(text: &str) -> String {
-    let value = text.trim();
+    let value = js_trim(text);
     if value.to_lowercase().ends_with(ROOM_PASS_REPLY) {
-        value[..value.len() - ROOM_PASS_REPLY.len()].trim().to_owned()
+        js_trim(cut_utf16(value, utf16_len(value) - ROOM_PASS_REPLY.len()).head).to_owned()
     } else {
         value.to_owned()
     }

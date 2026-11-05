@@ -469,3 +469,59 @@ pub(super) fn display_item(record: &ItemRecord, body: &Value) -> Option<ThreadIt
     };
     Some(item_of(row, &ctx))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+
+    use super::*;
+    use crate::session::state::Change;
+    use crate::session::state::Display;
+    use crate::session::state::SessionState;
+
+    fn commit(state: &mut SessionState, iid: &str, body: Value) -> Vec<Shown> {
+        let mut record: ItemRecord = serde_json::from_value(json!({
+            "iid": iid, "form": "message", "model": true, "visible": true,
+            "refs": [], "body": { "inline": {} },
+        }))
+        .expect("record shape");
+        record.body = Slot::Inline(body.clone());
+        let shown = message_items(&record, &body);
+        let change = Change::Record { record: Arc::new(Record::Item(record)), display: Display::Items(shown.clone()) };
+        state.apply(&change, Some(1));
+        shown
+    }
+
+    fn call(id: &str, name: &str, arguments: Value) -> Value {
+        json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": id, "name": name, "arguments": arguments }] })
+    }
+
+    fn result(id: &str, text: &str) -> Value {
+        json!({ "role": "tool", "content": text, "toolCallId": id })
+    }
+
+    /// Node's `pendingToolCalls` has no entry for a skipped wait call, so its result attaches
+    /// to nothing; here the stateless projection still names the call, and the view ignores it.
+    #[test]
+    fn a_result_whose_call_shows_no_card_changes_nothing() {
+        let mut state = SessionState::new(16);
+        let waited = commit(&mut state, "a1", call("w1", "task", json!({ "action": "wait", "task_id": "j" })));
+        assert!(waited.is_empty(), "a wait call shows no card");
+        let shown = commit(&mut state, "t1", result("w1", "done"));
+        assert!(matches!(shown.as_slice(), [Shown::Update(update)] if update.id().as_str() == "call:w1"));
+        assert!(state.window.is_empty(), "the orphan result adds no row");
+
+        commit(&mut state, "a2", call("s1", "shell", json!({ "command": "ls" })));
+        commit(&mut state, "t2", result("s1", "a.txt"));
+        let [row] = state.window.make_contiguous() else {
+            panic!("one card for the shell call");
+        };
+        let ThreadItem::ToolCall { run, .. } = &*row.item else {
+            panic!("a tool card");
+        };
+        assert!(run.result.is_some(), "a result with its card fills the run");
+    }
+}

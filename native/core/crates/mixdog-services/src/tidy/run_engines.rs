@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::apply::{FileChange, WriteHost, full_path_for, guard_tidy_write_path};
 use super::languages::files_for_languages;
-use super::process::map_limit;
+use super::process::{Processes, map_limit};
 use super::resolve::Resolved;
 use super::runners::shared::{DEFAULT_ENGINE_TIMEOUT, RunRequest, RunnerResult, Spawn, SystemSpawn};
 use super::runners::runner_for;
@@ -52,18 +52,17 @@ pub struct SuiteOptions {
 }
 
 impl SuiteOptions {
-    pub fn new(cwd: &Path, files: Vec<String>) -> Self {
-        Self { files, cwd: cwd.to_owned(), mode: "check".into(), apply: false, timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, session_id: None, extensions: None, host: None, spawn: Arc::new(SystemSpawn) }
+    pub fn new(cwd: &Path, files: Vec<String>, processes: &Processes) -> Self {
+        Self { files, cwd: cwd.to_owned(), mode: "check".into(), apply: false, timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, session_id: None, extensions: None, host: None, spawn: Arc::new(SystemSpawn(processes.clone())) }
     }
 }
 
 fn request(engine: &Resolved, files: Vec<String>, o: &SuiteOptions) -> RunRequest {
-    let mut req = RunRequest::new(&o.cwd, &engine.command, files);
+    let mut req = RunRequest::new(&o.cwd, &engine.command, files, o.spawn.clone());
     req.args = engine.args.clone();
     req.timeout = o.timeout;
     req.cancel = o.cancel.clone();
     req.module_path = engine.module_path.clone();
-    req.spawn = o.spawn.clone();
     req
 }
 
@@ -212,7 +211,7 @@ mod tests {
     #[tokio::test]
     async fn check_reports_without_writing_and_a_fix_without_apply_is_a_dry_run() {
         let (dir, spawn) = setup();
-        let mut o = SuiteOptions::new(dir.path(), vec!["a.sh".into(), "b.md".into()]);
+        let mut o = SuiteOptions::new(dir.path(), vec!["a.sh".into(), "b.md".into()], &Processes::for_tests());
         o.spawn = spawn.clone();
         let engine = shfmt();
         let check = run_engine_suite(&[&engine], &o).await;
@@ -228,7 +227,7 @@ mod tests {
     async fn apply_writes_through_the_engine_notes_the_change_and_records_before_and_after() {
         let (dir, spawn) = setup();
         let host = Arc::new(Recording::default());
-        let mut o = SuiteOptions::new(dir.path(), vec!["a.sh".into()]);
+        let mut o = SuiteOptions::new(dir.path(), vec!["a.sh".into()], &Processes::for_tests());
         (o.spawn, o.mode, o.apply, o.session_id) = (spawn.clone(), "fix".into(), true, Some("s1".into()));
         o.host = Some(host.clone());
         let engine = shfmt();
@@ -243,7 +242,7 @@ mod tests {
     #[tokio::test]
     async fn engines_without_a_runner_or_in_scope_files_are_reported_not_run() {
         let (dir, spawn) = setup();
-        let mut o = SuiteOptions::new(dir.path(), vec!["a.sh".into()]);
+        let mut o = SuiteOptions::new(dir.path(), vec!["a.sh".into()], &Processes::for_tests());
         o.spawn = spawn.clone();
         let zig = Resolved { id: "zig".into(), languages: vec!["zig".into()], ..Default::default() };
         let other = Resolved { languages: vec!["python".into()], ..shfmt() };

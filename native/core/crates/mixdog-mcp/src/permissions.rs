@@ -165,7 +165,10 @@ impl Policy {
     /// the connector's own, then the lowest-numbered account.
     fn entries(&self, group: &str, tool: &str) -> Vec<Permission> {
         let account_number = |id: &str| -> u64 {
-            id.rsplit_once('-').and_then(|(_, n)| n.parse().ok()).unwrap_or(0)
+            id.rsplit_once('-')
+                .filter(|(_, n)| n.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|(_, n)| n.parse().ok())
+                .unwrap_or(0)
         };
         let mut found: Vec<(u64, Permission)> = self
             .tools
@@ -178,12 +181,10 @@ impl Policy {
     }
 }
 
-/// `{ server, tool }` of an MCP tool name.
+/// `{ server, tool }` of an MCP tool name (Node `parseMcpToolName` for a name: a leading
+/// `functions.` is dropped, then `/^mcp__(.+?)__(.+)$/`).
 pub fn parse_mcp_tool_name(name: &str) -> Option<(String, String)> {
-    let rest = name.strip_prefix("mcp__")?;
-    let at = rest.find("__").filter(|at| *at > 0)?;
-    let tool = &rest[at + 2..];
-    (!tool.is_empty()).then(|| (rest[..at].to_owned(), tool.to_owned()))
+    crate::connector_accounts::split_mcp_tool_name(name.strip_prefix("functions.").unwrap_or(name))
 }
 
 /// The permission of `tool` on `server` under one agent's policy.
@@ -229,67 +230,93 @@ struct Snapshot {
     projects: Projects,
 }
 
-fn lone_policy(text: &str) -> Result<Option<Policy>, String> {
-    if js_trim(text).is_empty() || text.chars().all(|c| c == '\0' || is_js_space(c)) {
+/// The JSON of a policy file's text: Node's `holdsNoData` check (only NULs and white space is
+/// "no data", a crash leftover), then `parseJsonText` (a leading byte order mark is dropped).
+fn parse_policy_text(text: &str) -> Result<Value, String> {
+    if text.chars().all(|c| c == '\0' || is_js_space(c)) {
         return Err("the file holds no data".to_owned());
     }
-    let manifest: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    parse_connector_policy(manifest.get("connectors"))
+    serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text)).map_err(|e| e.to_string())
 }
 
-/// Reads one `agent.json`. A damaged file falls back to its last good copy `<file>.bak`;
-/// without one it denies everything (never fails open).
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn read_agent_policy(path: &Path) -> Loaded {
-    let parse = |text: &str| match lone_policy(text) {
-        Ok(Some(policy)) => Ok(Loaded::Policy(policy)),
-        Ok(None) => Ok(Loaded::Absent),
-        Err(error) => Err(error),
-    };
-    match std::fs::read_to_string(path) {
-        Ok(text) => parse(&text).unwrap_or_else(|error| {
-            let mut backup = path.as_os_str().to_owned();
-            backup.push(".bak");
-            std::fs::read_to_string(PathBuf::from(backup))
-                .ok()
-                .and_then(|text| parse(&text).ok())
-                .unwrap_or_else(|| {
-                    tracing::warn!(path = %path.display(), %error, "connector policy is unreadable; denying all connectors");
-                    Loaded::DenyAll
-                })
-        }),
-        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound) => Loaded::Absent,
-        Err(error) if error.raw_os_error().is_some_and(|c| c == 20 || c == 267) => Loaded::Absent,
-        Err(_) => Loaded::DenyAll,
-    }
+fn lone_policy(text: &str) -> Result<Loaded, String> {
+    let manifest = parse_policy_text(text)?;
+    Ok(match parse_connector_policy(manifest.get("connectors"))? {
+        Some(policy) => Loaded::Policy(policy),
+        None => Loaded::Absent,
+    })
 }
 
+/// Node `readJson` over a policy file: no file (or a path through a file) is `absent`; a file
+/// that cannot be read is `deny`; a damaged one (empty, NUL-filled, torn, or a shape `parse`
+/// refuses) falls back to its last good copy `<file>.bak` and, without one, is `deny` — it never
+/// fails open.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn read_projects(path: &Path) -> Projects {
+fn read_policy_file<T>(path: &Path, parse: impl Fn(&str) -> Result<T, String>, absent: T, deny: T) -> T {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Projects::Absent,
-        Err(_) => return Projects::DenyAll,
+        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
+            return absent;
+        }
+        Err(error) if error.raw_os_error().is_some_and(|c| c == 20 || c == 267) => return absent,
+        Err(_) => return deny,
     };
-    let Ok(raw) = serde_json::from_str::<Value>(&text) else { return Projects::DenyAll };
-    let Some(root) = raw.as_object() else { return Projects::DenyAll };
-    let projects = match root.get("projects") {
-        None | Some(Value::Null) => return Projects::Roots(Vec::new()),
+    parse(&text).unwrap_or_else(|error| {
+        let mut backup_path = path.as_os_str().to_owned();
+        backup_path.push(".bak");
+        let backup_path = PathBuf::from(backup_path);
+        let good = std::fs::read(&backup_path).ok().and_then(|bytes| {
+            let value = parse(&String::from_utf8_lossy(&bytes)).ok()?;
+            Some((value, bytes))
+        });
+        // With a good copy the damaged file is kept aside (`<file>.corrupt-<ms>`) and the copy
+        // restored in its place, so the user's deny list survives. Without one the file stays
+        // where it is: moving it would read as "no policy" (all on).
+        let restored = good.and_then(|(value, bytes)| match crate::connector_accounts::restore_from_backup(path, &bytes) {
+            Ok(aside) => {
+                tracing::warn!(path = %path.display(), %error, "connector policy was damaged; kept as {}; restored the last good copy", aside.display());
+                Some(value)
+            }
+            Err(failure) => {
+                tracing::warn!(path = %path.display(), %failure, "connector policy could not be restored");
+                None
+            }
+        });
+        restored.unwrap_or_else(|| {
+            tracing::warn!(path = %path.display(), %error, "connector policy is unreadable; denying all connectors");
+            deny
+        })
+    })
+}
+
+fn read_agent_policy(path: &Path) -> Loaded {
+    read_policy_file(path, lone_policy, Loaded::Absent, Loaded::DenyAll)
+}
+
+fn projects_of(text: &str) -> Result<Projects, String> {
+    let raw = parse_policy_text(text)?;
+    let object = raw.as_object().ok_or("projects must be an object")?;
+    let projects = match object.get("projects") {
+        None | Some(Value::Null) => return Ok(Projects::Roots(Vec::new())),
         Some(Value::Object(map)) => map,
-        Some(_) => return Projects::DenyAll,
+        Some(_) => return Err("projects must be an object".to_owned()),
     };
     let mut out = Vec::new();
     for (root, entry) in projects {
-        let Some(entry) = entry.as_object() else { return Projects::DenyAll };
+        let Some(entry) = entry.as_object() else { return Err(format!("project \"{root}\" must be {{ off: [connector id…] }}")) };
         if entry.get("off").is_some_and(|v| !v.is_null() && !v.is_array()) {
-            return Projects::DenyAll;
+            return Err(format!("project \"{root}\" must be {{ off: [connector id…] }}"));
         }
         let off = unique_ids(entry.get("off"));
         if !js_trim(root).is_empty() && !off.is_empty() {
             out.push(ProjectOff { root: js_trim(root).to_owned(), off });
         }
     }
-    Projects::Roots(out)
+    Ok(Projects::Roots(out))
+}
+
+fn read_projects(path: &Path) -> Projects {
+    read_policy_file(path, projects_of, Projects::Absent, Projects::DenyAll)
 }
 
 /// The folder of agent `id`'s definition. Mixy (`lead`) lives in her identity folder.

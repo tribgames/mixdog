@@ -13,11 +13,12 @@ use crate::hooks::HookHandler;
 use crate::hub::McpHub;
 use crate::naming::PROVIDER_TOOL_NAME_MAX;
 use crate::naming::qualified_tool_name;
+use crate::server::CallError;
 
 /// The tool name the handler targets: `tool` as written, or the provider-safe name of
 /// `server` + `tool` the server's tool was registered under.
 fn target_name(handler: &Value) -> String {
-    let text = |key: &str| handler.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_owned();
+    let text = |key: &str| handler.get(key).and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned();
     let (server, tool) = (text("server"), text("tool"));
     if !server.is_empty() && !tool.is_empty() && !tool.starts_with("mcp__") {
         qualified_tool_name(&server, &tool, PROVIDER_TOOL_NAME_MAX)
@@ -60,6 +61,9 @@ pub async fn run_mcp_tool_handler(
             call_cancel.cancel();
             HandlerRun::failed(format!("mcp_tool hook timed out: {name}"), true)
         }
+        // A tool that reports `isError` answers its `Error:` text as the handler's stdout (Node's
+        // `executeMcpTool` returns it, never throws), so the output parser reads it like any text.
+        Ok(Err(CallError::Reported(reported))) => HandlerRun { exit_code: 0, stdout: limit_text(reported.text), ..HandlerRun::default() },
         Ok(Err(error)) => {
             let message = error.to_string();
             let timed_out = message.to_ascii_lowercase().contains("timed out");

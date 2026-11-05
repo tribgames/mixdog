@@ -1,0 +1,445 @@
+{
+  "cases": [
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam\",\"private_key\":\"KEY\",\"project_id\":\"sa-proj\",\"private_key_id\":\"k1\"}"
+      },
+      "metadata": null,
+      "name": "service account",
+      "projectId": "",
+      "result": {
+        "account": "sa@p.iam",
+        "projectId": "sa-proj",
+        "state": "ready",
+        "type": "service_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\",\"quota_project_id\":\"quota-proj\"}"
+      },
+      "metadata": null,
+      "name": "authorized user with quota project",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "quota-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"}",
+        "configurations/config_default": "[compute]\nproject = other\n[core]\naccount = a@b.c\nproject = cfg-proj\n"
+      },
+      "metadata": null,
+      "name": "authorized user, gcloud config project",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "cfg-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "active_config": "work\n",
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"}",
+        "configurations/config_default": "[compute]\nproject = other\n[core]\naccount = a@b.c\nproject = cfg-proj\n",
+        "configurations/config_work": "[compute]\nproject = other\n[core]\naccount = a@b.c\nproject = work-proj\n"
+      },
+      "metadata": null,
+      "name": "active configuration",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "work-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {
+        "CLOUDSDK_ACTIVE_CONFIG_NAME": "envcfg"
+      },
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"}",
+        "configurations/config_envcfg": "[compute]\nproject = other\n[core]\naccount = a@b.c\nproject = env-cfg-proj\n"
+      },
+      "metadata": null,
+      "name": "config name from env",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "env-cfg-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "active_config": "bad name!",
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"}",
+        "configurations/config_default": "[compute]\nproject = other\n[core]\naccount = a@b.c\nproject = cfg-proj\n"
+      },
+      "metadata": null,
+      "name": "bad active config name",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "cfg-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"}",
+        "configurations/config_default": "[other]\r\nproject = no\r\n[ Core ]\r\n  project   =   crlf-proj  \r\n"
+      },
+      "metadata": null,
+      "name": "crlf config, project outside core",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "crlf-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": " env-proj "
+      },
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\",\"quota_project_id\":\"quota-proj\"}"
+      },
+      "metadata": null,
+      "name": "environment project wins",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "env-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {
+        "GCLOUD_PROJECT": "late",
+        "GCP_PROJECT": "early"
+      },
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam\",\"private_key\":\"KEY\",\"project_id\":\"sa-proj\",\"private_key_id\":\"k1\"}"
+      },
+      "metadata": null,
+      "name": "environment order",
+      "projectId": "",
+      "result": {
+        "account": "sa@p.iam",
+        "projectId": "early",
+        "state": "ready",
+        "type": "service_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\",\"quota_project_id\":\"quota-proj\"}"
+      },
+      "metadata": null,
+      "name": "explicit project",
+      "projectId": " explicit ",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "explicit",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam\",\"private_key\":\"KEY\",\"project_id\":\"\",\"private_key_id\":\"k1\"}"
+      },
+      "metadata": null,
+      "name": "service account without project",
+      "projectId": "",
+      "result": {
+        "account": "sa@p.iam",
+        "projectId": null,
+        "state": "ready",
+        "type": "service_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/t@p.iam:generateAccessToken\",\"source_credentials\":{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"},\"delegates\":[\"d@p.iam\"]}"
+      },
+      "metadata": null,
+      "name": "impersonated",
+      "projectId": "",
+      "result": {
+        "account": "t@p.iam",
+        "projectId": null,
+        "state": "ready",
+        "type": "impersonated_service_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://x/serviceAccounts/a b:generateAccessToken\",\"source_credentials\":{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"},\"delegates\":[\"d@p.iam\"]}"
+      },
+      "metadata": null,
+      "name": "impersonated bad url",
+      "projectId": "",
+      "result": {
+        "message": "The impersonated_service_account credentials in <dir>/application_default_credentials.json have no valid service_account_impersonation_url.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/t@p.iam:generateAccessToken\",\"source_credentials\":{\"type\":\"external_account\"},\"delegates\":[\"d@p.iam\"]}"
+      },
+      "metadata": null,
+      "name": "impersonated unsupported source",
+      "projectId": "",
+      "result": {
+        "message": "Vertex AI does not support \"external_account\" credentials as an impersonation source (<dir>/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`.",
+        "state": "unsupported",
+        "type": "external_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/t@p.iam:generateAccessToken\",\"source_credentials\":{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/t@p.iam:generateAccessToken\",\"source_credentials\":{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\"},\"delegates\":[\"d@p.iam\"]},\"delegates\":[\"d@p.iam\"]}"
+      },
+      "metadata": null,
+      "name": "impersonated nested",
+      "projectId": "",
+      "result": {
+        "message": "Vertex AI does not support \"impersonated_service_account\" credentials as an impersonation source (<dir>/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`.",
+        "state": "unsupported",
+        "type": "impersonated_service_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/t@p.iam:generateAccessToken\",\"delegates\":[\"d@p.iam\"]}"
+      },
+      "metadata": null,
+      "name": "impersonated no source",
+      "projectId": "",
+      "result": {
+        "message": "The credentials in <dir>/application_default_credentials.json are invalid.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"a@b\"}"
+      },
+      "metadata": null,
+      "name": "service account missing key",
+      "projectId": "",
+      "result": {
+        "message": "The service_account credentials in <dir>/application_default_credentials.json are missing private_key.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\"}"
+      },
+      "metadata": null,
+      "name": "authorized user missing fields",
+      "projectId": "",
+      "result": {
+        "message": "The authorized_user credentials in <dir>/application_default_credentials.json are missing client_secret, refresh_token.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"external_account\"}"
+      },
+      "metadata": null,
+      "name": "unsupported type",
+      "projectId": "",
+      "result": {
+        "message": "Vertex AI does not support \"external_account\" credentials (<dir>/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`.",
+        "state": "unsupported",
+        "type": "external_account"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"client_id\":\"c\"}"
+      },
+      "metadata": null,
+      "name": "no type",
+      "projectId": "",
+      "result": {
+        "message": "Vertex AI does not support \"unknown\" credentials (<dir>/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`.",
+        "state": "unsupported",
+        "type": "unknown"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "5"
+      },
+      "metadata": null,
+      "name": "not an object",
+      "projectId": "",
+      "result": {
+        "message": "The credentials in <dir>/application_default_credentials.json are invalid.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "[]"
+      },
+      "metadata": null,
+      "name": "array",
+      "projectId": "",
+      "result": {
+        "message": "The credentials in <dir>/application_default_credentials.json are invalid.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{nope"
+      },
+      "metadata": null,
+      "name": "invalid json",
+      "projectId": "",
+      "result": {
+        "message": "The credentials file <dir>/application_default_credentials.json is not valid JSON.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {},
+      "files": {},
+      "metadata": null,
+      "name": "missing file",
+      "projectId": "",
+      "result": {
+        "message": "No gcloud login found. Run `gcloud auth application-default login`.",
+        "state": "missing"
+      }
+    },
+    {
+      "env": {},
+      "files": {},
+      "metadata": "meta-proj",
+      "name": "missing file, metadata server",
+      "projectId": "",
+      "result": {
+        "account": null,
+        "projectId": "meta-proj",
+        "state": "ready",
+        "type": "metadata"
+      }
+    },
+    {
+      "env": {},
+      "files": {},
+      "metadata": "meta-proj",
+      "name": "missing file, metadata server, explicit project",
+      "projectId": "mine",
+      "result": {
+        "account": null,
+        "projectId": "mine",
+        "state": "ready",
+        "type": "metadata"
+      }
+    },
+    {
+      "env": {
+        "VERTEXAI_PROJECT": "env-v"
+      },
+      "files": {},
+      "metadata": "meta-proj",
+      "name": "missing file, metadata server, environment project",
+      "projectId": "",
+      "result": {
+        "account": null,
+        "projectId": "env-v",
+        "state": "ready",
+        "type": "metadata"
+      }
+    },
+    {
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "<dir>/nope.json"
+      },
+      "files": {},
+      "metadata": "meta-proj",
+      "name": "explicit credentials path missing",
+      "projectId": "",
+      "result": {
+        "message": "GOOGLE_APPLICATION_CREDENTIALS points to <dir>/nope.json, which does not exist.",
+        "state": "invalid"
+      }
+    },
+    {
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "<dir>/creds.json"
+      },
+      "files": {
+        "creds.json": "{\"type\":\"authorized_user\",\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"account\":\"me@x.com\",\"quota_project_id\":\"quota-proj\"}"
+      },
+      "metadata": null,
+      "name": "explicit credentials path",
+      "projectId": "",
+      "result": {
+        "account": "me@x.com",
+        "projectId": "quota-proj",
+        "state": "ready",
+        "type": "authorized_user"
+      }
+    },
+    {
+      "env": {},
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam\",\"private_key\":\"KEY\",\"project_id\":\"sa-proj\",\"private_key_id\":\"k1\"}"
+      },
+      "metadata": "meta-proj",
+      "name": "present file ignores metadata",
+      "projectId": "",
+      "result": {
+        "account": "sa@p.iam",
+        "projectId": "sa-proj",
+        "state": "ready",
+        "type": "service_account"
+      }
+    }
+  ],
+  "domain": "vertex-adc",
+  "recorder": "benchmarks/rust-core/recorders/record-ai-account.mjs"
+}

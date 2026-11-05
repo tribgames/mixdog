@@ -7,11 +7,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono_tz::Tz;
+use mixdog_rt::CancelSource;
 use mixdog_rt::testing::tokens;
 use mixdog_store::state::CoreState;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use super::owned::never_cancelled;
 use super::*;
 use crate::channels::running::RunningWork;
 use crate::scheduler::{
@@ -29,6 +31,8 @@ pub(crate) struct FakeHost {
     pub settles: Mutex<VecDeque<TurnSettle>>,
     /// Turns wait for their cancellation instead of settling.
     pub hold: Mutex<bool>,
+    /// Executor runs wait for their cancellation, then fail.
+    pub hold_executor: Mutex<bool>,
     pub executor_runs: Mutex<Vec<ExecutorRun>>,
     pub executor_reply: Mutex<Option<Result<String, String>>>,
     pub delivered: Mutex<Vec<DeliveryItem>>,
@@ -64,8 +68,12 @@ impl RoutineHost for FakeHost {
         self.settles.lock().unwrap().pop_front().unwrap_or(TurnSettle::Done { result: "ok".into() })
     }
 
-    async fn run_executor(&self, run: ExecutorRun, _cancel: CancellationToken) -> Result<String, String> {
+    async fn run_executor(&self, run: ExecutorRun, cancel: CancellationToken) -> Result<String, String> {
         self.executor_runs.lock().unwrap().push(run);
+        if *self.hold_executor.lock().unwrap() {
+            cancel.cancelled().await;
+            return Err("executor stopped".into());
+        }
         self.executor_reply.lock().unwrap().clone().unwrap_or_else(|| Ok("report".into()))
     }
 
@@ -187,15 +195,99 @@ async fn an_overlapping_switched_off_or_backing_off_fire_is_skipped_unless_a_per
 async fn cancelling_a_run_aborts_its_turn() {
     let f = fixture().await;
     *f.host.hold.lock().unwrap() = true;
-    let cancel = CancellationToken::new();
-    let opts = ScheduleRunOpts { attended: true, cancel: cancel.clone(), ..Default::default() };
+    // A cancel that carries no reason reads Node's own fallback text.
+    let source = CancelSource::new();
+    let opts = ScheduleRunOpts { attended: true, cancel: source.view(), ..Default::default() };
     let rt = f.rt.clone();
     let run = tokio::spawn(async move { rt.run_schedule(&sched("daily"), opts).await });
     while f.host.turns().is_empty() {
         tokio::task::yield_now().await;
     }
-    cancel.cancel();
+    source.token().cancel();
     assert_eq!(run.await.unwrap(), Err("routine run aborted".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stopped_run_now_and_a_timed_out_dispatch_keep_their_reasons() {
+    let f = fixture().await;
+    *f.host.hold.lock().unwrap() = true;
+    for reason in ["Run now was stopped", "webhook dispatch timed out"] {
+        let before = f.host.turns().len();
+        let scope = CancelSource::new();
+        let (rt, view) = (f.rt.clone(), scope.view());
+        let run = tokio::spawn(async move { rt.run_webhook(webhook_run(None), true, view).await });
+        until_started(&f, |f| f.host.turns().len() > before).await;
+        assert!(scope.cancel(reason));
+        assert_eq!(run.await.unwrap().unwrap_err(), reason);
+        // The host's own turn was cancelled with it, and the first reason is the one kept.
+        assert!(!scope.cancel("later"));
+    }
+}
+
+fn webhook_run(executor: Option<&str>) -> WebhookRun {
+    WebhookRun {
+        name: "gh".into(),
+        owner_agent_id: Some("gh-bot".into()),
+        executor_agent_id: executor.map(String::from),
+        cwd: None,
+        attachments: None,
+        event: "push".into(),
+        prompt: "Summarise.".into(),
+        skill_selection: "Summarise.".into(),
+    }
+}
+
+async fn until_started(f: &Fixture, started: impl Fn(&Fixture) -> bool) {
+    while !started(f) {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelling_a_webhook_run_stops_its_turn_and_frees_its_name_and_queue_slot() {
+    let f = fixture().await;
+    *f.host.hold.lock().unwrap() = true;
+    let cancel = CancelSource::new();
+    let rt = f.rt.clone();
+    let token = cancel.view();
+    let run = tokio::spawn(async move { rt.run_webhook(webhook_run(None), true, token).await });
+    until_started(&f, |f| !f.host.turns().is_empty()).await;
+    assert_eq!(f.rt.waiting.lock().unwrap()["sess_home_gh-bot"], 1);
+    assert!(f.rt.runs().begin(RoutineKind::Webhook, "gh").is_none(), "the name is held while it runs");
+
+    cancel.token().cancel();
+    assert_eq!(run.await.unwrap().unwrap_err(), "routine run aborted");
+    assert!(f.rt.waiting.lock().unwrap().is_empty(), "the queue slot is released");
+    assert!(f.rt.runs().begin(RoutineKind::Webhook, "gh").is_some(), "the name is free again");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelling_an_executor_run_never_wakes_the_bot() {
+    let f = fixture().await;
+    f.host.with_executor("worker");
+    *f.host.hold_executor.lock().unwrap() = true;
+    let cancel = CancelSource::new();
+    let rt = f.rt.clone();
+    let token = cancel.view();
+    let run = tokio::spawn(async move { rt.run_webhook(webhook_run(Some("worker")), true, token).await });
+    until_started(&f, |f| !f.host.executor_runs.lock().unwrap().is_empty()).await;
+
+    cancel.cancel("Run now was stopped");
+    // The caller's own cancellation keeps the executor's error as it is.
+    assert_eq!(run.await.unwrap().unwrap_err(), "executor stopped");
+    assert!(f.host.turns().is_empty(), "the bot was never woken");
+    assert!(f.rt.runs().begin(RoutineKind::Webhook, "gh").is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_cancelled_before_it_starts_submits_nothing() {
+    let f = fixture().await;
+    f.host.with_executor("worker");
+    let cancel = CancelSource::new();
+    cancel.cancel("gone");
+    assert_eq!(f.rt.run_webhook(webhook_run(None), true, cancel.view()).await.unwrap_err(), "gone");
+    assert_eq!(f.rt.run_webhook(webhook_run(Some("worker")), true, cancel.view()).await.unwrap_err(), "gone");
+    assert!(f.host.turns().is_empty() && f.host.executor_runs.lock().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -317,7 +409,7 @@ async fn a_heartbeat_turn_is_cut_off_at_its_wall_clock_cap() {
         executor_agent_id: None,
     };
     let rt = f.rt.clone();
-    let run = tokio::spawn(async move { rt.run_routine_turn(args, &CancellationToken::new()).await });
+    let run = tokio::spawn(async move { rt.run_routine_turn(args, &never_cancelled()).await });
     while f.host.turns().is_empty() {
         tokio::task::yield_now().await;
     }

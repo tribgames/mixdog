@@ -14,6 +14,7 @@ pub mod boundary;
 pub mod compact;
 pub mod effort;
 pub mod env;
+pub mod explorer;
 pub mod interrupt;
 pub mod limits;
 pub mod message;

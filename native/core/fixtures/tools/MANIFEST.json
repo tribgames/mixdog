@@ -40,12 +40,15 @@
     "office/snapshot-csv",
     "office/error-unknown-action",
     "office/error-missing-path",
-    "office/error-no-session"
+    "office/error-no-session",
+    "memory/list-empty",
+    "memory/add",
+    "memory/list-after-add",
+    "memory/error-edit-missing",
+    "memory/error-bad-op"
   ],
-  "extraImpossible": [
-    "memory"
-  ],
-  "fileCount": 147,
+  "extraImpossible": [],
+  "fileCount": 149,
   "files": [
     {
       "bytes": 702,
@@ -373,9 +376,9 @@
       "sha256": "8439ca930c4c5aeeb3dcaa7f25166ab6faac77a371e70aedc299f03e43f0ebe0"
     },
     {
-      "bytes": 125,
+      "bytes": 23,
       "path": "extra-impossible.json",
-      "sha256": "c31057e11423dcade9fdf1858479b9d9f00a540b71e4c9da32602288cf0c19d5"
+      "sha256": "152b4760709ac86c720f1f4d0225feadecc0d72fb2550b2c5d72941f7b3faa27"
     },
     {
       "bytes": 109,
@@ -528,6 +531,11 @@
       "sha256": "54a5b391b413e9b2fe8995c4192b3bceb347402b96be37502c340a6cde845dcd"
     },
     {
+      "bytes": 68431,
+      "path": "memory/ingest/golden.json",
+      "sha256": "0c2bb62f87b2637173b0742224fd61ee0d07a1090fb07806ddfcd2d4177e5a36"
+    },
+    {
       "bytes": 710,
       "path": "memory/list-after-add.json",
       "sha256": "82530c6fa74a106bcabd559d189fec2633c50522090337db4e793ba2b6b804be"
@@ -556,6 +564,11 @@
       "bytes": 10212,
       "path": "memory/service/recall.json",
       "sha256": "cec7cec16cc43b7f303abf98e9ded8a173998efe9bad8319fb1262651c2aaa7e"
+    },
+    {
+      "bytes": 101293,
+      "path": "memory/session-search/golden.json",
+      "sha256": "f3b65589e72ffd501636243e7a51e8162523c120e568bef45b881b6b73ef12e1"
     },
     {
       "bytes": 1908,
@@ -784,22 +797,22 @@
     }
   ],
   "product": {
-    "appsSha256": "9e5eb15ace3a768cb481d4856bcbf9d1f1a73470ed0ee9bfb67901954824c336",
-    "commit": null,
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9227,
+    "files": 9139,
     "refComparison": {
-      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
-      "commitFilesMissingFromTree": 6,
-      "exact": false,
-      "filesDifferingFromCommit": 202
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs",
   "set": "tools",
-  "totalBytes": 527560
+  "totalBytes": 697182
 }

@@ -46,6 +46,23 @@ Owner: WP-INTEGRATE. Release version: the root `package.json` `version` (checked
 - Existing standalone native crates (`mixdog-spawn`, `-patch`, `-graph`, `-computer`) keep their
   own `cargo build --locked --manifest-path` jobs.
 
+## Unix CI (WP-OWN)
+
+`.github/workflows/rust-core-unix.yml`, `workflow_dispatch` only until the schedule is decided.
+One job on `ubuntu-latest` and `macos-latest`, in `native/core`, as a non-root user (the job
+asserts `id -u != 0`). Environment: `CARGO_BUILD_JOBS=3`, a job-unique `TMPDIR`, Node 22.19.0 on
+PATH (inside `^22.19.0 || >=24.0.0`; the `node-pin.json` version).
+
+1. Unit tests: `cargo test -p mixdog-app-server-daemon --lib -- ownership:: barrier:: verdict:: discovery::`
+2. Tag tree: `fetch-depth: 0`; `git archive 69fe41b05` into `$RUNNER_TEMP/tag145`, plus that tag's
+   `package-lock.json`; `npm ci --omit=dev --ignore-scripts` there. `MIXDOG_TAG_TREE` names it.
+3. Tag gates 1, 2, 4, 5: `cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates:: -- --ignored --test-threads=1 --skip gate_3`
+   (step timeout 15 min; gate 4 suspends the core for 61 s).
+4. Gates 3a and 3b: `MIXDOG_TAG_GATE_REPS=200 cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates::gate_3 -- --ignored --test-threads=1 --nocapture`
+5. Clippy: `cargo clippy -p mixdog-app-server-daemon --all-targets -- -D warnings`
+6. linux-x64 only: WP-INSTALL's `apps/desktop/src/main/ssh/remote-trimmed-bundle.slow.test.mjs`
+   (`npm run test:slow -- remote-trimmed-bundle.slow` in `apps/desktop`) under the pinned Node.
+
 ## K1 deletion list
 
 Removed together with the Node daemon and session runtime at K1; `main` ships them until then.

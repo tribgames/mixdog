@@ -27,7 +27,7 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 fn failed(message: String) -> CoreError {
     CoreError::DomainError {
         domain: DOMAIN.into(),
-        code: CHANNEL_FAILED.into(),
+        code: Some(CHANNEL_FAILED.into()),
         detail: Some(Box::new(DomainErrorDetail::CommandFailed { message })),
     }
 }
@@ -39,8 +39,16 @@ pub fn admin_error(error: AdminError) -> CoreError {
     {
         return CoreError::DomainError {
             domain: DOMAIN.into(),
-            code: code.into(),
-            detail: name.filter(|n| !n.is_empty()).map(|n| Box::new(DomainErrorDetail::Display { name: n.to_string() })),
+            code: Some(code.into()),
+            detail: name.filter(|n| !n.is_empty()).and_then(|n| {
+                let name = n.to_string();
+                Some(Box::new(match code {
+                    "SCHEDULE_NAME_TAKEN" => DomainErrorDetail::ScheduleNameTaken { name },
+                    "SCHEDULE_RENAME_RUNNING" => DomainErrorDetail::ScheduleRenameRunning { name },
+                    "SCHEDULE_RENAME_RELOAD_FAILED" => DomainErrorDetail::ScheduleRenameReloadFailed { name },
+                    _ => return None,
+                }))
+            }),
         };
     }
     failed(error.to_string())
@@ -50,7 +58,7 @@ fn call_error(error: CallError) -> CoreError {
     match error {
         CallError::CallIdConflict(_) => CoreError::DomainError {
             domain: DOMAIN.into(),
-            code: "ECALLIDCONFLICT".into(),
+            code: Some("ECALLIDCONFLICT".into()),
             detail: None,
         },
         CallError::Failed(message) => failed(message),
@@ -125,6 +133,26 @@ impl ChannelService {
 impl DomainService for ChannelService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         Ok(Reply::Value(self.dispatch(&req).await?))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "channel/call",
+            "channel/getChannelSettings",
+            "channel/getChannelSetup",
+            "channel/getChannelWorkerStatus",
+            "channel/setWebhookConfig",
+            "channel/saveSchedule",
+            "channel/deleteSchedule",
+            "channel/setScheduleEnabled",
+            "channel/runScheduleNow",
+            "channel/runWebhookNow",
+            "channel/saveWebhook",
+            "channel/deleteWebhook",
+            "channel/setWebhookEnabled",
+            "channel/testWebhook",
+            "channel/retryRoutineDelivery",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

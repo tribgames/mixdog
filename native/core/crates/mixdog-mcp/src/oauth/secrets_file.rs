@@ -332,11 +332,23 @@ mod tests {
 
     #[test]
     fn only_a_missing_provider_is_recognised() {
-        use super::super::store::reports_no_provider as no_provider;
-        assert!(no_provider("org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.secrets was not provided by any .service files"));
-        assert!(no_provider("Cannot autolaunch D-Bus without X11 $DISPLAY"));
-        assert!(!no_provider("the keyring is locked or the unlock prompt was declined"));
-        assert!(!no_provider("something unexpected"));
+        use super::super::store::dbus_error_means_no_provider as no_provider;
+        use super::super::store::no_session_bus;
+        for name in ["ServiceUnknown", "NameHasNoOwner", "NoServer", "FileNotFound", "Spawn.ExecFailed"] {
+            assert!(no_provider(&format!("org.freedesktop.DBus.Error.{name}")), "{name}");
+        }
+        // A locked keyring, a dismissed prompt and everything else keep failing closed.
+        for name in ["AccessDenied", "NoReply", "Failed", "UnknownMethod", "InvalidArgs", "AuthFailed", "Timeout"] {
+            assert!(!no_provider(&format!("org.freedesktop.DBus.Error.{name}")), "{name}");
+        }
+        assert!(!no_provider("org.freedesktop.Secret.Error.IsLocked"));
+        assert!(!no_provider(""));
+        // The bus is missing only when nothing names one and nothing can start one.
+        assert!(no_session_bus(None, None, false));
+        assert!(no_session_bus(Some(""), Some(""), false));
+        assert!(!no_session_bus(Some("unix:path=/run/user/1000/bus"), None, false));
+        assert!(!no_session_bus(None, Some(":0"), false));
+        assert!(!no_session_bus(None, None, true));
     }
 
     #[cfg(target_os = "linux")]

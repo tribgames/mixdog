@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::languages::normalize_rel;
-use super::process::{RunOptions, run_process, which};
+use super::process::{Processes, RunOptions, which};
 
 pub const NO_GIT_REASON: &str = "git is not installed";
 
@@ -62,7 +62,7 @@ pub fn parse_status(porcelain_z: &str, show_prefix: &str) -> HashSet<String> {
 
 /// Files git reports as changed (staged, unstaged or untracked) relative to `cwd`. No git on
 /// PATH is expected and comes back `skipped`; git that cannot answer comes back with an `error`.
-pub async fn list_working_tree_changes(cwd: &Path, cancel: Option<&CancellationToken>) -> Changes {
+pub async fn list_working_tree_changes(processes: &Processes, cwd: &Path, cancel: Option<&CancellationToken>) -> Changes {
     let Some(git) = which("git", None, None) else { return Changes { skipped: Some(NO_GIT_REASON), ..Default::default() } };
     let git = git.to_string_lossy().into_owned();
     let run = |args: &[&str]| {
@@ -72,7 +72,7 @@ pub async fn list_working_tree_changes(cwd: &Path, cancel: Option<&CancellationT
             let mut o = RunOptions::new(cwd);
             o.cancel = cancel;
             o.timeout = Duration::from_secs(20);
-            run_process(&git, &args, o).await
+            processes.run(&git, &args, o).await
         }
     };
     let (status, prefix) = tokio::join!(
@@ -160,11 +160,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::process::Command::new("git").args(["init", "-q"]).current_dir(dir.path()).output().unwrap();
         std::fs::write(dir.path().join("fresh.ts"), "x").unwrap();
-        let changes = list_working_tree_changes(dir.path(), None).await;
+        let changes = list_working_tree_changes(&Processes::for_tests(), dir.path(), None).await;
         assert!(changes.files.unwrap().contains("fresh.ts"));
         let outside = tempfile::tempdir().unwrap();
         // Not a repository: the error is reported and no split is claimed.
-        let none = list_working_tree_changes(outside.path(), None).await;
+        let none = list_working_tree_changes(&Processes::for_tests(), outside.path(), None).await;
         assert!(none.files.is_none() && !none.error.is_empty() || none.files.is_some());
     }
 }

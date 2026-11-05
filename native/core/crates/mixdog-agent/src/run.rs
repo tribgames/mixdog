@@ -10,6 +10,7 @@ use std::sync::Arc;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::retry::RetryClass;
@@ -244,6 +245,9 @@ pub struct RunFailure {
     pub carried_report: String,
     pub transcript: Vec<AgentMessage>,
     pub carry: RunCarry,
+    /// Set when a provider changed the session's state during the run; the host
+    /// saves it with `RunPort::save_provider_state` (an empty state clears it).
+    pub provider_state: Option<ProviderState>,
 }
 
 /// The ask result: the terminal response plus the loop's aggregate usage.
@@ -261,6 +265,8 @@ pub struct RunOutput {
     pub provider_continuations: u32,
     pub transcript: Vec<AgentMessage>,
     pub carry: RunCarry,
+    /// As on [`RunFailure`].
+    pub provider_state: Option<ProviderState>,
 }
 
 pub struct Run {
@@ -309,6 +315,10 @@ pub struct Run {
     /// A one-shot call: messages go to the wire as given, with no synthetic-row
     /// envelope (a provider-level send, not a loop request).
     pub(crate) unprojected: bool,
+    /// The session's provider state as the run last saw it: the host's value at
+    /// the start (`config.options.provider_state`), then each report of a provider.
+    pub(crate) provider_state: Option<ProviderState>,
+    pub(crate) provider_state_changed: bool,
 }
 
 pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
@@ -319,6 +329,7 @@ pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
     total.output_tokens += next.output_tokens;
     total.cache_read_tokens += next.cache_read_tokens;
     total.cache_write_tokens += next.cache_write_tokens;
+    total.cache_write_1h_tokens += next.cache_write_1h_tokens;
     total.reasoning_tokens += next.reasoning_tokens;
     total.raw = next.raw.clone().or(total.raw);
     total
@@ -338,7 +349,10 @@ impl Run {
     ) -> Self {
         let model = config.model.clone();
         let retry = RetryStates::new(&model);
+        let provider_state = config.options.provider_state.clone();
         Self {
+            provider_state,
+            provider_state_changed: false,
             env,
             cancel,
             provider,
@@ -469,6 +483,7 @@ impl Run {
                 carried_report: self.no_tool.ended_report(),
                 transcript: self.messages,
                 carry: self.carry,
+                provider_state: self.provider_state_changed.then_some(self.provider_state).flatten(),
             }),
         }
     }
@@ -606,6 +621,7 @@ impl Run {
             provider_continuations: self.no_tool.provider_continuations(),
             transcript: self.messages,
             carry: self.carry,
+            provider_state: self.provider_state_changed.then_some(self.provider_state).flatten(),
             response,
         }
     }

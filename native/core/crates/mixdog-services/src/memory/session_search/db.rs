@@ -61,29 +61,12 @@ pub struct SessionHit {
 
 fn message_ts(message: &Value) -> Option<i64> {
     let raw = message.get("ts").filter(|v| !v.is_null()).or_else(|| message.get("timestamp"))?;
-    let numeric = match raw {
-        Value::Number(n) => n.as_f64(),
-        Value::String(text) if js_trim(text).is_empty() => Some(0.0),
-        Value::String(text) => Some(mixdog_js::string_to_number(text)),
-        Value::Bool(flag) => Some(f64::from(u8::from(*flag))),
-        _ => None,
-    };
-    if let Some(n) = numeric.filter(|n| n.is_finite() && *n > 0.0) {
-        return Some(n.floor() as i64);
+    let numeric = mixdog_js::to_number(raw);
+    if numeric.is_finite() && numeric > 0.0 {
+        return Some(numeric.floor() as i64);
     }
-    let text = match raw {
-        Value::String(text) => text.as_str(),
-        _ => return None,
-    };
-    chrono::DateTime::parse_from_rfc3339(js_trim(text))
-        .map(|time| time.timestamp_millis())
-        .ok()
-        .or_else(|| {
-            chrono::NaiveDate::parse_from_str(js_trim(text), "%Y-%m-%d")
-                .ok()
-                .and_then(|date| date.and_hms_opt(0, 0, 0))
-                .map(|time| time.and_utc().timestamp_millis())
-        })
+    let parsed = mixdog_js::time::date_parse(&mixdog_js::value_to_string(raw));
+    parsed.is_finite().then_some(parsed as i64)
 }
 
 /// Cuts `text` to at most `MAX_CONTENT_UNITS` UTF-16 code units.
@@ -328,5 +311,6 @@ impl SessionSearchDb {
 }
 
 fn random_hex() -> String {
-    uuid::Uuid::new_v4().simple().to_string()
+    // 12 random bytes as hex, like the Node product's `randomBytes(12)`.
+    uuid::Uuid::new_v4().simple().to_string()[..24].to_owned()
 }

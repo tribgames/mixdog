@@ -121,6 +121,7 @@ pub fn usage_from(raw: &JsonValue, cost: CostField) -> Usage {
         output_tokens: to_u64(get(&["completion_tokens"]).or(get(&["output_tokens"])).unwrap_or(0.0)),
         cache_read_tokens: to_u64(cached),
         cache_write_tokens: to_u64(written),
+        cache_write_1h_tokens: 0,
         reasoning_tokens: to_u64(
             get(&["completion_tokens_details", "reasoning_tokens"])
                 .or(get(&["output_tokens_details", "reasoning_tokens"]))

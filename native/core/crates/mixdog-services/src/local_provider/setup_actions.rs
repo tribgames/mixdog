@@ -99,7 +99,7 @@ impl LocalModelSetupActions {
                 let model_id = require_text(args, "modelId")?;
                 provider.install_model_and_wait(&model_id).await.map_err(provider_error)?;
                 service.settings.catalog_changed().await;
-                Ok(service.settings_view())
+                Ok(service.settings_view().await.map_err(provider_error)?)
             }
             "start_local_installation" => {
                 let phase = require_enum(args, "phase", &["runtime", "model"])?;
@@ -115,7 +115,7 @@ impl LocalModelSetupActions {
                 service.begin_installation(&phase, model_id.as_deref()).map_err(provider_error)?;
                 let mut out = Map::new();
                 out.insert("background".into(), Value::Bool(true));
-                if let Value::Object(status) = service.settings_view() {
+                if let Value::Object(status) = service.settings_view().await.map_err(provider_error)? {
                     out.extend(status);
                 }
                 Ok(Value::Object(out))
@@ -123,7 +123,7 @@ impl LocalModelSetupActions {
             "cancel_local_installation" => {
                 let job_id = require_text(args, "jobId")?;
                 provider.installs.cancel(&job_id).map_err(|e| failed(e.to_string()))?;
-                Ok(service.settings_view())
+                Ok(service.settings_view().await.map_err(provider_error)?)
             }
             "set_local_idle_ttl" => {
                 let value = match args.get("idleTtlSeconds") {
@@ -133,7 +133,7 @@ impl LocalModelSetupActions {
                 let seconds = local_idle_ttl_seconds(value).map_err(|e| invalid("idleTtlSeconds", e.to_string()))?;
                 service.settings.persist_idle_ttl(seconds).await.map_err(failed)?;
                 provider.queue.configure(seconds);
-                Ok(service.settings_view())
+                Ok(service.settings_view().await.map_err(provider_error)?)
             }
             "search_local_models" => {
                 let query = require_text(args, "query")?;
@@ -153,20 +153,20 @@ impl LocalModelSetupActions {
             "register_hf_model" => {
                 let preview_id = require_text(args, "previewId")?;
                 let accepted = require_boolean(args, "licenseAccepted")?;
-                provider.register_model(&preview_id, accepted).map_err(hf_error)
+                provider.register_model(&preview_id, accepted).await.map_err(hf_error)
             }
-            "local_model_details" => provider.model_details(&require_text(args, "modelId")?).map_err(provider_error),
+            "local_model_details" => provider.model_details(&require_text(args, "modelId")?).await.map_err(provider_error),
             "maintain_local_model" => {
                 let model_id = require_text(args, "modelId")?;
                 let operation = require_enum(args, "operation", &["verify", "repair"])?;
                 let job = provider.start_maintenance(&model_id, &operation).map_err(provider_error)?;
-                Ok(json!({"job": job, "localProvider": service.settings_view()}))
+                Ok(json!({"job": job, "localProvider": service.settings_view().await.map_err(provider_error)?}))
             }
             "delete_local_model" => {
                 let token = require_text(args, "confirmationToken")?;
                 let result = provider.delete_model(&token).await.map_err(provider_error)?;
                 service.settings.catalog_changed().await;
-                Ok(with_status(result, service.settings_view()))
+                Ok(with_status(result, service.settings_view().await.map_err(provider_error)?))
             }
             other => Err(PortError::Unavailable {
                 capability: format!("setup.{other}"),
@@ -305,7 +305,7 @@ mod tests {
         let status = a.run("set_local_idle_ttl", &json!({})).await.unwrap();
         assert_eq!(status["idleTtlSeconds"], 3600);
 
-        let (entry, _) = install_fake_model(&provider, b"weights");
+        let (entry, _) = install_fake_model(&provider, b"weights").await;
         let id = entry["id"].as_str().unwrap();
         let out = a.run("maintain_local_model", &json!({"modelId": format!(" {id} "), "operation": "verify"})).await.unwrap();
         assert!(out["job"].is_object() && out["localProvider"]["installations"].is_array());

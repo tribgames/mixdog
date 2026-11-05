@@ -158,6 +158,27 @@ impl SectionFeedState {
     }
 }
 
+impl SectionFeedState {
+    /// Appends a notification that is not a section (`core/drain`) to the feed as its next frame.
+    /// The snapshot is unchanged: the notification is an event, not state. This state is the
+    /// feed's only producer, so the frame takes the next seq here.
+    pub fn notify<P: Serialize>(&self, method: &str, params: &P) {
+        let mut inner = lock(&self.inner);
+        let seq = inner.seq + 1;
+        let mut bytes = Vec::with_capacity(160);
+        bytes.extend_from_slice(br#"{"method":"#);
+        bytes.extend_from_slice(method.to_json_string().as_bytes());
+        bytes.extend_from_slice(br#","params":"#);
+        bytes.extend_from_slice(params.to_json_string().as_bytes());
+        bytes.push(b',');
+        self.stamp.close(&mut bytes, seq);
+        let frame = FeedFrame { seq, bytes: Bytes::from(bytes) };
+        if self.feed.publish(&[frame], None).is_ok() {
+            inner.seq = seq;
+        }
+    }
+}
+
 impl StatePublisher for SectionFeedState {
     fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
         let mut inner = lock(&self.inner);

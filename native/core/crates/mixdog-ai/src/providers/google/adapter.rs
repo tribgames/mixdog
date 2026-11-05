@@ -23,10 +23,19 @@ use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
+use mixdog_core_api::domain::provider::GeminiCacheState;
+use mixdog_core_api::domain::provider::ProviderState;
+use serde_json::Value;
+
 use super::auth::Authorization;
 use super::auth::RequestAuth;
+use super::cache::layer::Ask;
+use super::cache::layer::ExplicitCache;
+use super::cache::policy::CacheRequest;
+use super::codec::Attach;
 use super::codec::GoogleCodec;
 use crate::transport::BodyStream;
+use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
 
 pub struct GoogleAdapter {
@@ -38,6 +47,7 @@ pub struct GoogleAdapter {
     auth: Arc<dyn RequestAuth>,
     /// The account the codec's target was built for.
     identity: String,
+    cache: Option<ExplicitCache>,
 }
 
 impl GoogleAdapter {
@@ -56,6 +66,7 @@ impl GoogleAdapter {
             http,
             auth,
             identity,
+            cache: None,
         }
     }
 
@@ -75,6 +86,66 @@ impl GoogleAdapter {
         request.headers.extend(authorization.headers.iter().cloned());
         request
     }
+
+    /// Serves the Gemini API's explicit `cachedContents` ([`ExplicitCache`]).
+    pub fn with_cache(mut self, cache: ExplicitCache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// The cache to attach to `request`, if any, and the session state it
+    /// changed. Hosted tools disable it, as in Node (`opts.nativeTools`).
+    async fn cached_prefix(&self, request: &ModelRequest, inner: &Value) -> Option<Cached> {
+        let cache = self.cache.as_ref()?;
+        if !request.options.hosted_tools.is_empty() {
+            return None;
+        }
+        let system = inner["systemInstruction"]["parts"][0]["text"].as_str().unwrap_or_default();
+        let tools = inner["tools"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let contents = inner["contents"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let answer = cache
+            .ensure(Ask {
+                model: &request.model,
+                request: CacheRequest {
+                    system_instruction: system,
+                    tools,
+                    tool_config: inner.get("toolConfig"),
+                    contents,
+                },
+                state: request.options.provider_state.as_ref(),
+                iteration: request.options.iteration,
+                fork: request.options.shared_cache_prefix_count.is_some_and(|n| n > 0),
+            })
+            .await;
+        let name = answer.cache_name?;
+        let state = answer
+            .state
+            .as_ref()
+            .or(request.options.provider_state.as_ref())
+            .and_then(|s| s.gemini.clone())
+            .filter(|s| s.cache_name == name)?;
+        Some(Cached { name, state, changed: answer.state })
+    }
+
+    /// One authorized send, with the single credential-recovery resend of a 401.
+    async fn dispatch(&self, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
+        let mut authorization = self.auth.authorize().await?;
+        self.check_identity(&authorization)?;
+        let mut response = self.http.send(Self::authorized(wire, &authorization)).await?;
+        if response.status == 401 && self.auth.rejected(&authorization).await {
+            authorization = self.auth.authorize().await?;
+            self.check_identity(&authorization)?;
+            response = self.http.send(Self::authorized(wire, &authorization)).await?;
+        }
+        Ok(response)
+    }
+}
+
+struct Cached {
+    name: String,
+    state: GeminiCacheState,
+    /// `Some` when attaching changed the session's provider state.
+    changed: Option<ProviderState>,
 }
 
 #[async_trait]
@@ -96,14 +167,37 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let wire = self.codec.encode(&request)?;
-        let mut authorization = self.auth.authorize().await?;
-        self.check_identity(&authorization)?;
-        let mut response = self.http.send(Self::authorized(&wire, &authorization)).await?;
-        if response.status == 401 && self.auth.rejected(&authorization).await {
-            authorization = self.auth.authorize().await?;
-            self.check_identity(&authorization)?;
-            response = self.http.send(Self::authorized(&wire, &authorization)).await?;
+        // State changes reach the session only as stream events: Node persists
+        // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
+        // never from a failed send, so no error carries one.
+        let inner = self.codec.build_inner(&request)?;
+        let mut queue = VecDeque::new();
+        let mut cached = self.cached_prefix(&request, &inner).await;
+        if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
+            queue.push_back(Ok(StreamEvent::ProviderState(state)));
+        }
+        let mut response = {
+            let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
+            self.dispatch(&self.codec.wire(&request, &inner, attach)?).await?
+        };
+        // A cache the server refuses (gone, evicted, mismatched) is forgotten
+        // here and in the session, and the request runs once without it. The
+        // only cache-specific thing a 400/404 can be about is the attachment.
+        if let Some(rejected) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
+            if let Some(cache) = &self.cache {
+                cache.forget(&rejected.name);
+            }
+            // Node drops only the `gemini` key; the other provider keys stay.
+            let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
+            queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
+            response = self.dispatch(&self.codec.wire(&request, &inner, None)?).await?;
+        }
+        // A typed 401 is the only credential event Node acts on
+        // (`gemini.mjs:667`): every cache made under the rejected key goes.
+        if response.status == 401
+            && let Some(cache) = &self.cache
+        {
+            cache.forget_credential();
         }
         if !response.is_success() {
             let rejected = response.read_all().await?;
@@ -111,8 +205,8 @@ impl ProviderAdapter for GoogleAdapter {
         }
         Ok(Box::new(GoogleStream {
             body: response.body,
-            decoder: self.codec.decoder(),
-            queue: VecDeque::new(),
+            decoder: self.codec.decoder(&request),
+            queue,
             ended: false,
             model: request.model.clone(),
             // An empty answer right after a tool result is the model's answer.

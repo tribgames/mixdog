@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8765/index.html",
+  "known": {
+    "text": "Opened http://127.0.0.1:8765/index.html in the session's browser panel as page p7; pass tab:\"p7\" to the browser tool.",
+    "tabs": [
+      {
+        "id": "v1",
+        "label": "127.0.0.1:8765/index.html",
+        "kind": "url",
+        "target": "http://127.0.0.1:8765/index.html"
+      }
+    ]
+  },
+  "unknown": {
+    "text": "Opened http://127.0.0.1:8765/index.html in the session's browser panel; its page id (p…) is not known yet, so find it with the browser tool's list_tabs.",
+    "tabs": [
+      {
+        "id": "v1",
+        "label": "127.0.0.1:8765/index.html",
+        "kind": "url",
+        "target": "http://127.0.0.1:8765/index.html"
+      }
+    ]
+  },
+  "empty": {
+    "text": "Opened http://127.0.0.1:8765/index.html in the session's browser panel; its page id (p…) is not known yet, so find it with the browser tool's list_tabs.",
+    "tabs": [
+      {
+        "id": "v1",
+        "label": "127.0.0.1:8765/index.html",
+        "kind": "url",
+        "target": "http://127.0.0.1:8765/index.html"
+      }
+    ]
+  }
+}

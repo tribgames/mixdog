@@ -123,7 +123,7 @@ fn body_of(codec: &CompatChatCodec, request: &ModelRequest) -> JsonValue {
 
 /// Feeds `bytes` in two units split at `split` and finishes the body.
 fn decode(codec: &CompatChatCodec, bytes: &[u8], split: usize) -> Vec<StreamEvent> {
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(&base_request("m"));
     let (head, tail) = bytes.split_at(split.min(bytes.len()));
     let mut events = decoder.feed(head).expect("feed head");
     events.extend(decoder.feed(tail).expect("feed tail"));
@@ -228,14 +228,14 @@ fn chat_wire_codec_conformance_and_truncation() {
     // The same body cut before the event that carries `finish_reason`.
     let cut = sse.find("\"finish_reason\":\"stop\"").expect("finish chunk");
     let truncated = &sse[..sse[..cut].rfind("data:").unwrap()];
-    check_wire_codec(&codec, sse.as_bytes(), truncated.as_bytes(), 40);
+    check_wire_codec(&codec, &base_request("m"), sse.as_bytes(), truncated.as_bytes(), 40);
 
     // The recorded cut: `finish_reason` arrived, the usage frame did not end.
     // Node completed this turn without usage; the rebuild reports a body that
     // ends inside an event as truncated (decisions.md:46), after the text.
     let recorded = read("providers/openai-compat-chat/truncated-no-done/response.sse");
     let result = read_json("providers/openai-compat-chat/truncated-no-done/result.json");
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(&base_request("m"));
     let events = decoder.feed(&recorded).unwrap();
     assert_eq!(text_of(&events), result["ok"]["content"].as_str().unwrap());
     assert!(usage_of(&events).is_none());
@@ -358,7 +358,7 @@ fn intercepted_truncation_and_errors() {
     for (provider, codec) in [("mimo-oauth", mimo_codec()), ("command-code-oauth", command_code_codec())] {
         // The body ends after text and before any finish_reason.
         let cut = chat_record(provider, "truncated-eof")["served"].as_str().unwrap().to_owned();
-        let mut decoder = codec.decoder();
+        let mut decoder = codec.decoder(&base_request("m"));
         let events = decoder.feed(cut.as_bytes()).unwrap();
         assert_eq!(text_of(&events), "The result is 42.");
         let err = decoder.finish().expect_err("no terminal event");
@@ -595,7 +595,7 @@ fn a_gateway_failure_in_the_stream_is_typed() {
         let sse = format!(
             "data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
         );
-        let mut decoder = codec.decoder();
+        let mut decoder = codec.decoder(&base_request("m"));
         let err = decoder.feed(sse.as_bytes()).expect_err(reason);
         assert_eq!(err.kind, ErrorKind::Transient, "{reason}");
         assert_eq!(err.status, status, "{reason}");
@@ -603,13 +603,13 @@ fn a_gateway_failure_in_the_stream_is_typed() {
     }
     // An error payload inside the stream goes through the one classifier.
     let sse = "data: {\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"slow\"}}\n\n";
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(&base_request("m"));
     let err = decoder.feed(sse.as_bytes()).expect_err("in-band error");
     assert_eq!(err.kind, ErrorKind::RateLimited);
     // xAI re-asks an in-band invalid request.
     let xai = CompatChatCodec::new(CompatProfile::xai(), CompatConfig::default());
     let sse = "data: {\"error\":{\"code\":\"invalid_request\",\"message\":\"x\"}}\n\n";
-    let err = xai.decoder().feed(sse.as_bytes()).expect_err("in-band error");
+    let err = xai.decoder(&base_request("m")).feed(sse.as_bytes()).expect_err("in-band error");
     assert_eq!(err.kind, ErrorKind::Transient);
 }
 
@@ -618,7 +618,7 @@ fn a_cut_or_filtered_turn_never_dispatches_its_tool_calls() {
     let codec = plain_codec();
     let sse = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"k\"}}]}}]}\n\n\
                data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n";
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(&base_request("m"));
     let events = decoder.feed(sse.as_bytes()).unwrap();
     assert!(tool_calls_of(&events).is_empty());
     assert_eq!(stop_of(&events), StopReason::MaxTokens);
@@ -1016,18 +1016,26 @@ mod responses_heads {
         let cache = "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7";
         let http = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1);
         let ws = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::WebSocket);
+        // The oracle fixes the key it was recorded with; the codec derives its own from the
+        // session, so that one value is swapped for the oracle's.
+        let with_session = |history: Vec<Message>| {
+            let mut r = request("grok-4", history, session_tools(), None);
+            r.options.session_id = Some("sess-1".into());
+            r
+        };
+        let derived = crate::providers::compat::responses::xai_cache_key(&with_session(native_history())).unwrap();
         for (label, history) in [("native/plain-tools", native_history()), ("oauth/plain-tools", oauth_history())] {
             for (transport, codec) in [("http", &http), ("ws", &ws)] {
                 let name = format!("{transport}/{label}");
                 assert_eq!(
-                    sent(codec, &request("grok-4", history.clone(), session_tools(), Some(cache))),
+                    sent(codec, &with_session(history.clone())).replace(&derived, cache),
                     serde_json::to_string(&heads[&name]).unwrap(),
                     "{name}"
                 );
             }
         }
         // The socket frame leads with its type and carries no `stream`.
-        let wire = ws.encode(&request("grok-4", native_history(), session_tools(), Some(cache))).unwrap();
+        let wire = ws.encode(&with_session(native_history())).unwrap();
         assert!(wire.url.starts_with("wss://api.x.ai/v1/responses"));
         assert!(String::from_utf8(wire.body).unwrap().starts_with("{\"type\":\"response.create\""));
     }
@@ -1056,12 +1064,105 @@ mod responses_heads {
         assert!(at("parallel_tool_calls") < at("tool_choice") && at("tool_choice") < at("reasoning"), "{keys:?}");
     }
 
+    /// Golden recorded from Node's real xAI send path (`sendXaiResponses`) and
+    /// `normalizeXaiResponsesWebSocket`: the `xaiResponses` slot is stateless
+    /// (`store: false`, `previousResponseId: null`), carries the response id
+    /// and the encrypted reasoning, tags no history owner, and the socket turn
+    /// adds `transport`. Every other provider-state key is kept.
+    #[test]
+    fn xai_keeps_nodes_stateless_slot_across_turns() {
+        let golden = oracle("xai-responses-continuation.json");
+        let messages = |turn: &JsonValue| -> Vec<Message> {
+            turn["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| {
+                    let role = match m["role"].as_str().unwrap() {
+                        "system" => Role::System,
+                        "user" => Role::User,
+                        "assistant" => Role::Assistant,
+                        _ => Role::Tool,
+                    };
+                    let mut message = text_message(role, m["content"].as_str().unwrap());
+                    for call in m["toolCalls"].as_array().into_iter().flatten() {
+                        message.tool_calls.push(ToolCall {
+                            id: call["id"].as_str().unwrap().into(),
+                            name: call["name"].as_str().unwrap().into(),
+                            arguments: call["arguments"].clone(),
+                            native_type: None,
+                        });
+                    }
+                    message.tool_call_id = m["toolCallId"].as_str().map(str::to_owned);
+                    message
+                })
+                .collect()
+        };
+        let state = |value: &JsonValue| -> Option<mixdog_core_api::domain::provider::ProviderState> {
+            (!value.is_null()).then(|| serde_json::from_value(value.clone()).unwrap())
+        };
+        // The slot a turn must leave behind, with the clock the codec reads left out.
+        let produced = |codec: &CompatResponsesCodec, turn: &JsonValue, prior: &JsonValue| -> JsonValue {
+            let mut req = request("grok-4.5", messages(turn), Vec::new(), None);
+            req.options.provider_state = state(prior);
+            let expected = &turn["providerState"]["xaiResponses"];
+            let mut frames: Vec<JsonValue> = expected["encryptedReasoningItems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| json!({"type": "response.output_item.done", "item": item}))
+                .collect();
+            frames.push(json!({"type": "response.completed", "response": {
+                "id": expected["responseId"], "status": "completed",
+                "output": expected["encryptedReasoningItems"],
+            }}));
+            let mut decoder = codec.decoder(&req);
+            let mut events = Vec::new();
+            for frame in frames {
+                let bytes = if codec.transport() == TransportKind::WebSocket {
+                    frame.to_string()
+                } else {
+                    format!("data: {frame}\n\n")
+                };
+                events.extend(decoder.feed(bytes.as_bytes()).unwrap());
+            }
+            events.extend(decoder.finish().unwrap());
+            let mut out = events
+                .into_iter()
+                .find_map(|e| match e {
+                    StreamEvent::ProviderState(s) => Some(serde_json::to_value(s).unwrap()),
+                    _ => None,
+                })
+                .expect("the turn reports its provider state");
+            out["xaiResponses"]["updatedAt"] = expected["updatedAt"].clone();
+            out
+        };
+
+        let http = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1);
+        for name in ["turn1", "turn2", "imported"] {
+            let turn = &golden[name];
+            let prior = &turn["priorState"];
+            let mut req = request("grok-4.5", messages(turn), Vec::new(), None);
+            req.options.provider_state = state(prior);
+            req.options.session_id = Some("s1".into());
+            let body: JsonValue = serde_json::from_slice(&http.encode(&req).unwrap().body).unwrap();
+            for field in ["input", "store", "include", "previous_response_id", "prompt_cache_key"] {
+                assert_eq!(body.get(field), turn["request"].get(field), "{name}: request {field}");
+            }
+            assert_eq!(produced(&http, turn, prior), turn["providerState"], "{name}: slot");
+        }
+
+        let ws = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::WebSocket);
+        let turn = &golden["websocket"];
+        assert_eq!(produced(&ws, turn, &turn["priorState"]), turn["providerState"], "websocket: slot");
+    }
+
     #[test]
     fn replay_envelopes_belong_to_the_compat_owner() {
         let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1);
         let sse = "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs\",\"encrypted_content\":\"E\",\"summary\":[]}}\n\n\
                    data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs\",\"encrypted_content\":\"E\",\"summary\":[]}]}}\n\n";
-        let mut decoder = codec.decoder();
+        let mut decoder = codec.decoder(&base_request("m"));
         let mut events = decoder.feed(sse.as_bytes()).unwrap();
         events.extend(decoder.finish().unwrap());
         let owners: Vec<_> = events

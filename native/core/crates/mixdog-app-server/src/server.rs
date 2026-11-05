@@ -571,8 +571,8 @@ impl Shared {
     }
 
     /// A method served by the core: the thread directory or a loaded thread for the thread
-    /// namespaces (a request that names a `threadId` is addressed to that thread), a domain
-    /// service for every other namespace.
+    /// namespaces (a request that names a `threadId` is addressed to that thread), the domain
+    /// service that claims the exact method for every other one.
     fn route(
         &self,
         conn: &Connection,
@@ -620,10 +620,9 @@ impl Shared {
         Dispatch::Later(
             TaskClass::Work,
             Box::pin(async move {
-                match core.domain(namespace) {
+                match core.domain_for(spec.method) {
                     Some(domain) => domain.call(request).await,
-                    // The table routes every non-thread namespace to a domain.
-                    None => Err(internal(&format!("no domain service for {namespace}"))),
+                    None => Err(unclaimed(spec.method)),
                 }
             }),
         )
@@ -816,7 +815,7 @@ impl Shared {
         if spec.method == "initialized" {
             return Inbound::Continue;
         }
-        let Some(domain) = self.core.domain(namespace(spec.method)) else {
+        let Some(domain) = self.core.domain_for(spec.method) else {
             return Inbound::Continue;
         };
         let params = notification.params.unwrap_or(Value::Null);
@@ -824,6 +823,14 @@ impl Shared {
             Admit::Accepted => Inbound::Continue,
             Admit::Pause(resume) => Inbound::Pause(resume),
         }
+    }
+}
+
+/// The answer for a method no service claims.
+fn unclaimed(method: &str) -> CoreError {
+    CoreError::CapabilityUnavailable {
+        capability: method.into(),
+        detail: "unclaimed".into(),
     }
 }
 

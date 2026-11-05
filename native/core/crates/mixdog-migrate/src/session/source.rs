@@ -345,6 +345,52 @@ fn visible(range: Option<(f64, f64)>, seq: u64) -> bool {
     range.is_some_and(|(after, before)| after < seq as f64 && (seq as f64) < before)
 }
 
+/// Whether 1.4.5's archive index (`compaction-archive.mjs` `indexArchive`) reads `line` as a
+/// segment: its first 512 bytes hold `SEGMENT_HEAD` then `"items":`, and the head's `bytes`
+/// ends the line exactly. Every 1.4.5 archive read skips any other line.
+pub(super) fn indexed_segment(line: &[u8]) -> bool {
+    let probe = &line[..line.len().min(512)];
+    let mut at = 0;
+    let literal = |at: &mut usize, text: &[u8]| {
+        let hit = probe[*at..].starts_with(text);
+        if hit {
+            *at += text.len();
+        }
+        hit
+    };
+    let digits = |at: &mut usize| {
+        let n = probe[*at..].iter().take_while(|b| b.is_ascii_digit()).count();
+        let value = std::str::from_utf8(&probe[*at..*at + n]).ok().filter(|_| n > 0).and_then(|d| d.parse::<u64>().ok());
+        *at += n;
+        value
+    };
+    let quoted = |at: &mut usize| {
+        let close = (probe.get(*at) == Some(&b'"'))
+            .then(|| probe[*at + 1..].iter().position(|b| *b == b'"'))
+            .flatten();
+        close.inspect(|n| *at += n + 2).is_some()
+    };
+    let head = literal(&mut at, br#"{"v":1,"seq":"#)
+        && digits(&mut at).is_some()
+        && literal(&mut at, br#","id":"#)
+        && quoted(&mut at)
+        && literal(&mut at, br#","prev":"#)
+        && (literal(&mut at, b"null") || quoted(&mut at))
+        && literal(&mut at, br#","at":"#)
+        && digits(&mut at).is_some()
+        && literal(&mut at, br#","count":"#)
+        && digits(&mut at).is_some()
+        && literal(&mut at, br#","bytes":"#);
+    if !head {
+        return false;
+    }
+    let bytes = digits(&mut at);
+    let items = literal(&mut at, br#","items":"#);
+    bytes.zip(items.then_some(())).is_some_and(|(bytes, ())| {
+        usize::try_from(bytes).is_ok_and(|b| at.checked_add(b).and_then(|e| e.checked_add(1)) == Some(line.len()))
+    })
+}
+
 fn opt_u64(v: Option<&Value>, what: &str) -> R<Option<u64>> {
     match v {
         None | Some(Value::Null) => Ok(None),
@@ -402,6 +448,9 @@ fn archive_rows(
                 _ => return q(QuarantineCode::ArchiveParseError, format!("{what}: prev")),
             };
             let at = opt_number(seg.get("at"), &what)?;
+            // 1.4.5 shows the last `count` items of a segment its index reads.
+            let shown = indexed_segment(line) && visible(range, seq);
+            let first_shown = items.len().saturating_sub(usize::try_from(count).unwrap_or(usize::MAX));
             let origin = ArchiveOrigin::Segment {
                 id: text_id(seg_id)?,
                 prev: prev.as_deref().map(text_id).transpose()?,
@@ -420,7 +469,7 @@ fn archive_rows(
                     role: role_of(item),
                     form: Form::Display,
                     model: false,
-                    visible: visible(range, seq),
+                    visible: shown && j >= first_shown,
                     archive: Some(ArchiveTag {
                         seq,
                         at: at.clone(),

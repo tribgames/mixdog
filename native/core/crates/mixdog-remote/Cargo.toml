@@ -27,7 +27,8 @@ bytes = { workspace = true }
 flate2 = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
-p256 = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa"] }
+reqwest = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -19,26 +19,44 @@ use rayon::prelude::*;
 use super::args::Args;
 use super::dispatch::{Answer, Env, run_scoped};
 use super::roots::{
-    FEDERATION_CAP, abs_from, child_project_roots, find_dir_project_root, is_filesystem_root,
+    FEDERATION_CAP, abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key,
 };
 
-/// Where a federated call finds the roots a user has told Mixdog about. Every method has an
-/// empty default: the tool then trusts the session cwd alone and discovers child projects.
+/// Where a federated call finds the roots a user has told Mixdog about. The composition root
+/// supplies it to `CodeGraphTool::new`; there is deliberately no empty default, because a tool
+/// without a trust source would silently stop federating.
+#[async_trait::async_trait]
 pub trait TrustedRoots: Send + Sync {
     /// The registered projects (Node `listProjects`).
-    fn registered(&self) -> Vec<PathBuf> {
-        Vec::new()
+    async fn registered(&self) -> Vec<PathBuf>;
+    /// The session's selected directories beyond the tool's own cwd (Node `explicitSessionCwd`
+    /// and `readLastSessionCwd`).
+    async fn selected(&self) -> Vec<PathBuf>;
+}
+
+/// The trust sources read once at dispatch, so the blocking graph work never waits on them. The
+/// cached roots are the graph cache's manifest keys, filled in on the lane.
+#[derive(Default)]
+pub(super) struct TrustSnapshot {
+    registered: Vec<PathBuf>,
+    selected: Vec<PathBuf>,
+    cached: Vec<PathBuf>,
+}
+
+impl TrustSnapshot {
+    pub(super) async fn read(trust: &dyn TrustedRoots) -> Self {
+        Self { registered: trust.registered().await, selected: trust.selected().await, cached: Vec::new() }
     }
-    /// The session's selected directories beyond the tool's own cwd (the last session cwd).
-    fn selected(&self) -> Vec<PathBuf> {
-        Vec::new()
+
+    pub(super) fn with_cached(mut self, cached: Vec<PathBuf>) -> Self {
+        self.cached = cached;
+        self
     }
-    /// Roots whose graph a previous run indexed and cached (Node's graph-cache manifest keys).
-    fn cached(&self) -> Vec<PathBuf> {
-        Vec::new()
+
+    #[cfg(test)]
+    pub(super) fn of(registered: Vec<PathBuf>) -> Self {
+        Self { registered, ..Self::default() }
     }
-    /// A graph over the whole of `root` was just built: remember it as a cached root.
-    fn indexed(&self, _root: &Path) {}
 }
 
 /// The modes a federated call may fan out (`ROOT_FEDERATED_MODES`).
@@ -75,20 +93,14 @@ fn norm(path: &Path) -> PathBuf {
     abs_from(Path::new(""), &path.to_string_lossy())
 }
 
-/// `canonicalGraphPath`: the resolved path, lowercased on Windows.
+/// `canonicalGraphPath`: the resolved path as the one shared key.
 fn canonical_graph_path(path: &Path) -> String {
-    let text = norm(path).to_string_lossy().into_owned();
-    if cfg!(windows) { text.to_lowercase() } else { text }
-}
-
-fn within_key(path: &Path) -> String {
-    let text = canonical_graph_path(path).replace('\\', "/");
-    text.trim_start_matches("//?/").trim_end_matches('/').to_owned()
+    path_key(&norm(path))
 }
 
 /// `_pathIsWithin(root, candidate)`: the candidate is the root or under it.
 fn path_within(root: &Path, candidate: &Path) -> bool {
-    let (r, c) = (within_key(root), within_key(candidate));
+    let (r, c) = (canonical_graph_path(root), canonical_graph_path(candidate));
     c == r || c.starts_with(&format!("{r}/"))
 }
 
@@ -120,14 +132,10 @@ pub(super) fn collect_trusted_roots(filesystem_root: &Path, env: &Env<'_>) -> Ve
     let root = norm(filesystem_root);
     let trust = env.trust;
     let mut rows: Vec<(PathBuf, bool)> = Vec::new();
-    if let Some(trust) = trust {
-        rows.extend(trust.registered().into_iter().map(|p| (p, false)));
-    }
+    rows.extend(trust.registered.iter().cloned().map(|p| (p, false)));
     rows.push((env.session_cwd.to_path_buf(), true));
-    if let Some(trust) = trust {
-        rows.extend(trust.selected().into_iter().map(|p| (p, true)));
-        rows.extend(trust.cached().into_iter().map(|p| (p, false)));
-    }
+    rows.extend(trust.selected.iter().cloned().map(|p| (p, true)));
+    rows.extend(trust.cached.iter().cloned().map(|p| (p, false)));
     let mut found: HashMap<String, PathBuf> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for (path, detect) in rows {
@@ -196,7 +204,6 @@ fn anchors_are_cwd(args: &Args, base: &Path) -> bool {
 
 pub(super) struct Plan {
     pub active: bool,
-    pub filesystem_root_cwd: bool,
     exact_dot: bool,
     raw_mode: String,
     roots: Vec<PathBuf>,
@@ -242,7 +249,6 @@ pub(super) fn plan_federation(
         && !federation_roots.is_empty();
     Plan {
         active: filesystem_root_cwd || parent_dot || sentinel_free,
-        filesystem_root_cwd,
         exact_dot,
         raw_mode,
         // A filesystem root stays on the registered set only: fanning out over every project
@@ -250,21 +256,6 @@ pub(super) fn plan_federation(
         roots: if filesystem_root_cwd { trusted } else { federation_roots },
         files: if exact_dot { Vec::new() } else { files },
     }
-}
-
-/// `classifyResultKind(body) == 'error'`: a section whose body is an error cannot be part of a
-/// complete cached answer.
-fn is_error_body(body: &str) -> bool {
-    let text = body.trim_start();
-    let lower = text.to_lowercase();
-    if lower.starts_with("[error") {
-        return true;
-    }
-    let Some(rest) = lower.strip_prefix("error") else {
-        return false;
-    };
-    let after = rest.trim_start();
-    (rest.starts_with(char::is_whitespace) && after.starts_with("[code")) || after.starts_with(':')
 }
 
 struct Child {
@@ -276,7 +267,7 @@ struct Child {
 fn run_child(args: &Args, root: &Path, excluded: &[PathBuf], env: &Env<'_>) -> Child {
     match run_scoped(args, root, env, excluded) {
         Ok(answer) => Child {
-            complete: answer.complete && !is_error_body(&answer.text),
+            complete: answer.complete && !answer.error,
             roots: answer.dependency_roots.unwrap_or_default(),
             text: answer.text,
         },
@@ -293,7 +284,7 @@ fn merge(sections: Vec<(String, Child)>, base_roots: Vec<PathBuf>) -> Answer {
         roots.extend(child.roots);
         texts.push(format!("{header}{}", child.text));
     }
-    Answer { text: texts.join("\n\n"), dependency_roots: Some(roots), complete }
+    Answer { text: texts.join("\n\n"), dependency_roots: Some(roots), complete, error: false }
 }
 
 /// The federated answer, or `None` when the plan cannot route the call and the single-project
@@ -309,7 +300,7 @@ pub(super) fn run_federation(plan: &Plan, args: &Args, base: &Path, env: &Env<'_
 }
 
 fn refusal(text: String, base_roots: Vec<PathBuf>) -> Answer {
-    Answer { text, dependency_roots: Some(base_roots), complete: true }
+    Answer { text, dependency_roots: Some(base_roots), complete: true, error: true }
 }
 
 fn federate_file_anchors(plan: &Plan, args: &Args, base: &Path, env: &Env<'_>, base_roots: Vec<PathBuf>) -> Answer {
@@ -369,4 +360,23 @@ fn federate_roots(plan: &Plan, args: &Args, env: &Env<'_>, base_roots: Vec<PathB
         })
         .collect();
     merge(sections, base_roots)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn child(text: &str, complete: bool) -> Child {
+        Child { text: text.to_owned(), roots: vec![PathBuf::from("/r")], complete }
+    }
+
+    #[test]
+    fn a_failed_section_makes_the_merged_answer_incomplete_and_keeps_every_root() {
+        let whole = merge(vec![("# a\n".into(), child("ok", true)), ("# b\n".into(), child("ok", true))], vec![]);
+        assert!(whole.complete);
+        let partial = merge(vec![("# a\n".into(), child("ok", true)), ("# b\n".into(), child("Error: x", false))], vec![PathBuf::from("/base")]);
+        assert!(!partial.complete);
+        assert_eq!(partial.text, "# a\nok\n\n# b\nError: x");
+        assert_eq!(partial.dependency_roots, Some(vec![PathBuf::from("/base"), PathBuf::from("/r"), PathBuf::from("/r")]));
+    }
 }

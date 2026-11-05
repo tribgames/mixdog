@@ -8,10 +8,10 @@ use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
-use mixdog_protocol::text_class::parse_task_notification;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::text_class::parse_task_notification;
 use super::js::Obj;
 use super::js::or_str;
 use super::js::re;

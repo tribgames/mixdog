@@ -37,29 +37,42 @@ pub struct PendingBlob {
 /// `{"inline": value}` when its encoding is ≤ `INLINE_MAX`, else a blob reference whose
 /// bytes are that encoding. Size alone decides.
 pub fn body_slot<T: Serialize>(value: T) -> Result<(Slot<T>, Option<PendingBlob>), EncodeError> {
+    slot_within(value, INLINE_MAX).map(|(slot, blob, _)| (slot, blob))
+}
+
+/// The slot rule with `budget` inline bytes (FORMAT.md §4.2): inline when the encoding fits
+/// `budget`, else a blob of that encoding. Also returns the inline bytes taken (0 for a
+/// blob): an item's `prompt` slot gets the `INLINE_MAX` its inline `body` leaves.
+pub fn slot_within<T: Serialize>(value: T, budget: usize) -> Result<(Slot<T>, Option<PendingBlob>, usize), EncodeError> {
     let encoded = serde_json::to_vec(&value)?;
-    if encoded.len() <= INLINE_MAX {
-        return Ok((Slot::Inline(value), None));
+    if encoded.len() <= budget {
+        return Ok((Slot::Inline(value), None, encoded.len()));
     }
     if encoded.len() as u64 > MAX_BLOB_BYTES {
         return Err(EncodeError::ItemTooLarge { bytes: encoded.len() as u64 });
     }
     let blob = body_blob(&encoded);
     let digest = blob.descriptor().digest.clone();
-    Ok((Slot::Blob(blob), Some(PendingBlob { digest, bytes: encoded })))
+    Ok((Slot::Blob(blob), Some(PendingBlob { digest, bytes: encoded }), 0))
 }
 
-/// The `RecordCodec` (FORMAT.md §5.1 with the §4.2 body-slot rule): every inline ★ slot
-/// whose encoding exceeds `INLINE_MAX` moves to a blob, and an item's or amend's `refs`
-/// gain that blob's digest. Fails `ItemTooLarge` above `MAX_BLOB_BYTES`.
+/// The `RecordCodec` (FORMAT.md §5.1 with the §4.2 slot rule): every inline ★ slot whose
+/// encoding exceeds `INLINE_MAX` moves to a blob, an item's `prompt` slot whose encoding
+/// exceeds what its inline `body` leaves of `INLINE_MAX` too, and an item's or amend's
+/// `refs` gain those blobs' digests. Fails `ItemTooLarge` above `MAX_BLOB_BYTES`.
 pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
     let mut blobs = Vec::new();
     match &mut record {
         Record::Session(r) => drop(reslot(&mut r.header, &mut blobs)?),
         Record::Meta(r) => drop(reslot(&mut r.change, &mut blobs)?),
         Record::Item(r) => {
-            if let Some(own) = reslot(&mut r.body, &mut blobs)? {
-                r.refs = refs(r.refs.as_slice().iter().cloned(), Some(&own))?;
+            let (own, used) = reslot_within(&mut r.body, INLINE_MAX, &mut blobs)?;
+            let prompt = match &mut r.prompt {
+                Some(prompt) => reslot_within(prompt, INLINE_MAX - used, &mut blobs)?.0,
+                None => None,
+            };
+            if own.is_some() || prompt.is_some() {
+                r.refs = refs(r.refs.as_slice().iter().cloned(), own.iter().chain(&prompt))?;
             }
         }
         Record::Amend(r) => {
@@ -68,8 +81,7 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
             }
         }
         Record::Compacted(r) => {
-            drop(reslot(&mut r.replacement, &mut blobs)?);
-        }
+            drop(reslot(&mut r.replacement, &mut blobs)?);        }
         Record::Run(r) => reslot_opt(&mut r.detail, &mut blobs)?,
         Record::Approval(r) => reslot_opt(&mut r.body, &mut blobs)?,
         Record::Queue(r) => reslot_opt(&mut r.entry, &mut blobs)?,
@@ -81,13 +93,22 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
 }
 
 fn reslot<T: Serialize + Clone>(slot: &mut Slot<T>, blobs: &mut Vec<PendingBlob>) -> Result<Option<PendingBlob>, EncodeError> {
+    Ok(reslot_within(slot, INLINE_MAX, blobs)?.0)
+}
+
+/// `slot_within` over an inline slot; a slot already out of line takes no inline bytes.
+fn reslot_within<T: Serialize + Clone>(
+    slot: &mut Slot<T>,
+    budget: usize,
+    blobs: &mut Vec<PendingBlob>,
+) -> Result<(Option<PendingBlob>, usize), EncodeError> {
     let Slot::Inline(value) = slot else {
-        return Ok(None);
+        return Ok((None, 0));
     };
-    let (moved, blob) = body_slot(value.clone())?;
+    let (moved, blob, used) = slot_within(value.clone(), budget)?;
     *slot = moved;
     blobs.extend(blob.clone());
-    Ok(blob)
+    Ok((blob, used))
 }
 
 fn reslot_opt<T: Serialize + Clone>(slot: &mut Option<Slot<T>>, blobs: &mut Vec<PendingBlob>) -> Result<(), EncodeError> {
@@ -97,13 +118,14 @@ fn reslot_opt<T: Serialize + Clone>(slot: &mut Option<Slot<T>>, blobs: &mut Vec<
     Ok(())
 }
 
-/// Sorted, unique `refs`: the attachment digests of a body plus its own blob, if any.
-pub fn refs(
+/// Sorted, unique `refs`: the attachment digests of a body plus the record's own slot
+/// blobs (an item's body and prompt).
+pub fn refs<'a>(
     attachments: impl IntoIterator<Item = Digest>,
-    own: Option<&PendingBlob>,
+    own: impl IntoIterator<Item = &'a PendingBlob>,
 ) -> Result<Refs, EncodeError> {
     let mut all: Vec<Digest> = attachments.into_iter().collect();
-    all.extend(own.map(|b| b.digest.clone()));
+    all.extend(own.into_iter().map(|b| b.digest.clone()));
     all.sort();
     all.dedup();
     let count = all.len();

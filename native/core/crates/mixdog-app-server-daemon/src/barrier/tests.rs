@@ -1,6 +1,8 @@
 #![allow(clippy::disallowed_methods, reason = "test setup on temp data dirs")]
 
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use mixdog_core_api::domain::ownership::Ownership;
 
@@ -13,6 +15,72 @@ use crate::verdict::tests::FakeTable;
 use crate::verdict::tests::TempData;
 use crate::verdict::tests::idle_child_process;
 use crate::verdict::tests::record;
+
+// ---------------------------------------------------------------------------
+// The test-only step hook (`super::hook` in test builds)
+// ---------------------------------------------------------------------------
+
+type StepHook = Box<dyn FnMut(Step)>;
+
+thread_local! {
+    static HOOK: RefCell<Option<StepHook>> = const { RefCell::new(None) };
+}
+
+/// Runs this thread's hook at `step`, if one is set.
+pub(crate) fn hook(step: Step) {
+    let taken = HOOK.with(|hook| hook.borrow_mut().take());
+    if let Some(mut f) = taken {
+        f(step);
+        HOOK.with(|hook| *hook.borrow_mut() = Some(f));
+    }
+}
+
+/// Clears this thread's hook when dropped (libtest may run tests on one thread).
+pub(crate) struct HookGuard;
+
+impl Drop for HookGuard {
+    fn drop(&mut self) {
+        HOOK.with(|hook| *hook.borrow_mut() = None);
+    }
+}
+
+/// Sets this thread's hook until the guard drops.
+pub(crate) fn set_hook(f: impl FnMut(Step) + 'static) -> HookGuard {
+    HOOK.with(|hook| *hook.borrow_mut() = Some(Box::new(f)));
+    HookGuard
+}
+
+/// The steps one [`Gate::step`] passes, with `at` run at each.
+fn steps_with(
+    gate: &mut crate::verdict::Gate,
+    mut at: impl FnMut(Step) + 'static,
+) -> (GateStep, Vec<Step>) {
+    let steps = Rc::new(RefCell::new(Vec::new()));
+    let sink = steps.clone();
+    let guard = set_hook(move |step| {
+        sink.borrow_mut().push(step);
+        at(step);
+    });
+    let result = gate.step().expect("step");
+    drop(guard);
+    let steps = steps.borrow().clone();
+    (result, steps)
+}
+
+fn steps_of(gate: &mut crate::verdict::Gate) -> (GateStep, Vec<Step>) {
+    steps_with(gate, |_| {})
+}
+
+const ALL_STEPS: [Step; 6] = [
+    Step::Judged,
+    Step::Linking,
+    Step::Held,
+    Step::ClaimLockTaken,
+    Step::RecordWritten,
+    Step::BarrierInstalled,
+];
+
+const CONFLICT: [Step; 4] = [Step::Judged, Step::Linking, Step::Held, Step::Conflict];
 
 fn fixture(name: &str) -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -49,21 +117,6 @@ fn claim_lock_reads_like_read_lock_owner() {
         (Some(4_294_967_296), Some(0))
     );
 }
-
-fn steps_of(gate: &mut crate::verdict::Gate) -> (GateStep, Vec<InstallStep>) {
-    let mut steps = Vec::new();
-    let result = gate
-        .step_observed(&mut |step| steps.push(step))
-        .expect("step");
-    (result, steps)
-}
-
-const ALL_STEPS: [InstallStep; 4] = [
-    InstallStep::ClaimLockTaken,
-    InstallStep::RecordRechecked,
-    InstallStep::RecordWritten,
-    InstallStep::BarrierInstalled,
-];
 
 #[test]
 fn fresh_data_dir_gets_barrier_and_record() {
@@ -140,7 +193,7 @@ fn dead_reclaim_guard_is_revoked_and_live_one_waited_for() {
         (blocked.kind, blocked.process.identity.pid),
         (BlockedKind::WaitClaim, child.pid())
     );
-    assert!(steps.is_empty());
+    assert_eq!(steps, [Step::Judged, Step::Linking]);
     assert!(
         temp.file(RECLAIM_GUARD_FILE).is_some(),
         "a live guard is never revoked"
@@ -160,28 +213,142 @@ fn dead_reclaim_guard_is_revoked_and_live_one_waited_for() {
 }
 
 #[test]
-fn record_changed_after_the_verdict_sends_it_around_again() {
+fn the_record_is_reread_while_the_core_holds_the_claim_lock() {
     let temp = TempData::new();
     let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
     let data = temp.data();
-    let mut steps = Vec::new();
-    let mut raced = false;
-    let result = gate
-        .step_observed(&mut |step| {
-            steps.push(step);
-            if step == InstallStep::ClaimLockTaken && !raced {
-                raced = true;
-                std::fs::write(
-                    data.join(RECORD_FILE),
-                    b"{\"kind\":\"mixdog-daemon\",\"pid\":77}\n",
-                )
-                .unwrap();
-            }
-        })
-        .unwrap();
+    let held = Rc::new(RefCell::new(None));
+    let sink = held.clone();
+    let (result, steps) = steps_with(&mut gate, move |step| {
+        if step == Step::Held {
+            *sink.borrow_mut() = std::fs::read(data.join(CLAIM_LOCK_FILE)).ok();
+        }
+    });
     assert!(matches!(result, GateStep::Clear));
-    assert_eq!(steps[0], InstallStep::ClaimLockTaken);
-    assert_eq!(&steps[1..], ALL_STEPS);
+    assert_eq!(steps, ALL_STEPS);
+    let held = String::from_utf8(held.take().expect("B read while held")).unwrap();
+    let parts: Vec<&str> = held.split_whitespace().collect();
+    assert_eq!(parts[0], std::process::id().to_string());
+    assert_eq!(
+        parts[2],
+        format!("{CORE_TOKEN_PREFIX}{}", own.instance_id())
+    );
+}
+
+/// `R` naming the live `child` and the port it listens on.
+fn live_record(child: &crate::verdict::tests::SelfChild, port: Option<u16>) -> String {
+    format!(
+        r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{}}}"#,
+        child.pid(),
+        port.unwrap()
+    )
+}
+
+#[test]
+fn a_live_owner_is_judged_without_touching_the_claim_lock() {
+    let (child, port) = idle_child_process(true);
+    let temp = TempData::new();
+    let record = live_record(&child, port);
+    temp.write(RECORD_FILE, record.as_bytes());
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let (result, steps) = steps_of(&mut gate);
+    let GateStep::Blocked(blocked) = result else {
+        panic!("expected blocked")
+    };
+    assert_eq!(blocked.kind, BlockedKind::WaitExit);
+    assert!(steps.is_empty(), "the owner's heartbeat needs B: {steps:?}");
+    assert!(temp.file(CLAIM_LOCK_FILE).is_none());
+    assert_eq!(temp.file(RECORD_FILE).unwrap(), record.as_bytes());
+}
+
+/// A gate whose hook writes `R` (or deletes it, for `None`) once, at `at`.
+fn change_record_at(
+    temp: &TempData,
+    gate: &mut crate::verdict::Gate,
+    at: Step,
+    record: Option<String>,
+) -> (GateStep, Vec<Step>) {
+    let path = temp.data().join(RECORD_FILE);
+    let mut once = Some(record);
+    steps_with(gate, move |step| {
+        if step == at
+            && let Some(record) = once.take()
+        {
+            match record {
+                Some(record) => std::fs::write(&path, record).unwrap(),
+                None => std::fs::remove_file(&path).unwrap(),
+            }
+        }
+    })
+}
+
+#[test]
+fn a_claim_in_the_gap_gives_the_claim_lock_back_at_once() {
+    let (child, port) = idle_child_process(true);
+    let temp = TempData::new();
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let record = live_record(&child, port);
+    let (result, steps) = change_record_at(&temp, &mut gate, Step::Linking, Some(record.clone()));
+    let GateStep::Blocked(blocked) = result else {
+        panic!("expected blocked")
+    };
+    assert_eq!(
+        (blocked.kind, blocked.process.identity.pid),
+        (BlockedKind::WaitExit, child.pid())
+    );
+    assert_eq!(steps, CONFLICT);
+    assert!(temp.file(CLAIM_LOCK_FILE).is_none());
+    assert_eq!(temp.file(RECORD_FILE).unwrap(), record.as_bytes());
+}
+
+#[test]
+fn a_claim_in_the_gap_before_a_reclaim_keeps_the_dead_holder_and_frees_the_guard() {
+    let (child, port) = idle_child_process(true);
+    let temp = TempData::new();
+    let dead = b"99991 1700000000000 0123456789abcdef\n";
+    temp.write(CLAIM_LOCK_FILE, dead);
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let (result, steps) = change_record_at(
+        &temp,
+        &mut gate,
+        Step::Linking,
+        Some(live_record(&child, port)),
+    );
+    assert!(matches!(result, GateStep::Blocked(ref b) if b.kind == BlockedKind::WaitExit));
+    assert_eq!(steps, CONFLICT);
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), dead);
+    assert!(temp.file(RECLAIM_GUARD_FILE).is_none());
+}
+
+#[test]
+fn a_claim_before_the_pre_link_read_never_takes_the_claim_lock() {
+    let (child, port) = idle_child_process(true);
+    let temp = TempData::new();
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    let (result, steps) = change_record_at(
+        &temp,
+        &mut gate,
+        Step::Judged,
+        Some(live_record(&child, port)),
+    );
+    assert!(matches!(result, GateStep::Blocked(ref b) if b.kind == BlockedKind::WaitExit));
+    assert_eq!(steps, [Step::Judged]);
+    assert!(temp.file(CLAIM_LOCK_FILE).is_none());
+}
+
+#[test]
+fn a_record_deleted_in_the_gap_is_judged_again() {
+    let temp = TempData::new();
+    // A dead owner's record, which its (dead) writer cannot delete: the change
+    // still sends the verdict around again.
+    temp.write(
+        RECORD_FILE,
+        br#"{"kind":"mixdog-daemon","pid":99993,"livenessPort":9}"#,
+    );
+    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let (result, steps) = change_record_at(&temp, &mut gate, Step::Linking, None);
+    assert!(matches!(result, GateStep::Clear));
+    assert_eq!(steps, [&CONFLICT[..], &ALL_STEPS[..]].concat());
     assert_eq!(
         temp.file(CLAIM_LOCK_FILE).unwrap(),
         barrier_bytes(own.instance_id())

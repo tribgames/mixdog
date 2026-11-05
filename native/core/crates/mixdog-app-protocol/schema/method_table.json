@@ -2582,14 +2582,36 @@
       }
     },
     {
-      "class": "C2",
-      "method": "agent/setBotOrder",
+      "class": "C1",
+      "method": "config/getBotOrder",
       "mutation": {
-        "domain": "agent",
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ConfigGetBotOrderParams",
+      "result": "BotOrder",
+      "scope": {
+        "field": "threadId",
+        "key": "config",
+        "kind": "threadOrSharedRead"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "config/setBotOrder",
+      "mutation": {
+        "domain": "config",
         "kind": "op"
       },
       "opScope": {
-        "domain": "agent",
+        "domain": "config",
         "field": "threadId",
         "kind": "threadOrDomain"
       },
@@ -2598,11 +2620,12 @@
         "ssh",
         "relay"
       ],
-      "params": "AgentSetBotOrderParams",
-      "result": "JsonValue",
+      "params": "ConfigSetBotOrderParams",
+      "result": "BotOrder",
       "scope": {
         "field": "threadId",
-        "kind": "threadOrNone"
+        "key": "config",
+        "kind": "threadOrGlobal"
       }
     },
     {
@@ -10297,6 +10320,16 @@
       "delivery": null,
       "method": "model/proxy/event",
       "params": "ModelProxyEventParams"
+    },
+    {
+      "delivery": null,
+      "method": "ui/newTab/created",
+      "params": "UiNewTabCreatedParams"
+    },
+    {
+      "delivery": null,
+      "method": "ui/terminalRun/claimed",
+      "params": "UiTerminalRunClaimedParams"
     }
   ],
   "serverNotifications": [
@@ -10349,6 +10382,21 @@
       "delivery": "thread",
       "method": "turn/completed",
       "params": "TurnNotificationParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/notification",
+      "params": "ThreadNotificationParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/modelRequest/updated",
+      "params": "ModelRequestUpdatedParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/toolBatch/updated",
+      "params": "ToolBatchUpdatedParams"
     },
     {
       "delivery": "thread",
@@ -10529,6 +10577,11 @@
       "delivery": "app",
       "method": "remote/pointer",
       "params": "RemotePointerParams"
+    },
+    {
+      "delivery": "app",
+      "method": "core/drain",
+      "params": "CoreDrainParams"
     },
     {
       "delivery": "app",
@@ -10774,7 +10827,7 @@
       "method": "host/visualize/command",
       "params": "HostVisualizeCommandParams",
       "requires": "host.visualize",
-      "result": "JsonValue"
+      "result": "Option<JsonValue>"
     },
     {
       "method": "host/systemProxy/resolve",

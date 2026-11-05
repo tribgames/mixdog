@@ -3,16 +3,16 @@
 //! received webhooks and the app's "Run now".
 
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
+use mixdog_rt::CancelView;
 
-use super::owned::{OwnedOutcome, RunOpts};
+use super::owned::{OwnedOutcome, RunOpts, never_cancelled};
 use super::routine::RoutineKind;
 use super::runtime::RoutineRuntime;
 use super::turn::TurnArgs;
 use crate::scheduler::Schedule;
 use crate::webhooks::RunStamp;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ScheduleRunOpts {
     /// A person's "Run now": no failure backoff.
     pub attended: bool,
@@ -20,7 +20,13 @@ pub struct ScheduleRunOpts {
     pub prompt: Option<String>,
     /// The caller holds the name (`AutomationRuns::begin`) and releases it itself.
     pub reserved: bool,
-    pub cancel: CancellationToken,
+    pub cancel: CancelView,
+}
+
+impl Default for ScheduleRunOpts {
+    fn default() -> Self {
+        Self { attended: false, prompt: None, reserved: false, cancel: never_cancelled() }
+    }
 }
 
 /// One run of a webhook endpoint in its owner's thread.
@@ -75,7 +81,7 @@ impl RoutineRuntime {
     /// One run of the endpoint in its owner's thread: a run while the previous one of the same
     /// endpoint is still going is skipped (and stamped), and every outcome is stamped on the
     /// endpoint.
-    pub async fn run_webhook(&self, run: WebhookRun, attended: bool, cancel: CancellationToken) -> Result<OwnedOutcome, String> {
+    pub async fn run_webhook(&self, run: WebhookRun, attended: bool, cancel: CancelView) -> Result<OwnedOutcome, String> {
         let name = mixdog_js::js_trim(&run.name).to_string();
         let owner = run.owner_agent_id.clone().unwrap_or_default();
         let opts = RunOpts { attended, reserved: false, cancel };

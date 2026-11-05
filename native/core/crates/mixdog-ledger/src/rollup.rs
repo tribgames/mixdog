@@ -6,8 +6,6 @@
 //! Every step reads the ledger and writes into the day map; nothing here mutates stored
 //! rows. Reads run on a reader snapshot.
 
-use std::collections::BTreeMap;
-
 use serde_json::Map;
 use serde_json::Value;
 
@@ -19,6 +17,7 @@ use crate::error::LedgerError;
 use crate::error::Result;
 use crate::measure::FAST_KEY;
 use crate::measure::NO_USAGE_COST_SOURCE;
+use crate::measure::Ordered;
 use crate::measure::day_text_sql;
 use crate::measure::fast_route_sql;
 use crate::measure::is_conversation_source;
@@ -75,7 +74,8 @@ impl RollupQuery {
 /// `{days, hourly?}`. Day values are the rollup JSON objects.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rollup {
-    pub days: BTreeMap<String, Value>,
+    /// Day → rollup object, in the order the answer was assembled (a JavaScript object's order).
+    pub days: Ordered<Value>,
     pub hourly: Option<Value>,
 }
 
@@ -201,7 +201,7 @@ enum Model {
 struct Day {
     bucket: Bucket,
     conversation: Bucket,
-    models: BTreeMap<String, Model>,
+    models: Ordered<Model>,
     imported_partial: bool,
     restored: bool,
 }
@@ -211,7 +211,7 @@ impl Day {
         Day {
             bucket: Bucket::new(),
             conversation: Bucket::new(),
-            models: BTreeMap::new(),
+            models: Ordered::default(),
             imported_partial: false,
             restored: false,
         }
@@ -254,7 +254,7 @@ enum DayEntry {
     Raw(Value),
 }
 
-type Days = BTreeMap<String, DayEntry>;
+type Days = Ordered<DayEntry>;
 
 fn built<'a>(days: &'a mut Days, day: &str) -> Result<&'a mut Day> {
     match days.get_mut(day) {
@@ -419,17 +419,15 @@ fn read_daily_amounts(
 
 fn fold_daily_amounts(days: &mut Days, amounts: &[AmountRow]) -> Result<()> {
     for row in amounts {
-        let entry = days
-            .entry(row.day.clone())
-            .or_insert_with(|| DayEntry::Built(Box::new(Day::new())));
+        let entry = days.entry(&row.day, || DayEntry::Built(Box::new(Day::new())));
         let DayEntry::Built(day) = entry else {
             return Err(LedgerError::Inconsistent("a rollup day built twice"));
         };
         let route = match day
             .models
-            .entry(route_key(&row.provider, &row.model, false))
-            .or_insert_with(|| Model::Built(Box::new(Route::new(row, false))))
-        {
+            .entry(&route_key(&row.provider, &row.model, false), || {
+                Model::Built(Box::new(Route::new(row, false)))
+            }) {
             Model::Built(route) => route,
             Model::Raw(_) => {
                 return Err(LedgerError::Inconsistent(
@@ -517,8 +515,7 @@ fn fold_fast_amounts(days: &mut Days, rows: &[AmountRow]) -> Result<()> {
         }
         let key = route_key(&row.provider, &row.model, true);
         day.models
-            .entry(key.clone())
-            .or_insert_with(|| Model::Built(Box::new(Route::new(row, true))));
+            .entry(&key, || Model::Built(Box::new(Route::new(row, true))));
         let amount = row.amount();
         for (target_key, sign) in [(key, 1.0), (normal_key, -1.0)] {
             let route = built_route(day, &target_key)?;
@@ -649,7 +646,7 @@ fn fold_session_attribution(days: &mut Days, rows: &[SessionRow]) -> Result<()> 
 
 fn attribute(target: &mut Bucket, session_id: &str, named: bool, tokens: f64) {
     if named {
-        *target.sessions.entry(session_id.to_string()).or_insert(0.0) += tokens;
+        *target.sessions.entry(session_id, || 0.0) += tokens;
     } else {
         target.sessions_complete = false;
     }
@@ -898,9 +895,9 @@ fn merge_legacy_days(
 }
 
 /// Reads cached amounts; groups retained attribution separately for distinct sessions.
-pub fn rollup_usage(conn: &Connection, query: &RollupQuery) -> Result<Rollup> {
+pub(crate) fn rollup_usage(conn: &Connection, query: &RollupQuery) -> Result<Rollup> {
     let (from_ts, to_ts) = resolve_window(query)?;
-    let mut days = Days::new();
+    let mut days = Days::default();
     let mut hourly = match &query.hourly_day {
         Some(hourly_day) => Some(serde_json::json!({
             "rows": read_hourly_rows(conn, query, hourly_day, from_ts, to_ts)?,

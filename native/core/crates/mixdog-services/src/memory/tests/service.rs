@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::recall::{CASES, Provider, SEED, load_seed};
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
+use crate::memory::ingest::{SessionIngest, system_now};
 use crate::memory::pg::db::Schema;
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{Recall, RecallDeps};
@@ -101,6 +102,7 @@ async fn the_answer_order_and_memory_calls_match_the_node_product() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_goldens() {
     let seed: Value = serde_json::from_str(SEED).expect("seed");
     let cases: Vec<Value> = serde_json::from_str(CASES).expect("cases");
@@ -126,7 +128,8 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
         trace: None,
     });
-    let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone()));
+    let ingest = SessionIngest::new(db.clone(), None, None, system_now());
+    let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone(), ingest));
     let service = MemoryService::new(memory, Arc::new(Sessions { session: None, cwd: None, title: String::new() }));
 
     // The composition adds `query` to the arguments, so cases that already carry one are the
@@ -152,8 +155,10 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         cwd: Some("/work/current".into()),
         title: String::new(),
     };
+    let scoped_db = service_db(&pg).await;
+    let ingest = SessionIngest::new(scoped_db.clone(), None, None, system_now());
     let service = MemoryService::new(
-        Arc::new(LocalMemory::new(service_db(&pg).await, pg.dir.path().join("data"), recall.clone())),
+        Arc::new(LocalMemory::new(scoped_db, pg.dir.path().join("data"), recall.clone(), ingest)),
         Arc::new(sessions),
     );
     let mut expected_args = scoped["calls"][1][1].clone();

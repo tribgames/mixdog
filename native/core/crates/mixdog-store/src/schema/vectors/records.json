@@ -43,7 +43,7 @@
   },
   {
    "name": "item_user_prompt",
-   "payload": "{\"k\":\"item\",\"iid\":\"msg_p1\",\"turn\":\"run_2\",\"role\":\"user\",\"form\":\"message\",\"model\":true,\"visible\":true,\"prompt\":\"fix it [Pasted text #1 +12 lines]\",\"refs\":[],\"body\":{\"inline\":{\"content\":\"fix it\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\n\",\"role\":\"user\"}}}"
+   "payload": "{\"k\":\"item\",\"iid\":\"msg_p1\",\"turn\":\"run_2\",\"role\":\"user\",\"form\":\"message\",\"model\":true,\"visible\":true,\"prompt\":{\"inline\":\"fix it [Pasted text #1 +12 lines]\"},\"refs\":[],\"body\":{\"inline\":{\"content\":\"fix it\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\nline\\n\",\"role\":\"user\"}}}"
   },
   {
    "name": "item_blob_body",

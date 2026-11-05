@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "sessionId": "sess_exec_test",
+      "agentRole": "primary",
+      "models": [
+        "gpt-test",
+        "gpt-fallback"
+      ],
+      "inputTokens": 11,
+      "cacheTokens": 7,
+      "cacheWriteTokens": 3,
+      "outputTokens": 5,
+      "toolCallCountApprox": 0
+    }
+  ],
+  "totals": {
+    "inputTokens": 11,
+    "cacheTokens": 7,
+    "cacheWriteTokens": 3,
+    "outputTokens": 5,
+    "toolCallCountApprox": 0
+  }
+}

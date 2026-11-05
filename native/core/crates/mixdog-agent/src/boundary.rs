@@ -7,7 +7,7 @@ use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::Usage;
 
 use crate::env::CompactError;
-use crate::compact::dropped::dropped_identities;
+use crate::compact::dropped::dropped_summary;
 use crate::env::CompactEvent;
 use crate::env::Dropped;
 use crate::env::CompactRequest;
@@ -303,7 +303,8 @@ impl Run {
         // The one-shot reactive flag is consumed by this pass.
         self.reactive_overflow_retry_pending = false;
         let before = self.messages.len();
-        let event = |changed: bool, failed: bool, after: usize, dropped: Option<Dropped>| CompactEvent {
+        let event = |changed: bool, failed: bool, after: usize, dropped_count: u64, dropped: Option<Dropped>| CompactEvent {
+            dropped_count,
             dropped,
             trigger: trigger_kind.clone(),
             changed,
@@ -329,7 +330,7 @@ impl Run {
             Ok(output) => output,
             Err(CompactError::Aborted) => return Err(AgentError::Aborted),
             Err(error) => {
-                self.emit(RunEvent::Compact(event(false, true, before, None)));
+                self.emit(RunEvent::Compact(event(false, true, before, 0, None)));
                 // Agent mode retries a failed compaction quietly once per
                 // turn: the context is still under the model's boundary and
                 // the next send's pass compacts again.
@@ -350,12 +351,12 @@ impl Run {
             }
         }
         let changed = output.messages != self.messages;
-        let mut dropped = None;
+        let mut dropped = (0, None);
         if changed {
-            dropped = dropped_identities(&self.messages, &output.messages);
+            dropped = dropped_summary(&self.messages, &output.messages);
             self.adopt_compacted(output.messages);
         }
-        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), dropped)));
+        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), dropped.0, dropped.1)));
         Ok(changed)
     }
 

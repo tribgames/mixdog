@@ -10,7 +10,7 @@ use std::path::Path;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use super::process::{RunOptions, run_process, which};
+use super::process::{Processes, RunOptions, which};
 
 pub const CODE_LANGUAGE_EXTENSIONS: &[(&str, &[&str])] = &[
     ("javascript", &["js", "mjs", "cjs", "jsx"]),
@@ -140,14 +140,14 @@ pub fn parse_graph_langs(stdout: &str) -> Option<GraphLangs> {
 }
 
 /// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths.
-pub async fn list_scoped_files(cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> (Vec<String>, String) {
+pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> (Vec<String>, String) {
     let Some(git) = which("git", None, None) else { return (Vec::new(), "git is not installed".into()) };
     let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"].iter().map(|s| (*s).to_owned()).collect();
     args.extend(paths.iter().cloned());
     let mut options = RunOptions::new(cwd);
     options.cancel = cancel;
     options.timeout = std::time::Duration::from_secs(20);
-    let result = run_process(&git.to_string_lossy(), &args, options).await;
+    let result = processes.run(&git.to_string_lossy(), &args, options).await;
     if result.code != 0 {
         let err = mixdog_js::slice_utf16(mixdog_js::js_trim(&result.stderr), 200);
         return (Vec::new(), if err.is_empty() { if result.error.is_empty() { format!("git ls-files exited {}", result.code) } else { result.error } } else { err });
@@ -169,8 +169,8 @@ pub struct Detected {
 /// Detects the languages present in `cwd`. Files come from git (they scope every engine run) and
 /// map to languages by extension: the graph binary's table wins when available, with the static
 /// registry covering formatter-only extensions the binary does not parse.
-pub async fn detect_languages(cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Detected {
-    let (files, error) = list_scoped_files(cwd, paths, cancel).await;
+pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Detected {
+    let (files, error) = list_scoped_files(processes, cwd, paths, cancel).await;
     let extensions = graph_langs.map(|g| &g.extensions);
     let language_of = |rel: &str| language_with(rel, extensions);
     let filtered: Vec<String> = if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
@@ -252,12 +252,12 @@ mod tests {
         for f in ["a.rs", "b.rs", "c.py", "notes.txt"] {
             std::fs::write(dir.path().join(f), "x").unwrap();
         }
-        let all = detect_languages(dir.path(), &[], &[], None, None).await;
+        let all = detect_languages(&Processes::for_tests(), dir.path(), &[], &[], None, None).await;
         assert_eq!(all.languages, [("rust".to_owned(), 2), ("python".to_owned(), 1)]);
         assert_eq!((all.source, all.files.len()), ("git", 4));
-        let only = detect_languages(dir.path(), &[], &["python".into()], None, None).await;
+        let only = detect_languages(&Processes::for_tests(), dir.path(), &[], &["python".into()], None, None).await;
         assert_eq!(only.files, ["c.py"]);
-        let scoped = detect_languages(dir.path(), &["a.rs".into()], &[], None, None).await;
+        let scoped = detect_languages(&Processes::for_tests(), dir.path(), &["a.rs".into()], &[], None, None).await;
         assert_eq!(scoped.files, ["a.rs"]);
     }
 }

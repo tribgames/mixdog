@@ -13,6 +13,7 @@ use mixdog_core_api::domain::provider::ProviderError;
 
 pub mod adapter;
 pub mod auth;
+pub mod cache;
 pub mod codec;
 pub mod decode;
 pub mod error;
@@ -41,6 +42,15 @@ pub fn gemini(
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
 ) -> GoogleAdapter {
+    let api_key = api_key.into();
+    let cache = cache::layer::ExplicitCache::new(
+        api_key.clone(),
+        codec::GEMINI_ORIGIN,
+        http.clone(),
+        Arc::new(cache::runtime::RtCacheRuntime),
+        cache::registry::Registry::shared(),
+        cache::policy::Tuning::from_env(|name| std::env::var(name).ok()),
+    );
     GoogleAdapter::new(
         GoogleCodec::gemini(codec::GEMINI_ORIGIN, traits),
         policy::gemini(),
@@ -48,6 +58,7 @@ pub fn gemini(
         Arc::new(ApiKeyAuth::new(api_key)),
         String::new(),
     )
+    .with_cache(cache)
 }
 
 /// `vertex-ai` on a project, with minted tokens or a key. `place` decides each

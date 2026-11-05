@@ -49,10 +49,11 @@ async fn only_a_server_that_names_itself_google_has_a_project() {
     let named = server(vec![(200, vec![FLAVOR], " my-proj\n")]);
     let http: Arc<dyn HttpSend> = named.clone();
     assert_eq!(probe_project(&http).await.as_deref(), Some("my-proj"));
-    let seen = named.seen.lock().unwrap();
-    assert_eq!(seen[0].url, "http://metadata.google.internal/computeMetadata/v1/project/project-id");
-    assert_eq!(seen[0].headers, vec![("Metadata-Flavor".to_owned(), "Google".to_owned())]);
-    drop(seen);
+    {
+        let seen = named.seen.lock().unwrap();
+        assert_eq!(seen[0].url, "http://metadata.google.internal/computeMetadata/v1/project/project-id");
+        assert_eq!(seen[0].headers, vec![("Metadata-Flavor".to_owned(), "Google".to_owned())]);
+    }
     for row in [(200, vec![], "p"), (404, vec![FLAVOR], "p"), (200, vec![FLAVOR], "  ")] {
         let http: Arc<dyn HttpSend> = server(vec![row]);
         assert_eq!(probe_project(&http).await, None);

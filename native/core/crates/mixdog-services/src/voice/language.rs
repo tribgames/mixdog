@@ -43,6 +43,21 @@ mod tests {
         }
     }
 
+    /// Node-recorded twin `fixtures/services/voice-language-twin.json`
+    /// (`benchmarks/rust-core/recorders/record-voice-language.mjs`); `MIXDOG_FIXTURES_ROOT` overrides the location.
+    #[test]
+    fn matches_the_node_recorded_answers() {
+        let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
+        let twin: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/services/voice-language-twin.json")).unwrap()).unwrap();
+        let cases = twin["cases"].as_array().unwrap();
+        assert!(cases.len() > 40);
+        for case in cases {
+            let input = case["input"].as_str();
+            let expected = case["output"].as_str().map(str::to_owned);
+            assert_eq!(normalize_whisper_language(input), expected, "input {:?}", case["input"]);
+        }
+    }
+
     #[test]
     fn pseudo_locale_does_not_block_later_candidates() {
         let lang = detect_device_language([None, Some("C.UTF-8"), Some("ko_KR.UTF-8"), Some("en")]);

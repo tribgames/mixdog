@@ -43,6 +43,7 @@ use crate::providers::compat::chat::CompatChatCodec;
 use crate::providers::compat::chat::CompatConfig;
 use crate::providers::compat::creds::MimoCredentials;
 use crate::providers::compat::creds::OpenCodeGoCredentials;
+use crate::oauth::CredentialIo;
 use crate::providers::compat::profile::CompatProfile;
 use crate::providers::cursor::CursorAdapter;
 use crate::providers::cursor::auth::ApiKeyAccess;
@@ -116,6 +117,8 @@ pub struct BuilderEnv {
     pub env: Arc<dyn super::keys::Environment>,
     /// The user's home directory and `%APPDATA%`-style base for gcloud's ADC.
     pub home_dir: PathBuf,
+    /// The lane the gcloud configuration and ADC files are read on.
+    pub io: CredentialIo,
     /// `providerAvailable`: names a Developer option currently gates off.
     pub gated_off: Arc<dyn Fn(&str) -> bool + Send + Sync>,
 }
@@ -131,6 +134,38 @@ impl DefaultProviderBuilder {
     pub fn new(env: BuilderEnv) -> Self {
         Self { env, metadata_project: tokio::sync::OnceCell::new() }
     }
+}
+
+// The two readers below are bodies of lane jobs (`CredentialIo::read_job`).
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
+fn read_text(path: &std::path::Path) -> std::io::Result<String> {
+    std::fs::read_to_string(path)
+}
+
+/// The `project =` of the `[core]` section of the gcloud configuration `named`
+/// (else the active one, else `default`) under `dir`.
+fn read_gcloud_project(dir: &std::path::Path, named: String) -> Option<String> {
+    let mut name = named;
+    if name.is_empty() {
+        name = read_text(&dir.join("active_config")).map(|s| s.trim().to_owned()).unwrap_or_default();
+    }
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
+        name = "default".into();
+    }
+    let raw = read_text(&dir.join("configurations").join(format!("config_{name}"))).ok()?;
+    let mut section = String::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some(inner) = trimmed.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+            section = inner.trim().to_lowercase();
+        }
+        if section == "core" {
+            if let Some(value) = trimmed.strip_prefix("project").map(str::trim_start).and_then(|t| t.strip_prefix('=')) {
+                return Some(value.trim().to_owned());
+            }
+        }
+    }
+    None
 }
 
 /// What the gcloud login location held.
@@ -533,33 +568,13 @@ impl DefaultProviderBuilder {
     async fn gcloud_config_project(&self) -> Option<String> {
         let dir = self.gcloud_dir();
         let named = self.env.env.var("CLOUDSDK_ACTIVE_CONFIG_NAME").map(|v| v.trim().to_owned()).unwrap_or_default();
-        tokio::task::spawn_blocking(move || {
-            let mut name = named;
-            if name.is_empty() {
-                name = std::fs::read_to_string(dir.join("active_config")).map(|s| s.trim().to_owned()).unwrap_or_default();
-            }
-            if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
-                name = "default".into();
-            }
-            let raw = std::fs::read_to_string(dir.join("configurations").join(format!("config_{name}"))).ok()?;
-            let mut section = String::new();
-            for line in raw.lines() {
-                let trimmed = line.trim();
-                if let Some(inner) = trimmed.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
-                    section = inner.trim().to_lowercase();
-                }
-                if section == "core" {
-                    if let Some(value) = trimmed.strip_prefix("project").map(str::trim_start).and_then(|t| t.strip_prefix('=')) {
-                        return Some(value.trim().to_owned());
-                    }
-                }
-            }
-            None
-        })
-        .await
-        .ok()
-        .flatten()
-        .filter(|p| !p.is_empty())
+        self.env
+            .io
+            .read_job(move || Ok(read_gcloud_project(&dir, named)))
+            .await
+            .ok()
+            .flatten()
+            .filter(|p| !p.is_empty())
     }
 
     /// `adcLocation` + `readAdcFile`: `GOOGLE_APPLICATION_CREDENTIALS`, when
@@ -572,9 +587,7 @@ impl DefaultProviderBuilder {
             None => self.gcloud_dir().join("application_default_credentials.json"),
         };
         let shown = path.display().to_string();
-        let read = tokio::task::spawn_blocking(move || std::fs::read_to_string(path))
-            .await
-            .map_err(|e| e.to_string())?;
+        let read = self.env.io.read_job(move || read_text(&path)).await;
         match read {
             Ok(raw) => Ok(AdcRead::Found { raw, path: shown }),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {

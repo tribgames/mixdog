@@ -83,12 +83,12 @@ pub fn parse_retry_after(value: &str) -> Duration {
     if let Ok(seconds) = value.parse::<f64>() {
         return Duration::from_secs_f64(seconds.max(0.0));
     }
-    match chrono::DateTime::parse_from_rfc2822(value) {
-        Ok(date) => (date.with_timezone(&chrono::Utc) - chrono::Utc::now())
-            .to_std()
-            .unwrap_or(Duration::ZERO),
-        Err(_) => Duration::ZERO,
+    let at = mixdog_js::time::date_parse(value);
+    if !at.is_finite() {
+        return Duration::ZERO;
     }
+    let wait_ms = at - chrono::Utc::now().timestamp_millis() as f64;
+    Duration::from_secs_f64(wait_ms.max(0.0) / 1000.0)
 }
 
 pub fn assert_document_response(status: u16, headers: &HeaderMap) -> Result<(), FetchError> {

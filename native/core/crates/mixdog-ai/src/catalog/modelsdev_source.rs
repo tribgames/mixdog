@@ -71,8 +71,15 @@ pub struct ModelsDevSource {
     url: String,
     path: PathBuf,
     io: CredentialIo,
+    /// The overlay's document parser: models.dev's, or LiteLLM's.
+    parse: fn(&[u8]) -> Option<ModelsDev>,
+    label: &'static str,
     state: Mutex<State>,
 }
+
+pub const LITELLM_URL: &str =
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
+pub const LITELLM_CACHE_FILE: &str = "litellm-catalog.json";
 
 impl ModelsDevSource {
     /// `data_dir` is the plugin data directory.
@@ -91,6 +98,22 @@ impl ModelsDevSource {
             url,
             path: data_dir.join(MODELS_DEV_CACHE_FILE),
             io,
+            parse: ModelsDev::parse,
+            label: "models.dev ",
+            state: Mutex::new(State::default()),
+        })
+    }
+
+    /// The LiteLLM price table, fetched and cached under the same rules
+    /// (`litellm-catalog.json`, six hours, a one-minute retry after a failure).
+    pub fn litellm(http: Arc<dyn HttpSend>, data_dir: PathBuf, io: CredentialIo) -> Arc<Self> {
+        Arc::new(Self {
+            http,
+            url: LITELLM_URL.to_owned(),
+            path: data_dir.join(LITELLM_CACHE_FILE),
+            io,
+            parse: ModelsDev::parse_litellm,
+            label: "",
             state: Mutex::new(State::default()),
         })
     }
@@ -104,6 +127,17 @@ impl ModelsDevSource {
         self.lock().layer.clone()
     }
 
+    /// When the resident layer was fetched (`cacheAt`); 0 while cold.
+    pub(super) fn cache_at(&self) -> u64 {
+        self.lock().cache_at
+    }
+
+    /// Installs a layer as a fetch would have (tests).
+    #[cfg(test)]
+    pub(crate) fn set_layer(&self, layer: ModelsDev) {
+        self.lock().layer = Some(Arc::new(layer));
+    }
+
     pub fn retry_pending(&self) -> bool {
         self.lock().retry_at != 0
     }
@@ -112,13 +146,14 @@ impl ModelsDevSource {
     /// document stays off the runtime threads.
     async fn read_disk(&self) -> Option<(Arc<ModelsDev>, u64)> {
         let path = self.path.clone();
+        let parse = self.parse;
         let job = self
             .io
             .read
             .submit(&CancellationToken::new(), move |_| {
                 let bytes = read_file(&path)?;
                 let file: CacheFile<'_> = serde_json::from_slice(&bytes).ok()?;
-                let layer = ModelsDev::parse(file.data.get().as_bytes())?;
+                let layer = parse(file.data.get().as_bytes())?;
                 Some((Arc::new(layer), file.fetched_at))
             })
             .ok()?;
@@ -182,7 +217,7 @@ impl ModelsDevSource {
                 state.retry_at = 0;
             }
             Err(reason) => {
-                tracing::warn!("[model-catalog] models.dev fetch failed: {reason}");
+                tracing::warn!("[model-catalog] {}fetch failed: {reason}", self.label);
                 let disk = self.read_disk().await;
                 let mut state = self.lock();
                 state.fetched_remote = false;
@@ -214,16 +249,17 @@ impl ModelsDevSource {
             .await
             .map_err(|_| "timed out".to_owned())??;
         // The parse of ~8 MB runs as a lane job.
+        let parse = self.parse;
         let job = self
             .io
             .read
             .submit(&CancellationToken::new(), move |_| {
-                ModelsDev::parse(&body).map(|layer| (Arc::new(layer), body))
+                parse(&body).map(|layer| (Arc::new(layer), body))
             })
             .map_err(|e| e.to_string())?;
         job.await
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| "not the models.dev document".to_owned())
+            .ok_or_else(|| "not the catalog document".to_owned())
     }
 
     /// The body is stored verbatim: it already parsed.
@@ -245,7 +281,7 @@ impl ModelsDevSource {
 
 
 #[allow(clippy::disallowed_methods, reason = "the body of a lane job")]
-fn read_file(path: &std::path::Path) -> Option<Vec<u8>> {
+pub(super) fn read_file(path: &std::path::Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 

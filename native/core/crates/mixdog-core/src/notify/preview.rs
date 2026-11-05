@@ -1,6 +1,7 @@
 //! Banner text: Markdown parsed first (so a clipped delimiter cannot leak into the banner), then
 //! clipped at the last whole sentence that fits.
 
+use mixdog_js::{is_js_space, js_words};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 const LIMIT: usize = 160;
@@ -59,7 +60,7 @@ fn plain_text(markdown: &str) -> String {
 
 /// Native banners display text, not Markdown.
 pub fn notification_preview(markdown: &str) -> String {
-    let text = plain_text(markdown).split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = js_words(&plain_text(markdown)).collect::<Vec<_>>().join(" ");
     let characters: Vec<char> = text.chars().collect();
     if characters.len() <= LIMIT {
         return text;
@@ -68,7 +69,7 @@ pub fn notification_preview(markdown: &str) -> String {
     let probe = &characters[..=LIMIT];
     let sentence_end = (0..probe.len().saturating_sub(1))
         .rev()
-        .find(|&i| "。！？.!?".contains(probe[i]) && probe[i + 1].is_whitespace());
+        .find(|&i| "。！？.!?".contains(probe[i]) && is_js_space(probe[i + 1]));
     if let Some(index) = sentence_end {
         if index + 1 >= MIN_SENTENCE {
             return probe[..=index].iter().collect();

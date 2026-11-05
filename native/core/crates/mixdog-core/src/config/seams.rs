@@ -46,12 +46,12 @@ impl ConfigFeatureGate {
 #[async_trait]
 impl FeatureGate for ConfigFeatureGate {
     async fn github_enabled(&self) -> bool {
-        let doc = with_grandfathered_builtins(&self.config.full());
+        let doc = with_grandfathered_builtins(&self.config.agent());
         builtin_feature_active(&doc, "git", &*self.env, true)
     }
 }
 
-/// The worktree settings at top-level `worktree`, normalised on every read.
+/// The worktree settings at `agent.worktree`, normalised on every read.
 pub struct ConfigWorktreeSettings {
     config: Config,
 }
@@ -65,7 +65,7 @@ impl ConfigWorktreeSettings {
 #[async_trait]
 impl SettingsSource for ConfigWorktreeSettings {
     async fn worktree_settings(&self) -> WorktreeSettings {
-        normalize(&self.config.get("worktree").unwrap_or(Value::Null))
+        normalize(&self.config.agent().get("worktree").cloned().unwrap_or(Value::Null))
     }
 }
 
@@ -130,7 +130,8 @@ pub trait LocalCatalogRefresh: Send + Sync {
     async fn refresh(&self);
 }
 
-/// Persists the idle TTL at `providers.mixdog-local.idleTtlSeconds` (`setLocalProviderIdleTtl`).
+/// Persists the idle TTL at `agent.providers.mixdog-local.idleTtlSeconds`
+/// (`setLocalProviderIdleTtl`).
 pub struct ConfigLocalProviderSettings {
     config: Config,
     catalog: Arc<dyn LocalCatalogRefresh>,
@@ -146,7 +147,7 @@ impl ConfigLocalProviderSettings {
 impl LocalProviderSettings for ConfigLocalProviderSettings {
     async fn persist_idle_ttl(&self, seconds: u64) -> Result<(), String> {
         self.config
-            .update(move |doc| {
+            .update_agent(move |doc| {
                 let providers = object_at(doc, "providers");
                 let local = object_at(providers, LOCAL_PROVIDER_ID);
                 local.insert("idleTtlSeconds".into(), Value::from(seconds));

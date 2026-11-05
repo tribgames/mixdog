@@ -260,6 +260,9 @@ impl CoreAccess for OsAccess {
         let failed = |e: std::io::Error| EnsureError::Core(format!("starting the core: {e}"));
         let log = fs::OpenOptions::new().create(true).append(true).open(&launch.log).map_err(failed)?;
         let mut command = Command::new(&launch.exe);
+        for name in &launch.env_remove {
+            command.env_remove(name);
+        }
         command
             .args(&launch.args)
             .envs(launch.env.iter().cloned())

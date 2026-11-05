@@ -22,6 +22,9 @@ struct Shared {
     cancels: AtomicUsize,
     grown: AtomicBool,
     elicit_answer: Mutex<Option<std::sync::mpsc::Sender<Value>>>,
+    /// The arguments of the last `describe_emails` call.
+    last_describe: Mutex<Value>,
+    fixture_calls: AtomicUsize,
 }
 
 fn send(shared: &Shared, message: Value) {
@@ -74,6 +77,30 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
             return;
         }
         "cancels" => text(shared.cancels.load(Ordering::SeqCst).to_string()),
+        // Never listed (like the Gmail connector's): answers the result in `MOCK_DESCRIBE_RESULT`.
+        "describe_emails" => {
+            *shared.last_describe.lock().unwrap() = params["arguments"].clone();
+            match std::env::var("MOCK_DESCRIBE_RESULT") {
+                Ok(raw) => serde_json::from_str(&raw).unwrap(),
+                Err(_) => {
+                    send(shared, json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "unknown tool"}}));
+                    return;
+                }
+            }
+        }
+        "describe_args" => text(shared.last_describe.lock().unwrap().to_string()),
+        // Hook fixtures: `fixture_<n>` answers the n-th entry of `MOCK_FIXTURES` (a JSON array of
+        // strings; an `{"error": …}` entry is a tool error); `fixture_count` counts the calls.
+        "fixture_count" => text(shared.fixture_calls.load(Ordering::SeqCst).to_string()),
+        fixture if fixture.starts_with("fixture_") => {
+            shared.fixture_calls.fetch_add(1, Ordering::SeqCst);
+            let fixtures: Vec<Value> = serde_json::from_str(&std::env::var("MOCK_FIXTURES").unwrap_or_default()).unwrap_or_default();
+            match fixtures.get(fixture["fixture_".len()..].parse::<usize>().unwrap_or(usize::MAX)) {
+                Some(Value::String(output)) => text(output.clone()),
+                Some(entry) => json!({"isError": true, "content": [{"type": "text", "text": entry["error"].as_str().unwrap_or_default()}]}),
+                None => json!({"isError": true, "content": [{"type": "text", "text": "no such fixture"}]}),
+            }
+        }
         _ => {
             send(shared, json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "unknown tool"}}));
             return;
@@ -88,6 +115,8 @@ fn main() {
         cancels: AtomicUsize::new(0),
         grown: AtomicBool::new(false),
         elicit_answer: Mutex::new(None),
+        last_describe: Mutex::new(Value::Null),
+        fixture_calls: AtomicUsize::new(0),
     });
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -110,6 +139,8 @@ fn main() {
                         if shared.grown.load(Ordering::SeqCst) {
                             tools.push(tool("extra"));
                         }
+                        let fixtures: Vec<Value> = serde_json::from_str(&std::env::var("MOCK_FIXTURES").unwrap_or_default()).unwrap_or_default();
+                        tools.extend((0..fixtures.len()).map(|n| tool(&format!("fixture_{n}"))));
                         json!({"tools": tools})
                     }
                 };

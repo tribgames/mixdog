@@ -107,6 +107,17 @@ pub struct HeadRead(pub Box<dyn Any + Send>);
 /// Store-private result of open job J2 (window rows, open sets, checkpoint-state blob).
 pub struct WindowRead(pub Box<dyn Any + Send>);
 
+/// Store-private state of a model-context read between its lane steps.
+pub struct ContextRead(pub Box<dyn Any + Send>);
+
+/// What a model-context cpu step leaves.
+pub enum ContextStep {
+    /// The read continues with another io step.
+    More(ContextRead),
+    /// The model context, oldest first: each row's item id and its 1.4.5 message object.
+    Done(Vec<(mixdog_core_api::ids::ItemId, Value)>),
+}
+
 /// Store-private position where appends continue (open-for-append happens at the first write).
 pub struct AppendPosition(pub Box<dyn Any + Send>);
 
@@ -170,6 +181,22 @@ pub trait ThreadStore: Send + Sync + 'static {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError>;
+
+    /// The io step of a model-context read (the lineage's model rows since its last
+    /// compaction, as acked so far): `None` starts the read; a stale page restarts it.
+    fn context_io(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        read: Option<ContextRead>,
+    ) -> Result<ContextRead, CoreError>;
+
+    /// The cpu step of a model-context read.
+    fn context_cpu(
+        &self,
+        lane: &InLane<CpuInteractive>,
+        read: ContextRead,
+    ) -> Result<ContextStep, CoreError>;
 
     /// Open for append under the writer claim (tmp sweep, torn-tail truncation, SM §8
     /// `Opening`), at the thread's first write.
@@ -297,6 +324,8 @@ pub struct RunStart {
     pub turn: TurnId,
     pub input: TurnInput,
     pub port: RunPort,
+    /// The model context before the input row (today's `session.messages` at ask start).
+    pub context: super::run::ModelContext,
     /// The session's current tool-policy surface: every `ToolPolicy::authorize` request of the
     /// run carries `borrow()` of it. Re-derived at turn start, on header changes and on
     /// `SessionHandle::refresh_surface`.

@@ -115,4 +115,7 @@ pub trait CoreAccess {
     /// Blocks until the OS reports the process (pid and start time) gone.
     fn wait_exit(&self, core: &ServerCore) -> Result<(), EnsureError>;
     /// Starts the core detached from this process's lifetime.
-    
+    fn launch(&self, launch: &Launch) -> Result<(), EnsureError>;
+    /// Blocks until discovery names the launched core past `booting`, or it exits.
+    fn await_core(&self) -> Result<CoreReport, EnsureError>;
+}

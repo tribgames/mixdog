@@ -6,6 +6,10 @@
  */
 import type { Notification } from 'electron';
 
+import type {
+  HostNotificationClickedParams,
+  HostNotificationShowParams,
+} from '../../../../../packages/protocol/src/index.ts';
 import { retainNotification } from '../notification-window';
 import { HOST_METHOD, type HostConnection, HostRpcError, HOST_INVALID_PARAMS, objectParams } from './connection';
 
@@ -21,7 +25,10 @@ export interface NotificationPresenter {
 export function registerNotificationHost(connection: HostConnection, presenter: NotificationPresenter): void {
   const live = new Set<unknown>();
   connection.handleNotification(HOST_METHOD.notificationShow, (params) => {
-    const { title, body, threadId, sound, volume } = objectParams(params, HOST_METHOD.notificationShow);
+    const { title, body, threadId, sound, volume } = objectParams<HostNotificationShowParams>(
+      params,
+      HOST_METHOD.notificationShow
+    );
     if (typeof title !== 'string' || typeof body !== 'string') {
       throw new HostRpcError(HOST_INVALID_PARAMS, 'host/notification/show needs a title and a body.');
     }
@@ -29,7 +36,10 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     retainNotification(live, notification);
     notification.on('click', () => {
       presenter.activate();
-      if (typeof threadId === 'string' && threadId) connection.notify(HOST_METHOD.notificationClicked, { threadId });
+      if (typeof threadId === 'string' && threadId) {
+        const clicked: HostNotificationClickedParams = { threadId: threadId as HostNotificationClickedParams['threadId'] };
+        connection.notify(HOST_METHOD.notificationClicked, clicked);
+      }
     });
     notification.show();
     if (sound !== undefined && sound !== null && sound !== 'none') {

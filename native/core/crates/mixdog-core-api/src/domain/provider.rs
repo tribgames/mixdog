@@ -246,6 +246,48 @@ pub struct RequestOptions {
     /// `opts.nativeTools`). Each codec renders the ones its wire hosts and
     /// skips the rest; empty sends none.
     pub hosted_tools: Vec<HostedTool>,
+    /// Node `sharedCachePrefixCount`: this request forks an earlier one (a
+    /// side question, a compaction summary) that re-sends its first `n`
+    /// messages unchanged and appends a short suffix. The fork only reads the
+    /// session's live prompt cache: Anthropic keeps a message breakpoint on
+    /// the shared prefix and never continues a response thread; Gemini never
+    /// creates or refreshes an explicit cache. `None` is an ordinary request.
+    pub shared_cache_prefix_count: Option<usize>,
+    /// Node `opts.providerState`: the session's saved provider-native state,
+    /// filled by the agent from the session. A provider reads only its own key
+    /// and reports a change on [`StreamEvent::ProviderState`].
+    pub provider_state: Option<ProviderState>,
+}
+
+/// The session's saved provider-native state (Node `session.providerState`).
+#[derive(Clone, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct ProviderState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gemini: Option<GeminiCacheState>,
+    /// Every other key of Node's `providerState` (OpenAI continuation slots,
+    /// `xaiResponses`, `providerAccountId`, …), owned by their providers and
+    /// kept verbatim so a round trip drops nothing.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Node `providerState.gemini`, field for field (JSON keys are Node's).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiCacheState {
+    /// `cachedContents/<id>`.
+    pub cache_name: String,
+    /// Epoch ms.
+    pub cache_created_at: u64,
+    /// The request iteration that attached it.
+    pub cache_created_at_iter: u32,
+    /// Epoch ms.
+    pub cache_expires_at: u64,
+    pub cache_model: String,
+    pub cache_token_size: u64,
+    pub cache_prefix_content_count: usize,
+    pub cache_prefix_hash: String,
+    pub cache_credential_fingerprint: String,
 }
 
 /// A tool the provider runs itself.
@@ -382,6 +424,10 @@ pub struct Usage {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+    /// The part of `cache_write_tokens` written with the 1-hour TTL
+    /// (Anthropic `cache_creation.ephemeral_1h_input_tokens`); 0 when the
+    /// provider reports no split. The 5-minute part is the remainder.
+    pub cache_write_1h_tokens: u64,
     pub reasoning_tokens: u64,
     /// The provider's usage object verbatim (ledger detail, service tier).
     pub raw: Option<JsonValue>,
@@ -440,6 +486,9 @@ pub enum StreamEvent {
     /// Provider ping, SSE comment or keepalive event. Informational only:
     /// sets the display state `waitingOnProvider`; never progress, never death.
     ProviderKeepalive,
+    /// The session's provider state changed during the request (Node writes
+    /// `opts.providerState` back); the whole new state, to be persisted.
+    ProviderState(ProviderState),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -614,6 +663,11 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
+    /// The session's provider state as this failed attempt left it (e.g. a
+    /// Gemini cache dropped after a 401). `Some` replaces the run's pending
+    /// state, as [`StreamEvent::ProviderState`] does; `None` leaves it
+    /// unchanged. Boxed to keep `Result<_, ProviderError>` small.
+    pub provider_state: Option<Box<ProviderState>>,
 }
 
 impl ProviderError {
@@ -637,6 +691,7 @@ impl ProviderError {
             account_blocked: false,
             unsafe_to_retry: false,
             quota_limit: None,
+            provider_state: None,
         }
     }
 
@@ -672,7 +727,12 @@ pub trait WireDecoder: Send {
 pub trait WireCodec: Send + Sync {
     fn transport(&self) -> TransportKind;
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError>;
-    fn decoder(&self) -> Box<dyn WireDecoder>;
+    /// The decoder for one response to `request`. Provider state flows through
+    /// it: a codec whose route continues a conversation reads
+    /// `request.options.provider_state` and reports the updated state as
+    /// `StreamEvent::ProviderState`; a codec that needs nothing from the
+    /// request ignores it.
+    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder>;
     /// The single classification point for a failed response.
     fn classify(&self, response: &ErrorResponse) -> ProviderError;
 }

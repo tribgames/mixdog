@@ -3,6 +3,7 @@
 //! thinking/effort, `max_tokens`. Key order is the wire order and is part of
 //! the contract (prompt-cache prefixes are byte prefixes).
 
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 
 use mixdog_core_api::domain::provider::CacheTier;
@@ -10,6 +11,7 @@ use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::Role;
@@ -296,17 +298,57 @@ fn last_eligible_block(content: &WireContent) -> Option<usize> {
     }
 }
 
-fn mark_message_tail(messages: &mut [WireMessage], ttl: CacheTtl) {
-    let Some(index) = messages
+fn last_markable_message(messages: &[WireMessage]) -> Option<usize> {
+    messages
         .iter()
         .rposition(|m| last_eligible_block(&m.content).is_some())
-    else {
+}
+
+/// The breakpoint on the last message that has an eligible block.
+fn mark_message_tail(messages: &mut [WireMessage], ttl: CacheTtl) {
+    if let Some(index) = last_markable_message(messages)
+        && let Some(block_index) = last_eligible_block(&messages[index].content)
+    {
+        mark_block(&mut messages[index], block_index, ttl);
+    }
+}
+
+/// The block a content holds at `block_index`, as the JSON it is sent as.
+fn block_key(content: &WireContent, block_index: usize) -> Option<Value> {
+    match content {
+        WireContent::Text(text) => (block_index == 0).then(|| Value::String(text.clone())),
+        WireContent::Blocks(blocks) => blocks.get(block_index).cloned(),
+    }
+}
+
+/// A cache-sharing fork keeps its one message breakpoint on the block the
+/// saved request marked: the last markable block of its first `count`
+/// messages, lowered as the request lowers them. The fork reads that cache
+/// entry and writes none for its own suffix. `lowered_prefix` is that
+/// lowering; a prefix that is not part of the request (or lowers to nothing)
+/// leaves the request without a message breakpoint.
+fn mark_shared_prefix(messages: &mut [WireMessage], lowered_prefix: Option<Vec<WireMessage>>, ttl: CacheTtl) {
+    let Some(prefix) = lowered_prefix else {
         return;
     };
-    let message = &mut messages[index];
-    let Some(block_index) = last_eligible_block(&message.content) else {
+    let Some(index) = last_markable_message(&prefix) else {
         return;
     };
+    let Some(block_index) = last_eligible_block(&prefix[index].content) else {
+        return;
+    };
+    let Some(key) = block_key(&prefix[index].content, block_index) else {
+        return;
+    };
+    let Some(message) = messages.get_mut(index) else {
+        return;
+    };
+    if block_key(&message.content, block_index) == Some(key) {
+        mark_block(message, block_index, ttl);
+    }
+}
+
+fn mark_block(message: &mut WireMessage, block_index: usize, ttl: CacheTtl) {
     match &mut message.content {
         WireContent::Text(text) => {
             let text = std::mem::take(text);
@@ -691,17 +733,32 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             },
         )
     });
-    let mut messages = match updates {
-        Some(projection) => lower_with_updates(&request.messages, &projection.updates, &context),
-        None if cfg.first_party && turn_scoped_model(&request.model) => {
-            turn_scoped_layout(lower_messages(&request.messages, &context))
+    let lower = |source: &[Message]| match updates {
+        Some(projection) => {
+            let kept: BTreeMap<usize, String> = projection
+                .updates
+                .iter()
+                .filter(|(index, _)| **index < source.len())
+                .map(|(index, effort)| (*index, effort.clone()))
+                .collect();
+            lower_with_updates(source, &kept, &context)
         }
-        None => lower_messages(&request.messages, &context),
+        None if cfg.first_party && turn_scoped_model(&request.model) => {
+            turn_scoped_layout(lower_messages(source, &context))
+        }
+        None => lower_messages(source, &context),
     };
+    let mut messages = lower(&request.messages);
     if let Some(ttl) = cache.messages
         && reserved < MAX_CACHE_BREAKPOINTS
     {
-        mark_message_tail(&mut messages, ttl);
+        match request.options.shared_cache_prefix_count.filter(|count| *count > 0) {
+            None => mark_message_tail(&mut messages, ttl),
+            Some(count) => {
+                let prefix = request.messages.get(..count).map(&lower);
+                mark_shared_prefix(&mut messages, prefix, ttl);
+            }
+        }
     }
 
     let max_tokens = max_tokens(cfg, request);

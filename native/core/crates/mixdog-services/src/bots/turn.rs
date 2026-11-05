@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
+use mixdog_rt::CancelView;
 use uuid::Uuid;
 
 use super::attachments::prompt_content;
@@ -49,8 +49,9 @@ pub struct TurnArgs {
     pub executor_agent_id: Option<String>,
 }
 
-pub(super) fn abort_error() -> String {
-    "routine run aborted".into()
+/// `abortError(signal)`: the reason the cancel was given, else Node's own fallback text.
+pub(super) fn abort_error(cancel: &CancelView) -> String {
+    cancel.reason().map_or_else(|| "routine run aborted".into(), |reason| reason.to_string())
 }
 
 /// One slot in a home thread's queue; released on drop.
@@ -86,7 +87,7 @@ impl RoutineRuntime {
 
     /// Delivers one fire of routine `args.name` to its owner's home thread and resolves the
     /// bot's reply. Rejects when the turn fails, is cancelled, or `cancel` fires.
-    pub async fn run_routine_turn(&self, args: TurnArgs, cancel: &CancellationToken) -> Result<RoutineRun, String> {
+    pub async fn run_routine_turn(&self, args: TurnArgs, cancel: &CancelView) -> Result<RoutineRun, String> {
         let kind = args.kind;
         let name = args.name.as_str();
         let mut body = mixdog_js::js_trim(&args.prompt).to_string();
@@ -94,7 +95,7 @@ impl RoutineRuntime {
             return Err(format!("{} \"{name}\" has no instructions", kind.word()));
         }
         if cancel.is_cancelled() {
-            return Err(abort_error());
+            return Err(abort_error(cancel));
         }
         let agent_id = schedule_owner_agent_id(args.owner_agent_id.as_deref());
         let home_id = match &args.session_id {
@@ -121,7 +122,7 @@ impl RoutineRuntime {
                 .await?;
             let report = mixdog_js::js_trim(&report).to_string();
             if cancel.is_cancelled() {
-                return Err(abort_error());
+                return Err(abort_error(cancel));
             }
             if report.is_empty() {
                 return Err(format!("{} \"{name}\": executor agent \"{executor}\" returned no report", kind.word()));
@@ -151,7 +152,7 @@ impl RoutineRuntime {
             trigger,
         };
         let heartbeat = args.session_id.is_some() && self.host.is_heartbeat_session(&home_id);
-        let turn_cancel = cancel.child_token();
+        let turn_cancel = cancel.token().child_token();
         let settle = self.host.run_turn(turn, turn_cancel.clone());
         tokio::pin!(settle);
         let (settle, timed_out) = if heartbeat {
@@ -183,7 +184,7 @@ impl RoutineRuntime {
             return Ok(RoutineRun { session_id: home_id, result: String::new(), timed_out: true });
         }
         if cancel.is_cancelled() {
-            return Err(abort_error());
+            return Err(abort_error(cancel));
         }
         match settle {
             TurnSettle::Done { result } => Ok(RoutineRun { session_id: home_id, result, timed_out: false }),

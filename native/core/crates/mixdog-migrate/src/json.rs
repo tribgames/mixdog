@@ -221,16 +221,7 @@ pub fn js_to_string(value: &Value) -> String {
     }
 }
 
-/// JavaScript truthiness of a JSON value.
-pub fn js_truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
-        Some(Value::String(s)) => !s.is_empty(),
-        Some(_) => true,
-    }
-}
+pub use mixdog_protocol::message_class::js::truthy as js_truthy;
 
 fn utf16_order(a: &str, b: &str) -> Ordering {
     a.encode_utf16().cmp(b.encode_utf16())

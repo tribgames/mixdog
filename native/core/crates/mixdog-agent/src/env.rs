@@ -168,6 +168,8 @@ pub struct Dropped {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct CompactEvent {
+    /// Node's `droppedMessages`: messages that left the context; 0 when nothing visible was removed.
+    pub dropped_count: u64,
     /// `None` when nothing identifiable was dropped.
     pub dropped: Option<Dropped>,
     pub trigger: CompactTrigger,

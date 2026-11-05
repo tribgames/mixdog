@@ -426,27 +426,6 @@ fn empty_search_output(call_id: &str) -> Value {
     })
 }
 
-/// A reasoning item as it goes back on the wire, or `None` when it carries
-/// no encrypted content.
-fn reasoning_wire_item(item: &Value) -> Option<Value> {
-    let encrypted = item
-        .get("encrypted_content")
-        .and_then(Value::as_str)
-        .filter(|e| !e.is_empty())?;
-    let mut out = Map::new();
-    out.insert("type".into(), json!("reasoning"));
-    if let Some(id) = item.get("id").and_then(Value::as_str).filter(|i| !i.is_empty()) {
-        out.insert("id".into(), json!(id));
-    }
-    out.insert("encrypted_content".into(), json!(encrypted));
-    let summary = match item.get("summary") {
-        Some(Value::Array(summary)) => Value::Array(summary.clone()),
-        _ => json!([]),
-    };
-    out.insert("summary".into(), summary);
-    Some(Value::Object(out))
-}
-
 struct Lowering<'a> {
     opts: &'a LowerOptions,
     out: Vec<Value>,
@@ -623,10 +602,6 @@ fn replay_items(message: &Message, owner: &ProviderId) -> Vec<Value> {
     items
 }
 
-fn after_text(item: &Value) -> bool {
-    item.get("afterText").and_then(Value::as_bool) == Some(true)
-}
-
 /// Synthesizes the output of every client call that has none, right after the
 /// call. Orphan outputs stay: a continuation carries only new results.
 fn ensure_call_outputs(items: Vec<Value>) -> Vec<Value> {
@@ -764,28 +739,16 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
         } else {
             Vec::new()
         };
-        if assistant {
-            let ordered = replays.iter().any(|item| item_type(item) != "reasoning");
-            if ordered && lowering.push_ordered_replay(&replays) {
-                continue;
-            }
+        // The one decision point (Node `orderedReplay?.length`): an owned
+        // replay with anything left to send replaces the message and the
+        // carried history alike; history reasoning is only for a message
+        // with no owned replay.
+        if assistant && lowering.push_ordered_replay(&replays) {
+            continue;
         }
         if let Some(carried) = extras.reasoning_by_index.get(&index) {
             lowering.out.extend(carried.iter().cloned());
         }
-        let reasoning = |after: bool, lowering: &mut Lowering<'_>| {
-            if !lowering.opts.replay_reasoning {
-                return;
-            }
-            for item in &replays {
-                if item_type(item) == "reasoning" && after_text(item) == after
-                    && let Some(item) = reasoning_wire_item(item)
-                {
-                    lowering.out.push(item);
-                }
-            }
-        };
-        reasoning(false, &mut lowering);
         let content = normalize_content(&message.content, assistant);
         if assistant && !message.tool_calls.is_empty() {
             let has_content = match &message.content {
@@ -800,7 +763,6 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
                     message.phase.filter(|_| opts.phase),
                 ));
             }
-            reasoning(true, &mut lowering);
             lowering.push_assistant_calls(&message.tool_calls, &wire);
             continue;
         }
@@ -813,7 +775,6 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
                 content,
                 message.phase.filter(|_| opts.phase),
             ));
-        reasoning(true, &mut lowering);
     }
     lowering.flush_media();
     if let Some(carried) = extras.reasoning_by_index.get(&messages.len()) {

@@ -3,6 +3,7 @@
 //! `storedPreferences` and `storedOverride` do. A value is stored as the typed form serializes,
 //! so unknown fields are dropped and missing ones take their defaults.
 
+use super::Config;
 use mixdog_protocol::config::ConversationNotificationOverride;
 use mixdog_protocol::config::ConversationNotificationSetting;
 use mixdog_protocol::config::NotificationDevicePreferences;
@@ -30,6 +31,44 @@ fn target_id(text: &str) -> bool {
         && text
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+}
+
+impl Config {
+    /// A paired client's stored preferences, else the defaults (`DEFAULT_NOTIFICATION_PREFERENCES`):
+    /// `PushPreferences.device` of `push-notifier.ts` for a client with no pairing record. The
+    /// kind-and-pairing-time default a phone app paired after the migration gets belongs to the
+    /// caller that knows the pairing.
+    pub fn notification_device(&self, client_id: &str) -> NotificationDevicePreferences {
+        self.get("notifications")
+            .and_then(|doc| doc.get("devices")?.get(client_id).cloned())
+            .and_then(|stored| serde_json::from_value(stored).ok())
+            .unwrap_or_default()
+    }
+
+    /// The conversation overrides still in force now: a mute whose `until` has passed is dropped
+    /// (`activeOverrides`).
+    pub fn notification_overrides(&self) -> Vec<ConversationNotificationOverride> {
+        self.notification_overrides_at(now_ms())
+    }
+
+    /// [`Self::notification_overrides`] at an explicit time.
+    pub fn notification_overrides_at(&self, now: i64) -> Vec<ConversationNotificationOverride> {
+        let stored = self.get("notifications").and_then(|doc| doc.get("overrides").cloned());
+        let all: Vec<ConversationNotificationOverride> =
+            stored.and_then(|list| serde_json::from_value(list).ok()).unwrap_or_default();
+        all.into_iter()
+            .filter(|entry| match entry.setting {
+                ConversationNotificationSetting::Muted { until: Some(until) } => until > now,
+                _ => true,
+            })
+            .collect()
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }
 
 fn device_ok(prefs: &NotificationDevicePreferences) -> bool {

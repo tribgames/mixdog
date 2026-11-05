@@ -1,0 +1,2699 @@
+{
+  "now": "2026-01-02T03:04:05.678Z",
+  "scenarios": [
+    {
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "customAgents": [],
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+      },
+      "main": null,
+      "name": "pack-read",
+      "steps": [
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "review"
+          },
+          "result": {
+            "body": "# Review\n\nRead twice.",
+            "description": "",
+            "id": "review",
+            "name": "Review",
+            "path": "<data>/workflows/review/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "default"
+          },
+          "result": {
+            "body": "An explicit request is the approval within its scope: carry it out, including\nroutine supporting steps and delegation, without asking again. Resolve\ndiscoverable facts by inspection; decide minor details yourself and say which\nyou chose. Read-only requests do not authorize changes.\n\nAsk only for a decision that only the user can make and that materially\nchanges the outcome, or for authorization outside the request's scope —\nincluding a commit, push, release, deployment, or payment the user has not\nrequested. When user input is required, park only the affected work, continue\nthe rest, and ask pending questions together once no such work remains.",
+            "description": "Handle tasks as requested.",
+            "id": "default",
+            "name": "Default",
+            "source": "built-in",
+            "userOverride": false
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "headless"
+          },
+          "result": {
+            "body": "The user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.",
+            "description": "No user mid-run; requests are approved. Complete, then report.",
+            "id": "headless",
+            "name": "Headless",
+            "source": "built-in",
+            "userOverride": false
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "Review"
+          },
+          "result": {
+            "body": "# Review\n\nRead twice.",
+            "description": "",
+            "id": "review",
+            "name": "Review",
+            "path": "<data>/workflows/review/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "error": "workflow \"nope\" not found",
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "nope"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "error": "unknown workflow \"  \"",
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "  "
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "error": "unknown workflow \"!!!\"",
+          "files": {
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "!!!"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "customAgents": [],
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+      },
+      "main": null,
+      "name": "pack-save-create-delete",
+      "steps": [
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "  steps\n",
+              "description": "two\nlines",
+              "id": "plan",
+              "name": " Plan  it "
+            }
+          },
+          "result": {
+            "body": "steps",
+            "description": "two lines",
+            "id": "plan",
+            "name": "Plan it",
+            "path": "<data>/workflows/plan/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "again",
+              "id": "plan",
+              "name": "Plan"
+            }
+          },
+          "result": {
+            "body": "again",
+            "description": "",
+            "id": "plan",
+            "name": "Plan",
+            "path": "<data>/workflows/plan/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "error": "workflow id must contain letters/numbers (dashes and dots allowed)",
+          "files": {
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "x",
+              "id": ""
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "error": "WORKFLOW.md body must not be empty",
+          "files": {
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "   ",
+              "id": "empty"
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "b",
+              "id": "noname"
+            }
+          },
+          "result": {
+            "body": "b",
+            "description": "",
+            "id": "noname",
+            "name": "noname",
+            "path": "<data>/workflows/noname/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "The user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.",
+              "description": "No user mid-run; requests are approved. Complete, then report.",
+              "id": "headless",
+              "name": "Headless"
+            }
+          },
+          "result": {
+            "body": "The user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.",
+            "description": "No user mid-run; requests are approved. Complete, then report.",
+            "id": "headless",
+            "name": "Headless",
+            "source": "built-in",
+            "userOverride": false
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "custom default",
+              "id": "default",
+              "name": "My default"
+            }
+          },
+          "result": {
+            "body": "custom default",
+            "description": "",
+            "id": "default",
+            "name": "My default",
+            "path": "<data>/workflows/default/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "createWorkflow",
+          "params": {
+            "payload": {
+              "body": "dup name",
+              "name": "Plan"
+            }
+          },
+          "result": {
+            "body": "dup name",
+            "description": "",
+            "id": "plan-2",
+            "name": "Plan",
+            "path": "<data>/workflows/plan-2/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "createWorkflow",
+          "params": {
+            "payload": {
+              "body": "dup name again",
+              "name": "Plan"
+            }
+          },
+          "result": {
+            "body": "dup name again",
+            "description": "",
+            "id": "plan-3",
+            "name": "Plan",
+            "path": "<data>/workflows/plan-3/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "error": "workflow \"plan\" already exists",
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "createWorkflow",
+          "params": {
+            "payload": {
+              "body": "b",
+              "id": "plan",
+              "name": "x"
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "createWorkflow",
+          "params": {
+            "payload": {
+              "body": "b",
+              "id": "fresh-one",
+              "name": "Fresh"
+            }
+          },
+          "result": {
+            "body": "b",
+            "description": "",
+            "id": "fresh-one",
+            "name": "Fresh",
+            "path": "<data>/workflows/fresh-one/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "error": "workflow name must not be empty",
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n"
+          },
+          "method": "createWorkflow",
+          "params": {
+            "payload": {
+              "body": "b",
+              "name": "   "
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/plan/WORKFLOW.md": "---\nid: plan\nname: Plan\n---\n\nagain\n",
+            "workflows/plan/WORKFLOW.md.bak": "---\nid: plan\nname: Plan it\ndescription: two lines\n---\n\nsteps\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "createWorkflow",
+          "params": {
+            "payload": {
+              "body": "b",
+              "name": "!!!"
+            }
+          },
+          "result": {
+            "body": "b",
+            "description": "",
+            "id": "workflow-e84c538e7f",
+            "name": "!!!",
+            "path": "<data>/workflows/workflow-e84c538e7f/WORKFLOW.md",
+            "source": "user",
+            "userOverride": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "deleteWorkflow",
+          "params": {
+            "workflowId": "plan"
+          },
+          "result": {
+            "deleted": true,
+            "id": "plan",
+            "revertedToBuiltIn": false
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "error": "workflow \"plan\" not found",
+          "files": {
+            "workflows/default/WORKFLOW.md": "---\nid: default\nname: My default\n---\n\ncustom default\n",
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "deleteWorkflow",
+          "params": {
+            "workflowId": "plan"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "files": {
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "deleteWorkflow",
+          "params": {
+            "workflowId": "default"
+          },
+          "result": {
+            "deleted": true,
+            "id": "default",
+            "revertedToBuiltIn": true
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "error": "workflow \"headless\" is built-in and cannot be deleted",
+          "files": {
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\n---\n# Review\n\nRead twice.\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "deleteWorkflow",
+          "params": {
+            "workflowId": "headless"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "files": {
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "deleteWorkflow",
+          "params": {
+            "workflowId": "review"
+          },
+          "result": {
+            "deleted": true,
+            "id": "review",
+            "revertedToBuiltIn": false
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "error": "unknown workflow \"\"",
+          "files": {
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "deleteWorkflow",
+          "params": {
+            "workflowId": ""
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "files": {
+            "workflows/fresh-one/WORKFLOW.md": "---\nid: fresh-one\nname: Fresh\n---\n\nb\n",
+            "workflows/noname/WORKFLOW.md": "---\nid: noname\nname: noname\n---\n\nb\n",
+            "workflows/plan-2/WORKFLOW.md": "---\nid: plan-2\nname: Plan\n---\n\ndup name\n",
+            "workflows/plan-3/WORKFLOW.md": "---\nid: plan-3\nname: Plan\n---\n\ndup name again\n",
+            "workflows/workflow-e84c538e7f/WORKFLOW.md": "---\nid: workflow-e84c538e7f\nname: !!!\n---\n\nb\n"
+          },
+          "method": "getWorkflowPack",
+          "params": {
+            "workflowId": "default"
+          },
+          "result": {
+            "body": "An explicit request is the approval within its scope: carry it out, including\nroutine supporting steps and delegation, without asking again. Resolve\ndiscoverable facts by inspection; decide minor details yourself and say which\nyou chose. Read-only requests do not authorize changes.\n\nAsk only for a decision that only the user can make and that materially\nchanges the outcome, or for authorization outside the request's scope —\nincluding a commit, push, release, deployment, or payment the user has not\nrequested. When user input is required, park only the affected work, continue\nthe rest, and ask pending questions together once no such work remains.",
+            "description": "Handle tasks as requested.",
+            "id": "default",
+            "name": "Default",
+            "source": "built-in",
+            "userOverride": false
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {},
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "orchestration-mode",
+      "steps": [
+        {
+          "config": {},
+          "files": {},
+          "method": "getOrchestrationMode",
+          "params": {},
+          "result": "balanced",
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {},
+          "files": {},
+          "method": "getConfiguredOrchestrationMode",
+          "params": {},
+          "result": "balanced",
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "orchestrationMode": "parallel"
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "orchestration-mode-set",
+      "steps": [
+        {
+          "config": {
+            "orchestrationMode": "parallel"
+          },
+          "files": {},
+          "method": "getOrchestrationMode",
+          "params": {},
+          "result": "balanced",
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "orchestrationMode": "parallel"
+          },
+          "files": {},
+          "method": "getConfiguredOrchestrationMode",
+          "params": {},
+          "result": "balanced",
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "orchestrationMode": "bogus"
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "orchestration-mode-bogus",
+      "steps": [
+        {
+          "config": {
+            "orchestrationMode": "bogus"
+          },
+          "files": {},
+          "method": "getOrchestrationMode",
+          "params": {},
+          "result": "balanced",
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "effort": "high",
+            "id": "workflow-lead",
+            "model": "gpt-5",
+            "name": "Lead",
+            "provider": "openai"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "apiKey": "sk-DUMMY-1"
+          }
+        }
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "onboarding-skip",
+      "steps": [
+        {
+          "config": {
+            "default": "workflow-lead",
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "skipped": true,
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "name": "Lead",
+                "provider": "openai"
+              }
+            ],
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            }
+          },
+          "files": {},
+          "method": "skipOnboarding",
+          "params": {},
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "default": "workflow-lead",
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "skipped": true,
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "name": "Lead",
+                "provider": "openai"
+              }
+            ],
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            }
+          },
+          "files": {},
+          "method": "skipOnboarding",
+          "params": {},
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "onboarding": {
+          "completed": true,
+          "version": 0
+        }
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "onboarding-skip-legacy",
+      "steps": [
+        {
+          "config": {
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "skipped": true,
+              "version": 1
+            }
+          },
+          "files": {},
+          "method": "skipOnboarding",
+          "params": {},
+          "result": {
+            "completed": true,
+            "default": null,
+            "starterGuide": null,
+            "version": 1,
+            "workflowRoutes": {}
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "agents": {
+          "worker": {
+            "model": "old",
+            "provider": "anthropic"
+          }
+        }
+      },
+      "customAgents": [
+        "scribe"
+      ],
+      "files": {},
+      "main": {
+        "model": "main-model",
+        "provider": "openai"
+      },
+      "name": "onboarding-complete",
+      "steps": [
+        {
+          "config": {
+            "agents": {
+              "worker": {
+                "model": "old",
+                "provider": "anthropic"
+              }
+            },
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": []
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {}
+          },
+          "result": {
+            "completed": true,
+            "default": null,
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "agent": {
+                "model": "old",
+                "provider": "anthropic"
+              }
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "worker": {
+                "model": "old",
+                "provider": "anthropic"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "name": "WORKFLOW LEAD",
+                "provider": "openai",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "defaultRoute": {
+                "effort": "high",
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "agent": {
+                "model": "old",
+                "provider": "anthropic"
+              },
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "worker": {
+                "model": "old",
+                "provider": "anthropic"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "name": "WORKFLOW LEAD",
+                "provider": "openai",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "defaultRoute": {
+                "provider": "openai"
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "agent": {
+                "model": "old",
+                "provider": "anthropic"
+              },
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "worker": {
+                "model": "old",
+                "provider": "anthropic"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "name": "WORKFLOW LEAD",
+                "provider": "openai",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "defaultRoute": null
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "agent": {
+                "model": "old",
+                "provider": "anthropic"
+              },
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "m-1",
+                "provider": "openai"
+              },
+              "worker": {
+                "model": "g-2",
+                "provider": "gemini"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "name": "WORKFLOW LEAD",
+                "provider": "openai",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "workflowRoutes": {
+                "agent": {
+                  "model": "g-2",
+                  "provider": "gemini"
+                },
+                "memory": {
+                  "model": "m-1",
+                  "provider": "openai"
+                }
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "agent": {
+                "model": "g-2",
+                "provider": "gemini"
+              },
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "provider": "openai"
+              },
+              "memory": {
+                "model": "m-1",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "m-1",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "effort": "high",
+                "id": "workflow-lead",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "name": "WORKFLOW LEAD",
+                "provider": "openai",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "workflowRoutes": {
+                "agent": null
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "effort": "high",
+                "model": "gpt-5",
+                "modelParameters": {},
+                "provider": "openai"
+              },
+              "memory": {
+                "model": "m-1",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "m-1",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "id": "workflow-lead",
+                "model": "opus",
+                "name": "WORKFLOW LEAD",
+                "provider": "anthropic",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "workflowRoutes": {
+                "lead": {
+                  "model": "opus",
+                  "provider": "anthropic"
+                }
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "model": "opus",
+                "provider": "anthropic"
+              },
+              "memory": {
+                "model": "m-1",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": null,
+            "fast": false,
+            "model": "opus",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "anthropic"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "x",
+                "provider": "openai"
+              },
+              "scribe": {
+                "model": "y",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "id": "workflow-lead",
+                "model": "opus",
+                "name": "WORKFLOW LEAD",
+                "provider": "anthropic",
+                "tools": "full",
+                "type": "agent"
+              }
+            ]
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "agentRoutes": {
+                "ghost": {
+                  "model": "z",
+                  "provider": "openai"
+                },
+                "maintainer": {
+                  "model": "x",
+                  "provider": "openai"
+                },
+                "scribe": {
+                  "model": "y",
+                  "provider": "openai"
+                }
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "model": "opus",
+                "provider": "anthropic"
+              },
+              "memory": {
+                "model": "x",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": null,
+            "fast": false,
+            "model": "opus",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "anthropic"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "x",
+                "provider": "openai"
+              },
+              "scribe": {
+                "model": "y",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "id": "workflow-lead",
+                "model": "opus",
+                "name": "WORKFLOW LEAD",
+                "provider": "anthropic",
+                "tools": "full",
+                "type": "agent"
+              }
+            ],
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "webSearchRoute": {
+                "provider": "",
+                "toolType": "web_search"
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "model": "opus",
+                "provider": "anthropic"
+              },
+              "memory": {
+                "model": "x",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": null,
+            "fast": false,
+            "model": "opus",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "anthropic"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "x",
+                "provider": "openai"
+              },
+              "scribe": {
+                "model": "y",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "id": "workflow-lead",
+                "model": "opus",
+                "name": "WORKFLOW LEAD",
+                "provider": "anthropic",
+                "tools": "full",
+                "type": "agent"
+              }
+            ],
+            "webSearchRoute": {
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "webSearchRoute": {
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "model": "opus",
+                "provider": "anthropic"
+              },
+              "memory": {
+                "model": "x",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": null,
+            "fast": false,
+            "model": "opus",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "anthropic"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "x",
+                "provider": "openai"
+              },
+              "scribe": {
+                "model": "y",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "id": "workflow-lead",
+                "model": "opus",
+                "name": "WORKFLOW LEAD",
+                "provider": "anthropic",
+                "tools": "full",
+                "type": "agent"
+              }
+            ],
+            "webSearchRoute": {
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {
+              "webSearchRoute": {
+                "provider": "openai"
+              }
+            }
+          },
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "model": "opus",
+                "provider": "anthropic"
+              },
+              "memory": {
+                "model": "x",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": null,
+            "fast": false,
+            "model": "opus",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "anthropic"
+          }
+        },
+        {
+          "config": {
+            "agents": {
+              "maintainer": {
+                "model": "x",
+                "provider": "openai"
+              },
+              "scribe": {
+                "model": "y",
+                "provider": "openai"
+              }
+            },
+            "default": "workflow-lead",
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": false,
+                "visited": [],
+                "welcomed": false
+              },
+              "version": 1
+            },
+            "presets": [
+              {
+                "id": "workflow-lead",
+                "model": "opus",
+                "name": "WORKFLOW LEAD",
+                "provider": "anthropic",
+                "tools": "full",
+                "type": "agent"
+              }
+            ],
+            "webSearchRoute": {
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {},
+          "result": {
+            "completed": true,
+            "default": "workflow-lead",
+            "starterGuide": {
+              "closed": false,
+              "visited": [],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {
+              "lead": {
+                "model": "opus",
+                "provider": "anthropic"
+              },
+              "memory": {
+                "model": "x",
+                "provider": "openai"
+              }
+            }
+          },
+          "route": {
+            "autoEffort": true,
+            "effort": null,
+            "fast": false,
+            "model": "opus",
+            "modelParameters": {},
+            "preset": null,
+            "provider": "anthropic"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "onboarding": {
+          "completed": true,
+          "starterGuide": {
+            "closed": true,
+            "visited": [
+              "remote",
+              "remote",
+              "bogus",
+              "provider"
+            ],
+            "welcomed": 1
+          }
+        }
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "onboarding-complete-guide",
+      "steps": [
+        {
+          "config": {
+            "agents": {},
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "starterGuide": {
+                "closed": true,
+                "visited": [
+                  "remote",
+                  "remote",
+                  "bogus",
+                  "provider"
+                ],
+                "welcomed": 1
+              },
+              "version": 1
+            },
+            "presets": []
+          },
+          "files": {},
+          "method": "completeOnboarding",
+          "params": {
+            "payload": {}
+          },
+          "result": {
+            "completed": true,
+            "default": null,
+            "starterGuide": {
+              "closed": true,
+              "visited": [
+                "provider",
+                "remote"
+              ],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {}
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "agents": {},
+            "maintenance": {},
+            "onboarding": {
+              "completed": true,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "skipped": true,
+              "starterGuide": {
+                "closed": true,
+                "visited": [
+                  "remote",
+                  "remote",
+                  "bogus",
+                  "provider"
+                ],
+                "welcomed": 1
+              },
+              "version": 1
+            },
+            "presets": []
+          },
+          "files": {},
+          "method": "skipOnboarding",
+          "params": {},
+          "result": {
+            "completed": true,
+            "default": null,
+            "starterGuide": {
+              "closed": true,
+              "visited": [
+                "provider",
+                "remote"
+              ],
+              "welcomed": false
+            },
+            "version": 1,
+            "workflowRoutes": {}
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    },
+    {
+      "config": {
+        "providers": {
+          "openai": {
+            "apiKey": "sk-DUMMY-1"
+          }
+        }
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "web-search-route",
+      "steps": [
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "fast": false,
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "result": {
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {
+              "provider": "",
+              "toolType": "web_search"
+            }
+          },
+          "result": {
+            "model": "default",
+            "provider": "default",
+            "toolType": "web_search"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "error": "duplicate route provider \"openai\"",
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {
+              "fallbacks": [
+                {
+                  "model": "gpt-5-mini",
+                  "provider": "openai"
+                }
+              ],
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "error": "provider \"nope\" does not support Mixdog native web search",
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {
+              "model": "m",
+              "provider": "nope"
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "error": "provider \"default\" does not support Mixdog native web search",
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {
+              "model": "x"
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {}
+          },
+          "result": {
+            "model": "default",
+            "provider": "default",
+            "toolType": "web_search"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "providers": {
+              "openai": {
+                "apiKey": "sk-DUMMY-1"
+              }
+            },
+            "webSearchRoute": {
+              "model": "default",
+              "provider": "default",
+              "toolType": "web_search"
+            }
+          },
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": null
+          },
+          "result": {
+            "model": "default",
+            "provider": "default",
+            "toolType": "web_search"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": {
+        "capable": true
+      }
+    },
+    {
+      "config": {},
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "web-search-route-incapable",
+      "steps": [
+        {
+          "config": {},
+          "error": "model \"gpt-5\" is not marked as web-search capable",
+          "files": {},
+          "method": "setWebSearchRoute",
+          "params": {
+            "next": {
+              "model": "gpt-5",
+              "provider": "openai"
+            }
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": {
+        "capable": false
+      }
+    },
+    {
+      "config": {
+        "modelSettings": {
+          "openai/gpt-5": {
+            "effort": "high",
+            "hidden": true
+          },
+          "openai/old": {
+            "favorite": true
+          }
+        }
+      },
+      "customAgents": [],
+      "files": {},
+      "main": null,
+      "name": "model-preferences",
+      "steps": [
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              {
+                "favorite": true,
+                "hidden": false,
+                "model": "gpt-5"
+              },
+              {
+                "favorite": false,
+                "model": "old"
+              },
+              {
+                "hidden": true,
+                "model": " new "
+              }
+            ],
+            "providerId": "openai"
+          },
+          "result": {
+            "changed": 3,
+            "customCatalogChanged": false,
+            "provider": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [],
+            "providerId": " anthropic "
+          },
+          "result": {
+            "changed": 0,
+            "customCatalogChanged": false,
+            "provider": "anthropic"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "unknown provider \"nope\"",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [],
+            "providerId": "nope"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "unknown provider \"\"",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [],
+            "providerId": ""
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model preference changes are invalid",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": "x",
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model preference change is invalid",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              null
+            ],
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model id is required",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              {
+                "model": ""
+              }
+            ],
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model preference change has unsupported field",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              {
+                "extra": 1,
+                "model": "m"
+              }
+            ],
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model preference hidden is invalid",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              {
+                "hidden": "yes",
+                "model": "m"
+              }
+            ],
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model preference favorite is invalid",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              {
+                "favorite": 1,
+                "model": "m"
+              }
+            ],
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        },
+        {
+          "config": {
+            "modelSettings": {
+              "openai/gpt-5": {
+                "effort": "high",
+                "favorite": true,
+                "hidden": false
+              },
+              "openai/new": {
+                "hidden": true
+              }
+            }
+          },
+          "error": "model id is required",
+          "files": {},
+          "method": "setModelPreferences",
+          "params": {
+            "changes": [
+              {
+                "model": 7
+              }
+            ],
+            "providerId": "openai"
+          },
+          "route": {
+            "model": "main-model",
+            "provider": "openai"
+          }
+        }
+      ],
+      "webSearch": null
+    }
+  ]
+}

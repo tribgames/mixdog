@@ -141,6 +141,38 @@
         "tabId"
       ],
       "type": "object"
+    },
+    "UiNewTabCreatedParams": {
+      "description": "Client notification `ui/newTab/created` (UI → core): the pane created the tab that request `openRequestId` (a `ui/openRequested` visualize open with `openUrl`) asked for, and this is the page's agent-facing id (`p…`), Node's `watchNewTab(...).page`.\n\nSemantics, from `main/browser/new-tab-waiters.ts`: the core starts waiting when it publishes the open and answers the agent's `open` with this page id. Only a report whose `sessionId` and `openRequestId` both match the pending open settles it, once; a tab nobody named (the user's \"+\"), another request's tab or a different session's says nothing about it. There is no negative report: a pane that drops or replaces the request sends nothing, so the wait ends with no page id after 3000 ms, or when the open is cancelled, a new open reuses the request id, or the session's browser is released. With no page id the agent is told to find the page with the browser tool's `list_tabs`.",
+      "properties": {
+        "openRequestId": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "openRequestId",
+        "pageId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "UiTerminalRunClaimedParams": {
+      "description": "Client notification `ui/terminalRun/claimed` (UI → core): a pane now shows the terminal of a `ui/openRequested` terminal open that carried `requestId`.\n\nNo response. The core waits for the claim 2000 ms (the renderer's 1500 ms shown-wait plus 500 ms for the claim's trip back) and then settles the run as `shown: false`, reported to the agent as running in the background; with no UI attached it settles `shown: false` at once. A claim settles its run once: a claim for an unknown or already-settled id has no effect.",
+      "properties": {
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId"
+      ],
+      "type": "object"
     }
   },
   "description": "Client notifications (X11): they take no in-flight slot.",
@@ -316,6 +348,44 @@
         },
         "params": {
           "$ref": "#/definitions/ModelProxyEventParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The pane created the tab a `ui/openRequested` visualize open asked for.",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/newTab/created"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiNewTabCreatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A pane shows the terminal of a `ui/openRequested` terminal open.",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/terminalRun/claimed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiTerminalRunClaimedParams"
         }
       },
       "required": [

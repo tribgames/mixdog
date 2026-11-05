@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::catalog::engine_entry;
 use super::extract::extract_archive;
+use super::process::Processes;
 use crate::local_provider::assets::{Fetcher, sha256_file};
 use crate::local_provider::catalog::file_has_data;
 
@@ -91,7 +92,7 @@ fn valid_sha256(value: &str) -> bool {
 /// The recorded digest decides whether a binary is intact. Only an install from before the
 /// record existed has none; there alone the content probe keeps a crash-torn binary from
 /// becoming the digest it is trusted by. A binary that cannot be read or hashed is not reused.
-pub async fn engine_binary_intact(dir: &Path, full: &Path) -> bool {
+pub async fn engine_binary_intact(processes: &Processes, dir: &Path, full: &Path) -> bool {
     let Some(key) = stamp(full) else { return false };
     if verified().lock().unwrap().get(full) == Some(&key) {
         return true;
@@ -105,7 +106,7 @@ pub async fn engine_binary_intact(dir: &Path, full: &Path) -> bool {
     if recorded.is_none() && !file_has_data(full) {
         return false;
     }
-    let Ok(actual) = sha256_file(full, &CancellationToken::new()).await else { return false };
+    let Ok(actual) = sha256_file(processes.durability(), full, &CancellationToken::new()).await else { return false };
     if recorded.is_none() {
         // Trust on first use: record the digest beside the binary.
         let tmp = digest_file.with_extension(format!("tmp-{}", std::process::id()));
@@ -123,7 +124,7 @@ pub async fn engine_binary_intact(dir: &Path, full: &Path) -> bool {
 }
 
 /// An already-installed managed binary for `id`: `(path, version)`. No network.
-pub async fn managed_engine_binary(id: &str, manifest: &Value, plugin_data: &Path) -> Option<(PathBuf, String)> {
+pub async fn managed_engine_binary(processes: &Processes, id: &str, manifest: &Value, plugin_data: &Path) -> Option<(PathBuf, String)> {
     let found = manifest_asset(manifest, id)?;
     if plugin_data.as_os_str().is_empty() {
         return None;
@@ -131,15 +132,15 @@ pub async fn managed_engine_binary(id: &str, manifest: &Value, plugin_data: &Pat
     let bin = found.asset["binPath"].as_str().filter(|b| !b.is_empty())?;
     let dir = managed_engine_dir(plugin_data, id, &found.version);
     let full = dir.join(bin);
-    engine_binary_intact(&dir, &full).await.then_some((full, found.version))
+    engine_binary_intact(processes, &dir, &full).await.then_some((full, found.version))
 }
 
-pub async fn verify_download_digest(path: &Path, expected: &str) -> Result<String, String> {
+pub async fn verify_download_digest(processes: &Processes, path: &Path, expected: &str) -> Result<String, String> {
     let wanted = expected.to_lowercase();
     if !valid_sha256(&wanted) {
         return Err(format!("{LABEL} manifest sha256 is not a 64-hex digest"));
     }
-    let actual = sha256_file(path, &CancellationToken::new()).await.map_err(|e| e.to_string())?.to_lowercase();
+    let actual = sha256_file(processes.durability(), path, &CancellationToken::new()).await.map_err(|e| e.to_string())?.to_lowercase();
     if actual != wanted {
         return Err(format!("{LABEL} sha256 mismatch: expected {wanted}, got {actual}"));
     }
@@ -167,7 +168,7 @@ pub struct Plan {
 }
 
 /// Decides what an install call may do, without touching the network.
-pub async fn plan_install(ids: &[String], manifest: &Value, plugin_data: &Path, policy: &str, approve_downloads: bool) -> Plan {
+pub async fn plan_install(processes: &Processes, ids: &[String], manifest: &Value, plugin_data: &Path, policy: &str, approve_downloads: bool) -> Plan {
     let mut plan = Plan::default();
     let mut pending = Vec::new();
     for id in ids {
@@ -187,7 +188,7 @@ pub async fn plan_install(ids: &[String], manifest: &Value, plugin_data: &Path, 
             plan.errors.push(json!({"id": id, "error": format!("no {} asset in the engines manifest", platform_key_candidates()[0]), "installHint": catalog.install_hint}));
             continue;
         };
-        if let Some((path, version)) = managed_engine_binary(id, manifest, plugin_data).await {
+        if let Some((path, version)) = managed_engine_binary(processes, id, manifest, plugin_data).await {
             plan.present.push(json!({"id": id, "version": version, "path": path.to_string_lossy()}));
             continue;
         }
@@ -286,13 +287,13 @@ async fn download_asset(target: &Target, archive_file: &Path, fetcher: &dyn Fetc
 }
 
 /// Downloads, verifies and extracts one engine into its versioned managed dir.
-pub async fn install_engine(target: &Target, plugin_data: &Path, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Result<Value, String> {
+pub async fn install_engine(processes: &Processes, target: &Target, plugin_data: &Path, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Result<Value, String> {
     let engine_root = managed_tools_dir(plugin_data).join(&target.id);
     let final_dir = managed_engine_dir(plugin_data, &target.id, &target.version);
     let bin_full = final_dir.join(&target.bin_path);
     // A binary a crash left NUL-filled, or that no longer matches its recorded digest, is
     // not present: it is installed again.
-    if engine_binary_intact(&final_dir, &bin_full).await {
+    if engine_binary_intact(processes, &final_dir, &bin_full).await {
         return Ok(json!({"id": target.id, "version": target.version, "path": bin_full.to_string_lossy(), "bytes": 0, "status": "present"}));
     }
     fs::create_dir_all(&engine_root).map_err(|e| e.to_string())?;
@@ -302,7 +303,7 @@ pub async fn install_engine(target: &Target, plugin_data: &Path, fetcher: &dyn F
     let result = async {
         let archive_file = tmp.join(format!("asset-{}", target.id));
         download_asset(target, &archive_file, fetcher, cancel, &on_progress, stall.unwrap_or(DEFAULT_STALL_TIMEOUT)).await?;
-        verify_download_digest(&archive_file, &target.sha256).await?;
+        verify_download_digest(processes, &archive_file, &target.sha256).await?;
         let bytes = fs::metadata(&archive_file).map_err(|e| e.to_string())?.len();
         let stage = tmp.join("stage");
         extract_archive(&target.archive, &archive_file, &stage, &target.bin_path).map_err(|e| e.to_string())?;
@@ -315,15 +316,15 @@ pub async fn install_engine(target: &Target, plugin_data: &Path, fetcher: &dyn F
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&staged_bin, fs::Permissions::from_mode(0o755));
         }
-        let digest = sha256_file(&staged_bin, cancel).await.map_err(|e| e.to_string())?;
+        let digest = sha256_file(processes.durability(), &staged_bin, cancel).await.map_err(|e| e.to_string())?;
         fs::write(stage.join(ENGINE_DIGEST_FILE), digest).map_err(|e| e.to_string())?;
-        if final_dir.exists() && !engine_binary_intact(&final_dir, &bin_full).await {
+        if final_dir.exists() && !engine_binary_intact(processes, &final_dir, &bin_full).await {
             verified().lock().unwrap().remove(&bin_full);
             let _ = fs::remove_dir_all(&final_dir);
         }
         if let Err(error) = fs::rename(&stage, &final_dir) {
             // A concurrent install won the race only if the surviving copy verifies.
-            if !engine_binary_intact(&final_dir, &bin_full).await {
+            if !engine_binary_intact(processes, &final_dir, &bin_full).await {
                 return Err(error.to_string());
             }
         }
@@ -336,9 +337,9 @@ pub async fn install_engine(target: &Target, plugin_data: &Path, fetcher: &dyn F
 
 /// Plans and executes installs for `ids`. Never fails for a single engine: each failure lands
 /// in `errors` so the report can show the rest.
-pub async fn install_engines(ids: &[String], manifest: Option<&Value>, plugin_data: &Path, policy: &str, approve_downloads: bool, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Value {
+pub async fn install_engines(processes: &Processes, ids: &[String], manifest: Option<&Value>, plugin_data: &Path, policy: &str, approve_downloads: bool, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Value {
     let loaded = manifest.cloned().unwrap_or_else(read_engines_manifest);
-    let plan = plan_install(ids, &loaded, plugin_data, policy, approve_downloads).await;
+    let plan = plan_install(processes, ids, &loaded, plugin_data, policy, approve_downloads).await;
     let mut installed = plan.present.clone();
     let mut errors = plan.errors.clone();
     if plugin_data.as_os_str().is_empty() && !plan.targets.is_empty() {
@@ -346,7 +347,7 @@ pub async fn install_engines(ids: &[String], manifest: Option<&Value>, plugin_da
         return json!({"installed": installed, "errors": errors, "needsApproval": null});
     }
     for target in &plan.targets {
-        match install_engine(target, plugin_data, fetcher, cancel, on_progress.clone(), stall).await {
+        match install_engine(processes, target, plugin_data, fetcher, cancel, on_progress.clone(), stall).await {
             Ok(done) => installed.push(done),
             Err(error) => errors.push(json!({"id": target.id, "error": error})),
         }
@@ -401,15 +402,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = manifest(b"binary");
         let ids = vec!["shfmt".to_owned(), "rustfmt".to_owned(), "prettier".to_owned(), "nope".to_owned()];
-        let ask = plan_install(&ids, &m, dir.path(), "ask", false).await;
+        let p = Processes::for_tests();
+        let ask = plan_install(&p, &ids, &m, dir.path(), "ask", false).await;
         assert!(ask.targets.is_empty());
         assert_eq!(ask.needs_approval.as_ref().unwrap()["engines"][0]["id"], "shfmt");
         assert_eq!(ask.errors.len(), 3, "toolchain, project-local and unknown engines are refused");
-        let never = plan_install(&ids, &m, dir.path(), "never", false).await;
+        let never = plan_install(&p, &ids, &m, dir.path(), "never", false).await;
         assert!(never.needs_approval.is_none() && never.targets.is_empty());
         assert!(never.errors.iter().any(|e| e["error"].as_str().unwrap().contains("disabled by policy")));
-        assert_eq!(plan_install(&ids, &m, dir.path(), "ask", true).await.targets.len(), 1);
-        assert_eq!(plan_install(&ids, &m, dir.path(), "auto", false).await.targets.len(), 1);
+        assert_eq!(plan_install(&p, &ids, &m, dir.path(), "ask", true).await.targets.len(), 1);
+        assert_eq!(plan_install(&p, &ids, &m, dir.path(), "auto", false).await.targets.len(), 1);
     }
 
     #[tokio::test]
@@ -420,20 +422,21 @@ mod tests {
         let fake = Fake(content.to_vec(), Default::default());
         let seen = Arc::new(Mutex::new(Vec::new()));
         let cb: OnProgress = { let seen = seen.clone(); Arc::new(move |id, got, total| seen.lock().unwrap().push((id.to_owned(), got, total))) };
-        let out = install_engines(&["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), Some(cb), None).await;
+        let p = Processes::for_tests();
+        let out = install_engines(&p, &["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), Some(cb), None).await;
         assert_eq!(out["installed"][0]["status"], "installed");
         let bin = managed_engine_dir(dir.path(), "shfmt", "3.0.0").join("shfmt-bin");
         assert_eq!(fs::read(&bin).unwrap(), content);
         assert_eq!(fs::read_to_string(bin.parent().unwrap().join(ENGINE_DIGEST_FILE)).unwrap(), hex(content));
         assert_eq!(seen.lock().unwrap().last().unwrap().1, content.len() as i64);
-        assert!(managed_engine_binary("shfmt", &m, dir.path()).await.is_some());
-        let again = install_engines(&["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), None, None).await;
+        assert!(managed_engine_binary(&p, "shfmt", &m, dir.path()).await.is_some());
+        let again = install_engines(&p, &["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), None, None).await;
         assert_eq!(again["installed"][0]["version"], "3.0.0");
         assert_eq!(fake.1.load(std::sync::atomic::Ordering::SeqCst), 1, "a present engine is not fetched again");
         // A tampered binary no longer verifies.
         fs::write(&bin, b"tampered!!!!").unwrap();
         verified().lock().unwrap().remove(&bin);
-        assert!(managed_engine_binary("shfmt", &m, dir.path()).await.is_none());
+        assert!(managed_engine_binary(&p, "shfmt", &m, dir.path()).await.is_none());
     }
 
     #[tokio::test]
@@ -442,12 +445,13 @@ mod tests {
         let mut m = manifest(b"expected");
         m["engines"]["shfmt"]["assets"]["any"]["sha256"] = json!(hex(b"expected"));
         let fake = Fake(b"different".to_vec(), Default::default());
-        let out = install_engines(&["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), None, None).await;
+        let p = Processes::for_tests();
+        let out = install_engines(&p, &["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), None, None).await;
         assert!(out["errors"][0]["error"].as_str().unwrap().contains("sha256 mismatch"));
         assert!(out["installed"].as_array().unwrap().is_empty());
         let root = managed_tools_dir(dir.path()).join("shfmt");
         assert!(fs::read_dir(&root).unwrap().next().is_none(), "staging was removed");
-        let none = install_engines(&["shfmt".into()], Some(&m), Path::new(""), "auto", false, &fake, &CancellationToken::new(), None, None).await;
+        let none = install_engines(&p, &["shfmt".into()], Some(&m), Path::new(""), "auto", false, &fake, &CancellationToken::new(), None, None).await;
         assert_eq!(none["errors"][0]["id"], "*");
     }
 }

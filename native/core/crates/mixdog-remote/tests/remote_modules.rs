@@ -57,6 +57,58 @@ async fn identity_files_are_owner_only_and_rotation_changes_them() {
 }
 
 #[tokio::test]
+async fn a_named_device_file_is_kept_apart_from_the_desktop_registration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let (desktop, hook, hook_again, owner_only) = on_lane(move |lane| {
+        let desktop = DeviceFiles::new(&path).load_or_create(lane).unwrap();
+        let hook_files = DeviceFiles::at(&path, "relay-hook-device.json");
+        let hook = hook_files.load_or_create(lane).unwrap();
+        let hook_again = DeviceFiles::at(&path, "relay-hook-device.json").load_or_create(lane).unwrap();
+        let owner_only = is_owner_only(&path.join("relay-hook-device.json")).unwrap();
+        // The desktop file is untouched by the other registration.
+        assert_eq!(DeviceFiles::new(&path).load_or_create(lane).unwrap(), desktop);
+        (desktop, hook, hook_again, owner_only)
+    });
+    assert_ne!(desktop, hook);
+    assert_eq!(hook, hook_again);
+    assert!(owner_only);
+}
+
+#[test]
+fn leg_configs_keep_the_desktop_behavior_and_give_the_hook_leg_its_own() {
+    use mixdog_remote::identity::DeviceIdentity;
+    use mixdog_remote::leg::{Framing, LegConfig, RelayUrlError, leg_socket_request, validated_relay_url};
+    let id = DeviceIdentity { device_id: "abcdef12".into(), device_secret: "0123456789abcdef".into() };
+    let desktop = LegConfig::desktop("wss://relay.example".into(), id.clone(), 1024);
+    assert_eq!(
+        (desktop.path.as_str(), desktop.heartbeat, desktop.stable_reset, desktop.framing),
+        ("/desktop", Duration::from_secs(10), Some(Duration::from_secs(30)), Framing::Desktop)
+    );
+    let hook = LegConfig::hook("wss://relay.example".into(), id.clone(), 1024);
+    assert_eq!(
+        (hook.path.as_str(), hook.heartbeat, hook.stable_reset, hook.framing),
+        ("/hookleg", Duration::from_secs(25), None, Framing::Raw)
+    );
+    // Same credential, other path; query and fragment are dropped.
+    let (a, auth_a) = leg_socket_request("wss://relay.example/x?y#z", "/desktop", &id).unwrap();
+    let (b, auth_b) = leg_socket_request("wss://relay.example/x?y#z", "/hookleg", &id).unwrap();
+    assert_eq!((a.as_str(), b.as_str()), ("wss://relay.example/desktop", "wss://relay.example/hookleg"));
+    assert_eq!(auth_a, auth_b);
+    // Desktop texts keep their periods; the hook texts (relay-tunnel.mjs) have none.
+    let cases = [
+        ("nonsense", "MIXDOG_RELAY_URL is invalid."),
+        ("ws://example.com", "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."),
+        ("wss://u:p@example.com", "MIXDOG_RELAY_URL must not contain credentials."),
+    ];
+    for (raw, text) in cases {
+        let error: RelayUrlError = validated_relay_url(raw).unwrap_err();
+        assert_eq!(error.to_string(), text);
+        assert_eq!(error.hook_text(), text.trim_end_matches('.'));
+    }
+}
+
+#[tokio::test]
 async fn roster_owes_access_keys_and_survives_reload() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_path_buf();

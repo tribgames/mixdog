@@ -34,8 +34,18 @@ pub fn connector_accounts_instructions(accounts: &[ConnectorAccount]) -> Option<
 
 /// The account addresses `connector_accounts_instructions` named.
 pub fn accounts_of_instructions(instructions: &str) -> Vec<String> {
+    // /^Accounts: (.+?)\. `account`/: `.` stops at a JS line terminator, so the list is a
+    // non-empty run of one line and the marker must start inside that line.
+    const MARKER: &str = ". `account`";
     let Some(rest) = instructions.strip_prefix("Accounts: ") else { return Vec::new() };
-    let Some(end) = rest.find(". `account`") else { return Vec::new() };
+    let line_end = rest.find(['\n', '\r', '\u{2028}', '\u{2029}']).unwrap_or(rest.len());
+    let first = rest.chars().next().map_or(0, char::len_utf8);
+    let Some(end) = rest[first.min(line_end)..].find(MARKER).map(|i| i + first.min(line_end)) else {
+        return Vec::new();
+    };
+    if first == 0 || end == 0 || end > line_end {
+        return Vec::new();
+    }
     rest[..end]
         .split(", ")
         .map(|part| match part.find(" (") {

@@ -8,10 +8,6 @@ publish.workspace = true
 workspace = true
 
 [features]
-default = ["policy"]
-# The implementations of mixdog-tools' traits: `ConnectorPermissions`, `CardEnricher`,
-# `PreToolHook` and `SkillPort`; everything else in the crate stands without it.
-policy = ["dep:mixdog-tools"]
 # Inline lane executors and the stdio mock server binary used by the integration suite.
 test-support = ["mixdog-rt/test-support"]
 
@@ -27,7 +23,7 @@ mixdog-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-workspace = { workspace = true }
-mixdog-tools = { workspace = true, optional = true }
+mixdog-tools = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
@@ -60,7 +56,10 @@ libc = { workspace = true }
 keyring = { workspace = true, features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] }
+# Pure Rust (zbus): no system libdbus, so the core starts on a minimal server.
+keyring = { workspace = true, features = ["async-secret-service", "crypto-rust", "async-io"] }
+secret-service = { workspace = true }
+zbus = { workspace = true }
 
 [build-dependencies]
 serde_json = { workspace = true }

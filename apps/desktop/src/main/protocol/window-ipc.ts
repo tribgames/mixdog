@@ -4,6 +4,7 @@
 import { isRendererProtocolMethod, SECTIONS_IPC, type DesktopSectionsPush } from '../../shared/contract-sections';
 import type { IpcHandle } from '../ipc';
 import type { ProtocolConnection, ProtocolWindow } from './connection';
+import { coreErrorForWindow } from './core-error';
 
 interface WindowIpcOptions {
   connection: Pick<ProtocolConnection, 'snapshot' | 'attach' | 'call' | 'viewPorts' | 'watchFiles' | 'unwatchFiles'>;
@@ -34,7 +35,9 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
         ? connection.watchFiles(window, { ...(params as object), watchId: owned })
         : connection.unwatchFiles(owned);
     }
-    return connection.call(method, params);
+    return connection.call(method, params).catch((error: unknown) => {
+      throw coreErrorForWindow(error);
+    });
   });
 
   const window: ProtocolWindow = {

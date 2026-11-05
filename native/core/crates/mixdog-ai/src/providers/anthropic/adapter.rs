@@ -232,7 +232,7 @@ impl ProviderAdapter for AnthropicAdapter {
         loop {
             let response = self.post(&wire, &secret).await?;
             if (200..300).contains(&response.status) {
-                return Ok(Box::new(AnthropicStream::new(response.body, self.codec.decoder())));
+                return Ok(Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request))));
             }
             let mut err = self.failure(response).await;
             if !refreshed && self.credentials.refreshable(err.status) {

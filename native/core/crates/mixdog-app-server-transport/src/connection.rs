@@ -18,13 +18,16 @@ pub enum ConnectionOrigin {
     SshTunnel,
     /// One paired phone's relay channel.
     Relay { peer_id: String },
+    /// A client in this process (headless `mixdogd exec`). It holds the local user's authority,
+    /// so the method table scopes it as `Origin::Local`: the protocol has no separate origin.
+    InProcess,
 }
 
 impl ConnectionOrigin {
     /// The origin the method table scopes calls by.
     pub fn origin(&self) -> Origin {
         match self {
-            Self::Loopback => Origin::Local,
+            Self::Loopback | Self::InProcess => Origin::Local,
             Self::SshTunnel => Origin::Ssh,
             Self::Relay { .. } => Origin::Relay,
         }

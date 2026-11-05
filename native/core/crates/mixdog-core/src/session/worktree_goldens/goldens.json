@@ -155,5 +155,34 @@
         "details": null
       }
     }
+  },
+  "transition_texts": {
+    "session": {
+      "error": {
+        "code": "WORKTREE_BUSY_JOBS",
+        "message": "Another workspace change is in progress for this session.",
+        "details": {
+          "reason": "transition"
+        }
+      }
+    },
+    "spawn": {
+      "error": {
+        "code": "WORKTREE_BUSY_JOBS",
+        "message": "The Lead workspace is changing; spawn the worker after it settles.",
+        "details": {
+          "reason": "transition"
+        }
+      }
+    },
+    "folder": {
+      "error": {
+        "code": "WORKTREE_BUSY_JOBS",
+        "message": "Another branch change is in progress in the project folder.",
+        "details": {
+          "reason": "transition"
+        }
+      }
+    }
   }
 }

@@ -23,6 +23,7 @@ use super::apply::{WriteHost, apply_structural_fixes};
 use super::function_length::{OutlineSource, summarize_function_lengths};
 use super::install::{install_engines, plan_install, read_engines_manifest};
 use super::languages::{Detected, GraphLangs, detect_languages};
+use super::process::Processes;
 use super::report::{DIAGNOSTIC_CAP, RESULTS_PAGE_MAX, ReportInput, build_tidy_report, tidy_tool_result};
 use super::resolve::{DownloadPolicy, ResolveOptions, Resolved, resolve_engines};
 use super::run_engines::{SuiteOptions, run_engine_suite};
@@ -58,6 +59,7 @@ struct CachedRun {
 
 pub struct TidyTool {
     host: Arc<dyn TidyHost>,
+    processes: Processes,
     cache: Mutex<Vec<(String, Arc<CachedRun>)>>,
 }
 
@@ -178,8 +180,10 @@ struct Run<'a> {
 }
 
 impl TidyTool {
-    pub fn new(host: Arc<dyn TidyHost>) -> Self {
-        Self { host, cache: Mutex::default() }
+    /// `processes` is the one process manager every engine child runs under, with the lane
+    /// engine binaries are hashed on.
+    pub fn new(host: Arc<dyn TidyHost>, processes: Processes) -> Self {
+        Self { host, processes, cache: Mutex::default() }
     }
 
     pub fn reset_result_cache(&self) {
@@ -237,16 +241,16 @@ impl TidyTool {
         // One `--langs` call answers both: which extension map to detect with, and whether this
         // binary owns the structural scan protocol.
         let graph_langs = match &graph_bin {
-            Some(bin) => probe_graph_langs(bin, run.cwd, run.cancel).await,
+            Some(bin) => probe_graph_langs(&self.processes, bin, run.cwd, run.cancel).await,
             None => None,
         };
-        let detected = detect_languages(run.cwd, &run.scope, &run.language_filter, graph_langs.as_ref(), run.cancel).await;
+        let detected = detect_languages(&self.processes, run.cwd, &run.scope, &run.language_filter, graph_langs.as_ref(), run.cancel).await;
         Detection { detected, graph_bin, graph_langs }
     }
 
     async fn resolve(&self, run: &Run<'_>, detection: Option<&Detected>, probe_versions: bool) -> (super::resolve::Resolution, Value) {
         let manifest = read_engines_manifest();
-        let resolution = resolve_engines(run.cwd, ResolveOptions {
+        let resolution = resolve_engines(&self.processes, run.cwd, ResolveOptions {
             languages: detection.map(|d| d.languages.iter().map(|(l, _)| l.clone()).collect()).unwrap_or_default(),
             engine_ids: run.engine_filter.clone(),
             plugin_data: self.host.plugin_data(),
@@ -269,15 +273,15 @@ impl TidyTool {
         }
         let plugin_data = self.host.plugin_data();
         if policy != "auto" && !approve {
-            let plan = plan_install(&installable, manifest, &plugin_data, &policy, false).await;
+            let plan = plan_install(&self.processes, &installable, manifest, &plugin_data, &policy, false).await;
             return (plan.needs_approval.unwrap_or(Value::Null), Value::Null);
         }
         let fetcher = self.host.fetcher();
         let cancel = run.cancel.cloned().unwrap_or_default();
-        let outcome = install_engines(&installable, Some(manifest), &plugin_data, &policy, true, fetcher.as_ref(), &cancel, None, None).await;
+        let outcome = install_engines(&self.processes, &installable, Some(manifest), &plugin_data, &policy, true, fetcher.as_ref(), &cancel, None, None).await;
         let ids: Vec<String> = if run.engine_filter.is_empty() { resolution.engines.iter().map(|e| e.id.clone()).collect() } else { run.engine_filter.clone() };
         let languages: Vec<String> = resolution.engines.iter().flat_map(|e| e.languages.clone()).collect();
-        let refreshed = resolve_engines(run.cwd, ResolveOptions { languages, engine_ids: ids, plugin_data, manifest: Some(manifest.clone()), cancel: run.cancel.cloned(), probe_versions: true, ..Default::default() }).await;
+        let refreshed = resolve_engines(&self.processes, run.cwd, ResolveOptions { languages, engine_ids: ids, plugin_data, manifest: Some(manifest.clone()), cancel: run.cancel.cloned(), probe_versions: true, ..Default::default() }).await;
         resolution.engines = refreshed.engines;
         let mut installed = json!({"engines": outcome["installed"]});
         if outcome["errors"].as_array().is_some_and(|e| !e.is_empty()) {
@@ -310,7 +314,7 @@ impl TidyTool {
             return Ok(json!({"adapter": "none", "matches": [], "applied": [], "packs": [], "note": "no structural rule packs are installed"}));
         }
         // No fallback engine: an old or missing mixdog-graph fails the call with the rebuild remedy.
-        let adapter = resolve_structural_adapter(run.cwd, d.graph_bin.as_deref(), Some(d.graph_langs.is_some()), run.cancel).await?;
+        let adapter = resolve_structural_adapter(&self.processes, run.cwd, d.graph_bin.as_deref(), Some(d.graph_langs.is_some()), run.cancel).await?;
         if d.detected.files.is_empty() {
             return Ok(json!({"adapter": GraphStructuralAdapter::ID, "packs": [], "matches": [], "applied": [], "note": "no files in scope"}));
         }
@@ -372,7 +376,7 @@ impl TidyTool {
             languages: d.detected.languages.iter().map(|(l, n)| json!({"id": l, "files": n})).collect(),
             language_source: d.detected.source.into(),
             policy: policy_json(&resolution.policy),
-            shadows: Some(detect_engine_shadows(&resolution.engines, &env_map(), None).await),
+            shadows: Some(detect_engine_shadows(&self.processes, &resolution.engines, &env_map(), None).await),
             scope: if run.scope.is_empty() { Value::Null } else { json!(run.scope) },
             engines: resolution.engines,
             notes,
@@ -386,7 +390,7 @@ impl TidyTool {
         if findings.is_empty() {
             return Value::Null;
         }
-        let changes = list_working_tree_changes(run.cwd, run.cancel).await;
+        let changes = list_working_tree_changes(&self.processes, run.cwd, run.cancel).await;
         if let Some(skipped) = changes.skipped {
             return json!({"skipped": skipped});
         }
@@ -402,7 +406,7 @@ impl TidyTool {
         let (mut resolution, manifest) = self.resolve(run, Some(&d.detected), true).await;
         let (needs_approval, installed) = self.satisfy_missing(run, &mut resolution, &manifest, args.get("approveDownloads") == Some(&Value::Bool(true))).await;
         let runnable: Vec<&Resolved> = resolution.engines.iter().filter(|e| e.runnable()).collect();
-        let mut options = SuiteOptions::new(run.cwd, d.detected.files.clone());
+        let mut options = SuiteOptions::new(run.cwd, d.detected.files.clone(), &self.processes);
         options.mode = if action == "fix" { "fix" } else { "check" }.into();
         options.apply = apply;
         options.cancel = run.cancel.cloned();
@@ -432,9 +436,9 @@ impl TidyTool {
         for e in installed["errors"].as_array().into_iter().flatten() {
             notes.push(format!("{}: {}", e["id"].as_str().unwrap_or(""), e["error"].as_str().unwrap_or("")));
         }
-        let function_length = summarize_function_lengths(self.host.outline_source().as_ref(), run.cwd, &d.detected.files).await;
+        let function_length = summarize_function_lengths(self.host.outline_source().as_ref(), run.cwd, &d.detected.files, &run.cancel.cloned().unwrap_or_default()).await;
         let working_tree = self.split_run_findings(run, &results, &structural).await;
-        let shadows = detect_engine_shadows(&resolution.engines, &env_map(), None).await;
+        let shadows = detect_engine_shadows(&self.processes, &resolution.engines, &env_map(), None).await;
         let mut report = build_tidy_report(ReportInput {
             action: action.into(),
             languages,
@@ -523,7 +527,7 @@ impl TidyTool {
         let (resolution, manifest) = self.resolve(run, None, false).await;
         let fetcher = self.host.fetcher();
         let cancel = run.cancel.cloned().unwrap_or_default();
-        let outcome = install_engines(&run.engine_filter, Some(&manifest), &self.host.plugin_data(), &resolution.policy.downloads, args.get("approveDownloads") == Some(&Value::Bool(true)), fetcher.as_ref(), &cancel, None, None).await;
+        let outcome = install_engines(&self.processes, &run.engine_filter, Some(&manifest), &self.host.plugin_data(), &resolution.policy.downloads, args.get("approveDownloads") == Some(&Value::Bool(true)), fetcher.as_ref(), &cancel, None, None).await;
         let errors = outcome["errors"].as_array().cloned().unwrap_or_default();
         Ok(build_tidy_report(ReportInput {
             action: "install".into(),
@@ -543,7 +547,7 @@ impl TidyTool {
         // Listing the packs still works without the engine; the report says so explicitly
         // (ok:false + the remedy) instead of showing a usable adapter.
         let bin = self.host.graph_binary();
-        let adapter = resolve_structural_adapter(run.cwd, bin.as_deref(), None, run.cancel).await;
+        let adapter = resolve_structural_adapter(&self.processes, run.cwd, bin.as_deref(), None, run.cancel).await;
         let (adapter_id, unavailable) = match &adapter {
             Ok(_) => (GraphStructuralAdapter::ID, String::new()),
             Err(e) => ("none", e.to_string()),
@@ -569,7 +573,7 @@ mod tests {
     struct NoOutline;
     #[async_trait]
     impl OutlineSource for NoOutline {
-        async fn outline(&self, _: &Path, _: &[String]) -> Result<Vec<Value>, String> {
+        async fn outline(&self, _: &Path, _: &[String], _: &CancellationToken) -> Result<Vec<Value>, String> {
             Err("no graph in tests".into())
         }
     }
@@ -601,7 +605,7 @@ mod tests {
     }
 
     fn tool(data: &Path) -> TidyTool {
-        TidyTool::new(Arc::new(Host(data.to_owned())))
+        TidyTool::new(Arc::new(Host(data.to_owned())), Processes::for_tests())
     }
 
     fn body(result: &Value) -> Value {

@@ -137,8 +137,8 @@ committed frames containing NUL or non-JSON.
 
 | Constant | Value | Rule |
 |---|---|---|
-| `INLINE_MAX` | 256 KiB | A body slot whose encoding is longer is a blob (§4.2). |
-| `NON_BODY_MAX` | 40 KiB | Everything of a record but its body slot's inline value, at the type bounds below; the largest kind (`item`) needs 34,324 bytes. |
+| `INLINE_MAX` | 256 KiB | A body slot whose encoding is longer is a blob; an item's `body` and `prompt` share it (§4.2). |
+| `NON_BODY_MAX` | 40 KiB | Everything of a record but its slots' inline values, at the type bounds below; the largest kind (`item`, its body inline at `INLINE_MAX` and so its `prompt` a blob reference) needs 34,487 bytes. |
 | `MAX_FRAME_PAYLOAD` | 296 KiB (`0x4a000`) | `INLINE_MAX + NON_BODY_MAX`. A larger declared `len` is corruption. |
 | `MAX_BLOB_BYTES` | 64 MiB | Larger bodies are refused at write (`itemTooLarge`); in migration, quarantine `item_too_large`. |
 | `CHECKPOINT_EVERY` | 1 MiB | §6.1 |
@@ -156,12 +156,13 @@ checked when the payload is parsed, so the bound follows from the types:
 | `Text<64>`, `Text<24>`, `Text<264>` | bytes | op id, `log_id` / bare SHA-256, `origin.item_key` (`session/<id>`) |
 | `Digest` | `sha256:` + 64 lowercase hex | `refs[]` (≤ `MAX_REFS` = 128), op `digest`, `source_digest` |
 | `Json<16384>` | 16 KiB encoded | `op.result` |
-| `BodyBlob` | protocol `BlobDescriptor` with a `Digest` and `mediaType` `application/json` | the blob form of every body slot |
+| `BodyBlob` | protocol `BlobDescriptor` with a `Digest` and `mediaType` `application/json` | the blob form of every slot |
 | integers, enums, `archive.at` (a JSON number) | ≤ 24 bytes | the rest |
 
 A `Text<N>` encodes to at most `6N + 2` bytes (every byte a `\u00XX` escape). The test
 `every_record_kind_fits_a_frame_at_its_type_bounds` encodes every kind at these bounds
-with an inline body of `INLINE_MAX` and checks it against `MAX_FRAME_PAYLOAD`. Migration
+with an inline body of `INLINE_MAX` (an item's `prompt` then a blob reference) and checks
+it against `MAX_FRAME_PAYLOAD`. Migration
 journal entries use `ItemKey` = `Text<4096>` and fit as well.
 
 ### 3.4 Torn tail and corruption handling
@@ -169,7 +170,7 @@ journal entries use `ItemKey` = `Text<4096>` and fit as well.
 - A torn tail is truncated by the first open-for-append, under the writer claim:
   `ftruncate(p)` then `sync_file`. Its bytes were never acknowledged; nothing is kept.
 - Corruption is never skipped. The session opens read-only with status
-  `damaged{file_no, offset, ordinal}` (catalog `sessions.damage`); rows before it stay
+  `damaged{file_no, offset, ordinal}` (catalog `sessions.damage`, JSON as in §8.2); rows before it stay
   pageable; writes answer `storeDamaged`. A positioned read that fails the CRC check in an
   older file marks the session damaged the same way.
 - The only repair is the user-confirmed `session.repair{confirm}`: move the bytes from the
@@ -198,7 +199,8 @@ mismatch answers `blobCorrupt{digest}` for that body only.
 
 ### 4.2 Body slots and the reference shape
 
-Each record kind has exactly one body slot. A slot is written as
+Each record kind has exactly one body slot (★); an `item` also has its `prompt` slot
+(below). A slot is written as
 `{"inline": <value>}` when the encoding of `<value>` is ≤ `INLINE_MAX` bytes, else
 as `{"blob": {"digest": "sha256:<hex>", "bytes": n, "mediaType": "application/json"}}`
 whose blob bytes are that encoding. The inner object is `mixdog_protocol::BlobDescriptor`,
@@ -208,11 +210,20 @@ the one blob reference shape of SPEC R2 (also used on the wire), parsed as `Body
 `maxBlobBytes` in `mixdog-app-protocol/schema/constants.json`). Size alone decides; there
 is no other rule.
 
+An `item` has a second slot, `prompt` (its value a JSON string), under the same rule with
+the inline bytes its `body` leaves: `body` is decided first against `INLINE_MAX`; `prompt`
+is inline when its encoding is ≤ `INLINE_MAX` minus the encoding of the inline `body`
+value (0 when `body` is a blob), else a blob of its own of that encoding. The inline
+values of one frame thus never exceed `INLINE_MAX` together, and `MAX_FRAME_PAYLOAD` holds.
+The writer's codec (`encode::encode_record`, `encode::slot_within`) and migration apply
+the same rule.
+
 ### 4.3 References
 
 `refs` (item, amend) lists, sorted and unique, every `sha256:` digest the record
 references: each content part's `attachmentRef` (bare 64 hex in 1.4.5 message bodies,
-kept verbatim in the body) and the slot's own blob. The index projects them into
+kept verbatim in the body) and the record's own slot blobs (an item's `body` and
+`prompt`, an amend's `body`). The index projects them into
 `blob_refs` in the same transaction as the record's history row. GC deletes a blob only
 under SM §9's four conditions.
 
@@ -246,10 +257,10 @@ a blob without a reference is garbage, never corruption.
 |---|---|---|
 | `session` | `v:2, id, log_id, base?{session, log_id, end_ordinal_exclusive}, origin?{migration{manifest_sha256, item_key, source_digest}}, op?`, ★`header` | First frame of `log.000000`. `header` = every header key (the 1.4.5 record minus `messages`). `log_id` = 24 lowercase hex. |
 | `meta` | `op?`, ★`change{set, unset[]}` | Header change: remove `unset`, then merge `set`. Title, close/tombstone, generation, worker map, desktop metadata, `deleted`, repair marks, … |
-| `item` | `iid, turn?, role?, form:"message"\|"display", model, visible, archive?{seq, at?, origin}, op?, prompt?, refs[]`, ★`body` | One history row. `turn` = the run id; a run's input rows are its rows before its `run{started}`. `display` rows are imported 1.4.5 archive items, always `model:false`. `prompt` is present exactly when the row counts for prompt history (a 1.4.5 `kind:"user"` transcript row, own room lines included; never notices, tool cards, skill or hook rows) and holds that row's display text (paste/file chips, image lines and feedback rewrites applied); written by the session at commit and by migration, never derived from `body` by the store. `archive.at` = the source number (absent for a missing or `null` source value); `archive.origin` = `segment{id, prev?, count, bytes}` or `pending{divider, cleared_through?, max_bytes?}`. |
+| `item` | `iid, turn?, role?, form:"message"\|"display", model, visible, archive?{seq, at?, origin}, op?, ★`prompt?`, refs[]`, ★`body` | One history row. `turn` = the run id; a run's input rows are its rows before its `run{started}`. `display` rows are imported 1.4.5 archive items, always `model:false`. `prompt` is present exactly when the row counts for prompt history (a 1.4.5 `kind:"user"` transcript row, own room lines included; never notices, tool cards, skill or hook rows) and holds that row's display text (paste/file chips, image lines and feedback rewrites applied); written by the session at commit and by migration, never derived from `body` by the store; a slot sharing `INLINE_MAX` with `body` (§4.2), with no length bound of its own (1.4.5 caps neither prompt history nor display text). `archive.at` = the source number (absent for a missing or `null` source value); `archive.origin` = `segment{id, prev?, count, bytes}` or `pending{divider, cleared_through?, max_bytes?}`. |
 | `amend` | `iid, op?, refs[]`, ★`body` | Replaces the body of row `iid` (redaction, offload pruning, reactions). |
 | `rewind` | `to_ordinal, reason:"rewind"\|"edit"\|"clear", op?` | Supersedes records with ordinal in `[to_ordinal, this)`; `history_rev += 1`. In a fork, `to_ordinal` may lie below `base.end_ordinal_exclusive` (§5.3 lineage cut). |
-| `compacted` | `cid, summary_iid?, op?, at?`, ★`replacement[{iid, body}]` | Model context restarts at `replacement`; history rows stay. `at` (ms since the Unix epoch, the compaction's `Date.now()`) is the only field the "Conversation compacted" divider shows besides its constant label. |
+| `compacted` | `cid, summary_iid?, op?, at?, dropped_count?, dropped?{messageIds[], callIds[]}`, ★`replacement[{iid, body}]` | Model context restarts at `replacement`; history rows stay. `at` (ms since the Unix epoch, the compaction's `Date.now()`) is the only field the "Conversation compacted" divider shows besides its constant label. `dropped_count` and `dropped` are the compaction event's `droppedMessages` and `droppedIdentities` (null → absent); the writer always sets `dropped_count` (0 when the pass took out nothing visible) and `dropped` when it has identities. 1.4.5 `compactionArchivedRows` decides from them (`compaction_view.rs`): `dropped` present → by id (a text row by `iid`, a tool card by call id; this includes a kept message that lost its text or some calls), whatever the count says; else `dropped_count` 0 → no row; else (positive, or absent as in imported 1.4.5 history) → every row before the divider. |
 | `run` | `rid, phase:"started"\|"attempt"\|"completed"\|"failed"\|"interrupted", attribution?{provider, model, account?, route, preset?, effort?}, attempt?{n, delivery:"notSent"\|"ambiguous"\|"accepted"}, at?, op?`, ★`detail?` | Turn lifecycle; `attempt` records one provider attempt's delivery state (SPEC §4.9). `started` only after its input rows are durable; on open a `started` without terminal phase gets `interrupted`. |
 | `approval` | `aid, rid, phase:"requested"\|"decided"\|"expired", by_client?, at, op?`, ★`body?` | `body` = the request (`requested`) or the decision (`decided`). |
 | `queue` | `qid, action:"enqueue"\|"dequeue", reason?:"delivered"\|"cancelled", op?`, ★`entry?` | `entry` (enqueue) = the 1.4.5 pending-entry shape minus `id`: `{message, notificationKind?, mode?, executionId?, execution?, enqueuedAt?}`. |
@@ -352,6 +363,28 @@ A clean close ends the file with a checkpoint, so the common open reads one fram
 cost is independent of history length. History rows, pages and the model context come
 from the projection (§8.2) by ordinal with positioned reads.
 
+### 6.4 Model context
+
+The model context of a thread is what 1.4.5 replays from its last `compacted` record for
+the next turn (`session-log-reader.mjs`): the newest live `compacted` replacement, then
+every later `model:true` message `item` in ordinal order, each with the body of its live
+`amend`. Hidden model rows (`visible:false`) are part of it; `display` rows never are.
+Across a fork lineage (`lineage[0]` the thread, then its bases with the fork point `end`;
+`cut` = the thread's `base_cut`): the thread's own live rows from its newest live
+compaction; without one, first each base's rows below `min(end, cut)` as they were at that
+point (versions with `ver` below it, not superseded before it), from the base's newest
+compaction live at that point, down the lineage until a level has one.
+
+The read is index-backed (`message_rows`, whose versions locate the frame holding their
+body) and paged in context order, oldest first: one page is at most the requested rows and
+`PAGE_MAX_BYTES` of frames (at least one row). Its steps are lane jobs: the page's rows and
+frames (interactive I/O), the records parsed (interactive CPU), out-of-line bodies read
+(interactive I/O, only when present), those bodies parsed (interactive CPU). A page cursor
+is bound to the thread's `history_rev` and context start; after a rewind or a new
+compaction it is stale and the read restarts. Golden: `mixdog-migrate`
+`tests/model_context_corpus.rs` against Node's reader over the migration corpus
+(`tests/vectors/generate_context.mjs` there).
+
 ## 7. Crash consistency
 
 Assumption A1 (filesystem): after a crash, synced bytes are intact; past them the file
@@ -389,25 +422,55 @@ maintenance reader; SPEC R31) with `journal_mode=WAL`, `synchronous=FULL`,
 `meta`/`metadata` key `job:<id>`, written in the step's own transaction. The DDL scripts
 run once on an empty file, outside a transaction (they set `auto_vacuum`).
 
-### 8.2 `index/store.sqlite` (`src/schema/sql/index_v1.sql`)
+### 8.2 `index/store.sqlite` (`src/schema/sql/index.sql`)
 
-`application_id` `0x4D584958` ('MXIX'), `user_version` 1. Derived: a missing file, an
-integrity error or another `application_id`/`user_version` rebuilds it from the logs.
+`application_id` `0x4D584958` ('MXIX'), `user_version` 4. Every change to the DDL bumps
+`user_version` (2: the frame location of each `message_rows` version; 3: `history.facets`,
+`compactions.drop_mode` and `compaction_dropped`; 4: `sessions.title`).
+
+Derived. `SqliteStore::open` (one maintenance-lane job, the only way to open the index)
+rebuilds it from the logs when the file is missing, is not a readable SQLite database, or
+has another `application_id`/`user_version`; such a file is never opened or altered in
+place, and callers never see the rebuild as an error. The rebuild:
+
+- projects every directory of `sessions/` holding `log.000000`, each log read forward once
+  and written in the writer's bounded transactions, into a staged file beside the index;
+  then removes the old file's `-wal`/`-shm`/`-journal` and publishes the staged file by a
+  durable rename. A crash before the rename leaves a file that fails its open again, so the
+  next open rebuilds again; a stale staged file is swept first.
+- costs one sequential read of every log byte plus the index writes: linear in the data
+  dir, no index-backed bound. The open returns only when the rebuild is done; it reports
+  no progress, and nothing is served from the old file meanwhile.
+- never fails on a session's own log. A log that cannot be read to its end is a damaged
+  session through the one damage state of §3.4 (`sessions.status = 'damaged'`, and
+  `sessions.damage` = JSON `{path, error}` plus `file_no, offset, ordinal` when the reader
+  names the bad frame), as 1.4.5 treats a log it cannot read (`session-log-reader.mjs`
+  `parseSessionLog`, `store/listing.mjs` `listStoredSessions`, `load-session.mjs`
+  `resolveSessionCopy`):
+  - with a readable `session` frame, the frames before the failure are projected and the
+    session is listed, read-only, as on the live path;
+  - without one, the row has no header and an empty `log_id`: never listed, searched or
+    summarized (1.4.5 leaves the file out of the list and loads it as no session), and
+    only its damage is kept.
+
+  Only an index write error fails the rebuild (`DbError::Write`); it never yields a
+  partial index.
 
 | Table | Rows | Notes |
 |---|---|---|
-| `sessions` | one per session | `sid` (stable integer key of the search index; rows are upserted with `ON CONFLICT(id) DO UPDATE`, never `OR REPLACE`), `id`. Projection state `log_id, newest_file_no, projected_file_no, projected_offset, projected_ordinal` (next to project), `history_rev, row_count, visible_count`; RL §9.2 `dirty` mark (committed before the first append of an activation, cleared on retire; boot reconciles `WHERE dirty=1` only); `status` ok/damaged/indeterminate with `damage` JSON; `deleted`, `base_session`; list columns `activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id, parent_session_id, agent, source_type`; search columns `classification, archived, title_kind, id_key` and the seven folds `title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold`; `summary` = the JSON list row. |
+| `sessions` | one per session | `sid` (stable integer key of the search index; rows are upserted with `ON CONFLICT(id) DO UPDATE`, never `OR REPLACE`), `id`. Projection state `log_id, newest_file_no, projected_file_no, projected_offset, projected_ordinal` (next to project), `history_rev, row_count, visible_count`; RL §9.2 `dirty` mark (committed before the first append of an activation, cleared on retire; boot reconciles `WHERE dirty=1` only); `status` ok/damaged/indeterminate with `damage` JSON; `deleted`, `base_session`; list columns `activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id, parent_session_id, agent, source_type`; search columns `classification, archived, title_kind, id_key` and the seven folds `title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold`; `summary` = the JSON list row (its `title` the cleaned one); `title` = the header's raw `title`, the metadata read's 1.4.5 `readStoredSessionMetadata` `session.title || null` (`SqliteStore::title`; NULL when absent, empty or not a string). |
 | `session_search` | FTS5 over the seven folds | external content (`sessions`, rowid `sid`), `tokenize='trigram case_sensitive 1'`, kept in step by three triggers on `sessions` (insert, delete, `UPDATE OF` the seven folds). |
-| `compactions` | one per `compacted` frame | `cid`, location, `superseded_rev`; partial index on live rows. |
-| `history` | one per `item` frame | `iid, turn, form (0 message, 1 display), model, visible`, item frame location `file_no, frame_offset, frame_len`, `amend_ordinal` of the live amend, `superseded_rev`. |
+| `compactions` | one per `compacted` frame | `cid`, location, `boundary` (where the divider sits among this session's own rows: the oldest own row the replacement kept, else the compaction's ordinal; a read moves it to the oldest kept row of a base level when the replacement keeps rows the fork inherited, `SqliteStore::dividers`, `Divider.level`), `at` (the record's optional `at`), `drop_mode` (0 every row before `boundary`, 1 none, 2 by id: from `dropped_count`/`dropped`), `superseded_rev`; partial index on live rows. |
+| `compaction_dropped` | one per id of a `drop_mode` 2 compaction | `(session, kind 0 message / 1 call, id, ordinal)`; live exactly while its `compactions` row is. A page marks a history row archived when some compaction of the reader's lineage after it (a fork's compactions apply to the rows it inherits) takes out every part of it: the classifier is `compaction_view::ArchivedRows` over the row's `facets`. |
+| `history` | one per `item` frame | `iid, turn, form (0 message, 1 display), model, visible`, item frame location `file_no, frame_offset, frame_len`, `amend_ordinal` of the live amend, `superseded_rev`, `facets` (JSON `{role, text, calls[]}` of a model message: its text row and tool cards). |
 | `amends` | one per `amend` frame | `target_ordinal`, location, `superseded_rev`. |
 | `turns` | one per run | `started_ordinal, end_ordinal, phase, superseded_rev`. |
 | `approvals` | pending approvals | the cross-session enumerator. |
 | `blob_refs` | `(digest, session, ordinal)` | §4.3. |
 | `fork_edges` | `(base, child)` | a base with children keeps its files. |
-| `message_rows` | immutable versions of the model-context messages | `(session, ordinal, idx, ver, iid, counted, real, incoming, place, preview, line, routine, live, superseded_rev)`: the catalog's message state (1.4.5 `_sessionMessageProjection`). An `item` with `form:"message"`, `model:true` is row `(ordinal, 0)`, first version `ver` = its ordinal; each entry of a `compacted` replacement is `(compacted ordinal, position)`. An `amend` of `iid` (an item or a replacement entry — 1.4.5 edits `session.messages` in place and its summary re-reads it) adds a version (`ver` = the amend's ordinal) to the newest live row with that `iid` and moves `live` to it; `counted` and `place` stay the row's. A `rewind` sets `superseded_rev` (its ordinal) on the versions with `ver` in the removed range and hands each row back to its newest remaining version, so rewinding past an amend restores the earlier content. `counted` = role `user`/`assistant`; `real` = `isRealTurnMessage`; `incoming` = an incoming-kind message with a `line`; `preview` = first-prompt candidate; `line` = last-message line; `routine` = its provenance JSON; `place` = 1-based place among the epoch's counted rows when written. Partial indexes `message_rows_preview/_line/_incoming` hold the live versions, so first prompt, last line and incoming places are seeks (`INDEXED BY`, checked with `EXPLAIN`). |
+| `message_rows` | immutable versions of the model-context messages | `(session, ordinal, idx, ver, file_no, frame_offset, frame_len, iid, counted, real, incoming, place, preview, line, routine, live, superseded_rev)`: the catalog's message state (1.4.5 `_sessionMessageProjection`) and the model-context read (§6.4; `file_no, frame_offset, frame_len` locate the frame at `ver` holding the version's body; partial index `message_rows_live` holds the live versions). An `item` with `form:"message"`, `model:true` is row `(ordinal, 0)`, first version `ver` = its ordinal; each entry of a `compacted` replacement is `(compacted ordinal, position)`. An `amend` of `iid` (an item or a replacement entry — 1.4.5 edits `session.messages` in place and its summary re-reads it) adds a version (`ver` = the amend's ordinal) to the newest live row with that `iid` and moves `live` to it; `counted` and `place` stay the row's. A `rewind` sets `superseded_rev` (its ordinal) on the versions with `ver` in the removed range and hands each row back to its newest remaining version, so rewinding past an amend restores the earlier content. `counted` = role `user`/`assistant`; `real` = `isRealTurnMessage`; `incoming` = an incoming-kind message with a `line`; `preview` = first-prompt candidate; `line` = last-message line; `routine` = its provenance JSON; `place` = 1-based place among the epoch's counted rows when written. Partial indexes `message_rows_preview/_line/_incoming` hold the live versions, so first prompt, last line and incoming places are seeks (`INDEXED BY`, checked with `EXPLAIN`). |
 | `message_epochs` | one per context epoch | `(session, start, count, real, superseded_rev)`: the root (`start` 0) or a `compacted` frame; the live epoch is the newest not superseded. `count`/`real` are this session's own rows, moved by deltas on append, amend and rewind (each O(1) per row; a rewind is bounded per transaction and resumable). |
-| `message_views` | what a fork inherits | `(session, valid_from, base, position, state, count, real, preview, line, routine, incoming, cursor…, superseded_rev)`: the base's state as of `position` (the fork point, or lower after a rewind of the child into the base range), snapshotted once and never changed by later base rewinds or amends; versioned by the frame that set it like rows. Taken at creation when the base's projection ends at `position`; otherwise `pending` while bounded maintenance steps (`STEP_ROWS` versions) scan the base rows as of `position`, and the child's catalog row is held back until `ready`. The live stats of a session are its live epoch plus, for the root epoch, its live view: no lineage is walked at any depth. |
+| `message_views` | what a fork inherits | `(session, valid_from, base, position, state, count, real, preview, line, routine, incoming, cursor…)`: the base's state as of `position` (the fork point, or lower after a rewind of the child into the base range), snapshotted once and never changed by later base rewinds or amends; versioned by the frame that set it (`valid_from`); the view in force at a position is the newest with a lower `valid_from`, and rewinds never remove one. Taken at creation when the base's projection ends at `position`; otherwise `pending` while bounded maintenance steps (`STEP_ROWS` versions, a keyset cursor over `(ordinal, idx, ver)`) scan the base rows as of `position`. A view becomes `ready` only once the base's projected watermark has reached `position`, and the child's catalog row is held back until then. The live stats of a session are its live epoch plus, for the root epoch, its live view: no lineage is walked at any depth. |
 | `thread_ops` | thread-scope ops | `op_id, method, payload_digest, state` and the location of the record carrying it (P §9.2 lookup). |
 | `prompt_occurrences` | one per prompt row | `(session, ordinal, key, text, superseded_rev)` for every `item` with a `prompt` whose key is not empty: `text` = `prompt` trimmed (JS `trim`); `key` = 1.4.5 `promptHistoryKey` = `text.trim().replace(/\s+/g, ' ')` (vectors `src/schema/vectors/prompts.json`). Superseded by rewinds like `history`. |
 | `prompt_history` | one per live prompt key | `(session, key, ordinal, text)`: the newest live occurrence of `key`. A rewind (and `clear`) supersedes the occurrences it covers and moves each affected key to its newest live occurrence, or removes it. `OpenedLog.prompts` = `SELECT text … WHERE session = ? ORDER BY ordinal DESC LIMIT 50` (`prompt_history_recent`). |

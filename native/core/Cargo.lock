@@ -360,6 +360,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-executor"
+version = "1.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
+dependencies = [
+ "async-task",
+ "concurrent-queue",
+ "fastrand",
+ "futures-lite",
+ "pin-project-lite",
+ "slab",
+]
+
+[[package]]
+name = "async-fs"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8034a681df4aed8b8edbd7fbe472401ecf009251c8b40556b304567052e294c5"
+dependencies = [
+ "async-lock",
+ "blocking",
+ "futures-lite",
+]
+
+[[package]]
 name = "async-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1396,6 +1421,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
+ "const-oid 0.9.6",
  "crypto-common 0.1.7",
  "subtle",
 ]
@@ -1522,7 +1548,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee27f32b5c5292967d2d4a9d7f1e0b0aed2c15daded5a60300e4abb9d8020bca"
 dependencies = [
  "der",
+ "digest 0.10.7",
  "elliptic-curve",
+ "rfc6979",
  "signature",
  "spki",
 ]
@@ -3596,6 +3624,7 @@ dependencies = [
  "security-framework 2.11.1",
  "security-framework 3.7.0",
  "windows-sys 0.60.2",
+ "zbus",
  "zeroize",
 ]
 
@@ -3943,6 +3972,7 @@ dependencies = [
  "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-app-server",
+ "mixdog-app-server-client",
  "mixdog-app-server-transport",
  "mixdog-core",
  "mixdog-core-api",
@@ -3993,14 +4023,21 @@ dependencies = [
 name = "mixdog-cli"
 version = "1.4.5"
 dependencies = [
+ "async-trait",
+ "chrono",
  "clap",
  "mixdog-app-server-client",
  "mixdog-app-server-daemon",
+ "mixdog-js",
  "mixdog-migrate",
+ "mixdog-protocol",
  "mixdog-store",
  "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "tokio",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -4012,13 +4049,16 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "futures",
  "mixdog-agent",
+ "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-core-api",
  "mixdog-exthost",
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",
+ "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-remote",
  "mixdog-rt",
@@ -4038,6 +4078,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-normalization",
  "url",
  "uuid",
 ]
@@ -4107,6 +4148,9 @@ dependencies = [
 name = "mixdog-js"
 version = "1.4.5"
 dependencies = [
+ "chrono",
+ "chrono-tz",
+ "iana-time-zone",
  "icu_collator",
  "icu_locale_core",
  "regress",
@@ -4123,6 +4167,7 @@ dependencies = [
  "mixdog-core-api",
  "mixdog-js",
  "mixdog-protocol",
+ "mixdog-rt",
  "mixdog-store",
  "rusqlite",
  "serde",
@@ -4130,6 +4175,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -4152,6 +4198,7 @@ dependencies = [
  "rand 0.9.5",
  "regex",
  "reqwest",
+ "secret-service",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -4167,6 +4214,7 @@ dependencies = [
  "uuid",
  "which",
  "windows-sys 0.61.2",
+ "zbus",
 ]
 
 [[package]]
@@ -4176,6 +4224,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-protocol",
+ "mixdog-rt",
  "mixdog-store",
  "regex",
  "rusqlite",
@@ -4184,6 +4233,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -4219,6 +4269,7 @@ dependencies = [
  "mixdog-store",
  "p256",
  "rand 0.9.5",
+ "reqwest",
  "rtc",
  "serde",
  "serde_json",
@@ -4282,6 +4333,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-secrets"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "libc",
+ "mixdog-js",
+ "mixdog-rt",
+ "mixdog-secrets",
+ "rand 0.9.5",
+ "secret-service",
+ "security-framework 3.7.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "windows-sys 0.61.2",
+ "zbus",
+]
+
+[[package]]
 name = "mixdog-secure-desktop"
 version = "0.1.0"
 dependencies = [
@@ -4315,7 +4388,9 @@ dependencies = [
  "mixdog-graph",
  "mixdog-js",
  "mixdog-protocol",
+ "mixdog-remote",
  "mixdog-rt",
+ "mixdog-spawn",
  "mixdog-store",
  "mixdog-tools",
  "ort",
@@ -4330,6 +4405,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-postgres",
+ "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "unicode-normalization",
@@ -4420,6 +4496,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "url",
+ "uuid",
  "windows-sys 0.61.2",
  "wiremock",
 ]
@@ -4895,6 +4972,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -5610,6 +5688,16 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "rfc6979"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
+dependencies = [
+ "hmac 0.12.1",
+ "subtle",
 ]
 
 [[package]]
@@ -6441,6 +6529,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
+ "digest 0.10.7",
  "rand_core 0.6.4",
 ]
 
@@ -8311,9 +8400,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb97012beadd29e654708a0fdb4c84bc046f537aecfde2c3ee0a9e4b4d48c725"
 dependencies = [
  "async-broadcast",
+ "async-executor",
+ "async-fs",
+ "async-io",
+ "async-lock",
  "async-process",
  "async-recursion",
+ "async-task",
  "async-trait",
+ "blocking",
  "enumflags2",
  "event-listener",
  "futures-core",

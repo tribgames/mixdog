@@ -99,7 +99,9 @@ impl WireCodec for OpenAiCodec {
         self.encode_with(request, None)
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    /// Reports no provider-state slot: Node's first-party routes keep none,
+    /// and the ordered replay already carries the reasoning forward.
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         let framing = if self.transport == TransportKind::WebSocket {
             Framing::WebSocket
         } else {

@@ -93,6 +93,137 @@ pub struct ThreadStartParams {
     /// Starts the first turn in the same request (today's `submitNewTask`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_input: Option<TurnInput>,
+    /// How the session runs; absent is an interactive session (Node's defaults).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<ThreadSessionOptions>,
+}
+
+/// The session options Node's `createMixdogSessionRuntime` takes (headless exec sets all of
+/// them, `headless-exec.mjs` `createHeadlessSessionRuntime`). Stored in the thread's header.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadSessionOptions {
+    /// Node default `interactive`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_profile: Option<ToolProfile>,
+    /// Node default `full`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_mode: Option<SessionToolMode>,
+    /// Node default none: approvals go to a person. Under `implicit` every approval ask is
+    /// denied at once with Node's text, as when no approval UI is wired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_mode: Option<ApprovalMode>,
+    /// Node default `false`: the session may not delegate to agents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disallow_delegation: Option<bool>,
+    /// Node default `true`: finished background work wakes the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_wake_completions: Option<bool>,
+    /// The web-search feature switch for this session (`MIXDOG_FEATURE_WEB_SEARCH`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search: Option<bool>,
+    /// The memory feature switch for this session (`MIXDOG_FEATURE_MEMORY`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<bool>,
+}
+
+/// `normalizeToolProfile`'s value set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolProfile {
+    Interactive,
+    Headless,
+    Heartbeat,
+}
+
+/// Node's `TOOL_MODES`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionToolMode {
+    Full,
+    Readonly,
+    Lead,
+}
+
+/// Node accepts only `implicit`; anything else means none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalMode {
+    Implicit,
+}
+
+/// `thread/notification`: a runtime notification (a finished background task, a channel
+/// message) as Node's `runtime.onNotification` delivers it. The delivered text also lands as
+/// a `task-notification` user row; this is the live event with its status.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadNotificationParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    pub content: String,
+    /// Node's `meta`; `meta.status` is `completed`, `failed`, `cancelled`, `canceled` or
+    /// `timed_out` when the notification settles a task.
+    pub meta: JsonValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelRequestPhase {
+    Started,
+    Completed,
+    Failed,
+}
+
+/// `thread/modelRequest/updated`: one provider request of a turn (Node `model.request.*`).
+/// Request ids are `model_request_<index>`, the index counting from 1.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ModelRequestUpdatedParams {
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub request_id: String,
+    pub request_index: u32,
+    pub phase: ModelRequestPhase,
+    /// On `completed` and `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number")]
+    pub duration_ms: Option<u64>,
+    /// Node's usage delta summary of the request, on `completed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolBatchPhase {
+    Started,
+    Completed,
+}
+
+/// `thread/toolBatch/updated`: the tool calls of one model response run together (Node
+/// `tool.batch.*`). Batch ids are `tool_batch_<request index>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ToolBatchUpdatedParams {
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub batch_id: String,
+    pub phase: ToolBatchPhase,
+    /// On `completed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iteration: Option<u32>,
+    /// On `completed`: the calls the batch ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calls: Option<u32>,
+    /// On `completed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number")]
+    pub duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]

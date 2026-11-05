@@ -469,7 +469,9 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
                "visible": false,
                "archive": {"seq": big, "at": at,
                            "origin": {"segment": {"id": id, "prev": id, "count": big, "bytes": big}}},
-               "op": op, "refs": vec![digest.clone(); MAX_REFS], "body": slot}),
+               "op": op,
+               "prompt": {"blob": {"digest": digest, "bytes": big, "mediaType": "application/json"}},
+               "refs": vec![digest.clone(); MAX_REFS], "body": slot}),
         json!({"k": "amend", "iid": id, "op": op, "refs": vec![digest.clone(); MAX_REFS], "body": slot}),
         json!({"k": "rewind", "to_ordinal": big, "reason": "rewind", "op": op}),
         json!({"k": "compacted", "cid": id, "summary_iid": id, "op": op,
@@ -492,8 +494,9 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
         assert!(len <= MAX_FRAME_PAYLOAD, "{}: {len}", value["k"]);
         largest = largest.max(len);
     }
-    // The bound is the item kind's; NON_BODY_MAX keeps it with headroom.
-    assert_eq!(largest - INLINE_MAX, 34_324, "update NON_BODY_MAX's note");
+    // The bound is the item kind's (the body inline at INLINE_MAX leaves the prompt none,
+    // so it is a blob reference); NON_BODY_MAX keeps it with headroom.
+    assert_eq!(largest - INLINE_MAX, 34_487, "update NON_BODY_MAX's note");
 }
 
 #[test]
@@ -587,6 +590,7 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "amends",
             "approvals",
             "blob_refs",
+            "compaction_dropped",
             "compactions",
             "fork_edges",
             "history",

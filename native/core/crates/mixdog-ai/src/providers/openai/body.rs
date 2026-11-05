@@ -125,6 +125,9 @@ pub fn build_with(
             marker: None,
         },
     };
+    // No continuation here: the first-party routes carry history through the
+    // ordered provider replay (Node keeps no slot of its own for them), and a
+    // slot on top would send the same reasoning twice.
     let map = build_body(&profile, &BuildInputs { effort, ..BuildInputs::new(request) }).body;
     BuiltBody {
         map,

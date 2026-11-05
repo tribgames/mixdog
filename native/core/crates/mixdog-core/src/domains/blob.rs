@@ -80,7 +80,11 @@ impl Staging {
     }
 
     fn get(&self, digest: &BlobDigest) -> Option<Arc<Upload>> {
-        self.uploads.lock().unwrap_or_else(|e| e.into_inner()).get(digest).cloned()
+        self.uploads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(digest)
+            .cloned()
     }
 
     /// The upload of `digest`, created empty when none is staged.
@@ -102,7 +106,10 @@ impl Staging {
     }
 
     fn remove(&self, digest: &BlobDigest) {
-        self.uploads.lock().unwrap_or_else(|e| e.into_inner()).remove(digest);
+        self.uploads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(digest);
     }
 
     /// Drops least recently touched uploads other than `keep` until `extra` more bytes fit.
@@ -153,7 +160,12 @@ impl ReadCache {
         entries.retain(|(d, _, _)| *d != digest);
         let mut total: usize = entries.iter().map(|(_, b, _)| b.len()).sum::<usize>() + bytes.len();
         while total > MAX_CACHED_BYTES {
-            let Some(oldest) = entries.iter().enumerate().min_by_key(|(_, e)| e.2).map(|(i, _)| i) else {
+            let Some(oldest) = entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, e)| e.2)
+                .map(|(i, _)| i)
+            else {
                 break;
             };
             total -= entries.remove(oldest).1.len();
@@ -174,15 +186,27 @@ pub struct BlobService {
 
 fn store_error(error: BlobError, digest: &BlobDigest) -> CoreError {
     match error {
-        BlobError::ItemTooLarge { .. } => CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES },
-        BlobError::Missing { .. } => CoreError::BlobNotFound { digest: digest.clone() },
-        BlobError::Corrupt { .. } => CoreError::BlobCorrupt { digest: digest.clone() },
-        BlobError::Io(_) => CoreError::Internal { incident_id: "blob-io".into() },
+        BlobError::ItemTooLarge { .. } => CoreError::ItemTooLarge {
+            limit: MAX_BLOB_BYTES,
+        },
+        BlobError::Missing { .. } => CoreError::BlobNotFound {
+            digest: digest.clone(),
+        },
+        BlobError::Corrupt { .. } => CoreError::BlobCorrupt {
+            digest: digest.clone(),
+        },
+        BlobError::Io(_) => CoreError::Internal {
+            incident_id: "blob-io".into(),
+        },
     }
 }
 
 fn hex_of(hasher: Sha256) -> String {
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 impl BlobService {
@@ -200,15 +224,21 @@ impl BlobService {
         })
     }
 
-    async fn verified(&self, req: &CoreRequest, digest: &BlobDigest) -> Result<Arc<Vec<u8>>, CoreError> {
+    async fn verified(
+        &self,
+        req: &CoreRequest,
+        digest: &BlobDigest,
+    ) -> Result<Arc<Vec<u8>>, CoreError> {
         if let Some(hit) = self.cache.get(digest) {
             return Ok(hit);
         }
         let store = self.store.clone();
         let wanted = digest.clone();
-        let bytes = on_lane(self.interactive, &req.ctx.cancel, move |lane| store.read(lane, &wanted))
-            .await?
-            .map_err(|e| store_error(e, digest))?;
+        let bytes = on_lane(self.interactive, &req.ctx.cancel, move |lane| {
+            store.read(lane, &wanted)
+        })
+        .await?
+        .map_err(|e| store_error(e, digest))?;
         let bytes = Arc::new(bytes);
         self.cache.insert(digest.clone(), bytes.clone());
         Ok(bytes)
@@ -217,10 +247,14 @@ impl BlobService {
     async fn read(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: BlobReadParams = decode(req)?;
         let bytes = self.verified(req, &params.digest).await?;
-        let offset = usize::try_from(params.offset.unwrap_or(0)).unwrap_or(usize::MAX).min(bytes.len());
-        let length = params
-            .length
-            .map_or(self.page_bytes, |n| usize::try_from(n).unwrap_or(usize::MAX).min(self.page_bytes));
+        let offset = usize::try_from(params.offset.unwrap_or(0))
+            .unwrap_or(usize::MAX)
+            .min(bytes.len());
+        let length = params.length.map_or(self.page_bytes, |n| {
+            usize::try_from(n)
+                .unwrap_or(usize::MAX)
+                .min(self.page_bytes)
+        });
         let end = offset.saturating_add(length).min(bytes.len());
         Ok(json!({ "bytesB64": STANDARD.encode(&bytes[offset..end]) }))
     }
@@ -231,10 +265,14 @@ impl BlobService {
             .decode(&params.bytes_b64)
             .map_err(|_| invalid("bytesB64", "standard base64"))?;
         if chunk.len() > self.chunk_bytes {
-            return Err(invalid("bytesB64", "at most limits.maxBlobPutChunkBytes raw bytes"));
+            return Err(invalid(
+                "bytesB64",
+                "at most limits.maxBlobPutChunkBytes raw bytes",
+            ));
         }
         let digest = &params.digest;
-        let offset = usize::try_from(params.offset).map_err(|_| invalid("offset", "a byte offset"))?;
+        let offset =
+            usize::try_from(params.offset).map_err(|_| invalid("offset", "a byte offset"))?;
         let upload = match self.staging.get(digest) {
             Some(upload) => upload,
             // The chunk that completed the blob may be sent again after its answer was lost.
@@ -247,20 +285,30 @@ impl BlobService {
             // A gap or a resent chunk that differs from what was staged is refused; a resent
             // chunk that repeats it adds only the bytes past the end.
             if offset > have {
-                return Err(invalid("offset", "the next byte after those already received"));
+                return Err(invalid(
+                    "offset",
+                    "the next byte after those already received",
+                ));
             }
             let held = (have - offset).min(chunk.len());
             if state.buf[offset..offset + held] != chunk[..held] {
-                return Err(invalid("bytesB64", "the bytes already received at this offset"));
+                return Err(invalid(
+                    "bytesB64",
+                    "the bytes already received at this offset",
+                ));
             }
             let fresh = &chunk[held..];
             if (have + fresh.len()) as u64 > MAX_BLOB_BYTES {
                 drop(state);
                 self.staging.remove(digest);
-                return Err(CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES });
+                return Err(CoreError::ItemTooLarge {
+                    limit: MAX_BLOB_BYTES,
+                });
             }
             if !fresh.is_empty() && !self.staging.make_room(digest, fresh.len()) {
-                return Err(CoreError::QueueFull { queue: "blobUploads".into() });
+                return Err(CoreError::QueueFull {
+                    queue: "blobUploads".into(),
+                });
             }
             state.buf.extend_from_slice(fresh);
             state.hasher.update(fresh);
@@ -277,19 +325,26 @@ impl BlobService {
         if let Some(bytes) = complete {
             self.staging.remove(digest);
             let store = self.store.clone();
-            on_lane(self.durability, &req.ctx.cancel, move |lane| store.put(lane, &bytes))
-                .await?
-                .map_err(|e| store_error(e, digest))?;
+            on_lane(self.durability, &req.ctx.cancel, move |lane| {
+                store.put(lane, &bytes)
+            })
+            .await?
+            .map_err(|e| store_error(e, digest))?;
         }
         Ok(json!({}))
     }
 
-    async fn already_stored(&self, req: &CoreRequest, digest: &BlobDigest) -> Result<Value, CoreError> {
+    async fn already_stored(
+        &self,
+        req: &CoreRequest,
+        digest: &BlobDigest,
+    ) -> Result<Value, CoreError> {
         match self.verified(req, digest).await {
             Ok(_) => Ok(json!({})),
-            Err(CoreError::BlobNotFound { .. }) => {
-                Err(invalid("offset", "0: no upload of this blob is in progress"))
-            }
+            Err(CoreError::BlobNotFound { .. }) => Err(invalid(
+                "offset",
+                "0: no upload of this blob is in progress",
+            )),
             Err(other) => Err(other),
         }
     }
@@ -304,6 +359,10 @@ impl DomainService for BlobService {
             other => return Err(wrong_method("blob", other)),
         };
         Ok(Reply::Value(value))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &["blob/read", "blob/put"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

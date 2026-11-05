@@ -23,6 +23,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt", "macros", "net"] }
 tokio-util = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 # web (WP-TOOLS-WEB)
 reqwest = { workspace = true, features = ["gzip", "brotli", "deflate"] }
 url = { workspace = true }

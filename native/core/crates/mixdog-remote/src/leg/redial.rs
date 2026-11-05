@@ -58,3 +58,19 @@ impl Redial {
         delay
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DS-REM-6: after a long backoff, a system resume redials from the first delay.
+    #[test]
+    fn resume_restarts_the_backoff() {
+        let mut redial = Redial::default();
+        let delays: Vec<_> = (0..7).map(|_| redial.after_close(None)).collect();
+        assert_eq!(delays.last(), Some(&RETRY_MAX));
+        redial.on_resume();
+        assert_eq!(redial.after_close(None), RETRY_MIN);
+        assert_eq!(redial.after_close(None), RETRY_MIN * 2);
+    }
+}

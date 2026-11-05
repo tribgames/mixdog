@@ -109,7 +109,7 @@ pub fn recompute_rollup_days(conn: &mut Connection, now_ms: i64) -> Result<Recom
 /// The all-time rollup answered from the day cache: completed days come from `rollup_days`
 /// when their fingerprint holds, today and anything stale from the ledger. Equals
 /// [`rollup_usage`] for the same range.
-pub fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64) -> Result<Value> {
+pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64) -> Result<Value> {
     let today = day_key(now_ms);
     let fingerprints = day_fingerprints(conn, &query.from_day, &query.to_day)?;
     let mut cached: BTreeMap<String, (String, String)> = BTreeMap::new();

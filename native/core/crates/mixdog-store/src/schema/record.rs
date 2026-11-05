@@ -148,12 +148,25 @@ pub struct ItemRecord {
     /// own room lines included; never notices, tool cards, skill or hook rows): the row's
     /// display text as the transcript shows it (paste and file chips, image lines,
     /// feedback rewrites applied). Written by the session at commit and by migration.
+    /// A slot sharing `INLINE_MAX` with `body` (FORMAT.md §4.2): out of line when its
+    /// encoding exceeds what the inline body leaves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
+    pub prompt: Option<Slot<String>>,
     /// Sorted, unique `sha256:` digests of every blob the record references: attachment
-    /// parts of the body and the body slot itself when out of line.
+    /// parts of the body and the body and prompt slots themselves when out of line.
     pub refs: Refs,
     pub body: Slot<Value>,
+}
+
+impl ItemRecord {
+    /// The prompt text of a record whose `prompt` slot is inline: a record before encoding,
+    /// or one whose slots a reader resolved. `None` for an out-of-line slot.
+    pub fn prompt_text(&self) -> Option<&str> {
+        match &self.prompt {
+            Some(Slot::Inline(text)) => Some(text),
+            _ => None,
+        }
+    }
 }
 
 pub type Refs = List<Digest, MAX_REFS>;
@@ -235,7 +248,24 @@ pub struct CompactedRecord {
     /// compaction).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<i64>,
+    /// 1.4.5 `droppedMessages`: how many messages left the context. With no `dropped`,
+    /// 0 means the pass took out nothing visible (its rows stay live); a positive count or
+    /// none at all (imported 1.4.5 history) means every row before the divider left.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_count: Option<u64>,
+    /// What the compaction took out of the model context (1.4.5 `droppedIdentities`, null
+    /// when the pass reported none). Present, it decides by id whatever the count says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<CompactedDropped>,
     pub replacement: Slot<Vec<ReplacementEntry>>,
+}
+
+/// 1.4.5 `droppedIdentities`: the message ids and tool call ids that left the context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompactedDropped {
+    pub message_ids: Vec<String>,
+    pub call_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

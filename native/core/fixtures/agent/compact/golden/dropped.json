@@ -146,6 +146,7 @@
           }
         }
       ],
+      "droppedMessages": 3,
       "identities": {
         "messageIds": [
           "msg_da583840a4cbb5647eb3b2c0ae27ebef",
@@ -241,6 +242,7 @@
           }
         }
       ],
+      "droppedMessages": 0,
       "identities": {
         "messageIds": [
           "msg_e0abe320f62e7c2b77e9d8d53b40e0f5"
@@ -294,6 +296,7 @@
           }
         }
       ],
+      "droppedMessages": 0,
       "identities": null
     }
   ]

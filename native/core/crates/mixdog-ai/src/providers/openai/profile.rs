@@ -17,6 +17,9 @@ use super::config::PromptCacheLifetime;
 use super::config::WireContext;
 use super::continuation::Continuation;
 use super::continuation::ContinuationSpec;
+use super::continuation::StatelessOnly;
+use super::continuation::resume;
+use super::decoder::StateReport;
 use super::decoder::Framing;
 use super::decoder::ResponsesDecoder;
 use super::effort::EffortProjection;
@@ -207,6 +210,30 @@ impl ResponsesProfile {
     /// profile's owner.
     pub fn decoder(&self, framing: Framing, context: Arc<dyn WireContext>) -> ResponsesDecoder {
         ResponsesDecoder::new(framing, context, self.input.replay_owner.clone())
+    }
+
+    /// The decoder of a stateless-continuation route for `request`: it ends the
+    /// turn with the request's provider state updated in this route's slot.
+    pub fn decoder_for(&self, request: &ModelRequest, framing: Framing, context: Arc<dyn WireContext>) -> ResponsesDecoder {
+        self.decoder(framing, context).with_state(StateReport {
+            spec: self.continuation.clone(),
+            prior: request.options.provider_state.clone(),
+            model: request.model.clone(),
+            message_count: request.messages.len(),
+        })
+    }
+
+    /// What `request`'s provider state resumes from; pass it as
+    /// `BuildInputs.continuation`. Errors where the route serves no
+    /// server-side state and the state names some.
+    pub fn resume(&self, request: &ModelRequest) -> Result<Continuation, StatelessOnly> {
+        resume(
+            &self.continuation,
+            self.input.replay_owner.as_str(),
+            request.options.provider_state.as_ref(),
+            &request.model,
+            &request.messages,
+        )
     }
 
     /// A minimal dialect: gateway order, system in `input`, function tools,

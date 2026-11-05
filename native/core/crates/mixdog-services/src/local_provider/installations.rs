@@ -33,14 +33,16 @@ struct Entry {
     status: Map<String, Value>,
     running: bool,
     cancel: CancellationToken,
+    /// This installation's one result channel. A waiter subscribes (and the operation settles it)
+    /// under the `entries` lock, so a waiter is bound to exactly the installation it joined and
+    /// can neither miss its result nor receive another installation's.
+    done: watch::Sender<Option<Result<Value, String>>>,
 }
 
 #[derive(Default)]
 pub struct Installations {
     signal: ChangeSignal,
     entries: Mutex<HashMap<String, Entry>>,
-    /// Waiters per installation key, resolved with the operation's outcome.
-    joiners: Mutex<HashMap<String, Vec<watch::Sender<Option<Result<Value, String>>>>>>,
 }
 
 fn key(phase: &str, model_id: Option<&str>) -> String {
@@ -74,13 +76,11 @@ impl Installations {
     {
         let key = key(phase, model_id);
         let (tx, rx) = watch::channel(None);
-        let cancel = {
+        let (cancel, snapshot) = {
             let mut entries = self.entries.lock().unwrap();
             if let Some(existing) = entries.get(&key).filter(|e| e.running) {
-                // Share the running work: a joiner waits for the same outcome through its own channel.
-                let status = Value::Object(existing.status.clone());
-                drop(entries);
-                return (status, self.join(&key));
+                // Share the running work: the joiner waits on that installation's own channel.
+                return (Value::Object(existing.status.clone()), existing.done.subscribe());
             }
             let cancel = CancellationToken::new();
             let status = Map::from_iter([
@@ -91,12 +91,11 @@ impl Installations {
                 ("stage".into(), json!("preparing")),
                 ("percent".into(), Value::Null),
             ]);
-            entries.insert(key.clone(), Entry { status, running: true, cancel: cancel.clone() });
-            cancel
+            let snapshot = Value::Object(status.clone());
+            entries.insert(key.clone(), Entry { status, running: true, cancel: cancel.clone(), done: tx });
+            (cancel, snapshot)
         };
         self.signal.notify();
-        self.joiners.lock().unwrap().entry(key.clone()).or_default().push(tx);
-        let snapshot = self.entries.lock().unwrap().get(&key).map(|e| Value::Object(e.status.clone())).unwrap_or(Value::Null);
         let this = self.clone();
         let progress: Progress = {
             let (this, key) = (this.clone(), key.clone());
@@ -113,22 +112,17 @@ impl Installations {
                 Err(_) if cancel.is_cancelled() => Map::from_iter([("state".into(), json!("paused")), ("stage".into(), json!("paused")), ("error".into(), Value::Null)]),
                 Err(message) => Map::from_iter([("state".into(), json!("failed")), ("error".into(), json!(message))]),
             };
-            this.publish(&key, update);
+            // The final status, the end of "running" and the result are one step, so no joiner
+            // can see a finished installation as running or a new one as the old.
             if let Some(entry) = this.entries.lock().unwrap().get_mut(&key) {
+                entry.status.extend(update);
+                entry.status.insert("updatedAt".into(), json!(now_ms()));
                 entry.running = false;
+                entry.done.send_replace(Some(result));
             }
-            let senders = this.joiners.lock().unwrap().remove(&key).unwrap_or_default();
-            for sender in senders {
-                let _ = sender.send(Some(result.clone()));
-            }
+            this.signal.notify();
         });
         (snapshot, rx)
-    }
-
-    fn join(&self, key: &str) -> Completion {
-        let (tx, rx) = watch::channel(None);
-        self.joiners.lock().unwrap().entry(key.to_owned()).or_default().push(tx);
-        rx
     }
 
     /// Pauses a running installation; the status then reads `cancelling` until it settles.
@@ -227,6 +221,33 @@ mod tests {
         assert_eq!(installs.cancel("nope").unwrap_err(), InstallError::NotFound);
         installs.forget("model", Some("m")).unwrap();
         assert!(installs.status().is_empty());
+    }
+
+    /// Callers racing installs that finish at once: each must resolve, and with the result of the
+    /// installation it joined (the operation answers its own job id), never a later or earlier one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_waiter_always_gets_the_result_of_the_installation_it_joined() {
+        let installs = Arc::new(Installations::default());
+        for _ in 0..300 {
+            let callers: Vec<_> = (0..4)
+                .map(|_| {
+                    let installs = installs.clone();
+                    tokio::spawn(async move {
+                        let seen = installs.clone();
+                        let (status, rx) = installs.track("model", Some("m"), move |_, _| async move {
+                            tokio::task::yield_now().await;
+                            Ok(seen.status()[0]["jobId"].clone())
+                        });
+                        let result = tokio::time::timeout(std::time::Duration::from_secs(5), wait(rx)).await.expect("a waiter was left unresolved");
+                        (status["jobId"].clone(), result)
+                    })
+                })
+                .collect();
+            for caller in callers {
+                let (job, result) = caller.await.unwrap();
+                assert_eq!(result, Ok(job));
+            }
+        }
     }
 
     #[tokio::test]

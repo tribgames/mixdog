@@ -4,9 +4,11 @@
 
 mod core_memory;
 mod embeddings;
+mod ingest;
 mod recall;
 mod sensitive;
 mod service;
 mod session_search;
+mod session_search_golden;
 pub mod support;
 

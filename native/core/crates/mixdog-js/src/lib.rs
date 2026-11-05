@@ -5,12 +5,15 @@
 pub mod device_paths;
 mod json;
 mod locale_compare;
+pub mod math;
 mod number;
 mod regex;
 mod regex_error;
 mod text;
+pub mod time;
 pub mod token_estimate;
 
+pub use json::ordered_keys as js_object_keys;
 pub use json::quote as json_quote;
 pub use json::quoted_cut_utf16_len as json_cut_utf16_len;
 pub use json::stringify as json_stringify;

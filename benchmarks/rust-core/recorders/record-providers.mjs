@@ -13,6 +13,8 @@ import { cpSync, existsSync } from 'node:fs';
 import http from 'node:http';
 import { join } from 'node:path';
 import { recordAnthropicEffort } from './record-anthropic-effort.mjs';
+import { recordAnthropicSharedPrefix } from './record-anthropic-shared-prefix.mjs';
+import { recordXaiResponsesContinuation } from './record-xai-responses-continuation.mjs';
 import { installDeterminism } from './lib/determinism.mjs';
 import { cleanHeaders } from './lib/headers.mjs';
 import { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
@@ -108,6 +110,18 @@ const anthropicText = sse(
   ],
   { named: true }
 );
+// A reply that wrote 300 cache tokens, 200 of them with the 1-hour TTL (message_start reports the split).
+const anthropicCache1h = sse(
+  [
+    { type: 'message_start', message: { id: 'msg_fx3', type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [], usage: { input_tokens: 20, cache_read_input_tokens: 5, cache_creation_input_tokens: 300, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 200 }, output_tokens: 1 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Cached.' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 4 } },
+    { type: 'message_stop' },
+  ],
+  { named: true }
+);
 const anthropicTool = sse(
   [
     { type: 'message_start', message: { id: 'msg_fx2', type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [], usage: { input_tokens: 20, output_tokens: 1 } } },
@@ -124,6 +138,7 @@ const { AnthropicProvider } = await importFrom(tree, `${P}/anthropic.mjs`);
 const anthropicRun = (messages) => async (base, onToolCall) =>
   new AnthropicProvider({ apiKey: KEY, baseURL: base, maxRetries: 0 }).send(messages, 'claude-sonnet-4-6', TOOLS, { onToolCall });
 await record('anthropic', 'text', { body: anthropicText }, anthropicRun(BASE_MESSAGES));
+await record('anthropic', 'cache-write-1h', { body: anthropicCache1h }, anthropicRun(BASE_MESSAGES));
 await record('anthropic', 'tool-call', { body: anthropicTool }, anthropicRun(BASE_MESSAGES));
 await record('anthropic', 'tool-result-followup', { body: anthropicText }, anthropicRun(WITH_RESULT));
 await record(
@@ -230,14 +245,23 @@ for (const f of ['openai-responses-payload-parity.fixture.json', 'openai-compat-
 }
 if (!existsSync(join(setDir, 'oracles', 'native-request-bytes.head.json'))) cpSync(join(tree, 'scripts/tool-contracts/native-request-bytes.head.json'), join(setDir, 'oracles', 'native-request-bytes.head.json'));
 
-// Owned by WP-AI-ANTHROPIC's recorder; regenerated here so the staged set always has it.
+// Owned by WP-AI-ANTHROPIC's recorders; regenerated here, before the manifest write, so the staged set always has them.
 await recordAnthropicEffort(tree, join(setDir, 'anthropic-effort', 'cases.json'));
+await recordAnthropicSharedPrefix(tree, join(setDir, 'anthropic-shared-prefix', 'cases.json'));
+await recordXaiResponsesContinuation(tree, join(setDir, 'oracles', 'xai-responses-continuation.json'));
 
 writeSetManifest(setDir, {
   set: 'providers',
   recorder: 'benchmarks/rust-core/recorders/record-providers.mjs',
   command: 'node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>',
-  extra: { scenarios: recorded.sort() },
+  extra: {
+    scenarios: recorded.sort(),
+    // Hand-authored by their work packages (no recorder); kept by the staged copy and only hashed here.
+    externalFixtures: [
+      'gemini-explicit-cache/cases.json (WP-AI-GOOGLE)',
+      'oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)',
+    ],
+  },
 });
 commitStage(setDir, finalDir);
 console.log(`recorded ${recorded.length} scenarios`);

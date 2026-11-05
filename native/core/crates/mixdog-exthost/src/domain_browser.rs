@@ -50,6 +50,10 @@ impl DomainService for BrowserService {
         Ok(Reply::Value(result))
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["browser/command"]
+    }
+
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
     }
@@ -101,7 +105,7 @@ mod tests {
         channel.fail(Method("host/browser/command"), -32000, "Error: bad selector", None);
         let error = service.call(request(json!({ "action": "click" }))).await.unwrap_err();
         let CoreError::DomainError { domain, code, detail } = error else { panic!("a coded error") };
-        assert_eq!((&*domain, &*code), ("browser", "HOST_COMMAND_FAILED"));
+        assert_eq!((&*domain, code.as_deref()), ("browser", Some("HOST_COMMAND_FAILED")));
         assert_eq!(
             detail.as_deref(),
             Some(&mixdog_protocol::DomainErrorDetail::ExternalFailure { message: "Error: bad selector".into() })

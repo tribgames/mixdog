@@ -6,6 +6,9 @@
 
 use std::collections::HashMap;
 
+use std::sync::LazyLock;
+
+use mixdog_js::{JsRegex, is_js_space, js_trim, js_words, slice_utf16, utf16_len};
 use mixdog_tools::exec::escape_harness_tags;
 use serde_json::Value;
 
@@ -68,36 +71,27 @@ fn system_prompt() -> String {
 }
 
 fn bounded(value: &str, limit: usize) -> String {
-    if value.chars().count() > limit {
-        let head: String = value.chars().take(limit - 1).collect();
-        format!("{head}…")
+    if utf16_len(value) > limit {
+        format!("{}…", slice_utf16(value, limit - 1))
     } else {
         value.to_owned()
     }
 }
 
+static BREAKS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[[\]\r\n]+", "g"));
+static RUNTIME_MARK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[mixdog-runtime\]", "gi"));
+static LISTED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\(id ([^()]+)\)$", "i"));
+
 /// A name or id as boundary data: brackets and line breaks flattened, harness tags escaped.
 fn label(value: &str) -> String {
-    let flat: String = value
-        .chars()
-        .map(|c| if matches!(c, '[' | ']' | '\r' | '\n') { ' ' } else { c })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let escaped = escape_harness_tags(&flat);
+    let flat = BREAKS.replace_all_with(value, |_| " ".to_owned());
+    let escaped = escape_harness_tags(js_trim(&flat));
     if escaped.is_empty() { "agent".to_owned() } else { escaped }
 }
 
 /// Peer text as boundary data: harness tags escaped, the runtime marker defused, every line prefixed.
 fn data_lines(text: &str) -> Vec<String> {
-    let escaped = escape_harness_tags(text);
-    let defused = regex::RegexBuilder::new(r"\[mixdog-runtime\]")
-        .case_insensitive(true)
-        .build()
-        .expect("static pattern")
-        .replace_all(&escaped, "(mixdog-runtime)")
-        .into_owned();
+    let defused = RUNTIME_MARK.replace_all_with(&escape_harness_tags(text), |_| "(mixdog-runtime)".to_owned());
     defused.replace("\r\n", "\n").split('\n').map(|line| format!("│ {line}")).collect()
 }
 
@@ -126,7 +120,9 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
     };
     let mut lines = vec!["<room-data>".to_owned(), format!("Room: {}", short(input.room_name)), "Members:".to_owned()];
     for member in listed {
-        let first = member.description.trim().lines().next().unwrap_or("");
+        let described = js_trim(&member.description);
+        let first = described.split('\n').next().unwrap_or("");
+        let first = first.strip_suffix('\r').unwrap_or(first);
         let about = if first.is_empty() { String::new() } else { format!(" | about: {}", label(&bounded(first, DESCRIPTION_LIMIT))) };
         let name = if member.name.is_empty() { &member.id } else { &member.name };
         lines.push(format!("- id: {} | name: {}{about}", short(&member.id), short(name)));
@@ -257,7 +253,7 @@ fn without_trailing_commas(value: &str) -> String {
         } else if ch == '"' {
             quoted = true;
         } else if ch == ','
-            && chars[index + 1..].iter().find(|c| !c.is_whitespace()).is_some_and(|c| matches!(c, '}' | ']'))
+            && chars[index + 1..].iter().find(|c| !is_js_space(**c)).is_some_and(|c| matches!(c, '}' | ']'))
         {
             continue;
         }
@@ -271,17 +267,15 @@ fn decision_object(span: &str) -> Option<HashMap<String, Value>> {
     let Value::Object(map) = serde_json::from_str::<Value>(&without_trailing_commas(span)).ok()? else {
         return None;
     };
-    Some(map.into_iter().map(|(key, field)| (key.trim().to_lowercase(), field)).collect())
+    Some(map.into_iter().map(|(key, field)| (js_trim(&key).to_lowercase(), field)).collect())
 }
 
 /// The one member a reply's `member` names: an id, a name only one member has, or "Name (id x)".
 fn member_named<'a>(value: &str, members: &'a [SupervisorMember]) -> Option<&'a SupervisorMember> {
-    let raw = value.trim().trim_start_matches('@');
-    let listed = raw
-        .strip_suffix(')')
-        .and_then(|head| head.rfind("(id ").filter(|_| raw.ends_with(')')).map(|at| &head[at + 4..]))
-        .filter(|id| !id.contains(['(', ')']));
-    let key = listed.unwrap_or(raw).trim().to_lowercase();
+    let trimmed = js_trim(value);
+    let raw = trimmed.strip_prefix('@').unwrap_or(trimmed);
+    let listed = LISTED_ID.captures(raw).and_then(|caps| caps.get(1));
+    let key = js_trim(listed.unwrap_or(raw)).to_lowercase();
     if key.is_empty() {
         return None;
     }
@@ -292,7 +286,7 @@ fn member_named<'a>(value: &str, members: &'a [SupervisorMember]) -> Option<&'a 
     if listed.is_some() {
         return None;
     }
-    let by_name: Vec<&SupervisorMember> = members.iter().filter(|m| m.name.trim().to_lowercase() == key).collect();
+    let by_name: Vec<&SupervisorMember> = members.iter().filter(|m| js_trim(&m.name).to_lowercase() == key).collect();
     (by_name.len() == 1).then(|| by_name[0])
 }
 
@@ -307,8 +301,8 @@ pub fn parse_room_decision(reply: &str, members: &[SupervisorMember]) -> Option<
     let [value] = found.as_slice() else {
         return None;
     };
-    let action = value.get("action").and_then(Value::as_str).map(|a| a.trim().to_lowercase()).unwrap_or_default();
-    let scene = if value.get("scene").and_then(Value::as_str).is_some_and(|s| s.trim().eq_ignore_ascii_case("casual")) {
+    let action = value.get("action").and_then(Value::as_str).map(|a| js_trim(a).to_lowercase()).unwrap_or_default();
+    let scene = if value.get("scene").and_then(Value::as_str).is_some_and(|s| js_trim(s).to_lowercase() == "casual") {
         Scene::Casual
     } else {
         Scene::Work
@@ -322,7 +316,7 @@ pub fn parse_room_decision(reply: &str, members: &[SupervisorMember]) -> Option<
     let member = member_named(value.get("member")?.as_str()?, members)?;
     let instruction = match value.get("instruction") {
         None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(ROOM_INSTRUCTION_LIMIT).collect(),
+        Some(Value::String(text)) => slice_utf16(&js_words(text).collect::<Vec<_>>().join(" "), ROOM_INSTRUCTION_LIMIT),
         Some(_) => return None,
     };
     Some(Decision { action: Action::Speak { agent_id: member.id.clone(), instruction }, scene: Some(scene) })

@@ -23,7 +23,11 @@ fn service(dir: &std::path::Path) -> std::sync::Arc<BlobService> {
     BlobService::new(BlobStore::new(dir), &mixdog_rt::testing::tokens(), &limits)
 }
 
-async fn call(service: &BlobService, method: &'static str, params: Value) -> Result<Value, CoreError> {
+async fn call(
+    service: &BlobService,
+    method: &'static str,
+    params: Value,
+) -> Result<Value, CoreError> {
     let req = CoreRequest {
         method: Method(method),
         params,
@@ -45,20 +49,43 @@ async fn chunks_publish_when_the_bytes_hash_to_the_digest() {
     let dir = tempfile::tempdir().unwrap();
     let service = service(dir.path());
     // The conformance transcript: "ab" at 0, "c" at 2.
-    assert_eq!(call(&service, "blob/put", put(ABC, 0, "YWI=")).await.unwrap(), json!({}));
+    assert_eq!(
+        call(&service, "blob/put", put(ABC, 0, "YWI="))
+            .await
+            .unwrap(),
+        json!({})
+    );
     assert!(matches!(
         call(&service, "blob/read", json!({ "digest": ABC })).await,
         Err(CoreError::BlobNotFound { .. })
     ));
-    assert_eq!(call(&service, "blob/put", put(ABC, 2, "Yw==")).await.unwrap(), json!({}));
-    assert_eq!(call(&service, "blob/read", json!({ "digest": ABC })).await.unwrap(), json!({ "bytesB64": "YWJj" }));
     assert_eq!(
-        call(&service, "blob/read", json!({ "digest": ABC, "offset": 1, "length": 1 })).await.unwrap(),
+        call(&service, "blob/put", put(ABC, 2, "Yw=="))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        call(&service, "blob/read", json!({ "digest": ABC }))
+            .await
+            .unwrap(),
+        json!({ "bytesB64": "YWJj" })
+    );
+    assert_eq!(
+        call(
+            &service,
+            "blob/read",
+            json!({ "digest": ABC, "offset": 1, "length": 1 })
+        )
+        .await
+        .unwrap(),
         json!({ "bytesB64": "Yg==" })
     );
     // Past the end is an empty page.
     assert_eq!(
-        call(&service, "blob/read", json!({ "digest": ABC, "offset": 9 })).await.unwrap(),
+        call(&service, "blob/read", json!({ "digest": ABC, "offset": 9 }))
+            .await
+            .unwrap(),
         json!({ "bytesB64": "" })
     );
 }
@@ -67,9 +94,13 @@ async fn chunks_publish_when_the_bytes_hash_to_the_digest() {
 async fn a_resent_chunk_has_one_effect_and_a_gap_or_a_changed_chunk_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let service = service(dir.path());
-    call(&service, "blob/put", put(ABC, 0, "YWI=")).await.unwrap();
+    call(&service, "blob/put", put(ABC, 0, "YWI="))
+        .await
+        .unwrap();
     // The same chunk again: nothing changes.
-    call(&service, "blob/put", put(ABC, 0, "YWI=")).await.unwrap();
+    call(&service, "blob/put", put(ABC, 0, "YWI="))
+        .await
+        .unwrap();
     // A chunk past the end leaves a gap.
     assert!(matches!(
         call(&service, "blob/put", put(ABC, 3, "Yw==")).await,
@@ -85,9 +116,13 @@ async fn a_resent_chunk_has_one_effect_and_a_gap_or_a_changed_chunk_is_refused()
         call(&service, "blob/put", put(ABC, 2, "YWJj")).await,
         Err(CoreError::InvalidParams { .. })
     ));
-    call(&service, "blob/put", put(ABC, 2, "Yw==")).await.unwrap();
+    call(&service, "blob/put", put(ABC, 2, "Yw=="))
+        .await
+        .unwrap();
     // The completing chunk sent again after its answer was lost.
-    call(&service, "blob/put", put(ABC, 2, "Yw==")).await.unwrap();
+    call(&service, "blob/put", put(ABC, 2, "Yw=="))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -108,9 +143,17 @@ async fn a_page_is_never_larger_than_the_advertised_page() {
     let digest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
     for (offset, chunk) in ["hello world".as_bytes()].concat().chunks(2).enumerate() {
         let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, chunk);
-        call(&service, "blob/put", put(digest, (offset * 2) as u64, &b64)).await.unwrap();
+        call(&service, "blob/put", put(digest, (offset * 2) as u64, &b64))
+            .await
+            .unwrap();
     }
-    let page = call(&service, "blob/read", json!({ "digest": digest, "length": 100 })).await.unwrap();
+    let page = call(
+        &service,
+        "blob/read",
+        json!({ "digest": digest, "length": 100 }),
+    )
+    .await
+    .unwrap();
     // "hello " is 6 bytes.
     assert_eq!(page, json!({ "bytesB64": "aGVsbG8g" }));
 }

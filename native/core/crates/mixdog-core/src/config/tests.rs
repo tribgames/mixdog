@@ -519,6 +519,24 @@ fn notifications_store_what_node_stores() {
     }
 }
 
+/// The readers push delivery uses answer what Node's store answers (`record-notification-readers.mjs`).
+#[test]
+fn notification_readers_match_the_recorded_node_store() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/desktop/settings/notification-readers-twin.json");
+    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    for (i, entry) in twin["entries"].as_array().unwrap().iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(json!({ "notifications": entry["input"] })));
+        for (id, expected) in entry["devices"].as_object().unwrap() {
+            let got = serde_json::to_value(config.notification_device(id)).unwrap();
+            assert_eq!(&got, expected, "device {id} of {i}");
+        }
+        let overrides = serde_json::to_value(config.notification_overrides_at(entry["now"].as_i64().unwrap())).unwrap();
+        assert_eq!(overrides, entry["overrides"], "overrides of {i}");
+    }
+}
+
 #[test]
 fn reads_do_not_wait_for_a_writer() {
     let dir = tempfile::tempdir().unwrap();

@@ -26,10 +26,46 @@ pub struct Lanes {
 /// job is submitted through [`counted`], so with nothing running at the start of a window and nothing
 /// started during it, this crate made no file-system call in that window, including none from a job
 /// that was already running.
+///
+/// Both numbers live in one word (started in the high half, running in the low half) so a reader
+/// gets them from a single load: a job cannot start between the two reads of a snapshot.
 #[cfg(feature = "count-jobs")]
-pub static JOBS_STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static JOB_WORD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(feature = "count-jobs")]
-pub static JOBS_RUNNING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const STARTED_ONE: u64 = 1 << 32;
+#[cfg(feature = "count-jobs")]
+const RUNNING_MASK: u64 = STARTED_ONE - 1;
+
+/// One atomic reading of the job counters.
+#[cfg(feature = "count-jobs")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JobSnapshot {
+    pub started: u64,
+    pub running: u64,
+}
+
+#[cfg(feature = "count-jobs")]
+pub fn job_snapshot() -> JobSnapshot {
+    let word = JOB_WORD.load(std::sync::atomic::Ordering::SeqCst);
+    JobSnapshot { started: word >> 32, running: word & RUNNING_MASK }
+}
+
+/// The idle verdict for a window between two snapshots: nothing running when it opened, nothing
+/// started in it (a job that started and finished inside it still counts), nothing running when it
+/// closed.
+#[cfg(feature = "count-jobs")]
+pub fn idle_window_violation(open: JobSnapshot, close: JobSnapshot) -> Option<String> {
+    if open.running != 0 {
+        return Some(format!("{} lane job(s) already running when the window opened", open.running));
+    }
+    if close.started != open.started {
+        return Some(format!("{} lane job(s) started inside the window", close.started - open.started));
+    }
+    if close.running != 0 {
+        return Some(format!("{} lane job(s) running when the window closed", close.running));
+    }
+    None
+}
 
 #[cfg(feature = "count-jobs")]
 struct Running;
@@ -37,7 +73,7 @@ struct Running;
 #[cfg(feature = "count-jobs")]
 impl Drop for Running {
     fn drop(&mut self) {
-        JOBS_RUNNING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        JOB_WORD.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -46,8 +82,7 @@ pub(crate) fn counted<R>(job: impl FnOnce() -> R) -> impl FnOnce() -> R {
     move || {
         #[cfg(feature = "count-jobs")]
         let _running = {
-            JOBS_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            JOBS_RUNNING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            JOB_WORD.fetch_add(STARTED_ONE + 1, std::sync::atomic::Ordering::SeqCst);
             Running
         };
         job()

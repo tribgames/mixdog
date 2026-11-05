@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::catalog::{EngineEntry, engine_entry, engines_for_languages};
 use super::install::{manifest_asset, managed_engine_binary, read_engines_manifest};
-use super::process::{PathIndex, RunOptions, map_limit, run_process, which};
+use super::process::{PathIndex, Processes, RunOptions, map_limit, which};
 
 pub const DEFAULT_DOWNLOAD_POLICY: &str = "auto";
 const DOWNLOAD_POLICIES: [&str; 3] = ["ask", "auto", "never"];
@@ -187,7 +187,7 @@ fn installable(entry: &EngineEntry, manifest: &Value) -> bool {
     entry.managed && manifest_asset(manifest, &entry.id).is_some()
 }
 
-async fn resolve_one(cwd: &Path, entry: &EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, manifest: &Value, plugin_data: &Path, index: &PathIndex) -> Resolved {
+async fn resolve_one(processes: &Processes, cwd: &Path, entry: &EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, manifest: &Value, plugin_data: &Path, index: &PathIndex) -> Resolved {
     let base = Resolved { id: entry.id.clone(), kind: entry.kind.clone(), languages: entry.languages.clone(), install_hint: entry.install_hint.clone(), ..Default::default() };
     if let Some(configured) = config.engines.get(&entry.id).and_then(Value::as_object) {
         if let Some(command) = configured.get("command").and_then(Value::as_str).filter(|c| !c.is_empty()) {
@@ -215,7 +215,7 @@ async fn resolve_one(cwd: &Path, entry: &EngineEntry, config: &TidyConfig, env: 
         };
         let host_path = host.to_string_lossy().into_owned();
         if entry.managed && !plugin_data.as_os_str().is_empty() {
-            if let Some((module, version)) = managed_engine_binary(&entry.id, manifest, plugin_data).await {
+            if let Some((module, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await {
                 let module = module.to_string_lossy().into_owned();
                 return Resolved { source: "managed".into(), path: module.clone(), command: host_path, version, module_path: Some(module), ..base };
             }
@@ -227,7 +227,7 @@ async fn resolve_one(cwd: &Path, entry: &EngineEntry, config: &TidyConfig, env: 
         return Resolved { source: "path".into(), path: found.to_string_lossy().into_owned(), command, args, ..base };
     }
     if entry.managed && !plugin_data.as_os_str().is_empty() {
-        if let Some((path, version)) = managed_engine_binary(&entry.id, manifest, plugin_data).await {
+        if let Some((path, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await {
             let p = path.to_string_lossy().into_owned();
             return Resolved { source: "managed".into(), path: p.clone(), command: p, version, ..base };
         }
@@ -276,13 +276,13 @@ pub fn parse_version_text(text: &str) -> String {
 
 /// Version of a host-provided managed module (PSScriptAnalyzer under pwsh/powershell). Spawns
 /// a PowerShell host, so callers on a polled path must cache it.
-pub async fn probe_host_managed_module(engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
+pub async fn probe_host_managed_module(processes: &Processes, engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
     let Some(args) = engine_entry(&engine.id).and_then(|e| e.version_args.clone()) else { return String::new() };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut options = RunOptions::new(&cwd);
     options.timeout = VERSION_PROBE_TIMEOUT;
     options.cancel = cancel;
-    let result = run_process(&engine.command, &args, options).await;
+    let result = processes.run(&engine.command, &args, options).await;
     let version = parse_dotted(&result.stdout);
     if result.code == 0 { version } else { String::new() }
 }
@@ -293,7 +293,7 @@ fn parse_dotted(text: &str) -> String {
     v.split(['-', '+']).next().unwrap_or("").to_owned()
 }
 
-async fn probe_version(engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
+async fn probe_version(processes: &Processes, engine: &Resolved, cancel: Option<&CancellationToken>) -> String {
     let defaults = vec!["--version".to_owned()];
     let version_args = engine_entry(&engine.id).and_then(|e| e.version_args.clone()).unwrap_or(defaults);
     let args: Vec<String> = engine.args.iter().cloned().chain(version_args).collect();
@@ -301,7 +301,7 @@ async fn probe_version(engine: &Resolved, cancel: Option<&CancellationToken>) ->
     let mut options = RunOptions::new(&cwd);
     options.timeout = VERSION_PROBE_TIMEOUT;
     options.cancel = cancel;
-    let result = run_process(&engine.command, &args, options).await;
+    let result = processes.run(&engine.command, &args, options).await;
     parse_version_text(&format!("{}\n{}", result.stdout, result.stderr))
 }
 
@@ -350,7 +350,7 @@ impl Resolution {
 /// Resolves every engine that can touch the requested languages. With neither `languages` nor
 /// `engine_ids` there is nothing to resolve: a scope that holds no tracked file of a known
 /// language must not probe the whole catalog.
-pub async fn resolve_engines(cwd: &Path, options: ResolveOptions) -> Resolution {
+pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: ResolveOptions) -> Resolution {
     let config = read_tidy_config(cwd);
     let env_downloads = options.env.as_ref().and_then(|e| e.get("MIXDOG_TIDY_DOWNLOADS").cloned()).or_else(|| std::env::var("MIXDOG_TIDY_DOWNLOADS").ok());
     let policy = resolve_download_policy(&config, env_downloads.as_deref());
@@ -367,7 +367,7 @@ pub async fn resolve_engines(cwd: &Path, options: ResolveOptions) -> Resolution 
     let index = PathIndex::new(options.env.as_ref());
     let mut resolved = Vec::new();
     for entry in requested {
-        let mut r = resolve_one(cwd, entry, &config, options.env.as_ref(), &manifest, &options.plugin_data, &index).await;
+        let mut r = resolve_one(processes, cwd, entry, &config, options.env.as_ref(), &manifest, &options.plugin_data, &index).await;
         r.config_file = project_config_file_for(cwd, entry);
         if entry.requires_config && r.config_file.is_none() && r.source != "project-config" {
             r.skipped = Some("no project config for this engine".into());
@@ -385,13 +385,13 @@ pub async fn resolve_engines(cwd: &Path, options: ResolveOptions) -> Resolution 
             engine.suppressed_by = suppressors;
         }
     }
-    refine_managed_modules(&mut resolved, options.host_module_probe.as_ref(), options.cancel.as_ref()).await;
+    refine_managed_modules(processes, &mut resolved, options.host_module_probe.as_ref(), options.cancel.as_ref()).await;
     if options.probe_versions {
         let cancel = options.cancel.clone();
         let runnable: Vec<(usize, Resolved)> = resolved.iter().cloned().enumerate().filter(|(_, e)| !e.missing && !e.command.is_empty()).collect();
         let versions = map_limit(runnable.clone(), 4, |(_, e)| {
             let cancel = cancel.clone();
-            async move { if e.version.is_empty() { probe_version(&e, cancel.as_ref()).await } else { e.version.clone() } }
+            async move { if e.version.is_empty() { probe_version(processes, &e, cancel.as_ref()).await } else { e.version.clone() } }
         })
         .await;
         for ((index, _), version) in runnable.iter().zip(versions) {
@@ -403,7 +403,7 @@ pub async fn resolve_engines(cwd: &Path, options: ResolveOptions) -> Resolution 
     Resolution { engines: resolved, policy, config, unknown_engines: unknown }
 }
 
-async fn refine_managed_modules(engines: &mut [Resolved], probe: Option<&HostModuleProbe>, cancel: Option<&CancellationToken>) {
+async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved], probe: Option<&HostModuleProbe>, cancel: Option<&CancellationToken>) {
     let candidates: Vec<(usize, Resolved)> = engines.iter().cloned().enumerate().filter(|(_, e)| engine_entry(&e.id).is_some_and(|c| c.managed_module) && !e.command.is_empty()).collect();
     if candidates.is_empty() {
         return;
@@ -414,7 +414,7 @@ async fn refine_managed_modules(engines: &mut [Resolved], probe: Option<&HostMod
         async move {
             match probe {
                 Some(p) => p(e).await,
-                None => probe_host_managed_module(&e, cancel.as_ref()).await,
+                None => probe_host_managed_module(processes, &e, cancel.as_ref()).await,
             }
         }
     })
@@ -490,7 +490,7 @@ mod tests {
         write(path_dir.path(), &bin("ruff"), "x");
         write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
         write(project.path(), ".mixdog/tidy.json", r#"{"engines":{"ruff":{"command":"/custom/ruff","args":["--x"]}}}"#);
-        let r = resolve_engines(project.path(), opts(&["ruff", "prettier", "shfmt", "stylua", "eslint", "nope"], path_dir.path())).await;
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff", "prettier", "shfmt", "stylua", "eslint", "nope"], path_dir.path())).await;
         let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
         assert_eq!((by("ruff").source.as_str(), by("ruff").command.as_str(), by("ruff").args.clone()), ("project-config", "/custom/ruff", vec!["--x".to_owned()]));
         assert_eq!(by("prettier").source, "project-local");
@@ -508,13 +508,13 @@ mod tests {
         write(path_dir.path(), &bin("biome"), "x");
         write(path_dir.path(), &bin("dprint"), "x");
         write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
-        let r = resolve_engines(project.path(), opts(&["biome", "prettier", "dprint"], path_dir.path())).await;
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["biome", "prettier", "dprint"], path_dir.path())).await;
         let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
         assert_eq!(by("biome").skipped.as_deref(), Some("project uses prettier"));
         assert_eq!(by("dprint").skipped.as_deref(), Some("no project config for this engine"));
         assert_eq!(runnable_engines(&r.engines).iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["prettier"]);
         write(project.path(), "dprint.json", "{}");
-        let again = resolve_engines(project.path(), opts(&["dprint"], path_dir.path())).await;
+        let again = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint"], path_dir.path())).await;
         assert!(again.engines[0].skipped.is_none() && again.engines[0].config_file.as_deref() == Some("dprint.json"));
     }
 
@@ -523,10 +523,10 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         let path_dir = tempfile::tempdir().unwrap();
         write(path_dir.path(), &bin("dotnet"), "x");
-        assert!(resolve_engines(project.path(), opts(&[], path_dir.path())).await.engines.is_empty());
-        let r = resolve_engines(project.path(), opts(&["dotnet-format"], path_dir.path())).await;
+        assert!(resolve_engines(&Processes::for_tests(), project.path(), opts(&[], path_dir.path())).await.engines.is_empty());
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dotnet-format"], path_dir.path())).await;
         assert_eq!(r.engines[0].args, ["format"]);
-        let by_language = resolve_engines(project.path(), ResolveOptions { languages: vec!["python".into()], ..opts(&[], path_dir.path()) }).await;
+        let by_language = resolve_engines(&Processes::for_tests(), project.path(), ResolveOptions { languages: vec!["python".into()], ..opts(&[], path_dir.path()) }).await;
         assert_eq!(by_language.engines.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["ruff"]);
         assert_eq!(by_language.to_json()["engines"][0]["source"], "missing");
     }

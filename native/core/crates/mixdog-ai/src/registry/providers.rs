@@ -116,7 +116,7 @@ pub struct ProviderRegistry {
     builder: Arc<dyn ProviderBuilder>,
     state: Mutex<State>,
     /// Every mutation runs under this lock, so two applies never interleave.
-    apply: tokio::sync::Mutex<()>,
+    apply: tokio::sync::Semaphore,
 }
 
 fn sort_keys_deep(v: &Value) -> Value {
@@ -147,7 +147,7 @@ fn canonical(name: &str) -> &str {
 
 impl ProviderRegistry {
     pub fn new(builder: Arc<dyn ProviderBuilder>) -> Self {
-        Self { builder, state: Mutex::new(State::default()), apply: tokio::sync::Mutex::new(()) }
+        Self { builder, state: Mutex::new(State::default()), apply: tokio::sync::Semaphore::new(1) }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -235,7 +235,8 @@ impl ProviderRegistry {
     }
 
     async fn apply_plan(&self, plan: Plan) -> Result<(), RegistryError> {
-        let _chain = self.apply.lock().await;
+        // The semaphore is never closed, so the permit is always granted.
+        let _chain = self.apply.acquire().await;
         let mut built = Vec::new();
         for (name, cfg, sig) in self.pending(&plan) {
             match self.builder.build(&name, &cfg).await {

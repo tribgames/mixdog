@@ -32,8 +32,11 @@ pub fn from_headers(headers: &[(String, String)], now: SystemTime) -> Option<Dur
     if let Ok(seconds) = value.parse::<f64>() {
         return positive(seconds * 1000.0);
     }
-    let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
-    let at: SystemTime = date.with_timezone(&chrono::Utc).into();
+    let at = mixdog_js::time::date_parse(value);
+    if !at.is_finite() {
+        return None;
+    }
+    let at = SystemTime::UNIX_EPOCH + Duration::from_millis(at.max(0.0) as u64);
     at.duration_since(now).ok().filter(|d| !d.is_zero())
 }
 

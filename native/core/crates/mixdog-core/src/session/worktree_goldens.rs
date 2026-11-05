@@ -165,6 +165,25 @@ async fn an_unattended_run_text_equals_nodes() {
 }
 
 #[tokio::test]
+async fn the_three_transition_refusals_equal_nodes() {
+    let rig = rig();
+    let gate = rig.ws.gate();
+    let leave = gate.begin_transition("s-a", "tx").unwrap();
+    let session = gate.begin_transition("s-a", "tx").err().unwrap();
+    let spawn = gate.enter_worker_spawn(&["s-a"]).err().unwrap();
+    drop(leave);
+    let repo = rig.repo.to_string_lossy().into_owned();
+    let _held = gate.hold_checkout_folder("s-b", &repo, true).unwrap();
+    let folder = gate.hold_checkout_folder("s-c", &rig.repo.join("sub").to_string_lossy(), true).err().unwrap();
+    let actual = json!({
+        "session": error_value(&session),
+        "spawn": error_value(&spawn),
+        "folder": error_value(&folder),
+    });
+    assert_golden("transition_texts", actual);
+}
+
+#[tokio::test]
 async fn a_missing_worktree_turn_text_equals_nodes() {
     let rig = rig();
     let entered = run(&rig, enter("feat", "c1:enter")).await.unwrap();
@@ -173,10 +192,7 @@ async fn a_missing_worktree_turn_text_equals_nodes() {
     let recovery = restore_workspace_after_resume(rig.state.lock().unwrap().workspace.as_ref(), false);
     rig.state.lock().unwrap().workspace = recovery.workspace;
     let refused = rig.ws.prepare_turn_workspace("lead", TurnStart { submission_id: "sub1".into(), ..TurnStart::default() }, &CancellationToken::new()).await;
-    let mut actual = thrown(refused.map(|v| v.unwrap_or(Value::Null)));
-    // The gate's own text replaces the code's default here.
-    assert_eq!(actual["error"]["message"], "The managed worktree no longer exists.");
-    actual["error"]["message"] = json!(RECOVERY_TURN_REFUSAL);
+    let actual = thrown(refused.map(|v| v.unwrap_or(Value::Null)));
     assert_golden("worktree_missing_turn", recorded(&rig, Some(&worktree), actual));
 }
 

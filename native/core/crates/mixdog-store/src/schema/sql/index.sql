@@ -1,11 +1,13 @@
--- index/store.sqlite, user_version 1: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 4: catalog + history projection + blob refs.
+-- Bump user_version with every change to this file: an index of another version is
+-- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
 -- Connection settings (not stored here): journal_mode=WAL, synchronous=FULL,
 -- wal_autocheckpoint=0, busy_timeout=0, foreign_keys=OFF.
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 1;
+PRAGMA user_version = 4;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -51,6 +53,9 @@ CREATE TABLE sessions (
     title_kind TEXT CHECK (title_kind IN ('image','video','file')),
     -- localeCompare order of `id` as bytes (FORMAT.md §8.2).
     id_key BLOB NOT NULL,
+    -- The header's raw `title` (1.4.5 `readStoredSessionMetadata`: `session.title || null`);
+    -- NULL when absent or empty. The list row's `title` is the cleaned one.
+    title TEXT,
     -- fold(x) = Unicode default lowercase of x (no normalization); NULL for absent fields.
     title_fold TEXT NOT NULL,
     preview_fold TEXT,
@@ -120,6 +125,9 @@ CREATE TABLE history (
     frame_len INTEGER NOT NULL,
     amend_ordinal INTEGER,
     superseded_rev INTEGER,
+    -- JSON `{role, text, calls[]}` of a model message row: the parts a compaction can take
+    -- out of it (the text row by `iid`, tool cards by call id). NULL for other rows.
+    facets TEXT,
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;
 CREATE INDEX history_iid ON history(session, iid);
@@ -152,10 +160,27 @@ CREATE TABLE compactions (
     -- the replacement kept, else the compaction's own ordinal. The divider precedes the
     -- first displayed row at or above it.
     boundary INTEGER NOT NULL,
+    -- The divider's `at` (the record's optional `at`).
+    at INTEGER,
+    -- How the event decides what left the context (compaction_view::DropMode): 0 every row
+    -- before `boundary` (a source that reports nothing), 1 none (a pass that took out
+    -- nothing visible), 2 by the ids of `compaction_dropped`.
+    drop_mode INTEGER NOT NULL CHECK (drop_mode IN (0,1,2)),
     superseded_rev INTEGER,
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;
 CREATE INDEX compactions_live ON compactions(session, ordinal) WHERE superseded_rev IS NULL;
+
+-- The ids of a `drop_mode` 2 compaction (kind 0 message id, 1 call id). Live exactly while
+-- its `compactions` row is, so a rewind needs no write here. Keyed by id so the
+-- compactions that took a given message or call out are one range.
+CREATE TABLE compaction_dropped (
+    session TEXT NOT NULL,
+    kind INTEGER NOT NULL CHECK (kind IN (0,1)),
+    id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    PRIMARY KEY (session, kind, id, ordinal)
+) WITHOUT ROWID;
 
 -- The catalog's message state (FORMAT.md §8.2). Rows are immutable versions keyed by log
 -- position: a message of the model context (a model `message` item, or one entry of a
@@ -164,12 +189,17 @@ CREATE INDEX compactions_live ON compactions(session, ordinal) WHERE superseded_
 -- (`ver` = the amend's ordinal). `live` marks the current version of a live row;
 -- `superseded_rev` is the ordinal of the rewind that removed the version, so a rewind past
 -- an amend brings the earlier version back. `place` is the row's 1-based place among the
--- counted rows of its epoch, fixed when it was written.
+-- counted rows of its epoch, fixed when it was written. `file_no, frame_offset, frame_len`
+-- locate the frame at `ver` that holds the version's body (the item, the `compacted`
+-- frame's entry `idx`, or the amend): the model-context read (FORMAT.md §6.4).
 CREATE TABLE message_rows (
     session TEXT NOT NULL,
     ordinal INTEGER NOT NULL,
     idx INTEGER NOT NULL,
     ver INTEGER NOT NULL,
+    file_no INTEGER NOT NULL,
+    frame_offset INTEGER NOT NULL,
+    frame_len INTEGER NOT NULL,
     iid TEXT NOT NULL,
     counted INTEGER NOT NULL,
     real INTEGER NOT NULL,
@@ -184,6 +214,7 @@ CREATE TABLE message_rows (
 ) WITHOUT ROWID;
 CREATE INDEX message_rows_iid ON message_rows(session, iid, ordinal);
 CREATE INDEX message_rows_ver ON message_rows(session, ver) WHERE superseded_rev IS NULL;
+CREATE INDEX message_rows_live ON message_rows(session, ordinal, idx) WHERE live = 1;
 CREATE INDEX message_rows_preview ON message_rows(session, ordinal, idx) WHERE live = 1 AND preview <> '';
 CREATE INDEX message_rows_line ON message_rows(session, ordinal, idx) WHERE live = 1 AND line <> '';
 CREATE INDEX message_rows_incoming ON message_rows(session, ordinal, idx) WHERE live = 1 AND incoming = 1;
@@ -200,18 +231,23 @@ CREATE TABLE message_epochs (
     PRIMARY KEY (session, start)
 ) WITHOUT ROWID;
 
--- What a fork inherits: its base's state as of `position` (the fork point, or lower after
--- a rewind of the child into the base range), snapshotted once. Immutable once `ready`;
--- a later rewind or amend of the base never reaches it. Versioned by log position like
--- rows: `valid_from` is the frame that set it, a rewind past it supersedes it. A view
--- whose base was not exactly at `position` is `pending` while the maintenance steps scan
--- the base rows as of `position` from the cursor (`cur_*`); the accumulators carry the
--- partial state and `place_base` the base's own inherited count for absolute places.
+-- What a fork inherits: its base's frames live at log position `position` (the fork
+-- point, immutable) with ordinal below `cut` (the fork point, or lower after a rewind of
+-- the child into the base range), snapshotted once. Immutable once `ready`; a later
+-- rewind or amend of the base never reaches it. Versioned by log position like rows:
+-- `valid_from` is the frame that set it (the session frame, or the child's rewind into the
+-- base range, which adds a view with a lower cut); the view in force at a position is the
+-- newest with a lower `valid_from`, and rewinds never remove one. A view is `pending`
+-- until the base has projected up to `position` and the maintenance steps have run: the
+-- hop (`hop_*`: session, time, cut) descends through the views of the bases while the cut
+-- is below theirs (`scanning` = 0), then the rows of the final hop are paged by keyset
+-- (`cur_ordinal`, `cur_idx`) into the accumulators.
 CREATE TABLE message_views (
     session TEXT NOT NULL,
     valid_from INTEGER NOT NULL,
     base TEXT NOT NULL,
     position INTEGER NOT NULL,
+    cut INTEGER NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('ready','pending')),
     count INTEGER NOT NULL,
     real INTEGER NOT NULL,
@@ -219,14 +255,15 @@ CREATE TABLE message_views (
     line TEXT NOT NULL,
     routine TEXT NOT NULL,
     incoming TEXT NOT NULL,
-    scan_from INTEGER NOT NULL,
+    hop_session TEXT NOT NULL,
+    hop_time INTEGER NOT NULL,
+    hop_cut INTEGER NOT NULL,
+    scanning INTEGER NOT NULL,
     cur_ordinal INTEGER NOT NULL,
     cur_idx INTEGER NOT NULL,
-    place_base INTEGER NOT NULL,
-    superseded_rev INTEGER,
     PRIMARY KEY (session, valid_from)
 ) WITHOUT ROWID;
-CREATE INDEX message_views_pending ON message_views(state) WHERE state = 'pending' AND superseded_rev IS NULL;
+CREATE INDEX message_views_pending ON message_views(state) WHERE state = 'pending';
 
 -- One row per run (`run` frames).
 CREATE TABLE turns (

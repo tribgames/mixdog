@@ -1,0 +1,45 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-ai-account.mjs --tree <tree>",
+  "fileCount": 4,
+  "files": [
+    {
+      "bytes": 7932,
+      "path": "account-admin.json",
+      "sha256": "29ec2930a1a1b526c65627bb1949755532397b807200483f8dabea4b10a583f5"
+    },
+    {
+      "bytes": 16080,
+      "path": "account-change.json",
+      "sha256": "7aa5466d93eec9a0a43fb0b33cfc930405d1cd3037dc033b61f18061a861c0aa"
+    },
+    {
+      "bytes": 48251,
+      "path": "oauth-describe.json",
+      "sha256": "7e9ff926c36b87ce7568ba8c8f578ea76e52f033dd4e05edcfbec1ebc5e4e173"
+    },
+    {
+      "bytes": 15823,
+      "path": "vertex-adc.json",
+      "sha256": "682158153089400beae3883e34d1569b721f71431ffa3732d0e6698bd7f45404"
+    }
+  ],
+  "product": {
+    "appsSha256": "b66a4bd6f8a15d621316e91b15fa61c129a258907e14a9d12e0fed0754f1e809",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9233,
+    "refComparison": {
+      "closestCommit": "eb47a6b01ea242286619aab7475bd4ba94ec7880",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 29
+    },
+    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-ai-account.mjs",
+  "set": "ai-account",
+  "totalBytes": 88086
+}

@@ -6,6 +6,7 @@ pub mod clean;
 pub mod core;
 pub mod embed;
 pub mod error;
+pub mod ingest;
 pub mod ingest_shape;
 pub mod ko_morph;
 pub mod pg;

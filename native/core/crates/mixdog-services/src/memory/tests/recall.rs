@@ -105,6 +105,7 @@ fn first_difference(expected: &str, got: &str) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn recall_matches_recorded_goldens() {
     let seed: Value = serde_json::from_str(SEED).expect("seed");
     let cases: Vec<Value> = serde_json::from_str(CASES).expect("cases");

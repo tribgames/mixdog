@@ -259,7 +259,9 @@ fn the_server_model_login_launches_without_the_model_proxy() {
     let mut server = args("1.4.6", "b6");
     server.model_login = Some(ModelLogin::Server);
     env.run(&server, &access).unwrap();
-    assert!(!access.launched.borrow().clone().unwrap().env.iter().any(|(k, _)| k == "MIXDOG_MODEL_PROXY"));
+    let launch = access.launched.borrow().clone().unwrap();
+    assert!(!launch.env.iter().any(|(k, _)| k == "MIXDOG_MODEL_PROXY"));
+    assert_eq!(launch.env_remove, ["MIXDOG_MODEL_PROXY"], "an inherited proxy setting is dropped too");
 }
 
 #[test]

@@ -387,6 +387,75 @@ for (let i = 0; i < 250; i += 1) {
   fastCases.push({ config, live: plain(live), arg: value === undefined ? { absent: true } : { value }, meta, known, fastByProvider, ultraByProvider, ...result, after: { config: plain(rig.rt.config), route: plain(rig.rt.route), saves: rig.log.saves, ensured: rig.log.ensured } });
 }
 
+// setAgentRoute (workflow-agents-api/agent-route.mjs) for agents routed in the config file: the
+// store behind it (AgentRoutes) is faked as "config.agents[id] + the disabled list", and the
+// agent id helpers (agentEditorId, isHiddenAgent) are recorded as oracles.
+const { createAgentRouteApi } = await importFrom(tree, 'src/session-runtime/workflow-agents-api/agent-route.mjs');
+const { agentEditorId } = await importFrom(tree, 'src/session-runtime/workflow-agents-api/shared.mjs');
+const { isHiddenAgent } = await importFrom(tree, 'src/runtime/agent/orchestrator/internal-agents.mjs');
+const { isAgentDisabled } = await importFrom(tree, 'src/runtime/shared/agent-route-config.mjs');
+const { subscribeAgentRouteChanges } = await importFrom(tree, 'src/session-runtime/agent-profile-changes.mjs');
+const AGENT_IDS = ['worker', 'reviewer', 'custom-x', 'explore', 'Worker', 'my agent', '', '   ', 'cycle', 'heavy-worker', 'maintainer', 'explore-agent', 'cycle1-agent', 'title-agent', 'Maint', 'memory', 'a.b_c', '-bad'];
+const agentRouteFromConfig = (cfg, id) => {
+  const r = cfg.agents?.[id];
+  return r && String(r.provider || '').trim() && String(r.model || '').trim() ? structuredClone(r) : null;
+};
+const agentCases = [];
+for (let i = 0; i < 400; i += 1) {
+  const config = randomConfig();
+  const agentId = pick(AGENT_IDS);
+  const id = agentEditorId(agentId);
+  if (id && chance(0.55)) {
+    config.agents = { ...(config.agents || {}), [id]: { provider: pick(KNOWN), model: pick(SERVICE_MODELS), ...(chance(0.5) ? { effort: pick(['low', 'high']) } : {}), ...(chance(0.3) ? { fast: true } : {}), ...(chance(0.3) ? { fallbacks: [{ provider: pick(KNOWN), model: 'fb' }] } : {}) } };
+  }
+  if (id && chance(0.35)) config.disabledAgents = [id];
+  const next = {};
+  maybe(next, 'provider', [pick(KNOWN), pick(KNOWN), '', ' openai ', undefined, undefined]);
+  maybe(next, 'model', [pick(SERVICE_MODELS), pick(SERVICE_MODELS), '', undefined, undefined]);
+  maybe(next, 'effort', EFFORTS);
+  maybe(next, 'fast', [undefined, true, false]);
+  maybe(next, 'autoEffort', [undefined, true, false]);
+  maybe(next, 'modelParameters', PARAMS);
+  maybe(next, 'contextPercent', PERCENT);
+  maybe(next, 'contextTokens', TOKENS);
+  maybe(next, 'disabled', [undefined, undefined, true, false]);
+  maybe(next, 'onlyIfEmpty', [undefined, true, true, false]);
+  if (chance(0.2)) next.fallbacks = pick([[{ provider: pick(KNOWN), model: 'fb' }], [], [{ provider: pick(KNOWN), model: 'fb' }, { provider: pick(KNOWN), model: 'fc' }]]);
+  const request = JSON.parse(JSON.stringify(next));
+  const meta = pick(METAS);
+  const known = KNOWN;
+  const resolveRoute = helpers.makeResolveRoute(helpers.makeResolveDefaultProvider((p) => known.includes(String(p || '').trim())));
+  const rt = { config: structuredClone(config) };
+  const log = { saves: 0, reloads: 0, ensured: [] };
+  const published = [];
+  const sub = subscribeAgentRouteChanges((agent, route) => { published.push({ id: agent, route: plain(route) }); });
+  const api = createAgentRouteApi({
+    getConfig: () => rt.config,
+    resolveRoute,
+    saveConfigAndAdopt: (nextConfig) => { rt.config = structuredClone(nextConfig); log.saves += 1; },
+    agentRouteFromConfig,
+    ensureProvidersReady: async (providers) => { log.ensured.push(plain(providers)); },
+    lookupModelMeta: async () => structuredClone(meta),
+    reloadFullConfig: () => { log.reloads += 1; },
+  });
+  const fastByProvider = Object.fromEntries(KNOWN.map((p) => [p, caps.fastCapableFor(p, meta)]));
+  const own0 = id ? plain(agentRouteFromConfig(config, id)) : null;
+  let result;
+  try {
+    result = { value: plain(await api.setAgentRoute(agentId, structuredClone(request))) };
+  } catch (error) {
+    result = { error: String(error?.message ?? error) };
+  }
+  sub.unsubscribe();
+  agentCases.push({
+    config, agentId, request, meta, known, fastByProvider,
+    oracle: { editorId: id || '', hidden: Boolean(id && isHiddenAgent(id)), disabled0: id ? isAgentDisabled(config, id) : false },
+    ...result,
+    after: { own: id ? plain(agentRouteFromConfig(rt.config, id)) : null, disabled: id ? isAgentDisabled(rt.config, id) : false, config: plain(rt.config), saves: log.saves, reloads: log.reloads, ensured: log.ensured, published },
+    own0,
+  });
+}
+
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'ai-admin');
 writeJson(join(outDir, 'route-admin-twin.json'), {
   domain: 'route-admin-twin',
@@ -400,6 +469,7 @@ writeJson(join(outDir, 'route-admin-twin.json'), {
   chainCases,
   serviceCases,
   fastCases,
+  agentCases,
 });
 refreshAdminManifest(outDir, tree);
 console.log(`recorded ${resolveCases.length} resolve, ${normalizeCases.length} normalize, ${contextCases.length} context, ${textCases.length} text cases`);

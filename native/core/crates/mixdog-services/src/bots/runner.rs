@@ -7,16 +7,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
-use super::owned::{OwnedOutcome, Skip};
+use super::owned::{OwnedOutcome, Skip, never_cancelled};
 use super::runtime::RoutineRuntime;
 use super::sessions::{ScheduleRunOpts, WebhookRun};
 use crate::channels::running::RunningWork;
 use crate::scheduler::{RunOutcome, Schedule, ScheduleRunner, SkipReason};
 use crate::webhooks::prompt::{prompt_headers, webhook_event_summary, webhook_run_prompt};
 use crate::webhooks::signature::Headers;
-use crate::webhooks::{EndpointRecords, HttpReply, WebhookDispatch, WebhookStore};
+use crate::webhooks::{EndpointRecords, HttpReply, WebhookDispatch};
 
 /// A schedule fire as a visible turn in its owner's home thread.
 pub struct HomeScheduleRunner {
@@ -32,6 +31,7 @@ impl HomeScheduleRunner {
 #[async_trait]
 impl ScheduleRunner for HomeScheduleRunner {
     async fn run(&self, schedule: &Schedule, prompt: &str) -> Result<RunOutcome, String> {
+        // The fire has no deadline and nothing cancels it (Node passes no signal).
         let opts = ScheduleRunOpts { prompt: Some(prompt.to_string()), ..ScheduleRunOpts::default() };
         Ok(match self.routines.run_schedule(schedule, opts).await? {
             OwnedOutcome::Ran(_) => RunOutcome::Done,
@@ -96,7 +96,8 @@ impl HomeWebhookDispatch {
         tokio::spawn(async move {
             let id = task_id;
             let _busy = guard;
-            let (status, error) = match routines.run_webhook(run, false, CancellationToken::new()).await {
+            // The dispatch has no deadline and nothing cancels it (Node passes no signal).
+            let (status, error) = match routines.run_webhook(run, false, never_cancelled()).await {
                 Ok(OwnedOutcome::Skipped(_)) => ("skipped", None),
                 Ok(OwnedOutcome::Ran(_)) => ("done", None),
                 Err(error) => ("failed", Some(error)),

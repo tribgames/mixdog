@@ -26,7 +26,6 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
-use mixdog_protocol::Origin;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
@@ -136,8 +135,6 @@ pub struct Deps {
     pub recovery_dir: PathBuf,
     /// The desktop profile folder: editor backups, User/settings.json, the task workspace.
     pub user_data_dir: PathBuf,
-    /// The connection's origin, for `permissionDenied`.
-    pub origin_of: Arc<dyn Fn(&ConnectionId) -> Origin + Send + Sync>,
 }
 
 struct Owned {
@@ -163,7 +160,6 @@ pub struct WorkspaceService {
     user_data: PathBuf,
     tracked: Arc<dyn crate::zip::TrackedFiles>,
     state: mixdog_store::state::CoreState,
-    origin_of: Arc<dyn Fn(&ConnectionId) -> Origin + Send + Sync>,
 }
 
 fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
@@ -216,7 +212,6 @@ impl WorkspaceService {
             backups: Arc::new(crate::editorcfg::Backups::new(&deps.user_data_dir)),
             user_data: deps.user_data_dir,
             state: deps.state,
-            origin_of: deps.origin_of,
         });
         let _ = service.me.set(Arc::downgrade(&service));
         Ok(service)
@@ -263,18 +258,14 @@ impl WorkspaceService {
         match error.reason {
             Reason::InvalidParams => CoreError::InvalidParams { path: "params".into(), expected: error.message.into() },
             Reason::PermissionDenied => {
-                let origin = match &req.ctx.caller {
-                    mixdog_core_api::call::Caller::Connection(id) => (self.origin_of)(id),
-                    mixdog_core_api::call::Caller::Internal(_) => Origin::Local,
-                };
-                CoreError::PermissionDenied { method: req.method.as_str().into(), origin }
+                CoreError::PermissionDenied { method: req.method.as_str().into(), origin: req.ctx.origin }
             }
             Reason::PreconditionFailed { expected, actual } => CoreError::PreconditionFailed {
                 precondition: Precondition::Content { expected: Some(Bytes::from(expected)), actual: Some(Bytes::from(actual)) },
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
-            ref other => CoreError::DomainError { domain: "workspace".into(), code: other.code().into(), detail: None },
+            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), detail: None },
         }
     }
 
@@ -761,7 +752,7 @@ impl WorkspaceService {
                 }
                 (OpRowState::Rejected, code) => Err(CoreError::DomainError {
                     domain: "workspace".into(),
-                    code: code.unwrap_or_else(|| "rejected".into()).into(),
+                    code: Some(code.unwrap_or_else(|| "rejected".into()).into()),
                     detail: None,
                 }),
                 _ => Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect: method.into(), target: "".into() }),
@@ -810,6 +801,60 @@ impl DomainService for WorkspaceService {
             return this.with_op(&req, scope, op.to_string()).await;
         }
         this.dispatch(&req, None).await.map_err(|e| this.map_error(&req, e))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "project/list",
+            "project/read",
+            "project/create",
+            "project/touch",
+            "project/update",
+            "project/delete",
+            "project/ensureDirectory",
+            "project/directory",
+            "project/recoveryDirectory",
+            "project/taskWorkspace",
+            "projectFs/listDir",
+            "projectFs/readText",
+            "projectFs/stat",
+            "projectFs/entryPath",
+            "projectFs/readLocal",
+            "projectFs/statLocal",
+            "projectFs/writeText",
+            "projectFs/writeTextBatch",
+            "projectFs/create",
+            "projectFs/rename",
+            "projectFs/move",
+            "projectFs/copy",
+            "projectFs/trash",
+            "projectFs/searchText",
+            "projectFs/replaceText",
+            "projectFs/recovery",
+            "projectFs/backup/read",
+            "projectFs/backup/write",
+            "projectFs/backup/delete",
+            "projectFs/workspaceFile/read",
+            "projectFs/workspaceFile/write",
+            "projectFs/readEditorSettings",
+            "fs/watch",
+            "fs/unwatch",
+            "search/start",
+            "search/update",
+            "search/stop",
+            "transfer/beginRead",
+            "transfer/beginZip",
+            "transfer/readRange",
+            "transfer/endRead",
+            "transfer/beginWrite",
+            "transfer/writeChunk",
+            "transfer/commit",
+            "transfer/abort",
+            "transfer/trash/info",
+            "transfer/trash/entry",
+            "lsp/document",
+            "lsp/request",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

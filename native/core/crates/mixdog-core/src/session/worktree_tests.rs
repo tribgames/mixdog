@@ -342,6 +342,36 @@ async fn a_dirty_worktree_refuses_removal_and_the_session_stays_in_it() {
 }
 
 #[tokio::test]
+async fn a_cancel_after_the_folder_was_deleted_records_the_removal_instead_of_restoring_it() {
+    let rig = rig();
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let cwd = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
+    // At the step boundary just before the removal, the folder is deleted and the operation is
+    // cancelled: the removal then fails on the cancelled token with the folder already gone.
+    let cancel = CancellationToken::new();
+    let (folder, token) = (cwd.clone(), cancel.clone());
+    *rig.ws.inner.before_remove.lock().unwrap() = Some(Box::new(move || {
+        std::fs::remove_dir_all(&folder).unwrap();
+        token.cancel();
+    }));
+    let op = SessionOp::Remove { session_id: None, branch: None, force: false, tx_id: "c2:remove".into() };
+    let result = rig.ws.run(op, "lead", &cancel).await;
+    assert_eq!(code(&result), Some("WORKTREE_REMOVAL_INCOMPLETE"), "{result:?}");
+    // The deletion is recorded as done: the session stays in the project folder, unbound.
+    let state = rig.state.lock().unwrap();
+    assert_eq!(state.cwd, rig.repo.to_string_lossy());
+    assert!(!cwd.exists());
+    assert_ne!(state.workspace.as_ref().unwrap()["cwd"], json!(cwd.to_string_lossy()));
+}
+
+#[tokio::test]
+async fn a_byte_order_mark_is_not_a_session_id() {
+    let rig = rig();
+    let refused = rig.ws.gate().begin_transition("\u{feff}", "tx").err().unwrap();
+    assert_eq!(thrown_message(&refused), "workspace transition requires a session id.");
+}
+
+#[tokio::test]
 async fn project_branch_admission_refuses_folders_other_sessions_use() {
     let rig = rig();
     let admission = rig.ws.folder_admission(Some("lead"));

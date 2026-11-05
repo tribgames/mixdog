@@ -19,7 +19,8 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::providers::openai::config::WireContext;
-use crate::providers::openai::decoder::{Framing, ResponsesDecoder};
+use crate::providers::openai::continuation::ContinuationSpec;
+use crate::providers::openai::decoder::Framing;
 use crate::providers::openai::profile::{
     BodyField, BuildInputs, ORDER_ROUTED, ParallelToolCalls, ReasoningSpec, ResponsesProfile, SystemPlacement, ToolLowering,
     build_body,
@@ -53,6 +54,32 @@ fn normalize_cache_key(value: &str) -> String {
     let digest = Sha256::digest(text.as_bytes());
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     format!("pc_{}", &hex[..32])
+}
+
+/// xAI's `prompt_cache_key` for the default `session` scope
+/// (`xaiResponsesCacheRouting` → `xaiCacheRouting`): a UUID derived from the
+/// model, the cache namespace and the session, so every turn of a conversation
+/// reaches the server holding its prefix. A request with no session id sends
+/// none (the service caches the prefix on its own).
+pub(crate) fn xai_cache_key(request: &ModelRequest) -> Option<String> {
+    let options = &request.options;
+    let session = mixdog_js::js_trim(options.session_id.as_deref().unwrap_or_default());
+    if session.is_empty() {
+        return None;
+    }
+    // `providerCacheKey || promptCacheKey || 'mixdog-xai'`: an empty key falls through.
+    let namespace = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()).unwrap_or("mixdog-xai");
+    let string = |s: &str| mixdog_js::json_stringify(&json!(s));
+    let model = if request.model.is_empty() { "null".to_owned() } else { string(&request.model) };
+    // `stableTraceStringify`: keys in order.
+    let seed = format!(
+        "{{\"model\":{model},\"providerKey\":{},\"scope\":\"xai-chat-session-v1\",\"sessionId\":{}}}",
+        string(namespace),
+        string(session)
+    );
+    let hex: String = Sha256::digest(seed.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    let variant = (u8::from_str_radix(&hex[16..17], 16).unwrap_or(0) & 0x3) | 0x8;
+    Some(format!("{}-{}-4{}-{variant:x}{}-{}", &hex[0..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32]))
 }
 
 /// Values the neutral decoder reads from its context; a compat provider has
@@ -134,6 +161,15 @@ impl CompatResponsesCodec {
         if self.profile.responses == ResponsesShape::Xai {
             profile.order = ORDER_ROUTED.to_vec();
             profile.prompt_cache_key = true;
+            // xAI's own slot: its history entries carry no owner tag, and the
+            // socket turn records its transport. The slot is stateless
+            // (`store: false`, `previousResponseId: null`), as Node writes it.
+            profile.continuation = ContinuationSpec {
+                state_key: "xaiResponses".to_owned(),
+                tag_history_owner: false,
+                stateless_only: None,
+                marker: self.is_socket().then(|| ("transport".to_owned(), "websocket".to_owned())),
+            };
             if self.is_socket() {
                 // The socket takes the system text as `instructions` and has
                 // no `stream` key.
@@ -143,6 +179,8 @@ impl CompatResponsesCodec {
                     environment_message: false,
                 };
                 profile.input.system_in_input = false;
+                // xAI rejects `instructions` together with `previous_response_id`.
+                profile.instructions_with_previous_response = false;
             }
         }
         if self.profile.responses == ResponsesShape::Muse {
@@ -316,12 +354,23 @@ impl WireCodec for CompatResponsesCodec {
     }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        let routed;
+        let request = if self.profile.responses == ResponsesShape::Xai {
+            let mut with_key = request.clone();
+            with_key.options.prompt_cache_key = xai_cache_key(request);
+            routed = with_key;
+            &routed
+        } else {
+            request
+        };
         let info = self.config.models.get(&request.model);
         let profile = self.responses_profile(request, info.as_deref());
+        let continuation = profile.resume(request)?;
         let built = build_body(
             &profile,
             &BuildInputs {
                 schemas: Some(&self.schemas),
+                continuation: Some(&continuation),
                 ..BuildInputs::new(request)
             },
         );
@@ -356,9 +405,11 @@ impl WireCodec for CompatResponsesCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
         let framing = if self.is_socket() { Framing::WebSocket } else { Framing::Sse };
-        Box::new(ResponsesDecoder::new(framing, Arc::new(ClockOnly), self.owner.clone()))
+        let info = self.config.models.get(&request.model);
+        let profile = self.responses_profile(request, info.as_deref());
+        Box::new(profile.decoder_for(request, framing, Arc::new(ClockOnly)))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {

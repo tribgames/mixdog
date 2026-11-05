@@ -94,7 +94,7 @@ stored_error! {
     CatalogRebuilding { done: u64, total: u64 };
     BlobNotFound { digest: BlobDigest };
     BlobCorrupt { digest: BlobDigest };
-    DomainError { domain: Arc<str>, code: Arc<str>, detail: Option<Box<DomainErrorDetail>> };
+    DomainError { domain: Arc<str>, code: Option<Arc<str>>, detail: Option<Box<DomainErrorDetail>> };
     InvalidServerRequestResponse { request_id: ServerRequestId, detail: Arc<str> };
     WindowFull { thread_id: ThreadId };
     QueueFull { queue: Arc<str> };

@@ -11,17 +11,16 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::session_search::db::SessionSearchDb;
 
 const LAST_INGESTED_LIMIT: usize = 500;
-const BACKFILL_PACE: Duration = Duration::from_millis(25);
 
 /// Values a user marked sensitive in a session, which must never reach the index.
 pub trait SensitiveValues: Send + Sync {
@@ -49,11 +48,62 @@ pub trait StoredSessions: Send + Sync {
     async fn read(&self, session_id: &str) -> Option<IngestSession>;
 }
 
+/// A session's write queue, present only while a write of it is queued or running.
 struct Queue {
-    gate: tokio::sync::Mutex<()>,
     /// The lifetime the queued writes run under; `close` cancels it.
-    token: Mutex<CancellationToken>,
-    waiting: std::sync::atomic::AtomicUsize,
+    token: CancellationToken,
+    /// Closes (its sender is dropped) when the last write queued has settled.
+    tail: Option<watch::Receiver<()>>,
+    waiting: usize,
+}
+
+type Queues = Arc<Mutex<HashMap<String, Queue>>>;
+
+/// A place in a session's write queue, taken when the write is issued, so
+/// writes run in the order they were issued however the runtime schedules them.
+struct Slot {
+    queues: Queues,
+    session_id: String,
+    token: CancellationToken,
+    /// The write queued before this one.
+    after: Option<watch::Receiver<()>>,
+    /// Dropped when this write has settled: the next one starts.
+    _done: watch::Sender<()>,
+}
+
+impl Slot {
+    /// Runs `task` once every earlier write of the session has settled; a
+    /// write cancelled before it starts never does. A failed task does not stop
+    /// the queue: that failure is the caller's.
+    async fn run<T, F, Fut>(mut self, task: F) -> Result<T>
+    where
+        F: FnOnce(CancellationToken) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        if let Some(after) = self.after.as_mut() {
+            // Closes when the earlier write settles; a cancelled one settles at once.
+            let _ = after.changed().await;
+        }
+        if self.token.is_cancelled() {
+            return Err(MemoryError::Cancelled);
+        }
+        tokio::select! {
+            result = task(self.token.clone()) => result,
+            () = self.token.cancelled() => Err(MemoryError::Cancelled),
+        }
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut queues = self.queues.lock().expect("queue map");
+        if let Some(queue) = queues.get_mut(&self.session_id) {
+            queue.waiting -= 1;
+            if queue.waiting == 0 {
+                queues.remove(&self.session_id);
+            }
+        }
+    }
 }
 
 pub struct SessionSearchIngest {
@@ -61,7 +111,7 @@ pub struct SessionSearchIngest {
     sensitive: Arc<dyn SensitiveValues>,
     /// session → (transcript length, sensitive-values version) of the last stored ingest.
     last_ingested: Mutex<HashMap<String, (usize, Option<String>)>>,
-    queues: Mutex<HashMap<String, Arc<Queue>>>,
+    queues: Queues,
 }
 
 fn log_failure(what: &str, error: &MemoryError) {
@@ -72,61 +122,43 @@ fn log_failure(what: &str, error: &MemoryError) {
 
 impl SessionSearchIngest {
     pub fn new(db: SessionSearchDb, sensitive: Arc<dyn SensitiveValues>) -> Arc<Self> {
-        Arc::new(Self { db, sensitive, last_ingested: Mutex::default(), queues: Mutex::default() })
+        Arc::new(Self { db, sensitive, last_ingested: Mutex::default(), queues: Queues::default() })
     }
 
     pub fn db(&self) -> &SessionSearchDb {
         &self.db
     }
 
-    /// Runs `task` once every earlier task of `session_id` has settled. The
-    /// queue moves on past a failed task: that failure is the caller's.
-    async fn serialized<T, F, Fut>(&self, session_id: &str, task: F) -> Result<T>
-    where
-        F: FnOnce(CancellationToken) -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
-    {
-        use std::sync::atomic::Ordering;
-        let queue = {
-            let mut queues = self.queues.lock().expect("queue map");
-            let queue = queues.entry(session_id.to_owned()).or_insert_with(|| {
-                Arc::new(Queue {
-                    gate: tokio::sync::Mutex::new(()),
-                    token: Mutex::new(CancellationToken::new()),
-                    waiting: 0.into(),
-                })
-            });
-            queue.waiting.fetch_add(1, Ordering::AcqRel);
-            queue.clone()
-        };
-        let token = {
-            let mut current = queue.token.lock().expect("token");
-            if current.is_cancelled() {
-                *current = CancellationToken::new();
-            }
-            current.clone()
-        };
-        let result = async {
-            let _turn = tokio::select! {
-                guard = queue.gate.lock() => guard,
-                () = token.cancelled() => return Err(MemoryError::Cancelled),
-            };
-            if token.is_cancelled() {
-                return Err(MemoryError::Cancelled);
-            }
-            tokio::select! {
-                result = task(token.clone()) => result,
-                () = token.cancelled() => Err(MemoryError::Cancelled),
-            }
+    /// Takes the next place in the session's write queue, now: the caller's
+    /// order is the write order.
+    fn enqueue(&self, session_id: &str) -> Slot {
+        let mut queues = self.queues.lock().expect("queue map");
+        let queue = queues.entry(session_id.to_owned()).or_insert_with(|| Queue {
+            token: CancellationToken::new(),
+            tail: None,
+            waiting: 0,
+        });
+        // A closed session's queue starts a new lifetime for the writes after the close.
+        if queue.token.is_cancelled() {
+            queue.token = CancellationToken::new();
         }
-        .await;
-        if queue.waiting.fetch_sub(1, Ordering::AcqRel) == 1 {
-            let mut queues = self.queues.lock().expect("queue map");
-            if queues.get(session_id).is_some_and(|q| Arc::ptr_eq(q, &queue)) && queue.waiting.load(Ordering::Acquire) == 0 {
-                queues.remove(session_id);
-            }
+        queue.waiting += 1;
+        let (done, tail) = watch::channel(());
+        Slot {
+            queues: self.queues.clone(),
+            session_id: session_id.to_owned(),
+            token: queue.token.clone(),
+            after: queue.tail.replace(tail),
+            _done: done,
         }
-        result
+    }
+
+    /// Resolves once every write the session has queued so far has settled.
+    pub async fn settle(&self, session_id: &str) {
+        let tail = self.queues.lock().expect("queue map").get(session_id).and_then(|q| q.tail.clone());
+        if let Some(mut tail) = tail {
+            let _ = tail.changed().await;
+        }
     }
 
     /// Stops the session's search writes for a runtime close: queued ones never
@@ -135,11 +167,10 @@ impl SessionSearchIngest {
     /// derived: the stored-session backfill restores what a cancelled write
     /// left out.
     pub async fn close_session(&self, session_id: &str) {
-        let queue = self.queues.lock().expect("queue map").get(session_id).cloned();
-        if let Some(queue) = queue {
-            queue.token.lock().expect("token").cancel();
-            let _settled = queue.gate.lock().await;
+        if let Some(queue) = self.queues.lock().expect("queue map").get(session_id) {
+            queue.token.cancel();
         }
+        self.settle(session_id).await;
     }
 
     async fn store_transcript(&self, session_id: &str, messages: &[Value]) -> Result<()> {
@@ -187,10 +218,11 @@ impl SessionSearchIngest {
             return;
         }
         let this = self.clone();
+        let slot = self.enqueue(&session.id);
         tokio::spawn(async move {
             let id = session.id.clone();
             let messages = session.messages;
-            let result = this.serialized(&id, |_| this.store_transcript(&id, &messages)).await;
+            let result = slot.run(|_| this.store_transcript(&id, &messages)).await;
             if let Err(error) = result {
                 log_failure(&format!("ingest {id}"), &error);
             }
@@ -200,7 +232,8 @@ impl SessionSearchIngest {
     /// Best-effort removal of a deleted session's rows, after its pending writes.
     pub async fn forget_session(&self, session_id: &str) {
         let result = self
-            .serialized(session_id, |_| async {
+            .enqueue(session_id)
+            .run(|_| async {
                 self.last_ingested.lock().expect("last ingested").remove(session_id);
                 self.db.delete_session(session_id).await
             })
@@ -219,10 +252,13 @@ impl SessionSearchIngest {
         let session_ids = stored.session_ids().await;
         let mut ingested = 0;
         for session_id in &session_ids {
-            if let Err(error) = self.backfill_one(stored, &stamps, session_id, &mut ingested).await {
-                log_failure(&format!("backfill {session_id}"), &error);
+            match self.backfill_one(stored, &stamps, session_id, &mut ingested).await {
+                // Nothing was read: no yield, as in Node.
+                Ok(false) => continue,
+                Ok(true) => {}
+                Err(error) => log_failure(&format!("backfill {session_id}"), &error),
             }
-            tokio::time::sleep(BACKFILL_PACE).await;
+            tokio::task::yield_now().await;
         }
         let present: std::collections::HashSet<&String> = session_ids.iter().collect();
         for session_id in self.db.session_ids().await? {
@@ -239,18 +275,18 @@ impl SessionSearchIngest {
         stamps: &std::collections::BTreeMap<String, String>,
         session_id: &str,
         ingested: &mut usize,
-    ) -> Result<()> {
-        let Some(stamp) = stored.record_stamp(session_id).await else { return Ok(()) };
+    ) -> Result<bool> {
+        let Some(stamp) = stored.record_stamp(session_id).await else { return Ok(false) };
         if stamps.get(session_id) == Some(&stamp) {
-            return Ok(());
+            return Ok(false);
         }
         let Some(session) = stored.read(session_id).await.filter(|s| !s.id.is_empty()) else {
-            return Ok(());
+            return Ok(true);
         };
         // An agent-only session is never indexed, but its stamp is recorded all
         // the same: without one it would be read in full on every start.
         let indexed = !session.agent_only;
-        self.serialized(&session.id, |_| async {
+        self.enqueue(&session.id).run(|_| async {
             if indexed {
                 let redacted = self.sensitive.redact_messages(&session.id, &session.messages);
                 self.db.append(&session.id, &redacted).await?;
@@ -261,6 +297,6 @@ impl SessionSearchIngest {
         if indexed {
             *ingested += 1;
         }
-        Ok(())
+        Ok(true)
     }
 }

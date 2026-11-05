@@ -355,8 +355,9 @@ impl VertexAuth {
                 let expires_at_ms = value
                     .get("expireTime")
                     .and_then(Value::as_str)
-                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-                    .map(|t| t.timestamp_millis().max(0) as u64)
+                    .map(mixdog_js::time::date_parse)
+                    .filter(|ms| ms.is_finite())
+                    .map(|ms| ms.max(0.0) as u64)
                     .unwrap_or(now + 3_600_000);
                 Ok(Minted { token: token.to_owned(), expires_at_ms })
             }

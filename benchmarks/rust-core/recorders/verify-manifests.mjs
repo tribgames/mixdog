@@ -22,6 +22,15 @@ if (args.has('adopt')) {
     writeSetManifest(join(FIXTURES_ROOT, set), { set, recorder: rel, command: `node ${rel} --tree <tree>` });
   }
 }
+// `--refresh <set>,...` re-hashes sets that several recorders write into (each adds its own files), keeping the
+// manifest's recorder, command and extra fields (needs --tree).
+if (args.has('refresh')) {
+  resolveTree(args);
+  for (const set of args.get('refresh').split(',')) {
+    const { recorder, command, product, fileCount, totalBytes, files, set: _s, ...extra } = JSON.parse(readFileSync(join(FIXTURES_ROOT, set, 'MANIFEST.json'), 'utf8'));
+    writeSetManifest(join(FIXTURES_ROOT, set), { set, recorder, command, extra });
+  }
+}
 let bad = 0;
 const index = [];
 for (const set of SETS) {

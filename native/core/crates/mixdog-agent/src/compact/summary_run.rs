@@ -154,6 +154,7 @@ fn add_usage(total: Option<Usage>, add: Option<&Usage>) -> Option<Usage> {
     total.output_tokens += add.output_tokens;
     total.cache_read_tokens += add.cache_read_tokens;
     total.cache_write_tokens += add.cache_write_tokens;
+    total.cache_write_1h_tokens += add.cache_write_1h_tokens;
     total.reasoning_tokens += add.reasoning_tokens;
     Some(total)
 }

@@ -4,3 +4,6 @@
 
 pub mod accounts;
 pub mod triggers;
+
+#[cfg(test)]
+mod parity_tests;

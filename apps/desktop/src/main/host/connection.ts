@@ -3,6 +3,7 @@
  * owned by the main-process client; this file is the one seam the host side
  * needs from it, so every host module is testable against an in-memory pair.
  */
+import type { HostCapabilities } from '../../../../../packages/protocol/src/index.ts';
 
 export const HOST_METHOD = {
   claim: 'host/claim',
@@ -59,11 +60,15 @@ export const HOST_CAPABILITIES = {
   media: true,
   updater: true,
   files: true,
-} as const;
+} as const satisfies HostCapabilities;
 
-export function objectParams(value: unknown, method: string): Record<string, unknown> {
+/** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */
+export type WireFields<T> = { [K in keyof T]?: unknown };
+
+/** `T` is the generated params type: reading a field it does not declare does not compile. */
+export function objectParams<T extends object = Record<string, unknown>>(value: unknown, method: string): WireFields<T> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new HostRpcError(HOST_INVALID_PARAMS, `${method} expects an object.`);
   }
-  return value as Record<string, unknown>;
+  return value as WireFields<T>;
 }

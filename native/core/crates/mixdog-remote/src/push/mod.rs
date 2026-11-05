@@ -3,6 +3,7 @@
 //! itself. The decision whether to push at all is [`decision`], shared with every channel.
 
 pub mod decision;
+pub mod legacy;
 pub mod native;
 pub mod native_crypto;
 pub mod web;

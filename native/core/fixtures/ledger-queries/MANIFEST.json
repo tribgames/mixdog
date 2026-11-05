@@ -1,11 +1,26 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-ledger-queries.mjs --tree <tree>",
-  "fileCount": 2,
+  "fileCount": 5,
   "files": [
     {
       "bytes": 2006854,
       "path": "corpus.json",
       "sha256": "2ee8182b9f63fb5e8b55feec51cdf954e18c5d89cf61bacd6d9466707bde4a08"
+    },
+    {
+      "bytes": 1962186,
+      "path": "stats-corpus.json",
+      "sha256": "463b653f756e22b2d346276e63c10acc3b2dc9f86edae80c2d4210ead11ee816"
+    },
+    {
+      "bytes": 693625,
+      "path": "stats-v145.json",
+      "sha256": "b3d919ede413b082d319f307ae7af5caf44ff1aa370dbfb9a94cf282d9437533"
+    },
+    {
+      "bytes": 959232,
+      "path": "stats-v145priced.json",
+      "sha256": "146a3b51726d77c2eedf4a96510dc56fdd68ed627a7db626620d4beb364f9324"
     },
     {
       "bytes": 1714282,
@@ -15,11 +30,11 @@
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -31,5 +46,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-ledger-queries.mjs",
   "set": "ledger-queries",
-  "totalBytes": 3721136
+  "totalBytes": 7336179
 }

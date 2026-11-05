@@ -18,7 +18,13 @@ use crate::ids::Method;
 
 #[async_trait]
 pub trait DomainService: Send + Sync {
-    /// Requests of this namespace. Mutations carry `req.op` and their op record commits with
+    /// The exact methods this service serves: requests for [`DomainService::call`], client
+    /// notifications for [`DomainService::notify`]. The core routes by exact method name, so a
+    /// method listed here must be in the protocol's method table and listed by no other service;
+    /// a method nobody lists answers `capabilityUnavailable`.
+    fn methods(&self) -> &'static [&'static str];
+
+    /// Requests of this service's methods. Mutations carry `req.op` and their op record commits with
     /// the effect, in the scope owner's store (P §9.2).
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError>;
 

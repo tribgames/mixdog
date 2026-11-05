@@ -21,9 +21,9 @@ pub trait CoreHandle: Send + Sync + 'static {
 
     fn ops(&self) -> &dyn OpIndex;
 
-    /// The service of a method-table namespace; `None` only for a namespace the table does
-    /// not route to a domain.
-    fn domain(&self, namespace: &str) -> Option<&dyn DomainService>;
+    /// The service that claims exactly `method` ([`DomainService::methods`]); `None` when no
+    /// service does.
+    fn domain_for(&self, method: &str) -> Option<&dyn DomainService>;
 
     fn host_media(&self) -> &dyn HostMediaSink;
 

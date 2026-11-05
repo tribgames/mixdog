@@ -14,15 +14,29 @@ pub mod append;
 pub mod backup;
 pub mod bucket;
 pub mod db;
+#[cfg(test)]
+mod dst_tests;
 pub mod error;
+pub mod hours;
+pub mod ledger;
 pub mod maintenance;
 pub mod measure;
+pub mod period;
+pub mod quota;
+pub mod quota_estimate;
+pub mod reader;
+pub mod refresh;
 pub mod repair;
+mod reply;
 pub mod requests;
 pub mod rollup;
 pub mod schema;
+pub mod stats;
 pub mod sums;
-pub mod time;
+// Calendar-day keys and `NaiveDate` adapters over `mixdog_js::time`, which owns the zone and
+// the DST rules; nothing outside this crate needs them.
+mod time;
+pub mod writer;
 
 pub use error::LedgerError;
 pub use error::Result;

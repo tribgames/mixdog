@@ -79,6 +79,11 @@ pub struct AgentMessage {
     pub reasoning: Option<String>,
     /// Assistant messages only: the tail reminder the request carried.
     pub turn_reminder: Option<String>,
+    /// Assistant messages only (Node `providerMetadata`): the provider's
+    /// per-turn binding, e.g. the account routing a later turn of the same
+    /// conversation resumes. Passed through the loop untouched; reasoning
+    /// items and reasoning content ride in `message`'s provider replay.
+    pub provider_metadata: Option<mixdog_protocol::JsonValue>,
     /// User and tool messages: the effort the turn or step ran at (read from
     /// the stored row's metadata by the host).
     pub effort: Option<crate::effort::EffortSnapshot>,
@@ -96,6 +101,7 @@ impl AgentMessage {
             stop_reason: None,
             reasoning: None,
             turn_reminder: None,
+            provider_metadata: None,
             effort: None,
         }
     }

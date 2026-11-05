@@ -51,8 +51,8 @@ impl<R: Rewriter> WireCodec for RewriteCodec<R> {
         self.rewriter.rewrite(self.inner.encode(request)?, request)
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
-        self.inner.decoder()
+    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+        self.inner.decoder(request)
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
@@ -109,7 +109,7 @@ pub async fn run_attempt(
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        return Ok(Box::new(DecodedStream::new(head.body, codec.decoder())));
+        return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
     }
 }
 

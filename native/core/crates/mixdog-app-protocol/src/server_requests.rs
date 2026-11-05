@@ -45,7 +45,7 @@ crate::server_request_definitions! {
     },
     HostVisualizeCommand => "host/visualize/command" {
         params: HostVisualizeCommandParams,
-        result: JsonValue,
+        result: Option<JsonValue>,
         requires: Some("host.visualize"),
     },
     HostSystemProxyResolve => "host/systemProxy/resolve" {

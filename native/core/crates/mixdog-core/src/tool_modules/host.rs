@@ -24,7 +24,7 @@ use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::InstallJob;
 use mixdog_services::tidy::core_install::CoreInstall;
 use mixdog_services::tidy::core_install::run_core_install;
-use mixdog_services::tidy::process::which;
+use mixdog_services::tidy::process::{Processes, which};
 use mixdog_services::tool_state::JudgeStatus;
 use mixdog_services::tool_state::StateTick;
 use mixdog_services::tool_state::onnx_runtime_supported;
@@ -60,6 +60,8 @@ pub struct HostParts {
     /// Core Tidy engines install here (`dataDirOf(cfgMod)`).
     pub plugin_data: PathBuf,
     pub tidy_job: Arc<InstallJob>,
+    /// The process manager and durability lane the core Tidy install probes and hashes its engines with.
+    pub processes: Processes,
     pub fetcher: Arc<dyn Fetcher>,
     pub effects: Arc<dyn FeatureEffects>,
     /// Reads of metadata files run on this lane.
@@ -109,6 +111,7 @@ impl ServicesToolModulesHost {
         run_core_install(
             &self.parts.tidy_job,
             CoreInstall {
+                processes: self.parts.processes.clone(),
                 plugin_data: &self.parts.plugin_data,
                 manifest: None,
                 env: None,
@@ -153,7 +156,8 @@ impl ToolModulesHost for ServicesToolModulesHost {
             embedding_info,
             onnx_supported: onnx_runtime_supported(),
             git_available,
-            local_provider: parts.local_provider.status(),
+            // A catalog that cannot be read yet reads as nothing; the next tick reads again.
+            local_provider: parts.local_provider.status().await.unwrap_or(Value::Null),
             installation_command_error: (parts.installation_command_error)(),
             effort_judge: EffortJudgeState {
                 available: status.available,

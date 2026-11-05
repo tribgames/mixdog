@@ -1,0 +1,706 @@
+{
+  "domain": "account-change",
+  "provider": "openai-oauth",
+  "recorder": "benchmarks/rust-core/recorders/record-ai-account.mjs",
+  "steps": [
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "default"
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "includeDefault": true,
+        "label": "Work",
+        "op": "register"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "default"
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "label": "",
+        "op": "register"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Spare"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "default"
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "label": "  Spare  ",
+        "op": "register"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid provider account id.",
+        "name": "TypeError"
+      },
+      "step": {
+        "id": "not-an-id",
+        "op": "register"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Spare"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "selectedId": "00000000-0000-4000-8000-000000000002"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Account is no longer connected.",
+        "name": "Error"
+      },
+      "step": {
+        "change": {
+          "selectedId": "00000000-0000-4000-8000-000000000009"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid provider account id.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "selectedId": "x"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "rename": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": " Renamed "
+          }
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid account name.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "rename": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": ""
+          }
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid account name.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "rename": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Account is no longer connected.",
+        "name": "Error"
+      },
+      "step": {
+        "change": {
+          "rename": {
+            "id": "00000000-0000-4000-8000-000000000009",
+            "label": "Ghost"
+          }
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "order": [
+            "00000000-0000-4000-8000-000000000003",
+            "default",
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002"
+          ]
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Account order must contain every connected account exactly once.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "order": [
+            "00000000-0000-4000-8000-000000000003",
+            "default"
+          ]
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Account order must contain every connected account exactly once.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "order": [
+            "00000000-0000-4000-8000-000000000003",
+            "00000000-0000-4000-8000-000000000003",
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002"
+          ]
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": false,
+        "policy": "manual",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "auto": false
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "auto": true
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Automatic account switching must be boolean.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "auto": "yes"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "headroom",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "policy": "headroom"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": false,
+        "policy": "manual",
+        "selectedId": "00000000-0000-4000-8000-000000000002"
+      },
+      "step": {
+        "change": {
+          "policy": "manual"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unknown account switching policy.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "policy": "nope"
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": false,
+        "policy": "manual",
+        "selectedId": "00000000-0000-4000-8000-000000000002",
+        "useCredits": true
+      },
+      "step": {
+        "change": {
+          "useCredits": true
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Credit use must be boolean.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "useCredits": 1
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid provider account change.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": {
+          "surprise": 1
+        },
+        "op": "change"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid provider account change.",
+        "name": "TypeError"
+      },
+      "step": {
+        "change": [],
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000001",
+        "useCredits": false
+      },
+      "step": {
+        "change": {
+          "auto": true,
+          "policy": "limit",
+          "selectedId": "00000000-0000-4000-8000-000000000001",
+          "useCredits": false
+        },
+        "op": "change"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "label": "Work"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000001",
+        "useCredits": false
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "op": "clearQuota"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000003",
+        "useCredits": false
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "op": "remove"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "label": "Account 3"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000003",
+        "useCredits": false
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "op": "remove"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Invalid provider account id.",
+        "name": "TypeError"
+      },
+      "step": {
+        "id": "bad",
+        "op": "remove"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "label": "Renamed"
+          },
+          {
+            "id": "default",
+            "label": "Account 1"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "00000000-0000-4000-8000-000000000003",
+        "useCredits": false
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "op": "remove"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [
+          {
+            "id": "default",
+            "label": "Account 1"
+          }
+        ],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": "default",
+        "useCredits": false
+      },
+      "step": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "op": "remove"
+      }
+    },
+    {
+      "pool": {
+        "accounts": [],
+        "auto": true,
+        "policy": "limit",
+        "selectedId": null,
+        "useCredits": false
+      },
+      "step": {
+        "id": "default",
+        "op": "remove"
+      }
+    }
+  ]
+}

@@ -129,12 +129,15 @@ pub enum ErrorData {
         #[ts(type = "number")]
         limit: u64,
     },
-    /// A coded failure of a domain operation (today's coded errors such as
-    /// `WORKTREE_DIRTY`); `code` is the domain's stable code, never message text.
+    /// A failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`);
+    /// `code` is the domain's stable code, never message text. Absent when the failure has
+    /// none, as Node's plain `Error` answers.
     #[serde(rename_all = "camelCase")]
     DomainError {
         domain: String,
-        code: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        code: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         detail: Option<Box<DomainErrorDetail>>,

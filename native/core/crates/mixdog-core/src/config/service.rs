@@ -1,10 +1,11 @@
 //! The `config/` domain service: the raw reads and typed writes of the `Config` actor
 //! (`config/read`, `config/value/write`, `config/batchWrite`), the tool-module settings
-//! (`getToolModuleSettings` and its setters, [`ToolModules`]) and the worktree settings.
+//! (`getToolModuleSettings` and its setters, [`ToolModules`]), the worktree settings and the
+//! scalar settings of the agent config.
 //!
 //! `config/read` answers only the published subtrees, so provider credentials never leave the
-//! core through it. The other `config/*` session actions of today's settings API are ported by
-//! the packages that own what they change; until then they answer `capabilityUnavailable`.
+//! core through it. The service claims exactly [`METHODS`]; the other `config/*` methods
+//! belong to the service that owns their data.
 
 use std::sync::Arc;
 
@@ -27,17 +28,57 @@ use super::Config;
 use super::ConfigEdit;
 use super::ConfigError;
 use super::PUBLISHED_SUBTREES;
+use super::Settings;
+use crate::domains::support::wrong_method;
 use crate::tool_modules::ToolModules;
 use crate::tool_modules::ToolModulesError;
+
+/// What [`ConfigService`] serves: `dispatch` handles the first twelve, `settings_call` the rest.
+const METHODS: &[&str] = &[
+    "config/read",
+    "config/value/write",
+    "config/batchWrite",
+    "config/getToolModuleSettings",
+    "config/setWebSearchEnabled",
+    "config/setAutoEffortBase",
+    "config/setRecapEnabled",
+    "config/setMemoryToolsEnabled",
+    "config/setBuiltinToolEnabled",
+    "config/installBuiltinFeature",
+    "config/getWorktreeSettings",
+    "config/setWorktreeSettings",
+    "config/getHeartbeatSettings",
+    "config/getReactionSettings",
+    "config/getSessionTitleSettings",
+    "config/getCacheWarmingSettings",
+    "config/getRecapSettings",
+    "config/getSystemShell",
+    "config/getDeveloperSettings",
+    "config/getTheme",
+    "config/setTheme",
+    "config/getProfile",
+    "config/setProfile",
+    "config/setHeartbeatEnabled",
+    "config/setHeartbeatInterval",
+    "config/setReactionsEnabled",
+    "config/setAiSessionTitles",
+    "config/setCacheWarmingEnabled",
+    "config/setSystemShell",
+    "config/setDeveloperOption",
+    "config/saveStarterGuideState",
+];
 
 pub struct ConfigService {
     config: Config,
     tool_modules: Arc<ToolModules>,
+    /// The scalar settings of the agent config (heartbeat, reactions, AI session titles, cache
+    /// warming, system shell, developer options, recap, starter guide).
+    settings: Settings,
 }
 
 impl ConfigService {
-    pub fn new(config: Config, tool_modules: Arc<ToolModules>) -> Self {
-        Self { config, tool_modules }
+    pub fn new(config: Config, tool_modules: Arc<ToolModules>, settings: Settings) -> Self {
+        Self { config, tool_modules, settings }
     }
 
     async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
@@ -94,10 +135,7 @@ impl ConfigService {
                 let patch = params.get("patch").cloned().unwrap_or(Value::Null);
                 set_worktree_settings(&self.config, &patch).await
             }
-            other => Err(CoreError::CapabilityUnavailable {
-                capability: other.into(),
-                detail: "not served by the config actor yet".into(),
-            }),
+            other => settings_call(&self.settings, other, params).await,
         }
     }
 
@@ -141,12 +179,12 @@ impl ConfigService {
 /// `setWorktreeSettings(patch)`: the patch is applied strictly to the stored section and the
 /// whole effective section is stored; answers the effective settings.
 pub(crate) async fn set_worktree_settings(config: &Config, patch: &Value) -> Result<Value, CoreError> {
-    let current = config.get("worktree").unwrap_or(Value::Null);
+    let current = config.agent().get("worktree").cloned().unwrap_or(Value::Null);
     let next = apply_patch(&current, patch)
         .map_err(|error| invalid("params.patch", &error.to_string()))?;
     let stored = serde_json::to_value(&next).expect("settings serialize");
     config
-        .update(move |doc| {
+        .update_agent(move |doc| {
             doc.insert("worktree".into(), stored);
             Ok(())
         })
@@ -156,8 +194,37 @@ pub(crate) async fn set_worktree_settings(config: &Config, patch: &Value) -> Res
 }
 
 fn worktree_view(config: &Config) -> Value {
-    let settings = normalize(&config.get("worktree").unwrap_or(Value::Null));
+    let settings = normalize(&config.agent().get("worktree").cloned().unwrap_or(Value::Null));
     serde_json::to_value(settings).expect("settings serialize")
+}
+
+/// The scalar settings: reads answer the view, writes the view after the change. Argument
+/// names are the Node parameter names.
+async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Result<Value, CoreError> {
+    let arg = |key: &str| params.get(key).cloned().unwrap_or(Value::Null);
+    let result = match method {
+        "config/getHeartbeatSettings" => return Ok(settings.heartbeat()),
+        "config/getReactionSettings" => return Ok(settings.reactions()),
+        "config/getSessionTitleSettings" => return Ok(settings.session_titles()),
+        "config/getCacheWarmingSettings" => return Ok(settings.cache_warming()),
+        "config/getRecapSettings" => return Ok(settings.recap()),
+        "config/getSystemShell" => return Ok(settings.system_shell()),
+        "config/getDeveloperSettings" => return Ok(settings.developer()),
+        "config/getTheme" => return Ok(settings.theme()),
+        "config/setTheme" => settings.set_theme(&arg("id"), &arg("options")).await,
+        "config/getProfile" => return Ok(settings.profile()),
+        "config/setProfile" => settings.set_profile(params).await,
+        "config/setHeartbeatEnabled" => settings.set_heartbeat_enabled(&arg("enabled")).await,
+        "config/setHeartbeatInterval" => settings.set_heartbeat_interval(&arg("minutes")).await,
+        "config/setReactionsEnabled" => settings.set_reactions_enabled(&arg("enabled")).await,
+        "config/setAiSessionTitles" => settings.set_ai_session_titles(&arg("enabled")).await,
+        "config/setCacheWarmingEnabled" => settings.set_cache_warming_enabled(&arg("enabled")).await,
+        "config/setSystemShell" => settings.set_system_shell(&arg("command")).await,
+        "config/setDeveloperOption" => settings.set_developer_option(&arg("id"), &arg("enabled")).await,
+        "config/saveStarterGuideState" => settings.save_starter_guide_state(&arg("state")).await,
+        other => return Err(wrong_method("config", other)),
+    };
+    tool(result)
 }
 
 fn edit_of(params: &Value) -> Result<ConfigEdit, CoreError> {
@@ -193,19 +260,22 @@ fn invalid(path: &str, expected: &str) -> CoreError {
     CoreError::InvalidParams { path: path.into(), expected: expected.into() }
 }
 
-fn core_error(error: ConfigError) -> CoreError {
+pub(super) fn core_error(error: ConfigError) -> CoreError {
     match error {
+        ConfigError::Rejected(error) => error,
         ConfigError::InvalidParams { path, expected } => {
             CoreError::InvalidParams { path: path.into(), expected: expected.into() }
         }
         other => CoreError::DomainError {
             domain: "config".into(),
-            code: match other {
-                ConfigError::Overloaded(_) => "overloaded",
-                ConfigError::Parse(_) => "configInvalid",
-                _ => "configFailed",
-            }
-            .into(),
+            code: Some(
+                match other {
+                    ConfigError::Overloaded(_) => "overloaded",
+                    ConfigError::Parse(_) => "configInvalid",
+                    _ => "configFailed",
+                }
+                .into(),
+            ),
             detail: None,
         },
     }
@@ -219,7 +289,7 @@ fn tool(result: Result<Value, ToolModulesError>) -> Result<Value, CoreError> {
         }
         ToolModulesError::Failed(_) => CoreError::DomainError {
             domain: "config".into(),
-            code: "settingFailed".into(),
+            code: Some("settingFailed".into()),
             detail: None,
         },
         ToolModulesError::Config(error) => core_error(error),
@@ -228,6 +298,10 @@ fn tool(result: Result<Value, ToolModulesError>) -> Result<Value, CoreError> {
 
 #[async_trait]
 impl DomainService for ConfigService {
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
+
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
     }

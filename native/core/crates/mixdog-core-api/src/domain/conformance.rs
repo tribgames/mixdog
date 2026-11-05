@@ -108,8 +108,14 @@ async fn drain<T: Send>(source: &mut dyn EventSource<T>) -> Vec<T> {
 /// `complete` is a recorded wire body that ends with the terminal event;
 /// `truncated` is the same body cut before it. `complete` is fed in two
 /// units split at `split_at` to prove incremental decoding.
-pub fn check_wire_codec(codec: &dyn WireCodec, complete: &[u8], truncated: &[u8], split_at: usize) {
-    let mut decoder = codec.decoder();
+pub fn check_wire_codec(
+    codec: &dyn WireCodec,
+    request: &ModelRequest,
+    complete: &[u8],
+    truncated: &[u8],
+    split_at: usize,
+) {
+    let mut decoder = codec.decoder(request);
     let (head, tail) = complete.split_at(split_at.min(complete.len()));
     let mut events = decoder.feed(head).expect("feed head");
     events.extend(decoder.feed(tail).expect("feed tail"));
@@ -125,7 +131,7 @@ pub fn check_wire_codec(codec: &dyn WireCodec, complete: &[u8], truncated: &[u8]
         "terminal event is last"
     );
 
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(request);
     decoder.feed(truncated).expect("feed truncated");
     let err = decoder
         .finish()
@@ -1608,7 +1614,7 @@ mod tests {
 
     #[test]
     fn codec() {
-        check_wire_codec(&MockCodec, b"t:hel\nka\nt:lo\ndone\n", b"t:hel\nka\n", 3);
+        check_wire_codec(&MockCodec, &request(), b"t:hel\nka\nt:lo\ndone\n", b"t:hel\nka\n", 3);
     }
 
     #[tokio::test]

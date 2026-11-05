@@ -45,7 +45,9 @@ fn relay(responses: Vec<&'static str>) -> Relay {
     let seen = requests.clone();
     std::thread::spawn(move || {
         for response in responses {
-            let Ok((mut stream, _)) = listener.accept() else { return };
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
             let mut raw = Vec::new();
             let mut chunk = [0u8; 4096];
             let body_at = loop {
@@ -61,7 +63,11 @@ fn relay(responses: Vec<&'static str>) -> Relay {
             let head = String::from_utf8_lossy(&raw[..body_at]).to_string();
             let wanted: usize = head
                 .lines()
-                .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap()))
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().parse().unwrap())
+                })
                 .unwrap_or(0);
             while raw.len() < body_at + wanted {
                 let n = stream.read(&mut chunk).unwrap_or(0);
@@ -93,10 +99,16 @@ fn accepted() -> &'static str {
 fn plain(status: &'static str) -> &'static str {
     match status {
         "429" => "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        "500" => "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        "302" => "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "500" => {
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        }
+        "302" => {
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        }
         "html" => "HTTP/1.1 202 Accepted\r\nContent-Length: 6\r\nConnection: close\r\n\r\n<html>",
-        _ => "HTTP/1.1 202 Accepted\r\nContent-Length: 41\r\nConnection: close\r\n\r\n{\"id\":\"someone-else\",\"status\":\"accepted\"}",
+        _ => {
+            "HTTP/1.1 202 Accepted\r\nContent-Length: 41\r\nConnection: close\r\n\r\n{\"id\":\"someone-else\",\"status\":\"accepted\"}"
+        }
     }
 }
 
@@ -108,16 +120,30 @@ async fn service(
     dir: &std::path::Path,
     relay_url: Result<Option<String>, String>,
 ) -> Arc<FeedbackService> {
-    FeedbackService::new(Arc::new(move || relay_url.clone()), scopes(dir, "feedback").await)
+    FeedbackService::new(
+        Arc::new(move || relay_url.clone()),
+        scopes(dir, "feedback").await,
+    )
 }
 
 async fn upload(service: &FeedbackService, op: u64, input: Value) -> Result<Value, CoreError> {
-    value(service, request("feedback/upload", with_op(json!({ "input": input }), op), Some(op))).await
+    value(
+        service,
+        request(
+            "feedback/upload",
+            with_op(json!({ "input": input }), op),
+            Some(op),
+        ),
+    )
+    .await
 }
 
 fn message(error: CoreError) -> String {
     match error {
-        CoreError::DomainError { detail: Some(detail), .. } => match *detail {
+        CoreError::DomainError {
+            detail: Some(detail),
+            ..
+        } => match *detail {
             DomainErrorDetail::CommandFailed { message } => message,
             other => panic!("unexpected detail {other:?}"),
         },
@@ -129,21 +155,32 @@ fn message(error: CoreError) -> String {
 async fn the_normalized_feedback_is_posted_and_the_receipt_returned() {
     let dir = tempfile::tempdir().unwrap();
     let relay = relay(vec![accepted()]);
-    let service = service(dir.path(), Ok(Some(format!("ws://127.0.0.1:{}/ignored?x=1#y", relay.port)))).await;
+    let service = service(
+        dir.path(),
+        Ok(Some(format!("ws://127.0.0.1:{}/ignored?x=1#y", relay.port))),
+    )
+    .await;
     let receipt = upload(&service, 1, input()).await.unwrap();
     assert_eq!(receipt, json!({ "id": ID, "status": "accepted" }));
     let seen = relay.requests.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].0, "POST /feedback HTTP/1.1");
     assert!(seen[0].1.contains("application/json"));
-    assert_eq!(seen[0].2, json!({ "id": ID, "kind": "bug", "message": "It broke", "replyTo": "me@example.com" }));
+    assert_eq!(
+        seen[0].2,
+        json!({ "id": ID, "kind": "bug", "message": "It broke", "replyTo": "me@example.com" })
+    );
 }
 
 #[tokio::test]
 async fn a_repeated_op_posts_once() {
     let dir = tempfile::tempdir().unwrap();
     let relay = relay(vec![accepted()]);
-    let service = service(dir.path(), Ok(Some(format!("ws://127.0.0.1:{}", relay.port)))).await;
+    let service = service(
+        dir.path(),
+        Ok(Some(format!("ws://127.0.0.1:{}", relay.port))),
+    )
+    .await;
     let first = upload(&service, 7, input()).await.unwrap();
     let again = upload(&service, 7, input()).await.unwrap();
     assert_eq!(first, again);
@@ -155,32 +192,58 @@ async fn every_failure_has_the_sentence_the_desktop_gave() {
     let dir = tempfile::tempdir().unwrap();
     let cases = [
         ("429", "Too many feedback requests. Please try again later."),
-        ("500", "Feedback service is unavailable. Please try again later."),
+        (
+            "500",
+            "Feedback service is unavailable. Please try again later.",
+        ),
         ("302", "Unable to submit feedback. Please try again."),
         ("html", "Feedback receipt is invalid. Please try again."),
         ("other", "Feedback receipt is invalid. Please try again."),
     ];
     for (n, (status, want)) in cases.into_iter().enumerate() {
         let relay = relay(vec![plain(status)]);
-        let service = service(dir.path(), Ok(Some(format!("ws://127.0.0.1:{}", relay.port)))).await;
+        let service = service(
+            dir.path(),
+            Ok(Some(format!("ws://127.0.0.1:{}", relay.port))),
+        )
+        .await;
         let error = upload(&service, 10 + n as u64, input()).await.unwrap_err();
         assert_eq!(message(error), want, "status {status}");
     }
     // Nothing listens.
-    let gone = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let gone = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let service = service(dir.path(), Ok(Some(format!("ws://127.0.0.1:{gone}")))).await;
-    assert_eq!(message(upload(&service, 30, input()).await.unwrap_err()), "Unable to submit feedback. Please try again.");
+    assert_eq!(
+        message(upload(&service, 30, input()).await.unwrap_err()),
+        "Unable to submit feedback. Please try again."
+    );
 }
 
 #[tokio::test]
 async fn invalid_input_and_a_switched_off_relay_are_refused_before_any_request() {
     let dir = tempfile::tempdir().unwrap();
     let off = service(dir.path(), Ok(None)).await;
-    assert_eq!(message(upload(&off, 40, input()).await.unwrap_err()), "Feedback service is unavailable.");
-    assert_eq!(message(upload(&off, 41, json!("x")).await.unwrap_err()), "Feedback is invalid.");
+    assert_eq!(
+        message(upload(&off, 40, input()).await.unwrap_err()),
+        "Feedback service is unavailable."
+    );
+    assert_eq!(
+        message(upload(&off, 41, json!("x")).await.unwrap_err()),
+        "Feedback is invalid."
+    );
     let mut bad_reply = input();
     bad_reply["replyTo"] = json!("nobody");
-    assert_eq!(message(upload(&off, 42, bad_reply).await.unwrap_err()), "Reply email is invalid.");
+    assert_eq!(
+        message(upload(&off, 42, bad_reply).await.unwrap_err()),
+        "Reply email is invalid."
+    );
     let wrong = service(dir.path(), Err("MIXDOG_RELAY_URL is invalid.".into())).await;
-    assert_eq!(message(upload(&wrong, 43, input()).await.unwrap_err()), "MIXDOG_RELAY_URL is invalid.");
+    assert_eq!(
+        message(upload(&wrong, 43, input()).await.unwrap_err()),
+        "MIXDOG_RELAY_URL is invalid."
+    );
 }

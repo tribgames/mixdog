@@ -1,11 +1,16 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 49,
+  "fileCount": 54,
   "files": [
     {
       "bytes": 10707,
       "path": "compact/golden/conversation.json",
       "sha256": "ca5c75d95ec15b2b422723c17f0531eb87742c6acb6129d6d9b855630b6f92de"
+    },
+    {
+      "bytes": 7174,
+      "path": "compact/golden/dropped.json",
+      "sha256": "a92e1bb8abdc1720d4c4c681b15e37903dd07795f0a619c7c22de9eb05e5d4bd"
     },
     {
       "bytes": 27973,
@@ -23,14 +28,29 @@
       "sha256": "2fbe9d15048aec8939bc23c2936fe0f4b6579241d041fdbb35b70e2b2e969829"
     },
     {
+      "bytes": 82907,
+      "path": "compact/golden/settings.json",
+      "sha256": "375ba944f9021454310bc925b17d46ffd8bda99ad3e4f463b6fa4a190dab7378"
+    },
+    {
       "bytes": 23095,
       "path": "compact/golden/summary.json",
       "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
     },
     {
-      "bytes": 15799,
+      "bytes": 18915,
       "path": "compact/record.mjs",
-      "sha256": "42629193e00c062e8da58f330a97cb815ccb5752c38953ac8168d929d10df009"
+      "sha256": "dae43f83f12f27663ec07f4ead4f7e7d02751542b879aef19612651bf48c9d73"
+    },
+    {
+      "bytes": 9564,
+      "path": "compact/record_settings.mjs",
+      "sha256": "5176dfcd33f90f4435b13e5d8888f0c75b4f001cb0621263f712d14503504708"
+    },
+    {
+      "bytes": 1817,
+      "path": "explorer/cases.json",
+      "sha256": "fbc09cf64c964fd3fb154f51ae5242a5dd2b1bb08f65d096e4b672a50a3ad0b0"
     },
     {
       "bytes": 1549,
@@ -128,19 +148,24 @@
       "sha256": "7dea0c7d8d78857eb9849d80ad8193833ebdb869cd6207b37f190bf5e0545a22"
     },
     {
-      "bytes": 2258,
+      "bytes": 3804,
+      "path": "record-explorer.mjs",
+      "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
+    },
+    {
+      "bytes": 2478,
       "path": "record-tail-reminder.mjs",
-      "sha256": "ada124dd29e22ec5e845e0a36c0d855a5694e3ac5d60ced401b81613c4a4d13d"
+      "sha256": "76a644c0479c2b5112a7be73f31a4f014f2a3417e6ef7a4c17c5ac508000fffc"
     },
     {
-      "bytes": 4176,
+      "bytes": 4392,
       "path": "record-text-only.mjs",
-      "sha256": "21b6dcad67a315a6a4fdf79c2f7a555be6dcc6acddeb205bdc8c06d6e488a951"
+      "sha256": "9584cead9e52f359e28a161195218b9a1bf85d07a3a82920ddc89d0873c954f5"
     },
     {
-      "bytes": 9326,
+      "bytes": 9711,
       "path": "record.mjs",
-      "sha256": "e25b2ad8094df64e7da8fd570bfd29d06fb6e8dd5f02d3c164623cda0b5532ad"
+      "sha256": "9add1b170dbdbdc6e43622c78235dafc9739a0489f62e6f7ba5b8098344eeadd"
     },
     {
       "bytes": 311,
@@ -249,22 +274,22 @@
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 43480,
     "refComparison": {
-      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34400
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 263627
+  "totalBytes": 372830
 }

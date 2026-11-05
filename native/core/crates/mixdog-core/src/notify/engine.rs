@@ -14,10 +14,23 @@ use super::decision::{
 };
 use super::preview::notification_preview;
 
+/// The tool approval a push is about, and whether the phone may offer Allow on it
+/// (push-notifier.ts `PushApproval`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PushApproval {
+    pub id: String,
+    pub allow_once: bool,
+}
+
+/// `approval.id.slice(0, 120)`.
+const APPROVAL_ID_UNITS: usize = 120;
+
 #[derive(Clone, Debug)]
 pub struct ThreadEvent {
     pub thread_id: String,
     pub event: Event,
+    /// The approval of an `Event::Approval`; ignored for every other event.
+    pub approval: Option<PushApproval>,
     pub conversation: Conversation,
     pub title: String,
     /// The event's text as Markdown (a final answer, a question); shown as a plain-text preview.
@@ -83,6 +96,9 @@ pub struct PushRequest {
     pub title: String,
     pub body: String,
     pub schedule: PushSchedule,
+    /// Set only for an approval wait; the sink puts it inside the encrypted native content
+    /// (the relay never learns whether Allow is offered). The id is already clipped.
+    pub approval: Option<PushApproval>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -164,6 +180,13 @@ impl NotificationEngine {
             }
         }
 
+        let approval = match (event.event, &event.approval) {
+            (Event::Approval, Some(shown)) => Some(PushApproval {
+                id: mixdog_js::slice_utf16(&shown.id, APPROVAL_ID_UNITS),
+                allow_once: shown.allow_once,
+            }),
+            _ => None,
+        };
         for device in &audience.devices {
             let foreground = is_foreground(&device.foreground_thread);
             let schedule = match decide_for(&device.view, foreground, audience.desktop_active) {
@@ -180,6 +203,7 @@ impl NotificationEngine {
                 title: event.title.clone(),
                 body: body.clone(),
                 schedule,
+                approval: approval.clone(),
             });
         }
         plan
@@ -219,6 +243,7 @@ impl NotificationEngine {
                     title: title.to_owned(),
                     body: body.to_owned(),
                     schedule: PushSchedule::Now,
+                    approval: None,
                 });
             }
         }
@@ -254,6 +279,7 @@ mod tests {
         ThreadEvent {
             thread_id: "t1".into(),
             event: Event::Finished,
+            approval: None,
             conversation: conversation(),
             title: "Title".into(),
             body_markdown: "**Done** now".into(),
@@ -352,6 +378,24 @@ mod tests {
         assert_eq!((one.toasts.len(), one.pushes.len()), (0, 1));
         let desktop = e.test(&TestTarget::Desktop, &a);
         assert_eq!((desktop.toasts.len(), desktop.pushes.len()), (1, 0));
+    }
+
+    #[test]
+    fn an_approval_push_carries_its_clipped_id_and_allow_flag_and_other_events_none() {
+        let a = audience(&[], vec![device("phone", DevicePreferences::default())]);
+        let long = format!("{}😀{}", "a".repeat(119), "tail");
+        let waiting = ThreadEvent {
+            event: Event::Approval,
+            approval: Some(PushApproval { id: long, allow_once: true }),
+            ..event()
+        };
+        let plan = engine().on_event(&waiting, &a);
+        let approval = plan.pushes[0].approval.clone().expect("approval push");
+        // 119 units + the emoji's high surrogate: `slice(0, 120)` cuts the pair.
+        assert_eq!(mixdog_js::utf16_len(&approval.id), 120);
+        assert!(approval.allow_once);
+        let finished = ThreadEvent { approval: Some(PushApproval { id: "x".into(), allow_once: true }), ..event() };
+        assert_eq!(engine().on_event(&finished, &a).pushes[0].approval, None);
     }
 
     #[test]

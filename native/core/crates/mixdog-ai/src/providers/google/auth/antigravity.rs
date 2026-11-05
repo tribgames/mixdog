@@ -121,9 +121,8 @@ fn expires_at_ms(value: &Value) -> u64 {
         Value::String(s) => match s.trim().parse::<f64>() {
             Ok(n) => Some(n),
             Err(_) => {
-                return chrono::DateTime::parse_from_rfc3339(s.trim())
-                    .map(|t| t.timestamp_millis().max(0) as u64)
-                    .unwrap_or(0);
+                let ms = mixdog_js::time::date_parse(s.trim());
+                return if ms.is_finite() { ms.max(0.0) as u64 } else { 0 };
             }
         },
         _ => None,

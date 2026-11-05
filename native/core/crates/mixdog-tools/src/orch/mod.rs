@@ -15,5 +15,5 @@ pub mod session;
 pub mod skill;
 pub mod status;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod util;

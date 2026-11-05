@@ -10,9 +10,10 @@
 //! or the lock file: deleting `B` would re-admit 1.4.5 on that data dir.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::io;
+use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -174,20 +175,37 @@ pub fn barrier_bytes(instance_id: &str) -> Vec<u8> {
     format!("{BARRIER_PID} 0 {BARRIER_TOKEN_PREFIX}{instance_id}\n").into_bytes()
 }
 
-/// The steps of LR §3.2, reported after each one completes.
+/// The points of LR §3 steps 3–4, reached in this order on the `clear` path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InstallStep {
-    /// Step 1: `B` holds this core's ordinary 1.4.5-format content.
+pub(crate) enum Step {
+    /// The verdict, judged without `B`, is `clear`; nothing is held.
+    Judged,
+    /// The pre-link read of `R` matched the judged bytes; `B` (or its reclaim
+    /// guard) is taken next. A 1.4.5 claim landing here is the residual window.
+    Linking,
+    /// This core holds `B` (or, for a dead holder, the reclaim guard); `R` is
+    /// read next.
+    Held,
+    /// `R` changed since the verdict: `B` (or the guard) is given back next.
+    Conflict,
+    /// `R` is unchanged and `B` holds this core's ordinary content.
     ClaimLockTaken,
-    /// Step 2: the record still holds the bytes the verdict judged.
-    RecordRechecked,
-    /// Step 3: the barrier record is durable.
+    /// The barrier record is durable.
     RecordWritten,
-    /// Step 4: `B` is the barrier, durable and pinned.
+    /// `B` is the barrier, durable and pinned.
     BarrierInstalled,
 }
 
-/// How `B` is taken in step 1, as the verdict found it.
+/// Test-only observation and control at each [`Step`]; compiled out of
+/// non-test builds.
+#[cfg(not(test))]
+#[inline(always)]
+pub(crate) fn hook(_step: Step) {}
+
+#[cfg(test)]
+pub(crate) use tests::hook;
+
+/// How `B` is taken, as the claim lock was judged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Take {
     Absent,
@@ -196,13 +214,73 @@ pub(crate) enum Take {
     EmptyDir,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Install {
-    Done,
-    /// A 1.4.5 contender changed `B` or the record: back to the verdict.
+/// The outcome of taking `B` after a `clear` verdict.
+pub(crate) enum Taken {
+    /// `B` holds this core's content and `R` still holds the judged bytes.
+    Held(HeldClaim),
+    /// A 1.4.5 contender changed `B` first: judge again.
     Raced,
+    /// `R` changed between the verdict and taking `B` (a 1.4.5 claim landed in
+    /// between); `B` was given back at once. Judge again.
+    RecordChanged,
     /// A live process holds the reclaim guard (a 1.4.5 reclaim in progress).
     GuardHeld(u64),
+}
+
+enum Reclaim {
+    Replaced,
+    Changed,
+    RecordChanged,
+    GuardHeld(u64),
+}
+
+/// `B` holding this core's ordinary content, taken only after a `clear`
+/// verdict and with `R` re-read unchanged under it. 1.4.5 writes `R` only
+/// while it holds `B` (claim, heartbeat refresh, handoff); its release deletes
+/// its own record without `B`, but only after its heartbeat stopped. So no
+/// 1.4.5 owner exists while this is held.
+///
+/// A live 1.4.5 owner refreshes its heartbeat under `B` and fences itself,
+/// aborting its in-flight work, when three refreshes in a row find it held
+/// (`T:daemon-owner.mjs` `createOwnerHeartbeat`), so `B` is never taken while
+/// one may exist. Dropping it gives `B` back.
+pub(crate) struct HeldClaim {
+    own: Arc<CoreOwnership>,
+    content: Vec<u8>,
+}
+
+impl HeldClaim {
+    /// Gives `B` back, reporting a failure the drop would swallow.
+    pub(crate) fn release(mut self) -> io::Result<()> {
+        let content = std::mem::take(&mut self.content);
+        release_own(self.own.data_dir(), CLAIM_LOCK_FILE, &content)
+    }
+
+    /// LR §3.2 steps 2–3: the barrier record, then `B` becomes the barrier by
+    /// atomic rename-replace, so it never disappears.
+    pub(crate) fn install(self, record: &BarrierRecord) -> io::Result<()> {
+        let dir = self.own.data_dir();
+        publish_durable(dir, RECORD_STAGING_FILE, RECORD_FILE, &record.to_bytes())?;
+        hook(Step::RecordWritten);
+        publish_durable(
+            dir,
+            BARRIER_STAGING_FILE,
+            CLAIM_LOCK_FILE,
+            &barrier_bytes(self.own.instance_id()),
+        )?;
+        self.own.pin_barrier()?;
+        hook(Step::BarrierInstalled);
+        // The drop's release finds the barrier, not this content, and keeps it.
+        Ok(())
+    }
+}
+
+impl Drop for HeldClaim {
+    fn drop(&mut self) {
+        if !self.content.is_empty() {
+            let _ = release_own(self.own.data_dir(), CLAIM_LOCK_FILE, &self.content);
+        }
+    }
 }
 
 fn now_ms() -> u64 {
@@ -286,21 +364,29 @@ fn release_own(dir: &DataDir, name: &str, content: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-/// Step 1 for a dead holder: under the guard, `B` still holding the judged
-/// bytes is rename-replaced with this core's content, so it never disappears.
+/// Taking `B` from a dead holder: under the guard, `B` still holding the
+/// judged bytes is rename-replaced with this core's content, so it never
+/// disappears. While the guard is held over a dead holder's `B`, no 1.4.5
+/// process can take `B`, so `R` is re-read before `B` is touched.
 fn reclaim(
     dir: &DataDir,
     judged: &[u8],
+    judged_record: Option<&[u8]>,
     content: &[u8],
     procs: &dyn ProcessTable,
-) -> io::Result<Install> {
+) -> io::Result<Reclaim> {
     let token = match take_guard(dir, procs)? {
         Guard::Held(token) => token,
-        Guard::Busy(pid) => return Ok(Install::GuardHeld(pid)),
+        Guard::Busy(pid) => return Ok(Reclaim::GuardHeld(pid)),
     };
-    let replaced = (|| {
+    hook(Step::Held);
+    let outcome = (|| {
         if dir.read(CLAIM_LOCK_FILE)?.as_deref() != Some(judged) {
-            return Ok(false);
+            return Ok(Reclaim::Changed);
+        }
+        if dir.read(RECORD_FILE)?.as_deref() != judged_record {
+            hook(Step::Conflict);
+            return Ok(Reclaim::RecordChanged);
         }
         let staged = staged_name(CLAIM_LOCK_FILE);
         dir.create_new(&staged, content)?;
@@ -308,14 +394,10 @@ fn reclaim(
             dir.remove_if_exists(&staged)?;
             return Err(error);
         }
-        Ok(true)
+        Ok(Reclaim::Replaced)
     })();
     release_own(dir, RECLAIM_GUARD_FILE, &token)?;
-    Ok(if replaced? {
-        Install::Done
-    } else {
-        Install::Raced
-    })
+    outcome
 }
 
 /// Replaces `target` with `content` durably: staged, synced, renamed, directory synced.
@@ -326,62 +408,59 @@ fn publish_durable(dir: &DataDir, staging: &str, target: &str, content: &[u8]) -
     dir.sync()
 }
 
-/// LR §3.2, under the OS lock after a `clear` verdict. `judged_record` is the
-/// record as the verdict read it; `observe` sees each completed step.
-pub(crate) fn install(
-    own: &CoreOwnership,
+/// LR §3.2 step 1, under the OS lock and only after a `clear` verdict judged
+/// `R` as `judged_record` without `B`: takes `B` in 1.4.5 terms with this
+/// core's ordinary content, then re-reads `R` under it. Any change (a 1.4.5
+/// claim landed after the verdict, or a release deleted `R`) gives `B` back at
+/// once, with no further judging while it is held.
+pub(crate) fn take(
+    own: &Arc<CoreOwnership>,
     take: Take,
     judged_record: Option<&[u8]>,
-    record: &BarrierRecord,
     procs: &dyn ProcessTable,
-    observe: &mut dyn FnMut(InstallStep),
-) -> io::Result<Install> {
+) -> io::Result<Taken> {
     let dir = own.data_dir();
     let content = format!(
         "{} {} {CORE_TOKEN_PREFIX}{}\n",
         std::process::id(),
         now_ms(),
         own.instance_id()
-    );
-    let content = content.as_bytes();
-
-    // 1. Take B in 1.4.5 terms with ordinary content.
-    let taken = match take {
-        Take::Absent => publish_linked(dir, CLAIM_LOCK_FILE, content)?,
+    )
+    .into_bytes();
+    let linked = match take {
+        Take::Absent => publish_linked(dir, CLAIM_LOCK_FILE, &content)?,
         Take::EmptyDir => match dir.rmdir(CLAIM_LOCK_FILE) {
-            Ok(()) => publish_linked(dir, CLAIM_LOCK_FILE, content)?,
+            Ok(()) => publish_linked(dir, CLAIM_LOCK_FILE, &content)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => false,
             Err(error) => return Err(error),
         },
-        Take::DeadHolder(judged) => match reclaim(dir, &judged, content, procs)? {
-            Install::Done => true,
-            other => return Ok(other),
+        Take::DeadHolder(judged) => match reclaim(dir, &judged, judged_record, &content, procs)? {
+            Reclaim::Replaced => {
+                hook(Step::ClaimLockTaken);
+                return Ok(Taken::Held(HeldClaim {
+                    own: own.clone(),
+                    content,
+                }));
+            }
+            Reclaim::Changed => false,
+            Reclaim::RecordChanged => return Ok(Taken::RecordChanged),
+            Reclaim::GuardHeld(pid) => return Ok(Taken::GuardHeld(pid)),
         },
     };
-    if !taken {
-        return Ok(Install::Raced);
+    if !linked {
+        return Ok(Taken::Raced);
     }
-    observe(InstallStep::ClaimLockTaken);
-
-    // 2. A 1.4.5 claim that landed between the verdict and step 1 changed R.
+    // Dropped on any error below, which gives B back.
+    let held = HeldClaim {
+        own: own.clone(),
+        content,
+    };
+    hook(Step::Held);
     if dir.read(RECORD_FILE)?.as_deref() != judged_record {
-        release_own(dir, CLAIM_LOCK_FILE, content)?;
-        return Ok(Install::Raced);
+        hook(Step::Conflict);
+        held.release()?;
+        return Ok(Taken::RecordChanged);
     }
-    observe(InstallStep::RecordRechecked);
-
-    // 3. The barrier record.
-    publish_durable(dir, RECORD_STAGING_FILE, RECORD_FILE, &record.to_bytes())?;
-    observe(InstallStep::RecordWritten);
-
-    // 4. B becomes the barrier by atomic rename-replace; it never disappears.
-    publish_durable(
-        dir,
-        BARRIER_STAGING_FILE,
-        CLAIM_LOCK_FILE,
-        &barrier_bytes(own.instance_id()),
-    )?;
-    own.pin_barrier()?;
-    observe(InstallStep::BarrierInstalled);
-    Ok(Install::Done)
+    hook(Step::ClaimLockTaken);
+    Ok(Taken::Held(held))
 }

@@ -27,6 +27,21 @@ fn push_unique(list: &mut Vec<String>, id: &str) {
     }
 }
 
+/// Node's `droppedMessages` (messages with an id absent from `after`) and
+/// `droppedIdentities`; both are empty together when nothing visible left
+/// (the archive is not prepared, so Node reports 0 and null).
+pub fn dropped_summary(before: &[AgentMessage], after: &[AgentMessage]) -> (u64, Option<Dropped>) {
+    let Some(dropped) = dropped_identities(before, after) else {
+        return (0, None);
+    };
+    let count = before
+        .iter()
+        .filter_map(|m| m.message_id.as_deref().filter(|id| !id.is_empty()))
+        .filter(|id| !after.iter().any(|copy| copy.message_id.as_deref() == Some(*id)))
+        .count();
+    (count as u64, Some(dropped))
+}
+
 /// `None` when nothing identifiable left the context (a rewrite-only pass).
 pub fn dropped_identities(before: &[AgentMessage], after: &[AgentMessage]) -> Option<Dropped> {
     let mut message_ids: Vec<String> = Vec::new();

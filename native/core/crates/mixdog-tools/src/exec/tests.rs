@@ -152,6 +152,15 @@ impl ProcessManager for FakeProcesses {
     }
 }
 
+/// Stands in for the worker: every `await` body reads as top-level, so it stays inline.
+struct AwaitIsTopLevel;
+#[async_trait]
+impl ScriptSyntax for AwaitIsTopLevel {
+    async fn compiles_as_commonjs(&self, _: &ThreadId, _: &str) -> Result<bool, mixdog_core_api::domain::ext::ExtError> {
+        Ok(false)
+    }
+}
+
 struct NoPublisher;
 impl mixdog_spawn::tasks::TaskPublisher for NoPublisher {
     fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {}
@@ -208,7 +217,7 @@ fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
         skill_runtime: None,
         shell_path: "/bin/sh".into(),
         shell_name: "sh".into(),
-        script_syntax: None,
+        script_syntax: Arc::new(AwaitIsTopLevel),
         windows: false,
         powershell: false,
         now_ms: Arc::new(golden_ms),

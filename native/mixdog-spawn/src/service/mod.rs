@@ -60,7 +60,7 @@ fn connection_key(id: ConnectionId) -> String {
 fn domain_error(domain: &str, code: &str) -> CoreError {
     CoreError::DomainError {
         domain: domain.into(),
-        code: code.into(),
+        code: Some(code.into()),
         detail: None,
     }
 }

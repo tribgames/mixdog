@@ -8,6 +8,7 @@ mod errors;
 mod handshake;
 mod host;
 mod queues;
+mod routing;
 mod sample;
 mod storm;
 mod subscriptions;
@@ -22,6 +23,7 @@ use std::sync::atomic::Ordering;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_app_protocol::CLIENT_METHODS;
+use mixdog_app_protocol::CLIENT_NOTIFICATIONS;
 use mixdog_app_protocol::JsonRpcMessage;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::v1::CapabilityState;
@@ -68,6 +70,7 @@ pub(crate) const VERSION: &str = "1.4.6";
 
 /// A domain whose calls wait for permits, logging when they start and end.
 pub(crate) struct GateDomain {
+    pub(crate) methods: &'static [&'static str],
     pub(crate) log: Mutex<Vec<String>>,
     pub(crate) permits: Semaphore,
 }
@@ -80,6 +83,10 @@ impl GateDomain {
 
 #[async_trait]
 impl DomainService for GateDomain {
+    fn methods(&self) -> &'static [&'static str] {
+        self.methods
+    }
+
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let tag = ["tabId", "opId"]
             .iter()
@@ -195,10 +202,10 @@ impl CoreHandle for TestCore {
         self.mock.ops()
     }
 
-    fn domain(&self, namespace: &str) -> Option<&dyn DomainService> {
-        match self.gated.get(namespace) {
+    fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        match self.gated.values().find(|gate| gate.methods.contains(&method)) {
             Some(gate) => Some(gate.as_ref()),
-            None => self.mock.domain(namespace),
+            None => self.mock.domain_for(method),
         }
     }
 
@@ -242,15 +249,26 @@ pub(crate) struct Rig {
     pub(crate) outgoing: Arc<Outgoing>,
 }
 
-/// Every namespace the table routes to a domain.
-fn domain_namespaces() -> Vec<&'static str> {
-    CLIENT_METHODS
+/// The requests and notifications of the table in `namespaces`. Leaked: the services list their
+/// methods as `'static`.
+fn namespace_methods(namespaces: &[&str]) -> &'static [&'static str] {
+    let methods: Vec<&'static str> = CLIENT_METHODS
         .iter()
-        .filter_map(|spec| spec.method.split_once('/').map(|(namespace, _)| namespace))
+        .map(|spec| spec.method)
+        .chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method))
+        .filter(|method| method.split('/').next().is_some_and(|namespace| namespaces.contains(&namespace)))
+        .collect();
+    Box::leak(methods.into_boxed_slice())
+}
+
+/// Every method the table routes to a domain.
+fn domain_methods() -> &'static [&'static str] {
+    let namespaces: BTreeSet<&str> = CLIENT_METHODS
+        .iter()
+        .filter_map(|spec| spec.method.split('/').next())
         .filter(|namespace| !["thread", "turn"].contains(namespace))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+        .collect();
+    namespace_methods(&namespaces.into_iter().collect::<Vec<_>>())
 }
 
 impl Rig {
@@ -258,18 +276,33 @@ impl Rig {
         Self::gated(&[])
     }
 
+    /// The mock core, except that every method of the namespaces in `gated` is served by a
+    /// [`GateDomain`].
     pub(crate) fn gated(gated: &[&'static str]) -> Self {
+        Self::routed(
+            domain_methods(),
+            gated.iter().map(|namespace| (*namespace, namespace_methods(&[*namespace]))).collect(),
+        )
+    }
+
+    /// The mock serves `mock`; each `(name, methods)` of `gates` is a [`GateDomain`] serving
+    /// exactly those methods, reached by `Rig::gate(name)`.
+    pub(crate) fn routed(
+        mock: &'static [&'static str],
+        gates: Vec<(&'static str, &'static [&'static str])>,
+    ) -> Self {
         mixdog_rt::testing::tokens();
         let core = Arc::new(TestCore {
-            mock: MockCore::new(&domain_namespaces(), MockLimits::default()),
-            gated: gated
-                .iter()
-                .map(|namespace| {
+            mock: MockCore::new(mock, MockLimits::default()),
+            gated: gates
+                .into_iter()
+                .map(|(name, methods)| {
                     let gate = GateDomain {
+                        methods,
                         log: Mutex::new(Vec::new()),
                         permits: Semaphore::new(0),
                     };
-                    (*namespace, Arc::new(gate))
+                    (name, Arc::new(gate))
                 })
                 .collect(),
             threads: Mutex::default(),

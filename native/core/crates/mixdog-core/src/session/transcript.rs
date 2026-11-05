@@ -32,6 +32,11 @@ use super::user_text::user_display_text;
 
 #[path = "transcript_convert.rs"]
 mod transcript_convert;
+#[path = "transcript_divider.rs"]
+mod transcript_divider;
+#[cfg(test)]
+#[path = "transcript_golden.rs"]
+mod transcript_golden;
 #[path = "transcript_rows.rs"]
 mod transcript_rows;
 

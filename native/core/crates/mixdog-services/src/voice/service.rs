@@ -99,6 +99,15 @@ impl DomainService for VoiceService {
         Ok(Reply::Value(value))
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "voice/getVoiceStatus",
+            "voice/toggleVoice",
+            "voice/transcribeAudio",
+            "voice/prepareTranscription",
+        ]
+    }
+
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
     }

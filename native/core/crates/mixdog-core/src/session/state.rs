@@ -228,7 +228,7 @@ impl SessionState {
                 }
             }
             Record::Item(item) => {
-                if let Some(prompt) = &item.prompt {
+                if let Some(prompt) = item.prompt_text() {
                     prompt_history::push_session(&mut self.prompt_session, prompt);
                     self.remerge_prompts();
                 }
@@ -244,7 +244,7 @@ impl SessionState {
                             }
                             // The prompt fact belongs to the row's user item, its first.
                             let prompt = matches!(new, ThreadItem::UserMessage { .. })
-                                .then(|| item.prompt.clone())
+                                .then(|| item.prompt_text().map(str::to_owned))
                                 .flatten();
                             self.window.push_back(WindowItem {
                                 ordinal,

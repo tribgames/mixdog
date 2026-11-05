@@ -1,6 +1,7 @@
 //! `mixdogd serve | ctl | migrate | server-ensure` (SPEC §3.2). Argument parsing only; every
 //! subcommand body lives in the daemon, migrate or client crate it names.
 
+mod exec;
 mod projector;
 
 use std::path::PathBuf;
@@ -34,6 +35,8 @@ enum Command {
         /// The desktop's base64 JSON `RemoteProgramArgs`.
         argument: String,
     },
+    /// Headless one-shot: ask once on a pristine root, print the answer.
+    Exec(exec::ExecArgs),
 }
 
 #[derive(Args)]
@@ -126,6 +129,22 @@ fn main() -> ExitCode {
         Command::ServerEnsure { argument } => {
             // Prints its own result lines; the status is 0 or 3.
             ExitCode::from(mixdog_app_server_daemon::server_ensure::main(&argument) as u8)
+        }
+        Command::Exec(args) => exec_command(args),
+    }
+}
+
+/// Refuses what Node refuses before anything starts. The run itself needs the composition root's
+/// `exec::seams::CoreLauncher` and `exec::boundary::HostCredentials`.
+fn exec_command(args: exec::ExecArgs) -> ExitCode {
+    let options = args.into_options(std::env::var("MIXDOG_USAGE_LOG").ok()).and_then(|options| {
+        exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref())
+    });
+    match options {
+        Ok(()) => not_wired("exec"),
+        Err(refusal) => {
+            eprintln!("mixdog: {refusal}");
+            ExitCode::FAILURE
         }
     }
 }

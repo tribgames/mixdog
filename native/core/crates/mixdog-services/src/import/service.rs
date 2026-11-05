@@ -48,7 +48,7 @@ impl From<Failure> for CoreError {
     fn from(failure: Failure) -> Self {
         match failure {
             Failure::Invalid(Invalid(path, expected)) => CoreError::InvalidParams { path: path.into(), expected: expected.into() },
-            Failure::Import(ImportError(code)) => CoreError::DomainError { domain: "import".into(), code: code.into(), detail: None },
+            Failure::Import(ImportError(code)) => CoreError::DomainError { domain: "import".into(), code: Some(code.into()), detail: None },
         }
     }
 }
@@ -164,6 +164,16 @@ impl ImportService {
 impl DomainService for ImportService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "import/getConversationImportJobs",
+            "import/listImportableConversations",
+            "import/registerConversationImportFile",
+            "import/startConversationImport",
+            "import/cancelConversationImport",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

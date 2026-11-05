@@ -15,6 +15,8 @@ pub mod ingest;
 pub mod messages;
 pub mod observation;
 pub mod redact;
+pub mod settings;
+pub mod settings_service;
 pub mod summary;
 pub mod summary_run;
 pub mod summary_schema;

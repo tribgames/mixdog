@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 pub use caps::{NativePlatform, RelayCaps};
 pub use control::{ControlError, ControlRequests};
 pub use inbound::Inbound;
-pub use socket::{LegConfig, LegEvent, Outgoing, run_leg};
+pub use socket::{Framing, LegConfig, LegEvent, Outgoing, RelayUrlError, leg_socket_request, run_leg, validated_relay_url};
 
 /// The maximum message this leg accepts: the largest frame the relay may route to it.
 pub const MAX_WS_PAYLOAD_BYTES: u64 = 71_303_168;

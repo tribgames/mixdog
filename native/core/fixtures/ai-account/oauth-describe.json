@@ -1,0 +1,1932 @@
+{
+  "describeCases": [
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog OAuth credentials",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog OAuth credentials",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800007200000,
+          "identity": {
+            "email": " E@x.com ",
+            "id": " u1 ",
+            "organizationId": "o"
+          },
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ],
+          "subscriptionType": "max"
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "valid",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>",
+        "email": "E@x.com",
+        "expiresAt": 1800007200000,
+        "identityId": "u1",
+        "plan": "max",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1799996400000,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "expired with refresh",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>",
+        "expiresAt": 1799996400000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800000060000,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "expiring soon",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>",
+        "expiresAt": 1800000060000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Soon",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800007200000,
+          "refreshToken": null,
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "no refresh",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>; no refresh token",
+        "expiresAt": 1800007200000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1799996400000,
+          "refreshToken": null,
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "no refresh expired",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "<path>; no refresh token",
+        "expiresAt": 1799996400000,
+        "plan": null,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800003600,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "expires in seconds",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>",
+        "expiresAt": 1800003600000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expires_at": 1800003600000,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "expires_at key",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>",
+        "expiresAt": 1800003600000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+          "expiresAt": 0,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "expiry from jwt",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "<path>",
+        "expiresAt": 1800007200000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800007200000,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "missing scope",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "<path>",
+        "expiresAt": 1800007200000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Missing Scope",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800007200000,
+          "refreshToken": "ref"
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "no scopes",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "<path>",
+        "expiresAt": 1800007200000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Missing Scope",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800007200000,
+          "reauthRequired": true,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "reauth required",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "<path>",
+        "expiresAt": 1800007200000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "other": 1
+      },
+      "env": null,
+      "name": "no oauth key",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog OAuth credentials",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "",
+          "expiresAt": 1800007200000,
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ]
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "env": null,
+      "name": "empty access token",
+      "provider": "anthropic-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog OAuth credentials",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "expires_at": 1800007200000,
+        "id_token": "h.eyJlbWFpbCI6IiBpZEBleGFtcGxlLmNvbSAiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwcm9maWxlQGV4YW1wbGUuY29tIn19.s",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "full",
+      "provider": "openai-oauth",
+      "result": {
+        "accountId": "acct1234…",
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "id@example.com",
+        "expiresAt": 1800007200000,
+        "identityId": "user-sub:acct12345678xyz",
+        "plan": "plus",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "expires_at": 1799996400000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expired with refresh",
+      "provider": "openai-oauth",
+      "result": {
+        "accountId": "acct1234…",
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "jwt@example.com",
+        "expiresAt": 1799996400000,
+        "identityId": "user-sub:acct12345678xyz",
+        "plan": "plus",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "expires_at": 1800000060000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expiring soon",
+      "provider": "openai-oauth",
+      "result": {
+        "accountId": "acct1234…",
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "jwt@example.com",
+        "expiresAt": 1800000060000,
+        "identityId": "user-sub:acct12345678xyz",
+        "plan": "plus",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Soon",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "expires_at": 1800003600000
+      },
+      "env": null,
+      "name": "no refresh unexpired",
+      "provider": "openai-oauth",
+      "result": {
+        "accountId": "acct1234…",
+        "authenticated": true,
+        "detail": "Mixdog token store; no refresh token",
+        "email": "jwt@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "user-sub:acct12345678xyz",
+        "plan": "plus",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "expires_at": 1799996400000
+      },
+      "env": null,
+      "name": "no refresh expired",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque"
+      },
+      "env": null,
+      "name": "no refresh no expiry",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expiry from jwt",
+      "provider": "openai-oauth",
+      "result": {
+        "accountId": "acct1234…",
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "jwt@example.com",
+        "expiresAt": 1800007200000,
+        "identityId": "user-sub:acct12345678xyz",
+        "plan": "plus",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expires in seconds",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expiresAt": "2027-01-15T09:00:00Z",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expires iso",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": "1800003600000",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expires numeric string",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "account_id": "abcdefghijklmnop",
+        "expires_at": 1800003600000,
+        "identity": {
+          "email": "stored@example.com",
+          "id": "stored-id"
+        },
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "stored identity and account",
+      "provider": "openai-oauth",
+      "result": {
+        "accountId": "abcdefgh…",
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "stored@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "stored-id",
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "opaque tokens",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "plan": null,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "no access token",
+      "provider": "openai-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "email": "g@example.com",
+        "expires_at": 1800003600000,
+        "refresh_token": "r",
+        "user_id": "u-1"
+      },
+      "env": null,
+      "name": "full",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "g@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "u-1",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1799996400000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expired",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1799996400000,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDM2MDAsInByaW5jaXBhbF9pZCI6InAtOSIsImVtYWlsIjoieEB5LnoifQ.s",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "identity from jwt",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "x@y.z",
+        "expiresAt": 1800003600000,
+        "identityId": "p-9",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJzdWIiOiJzdWItMSJ9.s",
+        "expires_at": 1800003600000,
+        "id_token": "h.eyJlbWFpbCI6IiB0b2tAZXhhbXBsZS5jb20gIn0.s",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "user id from sub",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "tok@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "sub-1",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expiresAt": 1800003600000,
+        "refresh_token": "r",
+        "userId": "cam"
+      },
+      "env": null,
+      "name": "camel keys",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "identityId": "cam",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000
+      },
+      "env": null,
+      "name": "no refresh",
+      "provider": "grok-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "mimo-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "mimo-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "apiKey": "k",
+        "uid": 12345
+      },
+      "env": null,
+      "name": "key",
+      "provider": "mimo-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store; API key",
+        "expiresAt": 0,
+        "identityId": "12345",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "apiKey": "k"
+      },
+      "env": null,
+      "name": "no uid",
+      "provider": "mimo-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store; API key",
+        "expiresAt": 0,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "uid": "u"
+      },
+      "env": null,
+      "name": "no key",
+      "provider": "mimo-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "muse-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "muse-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "accessToken": "a",
+        "accountId": "acc-1",
+        "apiKey": "k",
+        "email": "m@example.com"
+      },
+      "env": null,
+      "name": "full",
+      "provider": "muse-code-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "m@example.com",
+        "expiresAt": 0,
+        "identityId": "acc-1",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "accessToken": "a"
+      },
+      "env": null,
+      "name": "only access token",
+      "provider": "muse-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "accessToken": "a",
+        "apiKey": "  "
+      },
+      "env": null,
+      "name": "blank key",
+      "provider": "muse-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "accessToken": "a",
+        "apiKey": "k"
+      },
+      "env": null,
+      "name": "no identity",
+      "provider": "muse-code-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 0,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "command-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "command-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "apiKey": "k",
+        "userId": " user-1 ",
+        "userName": " Name "
+      },
+      "env": null,
+      "name": "full",
+      "provider": "command-code-oauth",
+      "result": {
+        "accountId": "Name",
+        "authenticated": true,
+        "detail": "Mixdog token store; API key",
+        "expiresAt": 0,
+        "identityId": "user-1",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "apiKey": "k",
+        "userId": "u"
+      },
+      "env": null,
+      "name": "no name",
+      "provider": "command-code-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store; API key",
+        "expiresAt": 0,
+        "identityId": "u",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "apiKey": "k"
+      },
+      "env": null,
+      "name": "no user",
+      "provider": "command-code-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store; API key",
+        "expiresAt": 0,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "apiKey": " "
+      },
+      "env": null,
+      "name": "blank key",
+      "provider": "command-code-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "account_id": " acc ",
+        "email": "o@example.com",
+        "expires_at": 1800003600000,
+        "org_id": "org1",
+        "org_name": "Org One",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "full",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "OpenCode Console · Org One",
+        "email": "o@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "acc",
+        "orgId": "org1",
+        "orgName": "Org One",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "expires_at": 1799996400000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expired",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "OpenCode Console",
+        "expiresAt": 1799996400000,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "expires_at": 1800000060000,
+        "org_name": "Org",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expiring",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "OpenCode Console · Org",
+        "expiresAt": 1800000060000,
+        "orgName": "Org",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Soon",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "no expiry",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "OpenCode Console",
+        "expiresAt": 0,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a"
+      },
+      "env": null,
+      "name": "no refresh",
+      "provider": "opencode-go-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store or CURSOR_ACCESS_TOKEN",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store or CURSOR_ACCESS_TOKEN",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000,
+        "identity": {
+          "email": "c@example.com",
+          "id": "cu"
+        },
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "full",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "c@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "cu",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Valid",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1799996400000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expired with refresh",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1799996400000,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1799996400000
+      },
+      "env": null,
+      "name": "expired no refresh",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "expiresAt": 1799996400000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800000060000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expiring",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800000060000,
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Refresh Soon",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000
+      },
+      "env": null,
+      "name": "access only",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDM2MDAsInN1YiI6ImN1cnNvci1zdWIiLCJlbWFpbCI6ImNqQGV4YW1wbGUuY29tIn0.s"
+      },
+      "env": null,
+      "name": "jwt expiry and identity",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "cj@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "cursor-sub",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000,
+        "reauth_required": true,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "reauth flagged",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "expiresAt": 1800003600000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "reauth_required": true
+      },
+      "env": null,
+      "name": "reauth flagged no expiry",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "expiresAt": null,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": null,
+      "env": "opaque-env",
+      "name": "env token",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "CURSOR_ACCESS_TOKEN",
+        "expiresAt": null,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": null,
+      "env": "h.eyJleHAiOjE4MDAwMDM2MDAsInN1YiI6Imlnbm9yZWQifQ.s",
+      "name": "env jwt",
+      "provider": "cursor-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "CURSOR_ACCESS_TOKEN",
+        "expiresAt": 1800003600000,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000,
+        "identity": {
+          "email": "d@example.com",
+          "id": "dv"
+        },
+        "refresh_token": null
+      },
+      "env": null,
+      "name": "full",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "d@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "dv",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1799996400000
+      },
+      "env": null,
+      "name": "expired",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "expiresAt": 1799996400000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDM2MDAsInN1YiI6ImRldi1zdWIiLCJlbWFpbCI6ImRqQGV4YW1wbGUuY29tIn0.s"
+      },
+      "env": null,
+      "name": "jwt expiry and identity",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "dj@example.com",
+        "expiresAt": 1800003600000,
+        "identityId": "dev-sub",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "h.eyJleHAiOjE3OTk5OTY0MDB9.s"
+      },
+      "env": null,
+      "name": "expired jwt",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "expiresAt": 1799996400000,
+        "reauthRequired": true,
+        "refreshable": false,
+        "status": "Reauth Required",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "opaque"
+      },
+      "env": null,
+      "name": "no expiry",
+      "provider": "devin-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "expiresAt": null,
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Access Only",
+        "usable": true
+      }
+    },
+    {
+      "doc": null,
+      "env": null,
+      "name": "absent",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": "unreadable",
+      "env": null,
+      "name": "unreadable",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "email": "ag@example.com",
+        "expires_at": 1800003600000,
+        "project_id": "proj",
+        "refresh_token": "r",
+        "tier_id": "pro",
+        "user_id": "ag-1"
+      },
+      "env": null,
+      "name": "full",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "ag@example.com · project proj",
+        "email": "ag@example.com",
+        "identityId": "ag-1",
+        "plan": "pro",
+        "projectId": "proj",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Signed In",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "expires_at": 1799996400000,
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "expired",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store",
+        "email": "",
+        "plan": null,
+        "projectId": "",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Signed In",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "expiresAt": 1800003600000,
+        "projectId": "p2",
+        "refresh_token": "r",
+        "userId": "u2"
+      },
+      "env": null,
+      "name": "camel keys",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store · project p2",
+        "email": "",
+        "identityId": "u2",
+        "plan": null,
+        "projectId": "p2",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Signed In",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a",
+        "project_id": "p",
+        "refresh_token": "r"
+      },
+      "env": null,
+      "name": "no email",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": true,
+        "detail": "Mixdog token store · project p",
+        "email": "",
+        "plan": null,
+        "projectId": "p",
+        "reauthRequired": false,
+        "refreshable": true,
+        "status": "Signed In",
+        "usable": true
+      }
+    },
+    {
+      "doc": {
+        "access_token": "a"
+      },
+      "env": null,
+      "name": "no refresh",
+      "provider": "antigravity-oauth",
+      "result": {
+        "authenticated": false,
+        "detail": "Mixdog token store",
+        "reauthRequired": false,
+        "refreshable": false,
+        "status": "Not Set",
+        "usable": false
+      }
+    }
+  ],
+  "domain": "oauth-describe",
+  "forgetCases": [
+    {
+      "afterFirst": {
+        "other": {
+          "keep": true
+        }
+      },
+      "afterSecond": {
+        "other": {
+          "keep": true
+        }
+      },
+      "doc": {
+        "claudeAiOauth": {
+          "accessToken": "tok",
+          "expiresAt": 1800007200000,
+          "identity": {
+            "email": " E@x.com ",
+            "id": " u1 ",
+            "organizationId": "o"
+          },
+          "refreshToken": "ref",
+          "scopes": [
+            "user:inference",
+            "user:profile"
+          ],
+          "subscriptionType": "max"
+        },
+        "other": {
+          "keep": true
+        }
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "anthropic-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "access_token": "h.eyJleHAiOjE4MDAwMDcyMDAsInN1YiI6InVzZXItc3ViIiwiZW1haWwiOiJqd3RAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdDEyMzQ1Njc4eHl6IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIn19.s",
+        "expires_at": 1800007200000,
+        "id_token": "h.eyJlbWFpbCI6IiBpZEBleGFtcGxlLmNvbSAiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwcm9maWxlQGV4YW1wbGUuY29tIn19.s",
+        "refresh_token": "r"
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "openai-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "access_token": "opaque",
+        "email": "g@example.com",
+        "expires_at": 1800003600000,
+        "refresh_token": "r",
+        "user_id": "u-1"
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "grok-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "apiKey": "k",
+        "uid": 12345
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "mimo-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "accessToken": "a",
+        "accountId": "acc-1",
+        "apiKey": "k",
+        "email": "m@example.com"
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "muse-code-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "apiKey": "k",
+        "userId": " user-1 ",
+        "userName": " Name "
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "command-code-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "access_token": "a",
+        "account_id": " acc ",
+        "email": "o@example.com",
+        "expires_at": 1800003600000,
+        "org_id": "org1",
+        "org_name": "Org One",
+        "refresh_token": "r"
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "opencode-go-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000,
+        "identity": {
+          "email": "c@example.com",
+          "id": "cu"
+        },
+        "refresh_token": "r"
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "cursor-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": null,
+      "afterSecond": null,
+      "doc": {
+        "access_token": "opaque",
+        "expires_at": 1800003600000,
+        "identity": {
+          "email": "d@example.com",
+          "id": "dv"
+        },
+        "refresh_token": null
+      },
+      "first": {
+        "removed": true
+      },
+      "provider": "devin-oauth",
+      "second": {
+        "removed": false
+      }
+    },
+    {
+      "afterFirst": {},
+      "afterSecond": {},
+      "doc": {
+        "access_token": "a",
+        "email": "ag@example.com",
+        "expires_at": 1800003600000,
+        "project_id": "proj",
+        "refresh_token": "r",
+        "tier_id": "pro",
+        "user_id": "ag-1"
+      },
+      "first": true,
+      "provider": "antigravity-oauth",
+      "second": true
+    }
+  ],
+  "now": 1800000000000,
+  "recorder": "benchmarks/rust-core/recorders/record-ai-account.mjs"
+}

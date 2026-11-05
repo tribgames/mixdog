@@ -454,6 +454,73 @@
   "type": "TypeError"
  },
  {
+  "name": "message nel padded",
+  "input": {
+   "id": "0F8FAD5B-D9CB-469F-A165-70867728950E",
+   "kind": "bug",
+   "message": "hi",
+   "replyTo": " me@example.com "
+  },
+  "ok": {
+   "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+   "kind": "bug",
+   "message": "hi",
+   "replyTo": "me@example.com"
+  }
+ },
+ {
+  "name": "reply nel inside",
+  "input": {
+   "id": "0F8FAD5B-D9CB-469F-A165-70867728950E",
+   "kind": "bug",
+   "message": "  It broke  ",
+   "replyTo": "ab@c.d"
+  },
+  "ok": {
+   "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+   "kind": "bug",
+   "message": "It broke",
+   "replyTo": "ab@c.d"
+  }
+ },
+ {
+  "name": "reply nbsp inside",
+  "input": {
+   "id": "0F8FAD5B-D9CB-469F-A165-70867728950E",
+   "kind": "bug",
+   "message": "  It broke  ",
+   "replyTo": "a b@c.d"
+  },
+  "error": "Reply email is invalid.",
+  "type": "TypeError"
+ },
+ {
+  "name": "reply bom inside",
+  "input": {
+   "id": "0F8FAD5B-D9CB-469F-A165-70867728950E",
+   "kind": "bug",
+   "message": "  It broke  ",
+   "replyTo": "a﻿b@c.d"
+  },
+  "error": "Reply email is invalid.",
+  "type": "TypeError"
+ },
+ {
+  "name": "reply ideographic padded",
+  "input": {
+   "id": "0F8FAD5B-D9CB-469F-A165-70867728950E",
+   "kind": "bug",
+   "message": "  It broke  ",
+   "replyTo": "　me@example.com　"
+  },
+  "ok": {
+   "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+   "kind": "bug",
+   "message": "It broke",
+   "replyTo": "me@example.com"
+  }
+ },
+ {
   "name": "attachment sparse",
   "input": {
    "id": "0F8FAD5B-D9CB-469F-A165-70867728950E",

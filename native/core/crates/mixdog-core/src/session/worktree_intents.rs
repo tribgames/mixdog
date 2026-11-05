@@ -30,7 +30,7 @@ impl Inner {
     ) -> Result<JsonValue, ScmFailure> {
         let tx_id = match intent.tx_id.clone().filter(|t| !t.is_empty()) {
             Some(tx) => tx,
-            None => match submission_id.trim() {
+            None => match mixdog_js::js_trim(submission_id) {
                 "" => new_tx_id(),
                 given => given.to_owned(),
             },
@@ -52,7 +52,12 @@ impl Inner {
     ) -> Result<Option<JsonValue>, ScmFailure> {
         let view = self.hosted(session)?;
         if let Some(stored) = read_session_workspace(view.workspace.as_ref()).filter(|w| w.state == TransitionState::Recovery) {
-            return Err(errors::missing(None, stored.worktree_id.clone(), Some(stored.cwd.clone())));
+            // Node's gate throws its own text here, not the code's default.
+            let missing = errors::missing(None, stored.worktree_id.clone(), Some(stored.cwd.clone()));
+            return Err(match missing.detail().cloned() {
+                Some(detail) => ScmFailure::coded_with_message(errors::WORKTREE_MISSING, detail, RECOVERY_TURN_REFUSAL),
+                None => missing,
+            });
         }
         let mut result = None;
         if let Some(intent) = self.intent_for(session, &view) {
@@ -151,7 +156,7 @@ impl Inner {
             expected_revision: input.expected_revision,
             confirm_large: input.confirm_large,
             own_turn,
-            tx_id: input.tx_id.trim().to_owned(),
+            tx_id: mixdog_js::js_trim(&input.tx_id).to_owned(),
             ..Options::default()
         };
         let result = self.run_branch(session, &input.branch, input.create, options, cancel).await?;

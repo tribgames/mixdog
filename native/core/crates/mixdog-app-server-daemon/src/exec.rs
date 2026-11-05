@@ -24,7 +24,9 @@ use mixdog_spawn::tasks::HostShellJobs;
 use mixdog_spawn::tasks::ShellJobsState;
 use mixdog_spawn::tasks::TaskPublisher;
 use mixdog_spawn::tasks::TaskRegistry;
+use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_tools::exec::ExecConfig;
+use mixdog_tools::exec::ExtSyntax;
 use mixdog_tools::exec::ExecRuntime;
 use mixdog_tools::exec::IoLanes;
 use mixdog_tools::exec::OsPromptElevation;
@@ -133,13 +135,13 @@ pub struct Exec {
     pub wakes: Arc<WakeHub>,
 }
 
-/// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`);
-/// `None` leaves model shells without launchers on PATH.
+/// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`).
 pub fn build_exec(
     tokens: &LaneTokens,
     data_dir: &Path,
-    skill_launcher_dir: Option<PathBuf>,
-    skill_runtime: Option<SkillRuntime>,
+    skill_launcher_dir: PathBuf,
+    skill_runtime: SkillRuntime,
+    ext_pool: Arc<dyn ExtPool>,
 ) -> (Exec, ExecEvents) {
     let (finished_tx, finished) = mpsc::channel(FINISHED_CAPACITY);
     let (threads, thread_strips) = watch::channel(HashMap::new());
@@ -162,19 +164,17 @@ pub fn build_exec(
         },
         spill_dir: data_dir.join("scratch").join("jobs"),
         data_dir: Some(data_dir.to_path_buf()),
-        skill_launcher_dir,
+        skill_launcher_dir: Some(skill_launcher_dir),
         notifier: Some(Arc::new(ChannelNotifier(finished_tx))),
         // WP-PROC's SurvivorWatch is not wired yet; until it lands a finished command's survivors
         // are not tracked.
         survivors: None,
         elevation: Arc::new(OsPromptElevation),
         oem: host_oem(),
-        skill_runtime,
+        skill_runtime: Some(skill_runtime),
         shell_path: crate::shell_name::resolve_program_current(),
         shell_name: crate::shell_name::resolve_current(),
-        // The ext-host-backed `ScriptSyntax` (WP-TOOLS-EXEC) is not wired yet; without one a
-        // script body containing `await` stays inline, as the trait documents.
-        script_syntax: None,
+        script_syntax: Arc::new(ExtSyntax::new(ext_pool)),
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
         powershell: cfg!(windows),

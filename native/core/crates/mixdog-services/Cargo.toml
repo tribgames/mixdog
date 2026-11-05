@@ -18,6 +18,7 @@ mixdog-graph = { path = "../../../mixdog-graph" }
 mixdog-agent = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
+mixdog-remote = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -55,4 +56,8 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 [dev-dependencies]
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
+# The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.
+tokio-tungstenite = { workspace = true }
+# The real process manager the tidy tests spawn under, as mixdog-scm's tests do.
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

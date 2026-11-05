@@ -56,7 +56,18 @@ pub enum SkillLoad {
     Loaded(SkillResource),
 }
 
-/// `MIXDOG_DISABLE_SKILLS`: `1`, `true`, `on` or `yes`.
+/// Why the catalog could not answer. Never folded into "no skills" or "not found".
+#[derive(Debug, thiserror::Error)]
+pub enum CatalogError {
+    #[error("maintenance lane unavailable: {0}")]
+    Lane(mixdog_rt::SubmitWaitError),
+    #[error("maintenance job did not finish: {0}")]
+    Dropped(mixdog_rt::JobDropped),
+    #[error("skill file unreadable: {0}")]
+    Read(std::io::Error),
+}
+
+/// `MIXDOG_DISABLE_SKILLS`:`1`, `true`, `on` or `yes`.
 pub fn skills_disabled_by_env() -> bool {
     let value = std::env::var("MIXDOG_DISABLE_SKILLS").unwrap_or_default().to_ascii_lowercase();
     matches!(value.as_str(), "1" | "true" | "on" | "yes")
@@ -112,37 +123,47 @@ impl SkillCatalog {
 
     /// Every installed skill, first of a name winning; empty while skills are switched off by
     /// the environment.
-    pub async fn skills(&self) -> Arc<Vec<Skill>> {
+    pub async fn skills(&self) -> Result<Arc<Vec<Skill>>, CatalogError> {
         if skills_disabled_by_env() {
-            return Arc::new(Vec::new());
+            return Ok(Arc::new(Vec::new()));
         }
         let generation = *self.changes.borrow();
         if let Some(cached) = &**self.cache.load()
             && cached.generation == generation
         {
-            return Arc::clone(&cached.skills);
+            return Ok(Arc::clone(&cached.skills));
         }
         let (data_dir, roots) = (self.data_dir.clone(), (self.roots)());
-        let collected = match self.maintenance.submit(&CancellationToken::new(), move |lane| collect_skills(lane, &data_dir, &roots)) {
-            Ok(job) => job.await.unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
+        let collected = self.run(move |lane| collect_skills(lane, &data_dir, &roots)).await?;
         let skills = Arc::new(collected);
         self.cache.store(Arc::new(Some(Cached { generation, skills: Arc::clone(&skills) })));
-        skills
+        Ok(skills)
+    }
+
+    /// Runs `job` on the maintenance lane, waiting for room when the lane is full. A job the
+    /// lane could not take or finish is an error, never an empty answer.
+    async fn run<R, F>(&self, job: F) -> Result<R, CatalogError>
+    where
+        F: FnOnce(&mixdog_rt::InLane<MaintenanceIo>) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let cancel = CancellationToken::new();
+        let handle = self.maintenance.submit_wait(&cancel, job).await.map_err(CatalogError::Lane)?;
+        handle.await.map_err(CatalogError::Dropped)
     }
 
     /// The skills a session in `cwd` may see: not switched off, feature available, inside the
     /// skill's (and its plugin's) project scope.
-    pub async fn visible(&self, cwd: &Path) -> Vec<Skill> {
+    pub async fn visible(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
         let settings = self.settings.current();
-        self.skills()
-            .await
+        Ok(self
+            .skills()
+            .await?
             .iter()
             .filter(|s| !js_trim(&s.name).is_empty())
             .filter(|s| settings.gate.refusal(s).is_none() && settings.scopes.skill_allowed_for_cwd(s, cwd))
             .cloned()
-            .collect()
+            .collect())
     }
 
     /// Why the `Skill` tool refuses `name` at `cwd`, or `None`.
@@ -157,29 +178,33 @@ impl SkillCatalog {
     }
 
     /// What the `Skill` tool delivers for `name` at `cwd`.
-    pub async fn load(&self, name: &str, cwd: &Path) -> SkillLoad {
-        let skills = self.skills().await;
+    pub async fn load(&self, name: &str, cwd: &Path) -> Result<SkillLoad, CatalogError> {
+        let skills = self.skills().await?;
         if let Some(refusal) = self.refusal(&skills, name, cwd) {
-            return SkillLoad::Refused(refusal);
+            return Ok(SkillLoad::Refused(refusal));
         }
         let wanted = js_trim(name);
-        let Some(skill) = skills.iter().find(|s| s.name == wanted).cloned() else { return SkillLoad::NotFound };
+        let Some(skill) = skills.iter().find(|s| s.name == wanted).cloned() else { return Ok(SkillLoad::NotFound) };
         let path = skill.file_path.clone();
-        let text = match self.maintenance.submit(&CancellationToken::new(), move |lane| read_text(lane, &path)) {
-            Ok(job) => job.await.ok().flatten(),
-            Err(_) => None,
+        // A file removed since the scan is a skill that no longer loads (Node answers null);
+        // any other read failure is a real failure.
+        let Some(text) = self.run(move |lane| read_text(lane, &path)).await?.map_err(CatalogError::Read)? else {
+            return Ok(SkillLoad::NotFound);
         };
-        let Some(text) = text else { return SkillLoad::NotFound };
-        let Ok(document) = parse_document(&text) else { return SkillLoad::NotFound };
+        let Ok(document) = parse_document(&text) else { return Ok(SkillLoad::NotFound) };
         let parent = skill.file_path.parent().unwrap_or_else(|| Path::new(""));
         let dir = skill_execution_dir(parent, skill.source);
-        SkillLoad::Loaded(SkillResource { body: document.body, dir, skill })
+        Ok(SkillLoad::Loaded(SkillResource { body: document.body, dir, skill }))
     }
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn read_text(_lane: &mixdog_rt::InLane<MaintenanceIo>, path: &Path) -> Option<String> {
-    std::fs::read_to_string(path).ok()
+fn read_text(_lane: &mixdog_rt::InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]

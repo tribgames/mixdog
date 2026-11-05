@@ -14,15 +14,14 @@ use mixdog_ledger::LedgerError;
 use mixdog_ledger::append::UsageRecord;
 use mixdog_ledger::append::append_batch;
 use mixdog_ledger::db::Connection;
-use mixdog_ledger::maintenance::cached_rollup;
 use mixdog_ledger::maintenance::maintain_usage;
 use mixdog_ledger::maintenance::recompute_rollup_days;
+use mixdog_ledger::reader::UsageReader;
 use mixdog_ledger::repair::Priced;
 use mixdog_ledger::repair::RepairOptions;
 use mixdog_ledger::repair::integrity;
 use mixdog_ledger::repair::repair_usage_ledger;
 use mixdog_ledger::rollup::RollupQuery;
-use mixdog_ledger::rollup::rollup_usage;
 use mixdog_ledger::schema::prepare;
 use mixdog_ledger::sums::build_sums_step;
 use mixdog_protocol::SectionName;
@@ -189,8 +188,8 @@ fn repair_moves_a_provider_and_updates_the_route() {
     );
 }
 
-#[test]
-fn recompute_and_publish_the_usage_section() {
+#[tokio::test]
+async fn recompute_and_publish_the_usage_section() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
     let rows: Vec<_> = (0..20)
@@ -229,17 +228,17 @@ fn recompute_and_publish_the_usage_section() {
         panic!("expected an inline value")
     };
     let sent: serde_json::Value = serde_json::from_slice(bytes).unwrap();
-    let direct = rollup_usage(&conn, &RollupQuery::default())
-        .unwrap()
-        .to_value();
+    let tokens = mixdog_rt::testing::tokens();
+    let reader = UsageReader::new(
+        &dir.path().join("ledger.sqlite"),
+        tokens.interactive_io,
+        tokens.maintenance_io,
+    );
+    let direct = reader.rollup(RollupQuery::default()).await.unwrap();
     for (day, value) in direct["days"].as_object().unwrap() {
         assert_eq!(&sent["days"][day], value, "day {day}");
     }
     assert_eq!(sent, direct);
-    assert_eq!(
-        cached_rollup(&conn, &RollupQuery::default(), now).unwrap(),
-        sent
-    );
 
     // A new record moves its day's fingerprint: the next step recomputes exactly that day.
     append_batch(

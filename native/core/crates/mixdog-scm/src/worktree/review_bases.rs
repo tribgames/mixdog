@@ -68,38 +68,18 @@ impl Repo {
     /// the object survives garbage collection for as long as the review needs it.
     pub async fn capture_review_base(&self) -> Result<ObjectId, ScmFailure> {
         let root = self.root()?.to_path_buf();
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let scratch = self.scm.scratch_dir().join("review");
-        std::fs::create_dir_all(&scratch)?;
-        let index = scratch.join(format!(
-            "{}-{}.index",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let options = RunOptions {
-            index_file: Some(index.clone()),
-            ..RunOptions::default()
-        };
         let git = &self.scm.git;
-        let built = async {
-            let head = git
-                .outcome(&self.cancel, &root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
-                .await?;
-            let read_tree: Vec<String> = if head.success() {
-                vec!["read-tree".into(), head.stdout_text().trim().to_owned()]
-            } else {
-                vec!["read-tree".into(), "--empty".into()]
-            };
-            let args: Vec<&str> = read_tree.iter().map(String::as_str).collect();
-            git.text(&self.cancel, &root, &args, &options).await?;
-            git.text(&self.cancel, &root, &["add", "-A"], &options).await?;
-            let tree = git.text(&self.cancel, &root, &["write-tree"], &options).await?.trim().to_owned();
-            let pin = format!("refs/mixdog/review/{tree}");
-            git.text(&self.cancel, &root, &["update-ref", &pin, &tree], &RunOptions::default()).await?;
-            Ok::<_, ScmFailure>(tree)
-        }
-        .await;
-        let _ = std::fs::remove_file(&index);
-        Ok(ObjectId(built?))
+        // One builder for both sides of a review, so their scratch index names cannot collide.
+        let tree = crate::inspect::review::work_tree_tree(
+            git,
+            self.scm.lane,
+            &self.cancel,
+            &root,
+            &self.scm.scratch_dir().join("review"),
+        )
+        .await?;
+        let pin = format!("refs/mixdog/review/{tree}");
+        git.text(&self.cancel, &root, &["update-ref", &pin, &tree], &RunOptions::default()).await?;
+        Ok(ObjectId(tree))
     }
 }
