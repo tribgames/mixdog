@@ -1,0 +1,3 @@
+# DDL text is compared byte-for-byte with sqlite_master.sql: never CRLF.
+*.sql text eol=lf
+*.json text eol=lf
