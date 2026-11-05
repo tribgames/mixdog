@@ -1,19 +1,19 @@
 /**
- * Durable lifecycle reads for a session id: the canonical file's own record,
- * straight from disk, with no live/pending cache anywhere in the path. These
- * are the authority the ask/resume split-brain guards and the pending-message
- * lifecycle gate fail closed on, so they stay independent of every write
- * path and of the in-memory snapshot caches.
+ * Durable lifecycle reads for a session id: the record's own lifecycle,
+ * straight from disk through the legacy seam (the log's header, or the
+ * legacy json), with no live/pending cache anywhere in the path. These are
+ * the authority the ask/resume split-brain guards and the pending-message
+ * lifecycle gate fail closed on.
  */
-import { readCanonicalSessionRecord, CANONICAL_RECORD_UNREADABLE } from './canonical-reader.mjs';
-import { sessionPath } from './session-paths.mjs';
+import { resolveSessionRecordSync, sessionRecordStampSync } from './session-log-reader.mjs';
+import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
+import { loadLegacySession } from './legacy-session.mjs';
+import { isSettledRecordStamp } from './session-record.mjs';
 
 /**
  * Cheap authoritative lifecycle read straight from disk (no live/pending
- * cache). Used by askSession's split-brain re-adoption: a new ask on a
- * non-closed session claims ownership by adopting the on-disk generation.
- * Returns null for BOTH true absence and an unreadable record; callers that
- * must tell those apart use readSessionLifecycleStateFromDisk below.
+ * cache). Returns null for BOTH true absence and an unreadable record;
+ * callers that must tell those apart use readSessionLifecycleStateFromDisk.
  */
 export function readSessionLifecycleFromDisk(id) {
   const state = readSessionLifecycleStateFromDisk(id);
@@ -21,41 +21,62 @@ export function readSessionLifecycleFromDisk(id) {
   return { generation: state.generation, closed: state.state === 'closed' };
 }
 
+// Verdicts read under a settled record stamp, reused while it is unchanged.
+const LIFECYCLE_CACHE_LIMIT = 256;
+const _verdicts = new Map(); // id → { stamp, value }
+
+function lifecycleOf(outcome, id) {
+  if (outcome.kind === 'absent') return { state: 'absent', generation: 0 };
+  const session = outcome.kind === 'log' || outcome.kind === 'orphan' ? { ...outcome.log.header, id: outcome.log.sessionId } : outcome.session;
+  // Durable identity is MANDATORY: missing / empty / foreign identity fails
+  // closed exactly like an unreadable record.
+  if (!session || session.id !== id) return { state: 'unreadable', generation: 0 };
+  const closed = session.closed;
+  const generation = session.generation;
+  if (closed !== undefined && typeof closed !== 'boolean') return { state: 'unreadable', generation: 0 };
+  if (generation !== undefined && (typeof generation !== 'number' || !Number.isFinite(generation))) {
+    return { state: 'unreadable', generation: 0 };
+  }
+  return { state: closed === true ? 'closed' : 'open', generation: typeof generation === 'number' ? generation : 0 };
+}
+
 /**
- * Same durable read, but with the outcome discriminated so a caller can fail
- * CLOSED on an unreadable/corrupt/foreign record while still allowing true
- * absence (a never-saved session):
- *   'absent'     — no such file (ENOENT/ENOTDIR)
- *   'open'       — durable record, not tombstoned (generation carried)
- *   'closed'     — durable tombstone (generation carried)
- *   'unreadable' — IO error, malformed JSON, an ambiguous record (duplicate
- *                  top-level `id`/lifecycle keys), or an identity that is not
- *                  EXACTLY this session: missing, empty, non-string or
- *                  foreign `id` all fail closed. Only a truly absent file is
- *                  'absent'; a malformed/identity-less legacy record is not.
+ * Same durable read, with the outcome discriminated so a caller can fail
+ * CLOSED on an unreadable record while still allowing true absence:
+ *   'absent'     — neither the log nor the json exists
+ *   'open'       — record not tombstoned (generation carried)
+ *   'closed'     — tombstone (generation carried)
+ *   'unreadable' — IO error, an invalid log, malformed/ambiguous json, or an
+ *                  identity that is not EXACTLY this session.
  */
 export function readSessionLifecycleStateFromDisk(id) {
   if (!id) return { state: 'unreadable', generation: 0 };
-  // ONE authority, no fallback: the canonical reader's strict parse (reused
-  // only for an own-commit or settled stat stamp), so a malformed/ambiguous
-  // document ends here. A JSON.parse retry would resolve duplicate keys
-  // last-wins and defeat the check — even (especially) when one of the
-  // duplicates matches the requested id. ENOENT/ENOTDIR read as null (absent);
-  // every other IO failure as unreadable.
-  const onDisk = readCanonicalSessionRecord(sessionPath(id), true);
-  if (onDisk === null) return { state: 'absent', generation: 0 };
-  if (onDisk === CANONICAL_RECORD_UNREADABLE) return { state: 'unreadable', generation: 0 };
-  // Durable identity is MANDATORY: the record is this session's authority
-  // only when its top-level `id` is a non-empty string exactly equal to the
-  // requested id. Missing / empty / non-string identity is not "probably
-  // ours" — it is an unowned or malformed record and fails closed exactly
-  // like a foreign one. (A never-written session is reported 'absent'
-  // above; that is the only backwards-compatible opening.)
-  if (onDisk.id !== id) {
-    return { state: 'unreadable', generation: 0 };
+  const files = { jsonPath: sessionRecordPath(id), logPath: sessionLogRecordPath(id) };
+  let stamp = null;
+  try {
+    stamp = sessionRecordStampSync(files);
+  } catch {
+    stamp = null;
   }
-  return {
-    state: onDisk.closed === true ? 'closed' : 'open',
-    generation: typeof onDisk.generation === 'number' ? onDisk.generation : 0,
-  };
+  const cached = stamp ? _verdicts.get(id) : null;
+  if (cached && cached.stamp === stamp) return cached.value;
+  let value;
+  try {
+    value = lifecycleOf(resolveSessionRecordSync({ ...files, loadLegacy: loadLegacySession, messages: false }), id);
+  } catch (err) {
+    value =
+      err?.code === 'ENOENT' || err?.code === 'ENOTDIR' ? { state: 'absent', generation: 0 } : { state: 'unreadable', generation: 0 };
+  }
+  _verdicts.delete(id);
+  let after = null;
+  try {
+    after = sessionRecordStampSync(files);
+  } catch {
+    after = null;
+  }
+  if (stamp && after === stamp && isSettledRecordStamp(stamp)) {
+    _verdicts.set(id, { stamp, value });
+    while (_verdicts.size > LIFECYCLE_CACHE_LIMIT) _verdicts.delete(_verdicts.keys().next().value);
+  }
+  return value;
 }

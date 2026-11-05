@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,8 @@ const { drainSessionStore, saveSessionAsync } = await import('../store.mjs');
 const { SUMMARY_PREFIX } = await import('../compact.mjs');
 const { clearSessionMessages } = await import('./session-crud.mjs');
 const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
+const { readDurableSessionRecord } = await import('../store/transcript-durability.mjs');
+const { sessionIdsOfNames } = await import('../store/session-record.mjs');
 
 async function removeDataDir(dir) {
   for (let attempt = 0; ; attempt += 1) {
@@ -36,9 +38,9 @@ test.after(async () => {
 });
 
 const storedSessions = () =>
-  readdirSync(join(root, 'sessions'))
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => JSON.parse(readFileSync(join(root, 'sessions', name), 'utf8')));
+  sessionIdsOfNames(readdirSync(join(root, 'sessions')))
+    .map((id) => readDurableSessionRecord(id))
+    .filter(Boolean);
 
 async function plantSession(id, messages) {
   const session = {

@@ -2,24 +2,27 @@
 // reaped-tag resume decides on, so a transcript of several MB is never read or
 // parsed on the host's event loop. Same strict parse as the store's lifecycle
 // authority: an absent, unreadable, ambiguous or foreign record answers null.
-import { readFile } from 'node:fs/promises';
+// `path` is the session's legacy record path; the record (its log, else that
+// json) is resolved through the record seam, a header scan of the log.
 import { serveWorkerRequests } from '../../../../runtime/shared/worker-requests.mjs';
 import {
-  isLifecycleUnreadable,
-  readTopLevelLifecycleRecord,
-} from '../../../../runtime/agent/orchestrator/session/lifecycle-scan.mjs';
+  isAbsentReadError,
+  loadLegacySession,
+  recordSession,
+  sessionRecordFilesOf,
+} from '../../../../runtime/agent/orchestrator/session/store/session-record.mjs';
+import { resolveSessionRecord } from '../../../../runtime/agent/orchestrator/session/store/session-log-reader.mjs';
 
 serveWorkerRequests(async ({ path, sessionId }) => {
-  let text;
+  let outcome;
   try {
-    text = await readFile(path, 'utf8');
+    outcome = await resolveSessionRecord({ ...sessionRecordFilesOf(path), loadLegacy: loadLegacySession, messages: false });
   } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    if (isAbsentReadError(error)) return null;
     throw error;
   }
-  const record = readTopLevelLifecycleRecord(text);
-  if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-  const doc = record.doc;
+  const doc = recordSession(outcome, sessionId);
+  if (!doc) return null;
   return {
     id: sessionId,
     agentTag: doc.agentTag || null,

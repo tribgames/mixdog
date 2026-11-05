@@ -12,10 +12,23 @@ import {
   hasSessionSaveFailure,
 } from './live-state.mjs';
 import { _summaryCacheVersions } from './summary-cache.mjs';
-import { probePath, PROBE_PRESENT } from './fs-probe.mjs';
-import { sessionPath } from './session-paths.mjs';
-import { _hasPendingPersistence } from './pending-saves.mjs';
+import { sessionRecordStampSync } from './session-log-reader.mjs';
+import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
+import { ABSENT_RECORD_STAMP } from './session-record.mjs';
+import { hasPendingSessionWrite as _hasPendingPersistence } from './pending-writes.mjs';
 import { forgetSessionLoadCache } from './load-cache.mjs';
+
+// A record (its log or its legacy json) positively observed on disk.
+function recordPresent(id) {
+  try {
+    return (
+      sessionRecordStampSync({ jsonPath: sessionRecordPath(id), logPath: sessionLogRecordPath(id) }) !==
+      ABSENT_RECORD_STAMP
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Drop one session's same-process snapshot once its state is durable on disk.
@@ -48,7 +61,7 @@ export function evictIdleLiveSessions(options = {}) {
     if (_hasPendingPersistence(id)) continue;
     // Durability proof for the eviction: only a POSITIVELY observed file
     // may replace the snapshot. An unreadable probe is not a durable copy.
-    if (probePath(sessionPath(id)).state !== PROBE_PRESENT) continue;
+    if (!recordPresent(id)) continue;
     // A dropped last save means the disk copy is BEHIND this snapshot
     // (ownership split-brain). Evicting would lose the only complete
     // transcript; keep it until a save lands again (re-adoption).

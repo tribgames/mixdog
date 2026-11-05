@@ -14,7 +14,20 @@ import { join } from 'node:path';
 // Leaf helpers only: the three-way present/absent/unreadable classification
 // and the strict record parser the authoritative store uses, so the catalog
 // cannot disagree with it.
-import { readFileStep, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
+import { readFileStep, PROBE_PRESENT, PROBE_ABSENT, PROBE_UNREADABLE } from './store/fs-probe.mjs';
+import {
+  ABSENT_RECORD_STAMP,
+  isAbsentReadError,
+  isSettledRecordStamp,
+  readSessionRecordStep,
+  recordSession,
+  presentFilesKeepStamp,
+  recordStampFingerprint,
+  sessionRecordFiles,
+  sessionRecordPresenceOfNames,
+  sessionRecordStampStep,
+  stampMatchesPresence,
+} from './store/session-record.mjs';
 // The catalog's reads are store-read steps: the ordinary catalog runs them
 // with blocking calls (its own thread in the catalog DB worker, cheap stamp
 // checks on the JSON path), the daemon's storage refresh awaits every one.
@@ -54,18 +67,18 @@ export const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 const byCatalogOrder = byActivityThenId;
 
 // ── Stamp-keyed strict derivations ──────────────────────────────────────────
-// Session metadata and catalog rows are small values derived from a strict
-// parse of the whole record. They are reused only while the file still has
-// the FULL stamp { dev, ino, size, mtimeNs, ctimeNs } the parsed bytes were
-// proven to come from (stat → read → stat) and that stamp is past the racy
-// window. Any other file — changed, replaced by another writer, unreadable —
-// is read and strictly parsed again.
+// Session metadata and catalog rows are small values derived from a session
+// record resolved through the record seam (store/session-record.mjs). They
+// are reused only while the record still has the stamp (log and json) the
+// resolved record was proven to come from (stamp → read → stamp) and that
+// stamp is past the racy window. Any other record — changed, replaced by
+// another writer, unreadable — is read again.
 // Bounded by count and by serialized size: nothing tells this map a session
-// file went away, so a churning host fills it with dead paths until LRU
+// went away, so a churning host fills it with dead keys until LRU
 // eviction (`delete` + `set` on a hit keeps Map order least recent first).
 const STAMPED_DERIVATION_LIMIT = 2048;
 const STAMPED_DERIVATION_MAX_BYTES = 8 * 1024 * 1024;
-const stampedDerivations = new Map(); // `${kind}|${path}` → { stamp, value, bytes }
+const stampedDerivations = new Map(); // `${kind}|${directory}|${id}` → { stamp, value, bytes }
 let stampedDerivationBytes = 0;
 
 function dropStampedDerivation(key) {
@@ -95,28 +108,44 @@ export function observeStamp(path) {
   return runFsStepsSync(observeStampStep(path));
 }
 
-/** `{ state, value }`: `derive(text)` for the record at `path`, or its cached
- *  result while the file is provably unchanged. `bytes`: `derive` gets the
- *  raw Buffer instead of text. `stamp`: the caller's own stat of `path`,
- *  taken just before, stands for the pre-read stat (one stat fewer). */
-export function stampedDerivation(kind, path, derive, options) {
-  return runFsStepsSync(stampedDerivationSteps(kind, path, derive, options));
+/** The record stamp of session `sessionId` of `directory`, null when it
+ *  cannot be taken. */
+function* observeRecordStampStep(directory, sessionId) {
+  try {
+    return yield* sessionRecordStampStep(directory, sessionId);
+  } catch {
+    return null;
+  }
 }
 
-function* stampedDerivationSteps(kind, path, derive, { bytes = false, stamp } = {}) {
-  const key = `${kind}|${path}`;
-  const before = stamp === undefined ? yield* observeStampStep(path) : stamp;
+/** `{ state, value }`: `derive(outcome)` for session `sessionId` of
+ *  `directory` resolved through the record seam (`loadLegacy`, `messages`:
+ *  the seam read), or its cached result while the record is provably
+ *  unchanged. `stamp`: the caller's own record stamp, taken just before,
+ *  stands for the pre-read stamp (one stat pair fewer). */
+export function stampedDerivation(kind, directory, sessionId, derive, options) {
+  return runFsStepsSync(stampedDerivationSteps(kind, directory, sessionId, derive, options));
+}
+
+function* stampedDerivationSteps(kind, directory, sessionId, derive, { loadLegacy, messages = true, stamp } = {}) {
+  const key = `${kind}|${directory}|${sessionId}`;
+  const before = stamp === undefined ? yield* observeRecordStampStep(directory, sessionId) : stamp;
   const cached = stampedDerivations.get(key);
-  if (before && cached && sameSessionStamp(cached.stamp, before)) {
+  if (before && cached && cached.stamp === before) {
     stampedDerivations.delete(key);
     stampedDerivations.set(key, cached);
     return { state: PROBE_PRESENT, value: cached.value };
   }
   dropStampedDerivation(key);
-  const read = yield* readFileStep(path, bytes);
-  if (read.state !== PROBE_PRESENT) return { state: read.state, value: null };
-  const value = derive(bytes ? read.bytes : read.text);
-  if (isSettledSessionStamp(before) && sameSessionStamp(before, yield* observeStampStep(path))) {
+  let outcome;
+  try {
+    outcome = yield* readSessionRecordStep(directory, sessionId, { loadLegacy, messages, stamp: before });
+  } catch (error) {
+    return { state: isAbsentReadError(error) ? PROBE_ABSENT : PROBE_UNREADABLE, value: null };
+  }
+  if (outcome.kind === 'absent') return { state: PROBE_ABSENT, value: null };
+  const value = derive(outcome);
+  if (isSettledRecordStamp(before) && before === (yield* observeRecordStampStep(directory, sessionId))) {
     // UTF-16 code units of the key and the serialized value approximate the
     // retained bytes; the strict parse just above dwarfs this stringify.
     const size = 2 * (key.length + (JSON.stringify(value)?.length ?? 0));
@@ -313,7 +342,7 @@ function rowFromSession(session) {
   });
 }
 
-/** The catalog row of one session read off `<directory>/<sessionId>.json` by
+/** The catalog row of one session read off its record in `<directory>` by
  *  id — the same strict, stamp-cached derivation a listing uses — or null
  *  when it is absent, unreadable, foreign or not one the catalog lists. */
 export function storedSessionCatalogRow(directory, sessionId) {
@@ -322,36 +351,40 @@ export function storedSessionCatalogRow(directory, sessionId) {
   return entry?.kind === 'row' && isLeadVisibleRow(entry.row) ? entry.row : null;
 }
 
-// ── Session file reconcile ──────────────────────────────────────────────────
-// What one `sessions/<id>.json` name contributes to the catalog, with the full
-// stamp { dev, ino, size, mtimeNs, ctimeNs } it was judged at (and the
-// { mtimeMs, size } fingerprint the summary index records):
-//   indexed     its summary-index row (the file matches the row's fingerprint)
-//   row         a row strictly parsed from the file (the index does not describe it)
-//   none        parsed, but yields no row (ambiguous or foreign record)
+// ── Session record reconcile ────────────────────────────────────────────────
+// What one session id (a `sessions/<id>.log.jsonl` or `<id>.json`, see
+// store/session-record.mjs) contributes to the catalog, with the record
+// stamp it was judged at (and the { mtimeMs, size } fingerprint of the file
+// holding the record — the log, else the json — the summary index records):
+//   indexed     its summary-index row (the record matches the row's fingerprint)
+//   row         a row read from the record (the index does not describe it)
+//   none        read, but yields no row (ambiguous, foreign or invalid record)
 //   unreadable  present but not statable/readable: the index row is retained
 const UNREADABLE_ENTRY = Object.freeze({ kind: 'unreadable', stamp: null, mtimeMs: 0, size: 0 });
 
-/** `stat().mtimeMs` of a bigint stat: Node's own sec * 1e3 + nsec / 1e6. */
-function stampMtimeMs(stamp) {
-  return Number(stamp.mtimeNs / 1_000_000_000n) * 1e3 + Number(stamp.mtimeNs % 1_000_000_000n) / 1e6;
+// The legacy json of a row: the same strict authority as the store — a
+// duplicate/ambiguous top-level record or a foreign identity is not this
+// session — decoding only what a row is made of (see CATALOG_RECORD_READ).
+function loadCatalogLegacy(text, sessionId) {
+  const record = readStrictRecordFields(Buffer.from(text, 'utf8'), CATALOG_RECORD_READ);
+  return isLifecycleUnreadable(record) || record.id !== sessionId ? null : record.doc;
 }
 
-/** The entry for `<storageId>.json`, or null when the file is provably gone. */
+/** The entry for session `storageId`, or null when its record is provably gone. */
 function reconcileSessionFile(directory, storageId, retained, forceRead) {
   return runFsStepsSync(reconcileSessionFileSteps(directory, storageId, retained, forceRead));
 }
 
 function* reconcileSessionFileSteps(directory, storageId, retained, forceRead) {
-  const path = join(directory, `${storageId}.json`);
   let stamp;
   try {
-    stamp = yield* statStampStep(path);
-  } catch (error) {
-    // Provably gone: the row legitimately disappears with the file.
-    return STAMP_ABSENT_CODES.has(error?.code) ? null : UNREADABLE_ENTRY;
+    stamp = yield* sessionRecordStampStep(directory, storageId);
+  } catch {
+    return UNREADABLE_ENTRY;
   }
-  const fingerprint = { stamp, mtimeMs: stampMtimeMs(stamp), size: Number(stamp.size) };
+  // Provably gone: the row legitimately disappears with the record.
+  if (stamp === ABSENT_RECORD_STAMP) return null;
+  const fingerprint = { stamp, ...recordStampFingerprint(stamp) };
   if (
     !forceRead &&
     retained &&
@@ -362,21 +395,18 @@ function* reconcileSessionFileSteps(directory, storageId, retained, forceRead) {
   ) {
     return { kind: 'indexed', ...fingerprint };
   }
-  // A file the index does not describe (never saved by the store, or
-  // saved after the index was written) is read once per full stamp; the
-  // stat above is the read's pre-read stat.
+  // A record the index does not describe (never saved by the store, or
+  // saved after the index was written) is read once per record stamp; the
+  // stamp above is the read's pre-read stamp.
   const read = yield* stampedDerivationSteps(
     'row',
-    path,
-    (bytes) => {
-      // Same strict authority as the store: a duplicate/ambiguous top-level
-      // record or a foreign identity is not this file's session. Only what a
-      // row is made of is decoded (see CATALOG_RECORD_READ).
-      const record = readStrictRecordFields(bytes, CATALOG_RECORD_READ);
-      if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
-      return rowFromSession(record.doc);
+    directory,
+    storageId,
+    (outcome) => {
+      const session = recordSession(outcome, storageId);
+      return session ? rowFromSession(session) : null;
     },
-    { bytes: true, stamp }
+    { loadLegacy: loadCatalogLegacy, stamp }
   );
   if (read.state === PROBE_ABSENT) return null;
   // Exists and could not be read (EACCES/EIO): retain the last known row
@@ -404,19 +434,25 @@ function deepFreeze(value) {
   return value;
 }
 
-/** The session ids (`<id>.json`) of `directory`, or null when it cannot be
- *  enumerated. */
-function* listSessionIdsStep(directory) {
+/** Session id → which of its files (`<id>.json`, `<id>.log.jsonl`)
+ *  `directory` holds, or null when it cannot be enumerated. */
+function* listSessionRecordPresenceStep(directory) {
   let names;
   try {
     names = yield ['readdir', directory];
   } catch {
     return null;
   }
-  return names.filter((filename) => filename.endsWith('.json')).map((filename) => filename.slice(0, -5));
+  return sessionRecordPresenceOfNames(names);
 }
 
-/** Every `.json` entry of an enumerable `directory`, or null when it cannot
+/** The session ids of `directory`, or null when it cannot be enumerated. */
+function* listSessionIdsStep(directory) {
+  const presence = yield* listSessionRecordPresenceStep(directory);
+  return presence && [...presence.keys()];
+}
+
+/** Every session entry of an enumerable `directory`, or null when it cannot
  *  be enumerated. */
 function* scanSessionEntriesSteps(directory, indexRowsById, forceRead) {
   const sessionIds = yield* listSessionIdsStep(directory);
@@ -433,9 +469,9 @@ function* scanSessionEntriesSteps(directory, indexRowsById, forceRead) {
  *  since it was reconciled, else a fresh reconcile (null once it is gone). */
 function* settledEntrySteps(directory, storageId, entry, retained, forceRead) {
   if (entry?.stamp) {
-    // Gone or unstatable (null): the reconcile below decides which.
-    const stamp = yield* observeStampStep(join(directory, `${storageId}.json`));
-    if (stamp && sameSessionStamp(entry.stamp, stamp)) return entry;
+    // Gone or unstatable: the reconcile below decides which.
+    const stamp = yield* observeRecordStampStep(directory, storageId);
+    if (stamp === entry.stamp) return entry;
   }
   return yield* reconcileSessionFileSteps(directory, storageId, retained, forceRead);
 }
@@ -745,16 +781,21 @@ function* reconcileKnownCatalogSteps(catalog, directory, dirStamp, index, hinted
     changed = true;
   }
   if (!catalog.dirSettled || !sameSessionStamp(catalog.dirStamp, dirStamp)) {
-    const sessionIds = yield* listSessionIdsStep(directory);
-    if (!sessionIds) return null;
-    const present = new Set(sessionIds);
+    const present = yield* listSessionRecordPresenceStep(directory);
+    if (!present) return null;
     for (const id of catalog.entries.keys()) {
       if (present.has(id)) continue;
       catalog.entries.delete(id);
       changedIds.add(id);
       changed = true;
     }
-    for (const id of sessionIds) if (!catalog.entries.has(id)) ids.add(id);
+    // A name that appeared, or a session that gained or lost one of its two
+    // files (a log created beside its json): the background pass stats only
+    // the files an entry's stamp shows, so this is where such a change shows.
+    for (const [id, files] of present) {
+      const entry = catalog.entries.get(id);
+      if (!entry || (entry.stamp && !stampMatchesPresence(entry.stamp, files))) ids.add(id);
+    }
     catalog.dirStamp = dirStamp;
     catalog.dirSettled = isSettledSessionStamp(dirStamp);
   }
@@ -773,9 +814,12 @@ function* reconcileKnownCatalogSteps(catalog, directory, dirStamp, index, hinted
   return { changed, changedIds };
 }
 
-/** Marks every entry of `snapshot` whose file no longer has the full stamp it
- *  was judged at dirty (a replacement brings a new inode and change time even
- *  when its size and mtime match). Stops early once `isCurrent()` is false. */
+/** Marks every entry of `snapshot` whose record files no longer have the
+ *  stamp they were judged at dirty (a replacement brings a new inode even
+ *  when its size and mtime match). A file the stamp shows absent is not
+ *  stat-ed: it can only appear by a create, which the directory stamp check
+ *  of reconcileKnownCatalogSteps catches. Stops early once `isCurrent()` is
+ *  false. */
 async function markChangedEntriesDirty(catalog, snapshot, isCurrent) {
   for (let start = 0; start < snapshot.length; start += CATALOG_VERIFY_BATCH) {
     if (!isCurrent()) return;
@@ -783,10 +827,11 @@ async function markChangedEntriesDirty(catalog, snapshot, isCurrent) {
       snapshot.slice(start, start + CATALOG_VERIFY_BATCH).map(async ([id, entry]) => {
         let changed;
         try {
-          const info = await stat(join(catalog.directory, `${id}.json`), { bigint: true });
-          changed = entry.kind === 'unreadable' || !sameSessionStamp(sessionStampOf(info), entry.stamp);
-        } catch (error) {
-          changed = entry.kind !== 'unreadable' || STAMP_ABSENT_CODES.has(error?.code);
+          changed =
+            entry.kind === 'unreadable' ||
+            !(await presentFilesKeepStamp(sessionRecordFiles(catalog.directory, id), entry.stamp));
+        } catch {
+          changed = entry.kind !== 'unreadable';
         }
         if (changed && catalog.entries.get(id) === entry) catalog.dirty.add(id);
       })

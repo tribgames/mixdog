@@ -1,56 +1,46 @@
 /**
  * Per-session writer claim shared by every Mixdog process on a data dir.
  *
- * A save replaces the whole session record, so two processes holding the same
- * session live would each rename their own snapshot over the other's. The
- * claim makes one process the session's only writer: an OS-held exclusive
- * lock (os-exclusive-lock.mjs) on `<dataDir>/session-writer-locks/<id>.lock`,
- * which the kernel releases however the process ends — nothing ever judges
- * whether a holder is still alive. A writer takes it before it reads the
- * session it will write (resume, turn open) or at its first save, keeps it
- * while the session stays open here, and gives it up when its close/detach
- * barrier lands, on delete and at process exit. Other sessions — and other
- * processes on the same data dir — are never blocked.
+ * A session's log has one writer: an OS-held exclusive lock
+ * (os-exclusive-lock.mjs) on `<dataDir>/session-writer-locks/<id>.lock`, which
+ * the kernel releases however the process ends — nothing ever judges whether
+ * a holder is still alive. A writer takes it before it reads the session it
+ * will write (resume, turn open) or at its first save, keeps it while the
+ * session stays open here, and gives it up when its close/detach barrier
+ * lands, on delete, on idle unload and at process exit. Other sessions — and
+ * other processes on the same data dir — are never blocked.
  *
- * A claim taken at a save rather than before the read also checks the copy
- * being saved: the record must still be the one that copy was parsed from (or
- * this process's own last commit), otherwise another writer landed in between.
- *
- * No write reaches the disk unless this process holds the lock for the whole
- * write: a save is admitted only while it is held, and letting it go cancels
- * every write admitted under it and keeps the lock until a rename already in
- * progress has landed — awaited, never waited for on the thread.
+ * No record reaches the log unless this process holds the lock: the session
+ * log writer checks it before every write. Letting it go first lets the
+ * session's recorder finish (session-writers.mjs, through the release hook),
+ * so no write of this process is in flight once another may take the lock.
  */
 import { unlinkSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import { getPluginData } from '../../config.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
-import { sessionPath, sessionRecordPath } from './session-paths.mjs';
-import {
-  CANONICAL_RECORD_UNREADABLE,
-  ownCommittedLifecycle,
-  readCanonicalSessionRecord,
-  sameSessionStamp,
-  statSessionStamp,
-} from './canonical-reader.mjs';
-import { _recordLifecycleCommitFailure, _recordSaveDrop, _recordSaveFailure } from './live-state.mjs';
-import { _hasSessionWriteControl, cancelSessionWrites, writeCommitSettled } from './write-guards.mjs';
+import { sessionRecordPath } from './session-paths.mjs';
+import { _recordSaveFailure } from './live-state.mjs';
 
 const CLAIM_DIR = 'session-writer-locks';
 const LOCK_NAMESPACE = 'session-writer';
 const _held = new Map(); // lock path → the OS lock this process holds there
-// lock path → token of a release still waiting for a rename to land (the
-// lock stays in _held until then)
+// lock path → token of a release still waiting for its recorder to finish
+// (the lock stays in _held until then)
 const _releasing = new Map();
-const _baseStamps = new WeakMap(); // session document → stamp of the record it was parsed from
-// session path → { stamp, barrier }: the record as it was when this process
-// last let the session go, and whether its own close/detach barrier did. One
-// entry per session let go, never evicted: provenance that expired would admit
-// an old copy as current. It goes on delete, or once a resume or turn reads
-// the session again (that read is the new base).
-const _endedTenures = new Map();
 const _heldListeners = new Set();
+// (id) => Promise | null: finishes the session's recorder before its lock goes.
+let _releaseHook = null;
+
+// () => void: writes every recorder's records synchronously before the locks go at exit.
+let _exitHook = null;
+
+/** Registered by session-writers.mjs (an import back would be circular). */
+export function setSessionWriterReleaseHook(hook, exitHook = null) {
+  _releaseHook = typeof hook === 'function' ? hook : null;
+  _exitHook = typeof exitHook === 'function' ? exitHook : null;
+}
 
 /** `listener(id, held)` whenever this process takes (true) or lets go (false)
  *  of a session's writer lock — the daemon's idle unload clock. */
@@ -110,16 +100,13 @@ export function claimSessionWriter(id) {
   const path = _claimPath(id);
   const mine = _held.get(path);
   if (mine && _releasing.delete(path) && mine.intact()) {
-    // Taken up again while its release waits for a rename: still held, and
-    // the copy this claim admits is judged as at a fresh claim.
+    // Taken up again while its release waits for the recorder: still held.
     _emitHeld(id, true);
     return { held: true, fresh: true };
   }
   if (mine?.intact()) return { held: true, fresh: false };
   if (mine) {
-    // Its file is gone: the lock guards nothing, and nothing admitted under
-    // it may land unless the claim below is won.
-    if (_hasSessionWriteControl(id)) cancelSessionWrites(id);
+    // Its file is gone: the lock guards nothing.
     _held.delete(path);
     mine.release();
   }
@@ -141,47 +128,11 @@ export function heldSessionWriterIds() {
   return [..._held.keys()].filter((path) => !_releasing.has(path)).map((path) => basename(path, '.lock'));
 }
 
-// Let the lock on `path` go once no rename holds `id`'s commit lock: at once
-// when none does, else when that rename's own release notifies (the lock is
-// kept until then). A claim taken up again in between keeps it. `cancel`
-// first cancels every write admitted under it. Resolves whether it went.
-function _letGo(id, path, { cancel }) {
-  const lock = _held.get(path);
-  if (!lock) return Promise.resolve(false);
-  if (cancel && _hasSessionWriteControl(id)) cancelSessionWrites(id);
-  const drop = () => {
-    _held.delete(path);
-    _dropLock(path, lock);
-    _emitHeld(id, false);
-    return true;
-  };
-  const settled = writeCommitSettled(id);
-  if (!settled) return Promise.resolve(drop());
-  const token = {};
-  _releasing.set(path, token);
-  return settled.then(
-    () => {
-      if (_releasing.get(path) !== token || _held.get(path) !== lock) return false;
-      _releasing.delete(path);
-      return drop();
-    },
-    (err) => {
-      // The rename is a terminated save worker's whose exit is overdue: it
-      // may still land, so the lock is kept and the session stays this
-      // process's to write. Reported like a close or delete it blocks.
-      _recordLifecycleCommitFailure(id, err, 'release');
-      if (_releasing.get(path) === token) _releasing.delete(path);
-      return false;
-    }
-  );
-}
-
 /**
- * Give up this process's claim on `id`. Every write admitted under it is
- * cancelled first, and a rename already in progress lands while the lock is
- * still held: the release finishes when that rename does, never by waiting
- * on the thread. Resolves true once the lock is gone, false when this process
- * held none (or took it up again before it went).
+ * Give up this process's claim on `id`. The session's recorder finishes first
+ * (its acknowledged writes landed, nothing of it is in flight); a claim taken
+ * up again meanwhile keeps the lock. Resolves true once the lock is gone,
+ * false when this process held none (or took it up again before it went).
  */
 export function releaseSessionWriter(id) {
   let path;
@@ -190,41 +141,27 @@ export function releaseSessionWriter(id) {
   } catch {
     return Promise.resolve(false);
   }
-  return _letGo(id, path, { cancel: true });
+  const lock = _held.get(path);
+  if (!lock) return Promise.resolve(false);
+  const token = {};
+  _releasing.set(path, token);
+  const drop = () => {
+    if (_releasing.get(path) !== token || _held.get(path) !== lock) return false;
+    _releasing.delete(path);
+    _held.delete(path);
+    _dropLock(path, lock);
+    _emitHeld(id, false);
+    return true;
+  };
+  const finishing = _releaseHook?.(id);
+  if (!finishing) return Promise.resolve(drop());
+  return finishing.then(drop, () => drop());
 }
 
-// A claim this very call took and admitted nothing under: no write to cancel
-// (another tenure's, or a parked snapshot's guard, is not this claim's).
-function _giveBackFreshClaim(id) {
-  void _letGo(id, _claimPath(id), { cancel: false });
-}
-
-function _rememberTenureEnd(id, barrier) {
-  try {
-    const target = sessionPath(id);
-    _endedTenures.set(target, { stamp: statSessionStamp(target), barrier });
-  } catch {
-    /* no record to remember: a later save of an old copy is judged strictly */
-  }
-}
-
-/** A resume or turn read `id` again as its writer: that read is the base of
- *  every copy it hands out, so the provenance of the earlier tenure goes. */
-export function sessionWriterReopened(id) {
-  _endedTenures.delete(sessionPath(id));
-}
-
-/**
- * Idle unload: this process stops writing `id` while the session is idle
- * here, so another process may open it. The caller (store.mjs) makes sure no
- * write of it is outstanding and drops its in-memory copy; the next resume,
- * turn or save takes the claim again — a save only while the record is still
- * the one this process let go, else it is refused as changed elsewhere.
- * Null when it is not held here, else releaseSessionWriter's promise.
- */
+/** Idle unload: this process stops writing `id`, so another process may open
+ *  it. Null when it is not held here, else releaseSessionWriter's promise. */
 export function releaseIdleSessionWriterClaim(id) {
   if (!sessionWriterHeldHere(id)) return null;
-  _rememberTenureEnd(id, false);
   return releaseSessionWriter(id);
 }
 
@@ -234,8 +171,7 @@ export function releaseIdleSessionWriterClaim(id) {
  *  the claim of an id that can be created again (reserved and home ids are). */
 export function forgetSessionWriter(id) {
   const path = _claimPath(id);
-  _endedTenures.delete(sessionPath(id));
-  if (_held.has(path)) return _letGo(id, path, { cancel: true });
+  if (_held.has(path)) return releaseSessionWriter(id);
   if (process.platform === 'win32') {
     try {
       unlinkSync(path);
@@ -248,6 +184,8 @@ export function forgetSessionWriter(id) {
 
 /** Process exit: every claim this process holds (the kernel would anyway). */
 export function releaseHeldSessionWriters() {
+  // What the recorders hold lands while this process still holds the locks.
+  _exitHook?.();
   const paths = [..._held.keys()];
   for (const [path, lock] of _held) _dropLock(path, lock);
   _held.clear();
@@ -256,38 +194,13 @@ export function releaseHeldSessionWriters() {
 }
 
 /**
- * Whether another process holds `id`'s claim, asked of the lock itself (taken
- * and given back at once when free). The save worker realm answers false: it
- * only ever writes what its parent admitted as the session's writer, and the
- * parent cancels those writes before it lets the session go.
- */
-export function sessionWriterHeldElsewhere(id) {
-  if (!isMainThread) return false;
-  const path = _claimPath(id);
-  if (_held.get(path)?.intact()) return false;
-  const probe = _acquire(path);
-  if (!probe.held) return true;
-  _dropLock(path, probe);
-  return false;
-}
-
-/**
  * Keeps every writer of `id` out, for a decision about the session's record
  * (is it absent?) that a save must not change before the caller has acted on
  * it. Admission to a save takes this claim first, so while the lock is held no
- * save of `id` can be admitted by any process — another process's claim finds
- * it taken, this process's own save is refused as for a session held
- * elsewhere — and none is in flight. A session that already has a writer (an
- * admitted save or open session here, or a claim in another process) cannot
- * be excluded: null. Otherwise `{ release() }`. The lock file stays: removed
- * after the lock is given back, a claimant that took the old file in between
- * and one that creates the next could both hold "the" claim. While an
- * exclusion is held in this process, `whenSessionWritersFree` lets an async
- * creator wait it out instead of being refused.
- *
- * A try-lock, never a wait, so the holder can ask for it while it holds
- * other locks (the index's) without taking part in a lock cycle. It registers
- * no claim and announces nothing.
+ * save of `id` can be admitted by any process. A session that already has a
+ * writer (open here, or a claim in another process) cannot be excluded: null.
+ * Otherwise `{ release() }`. A try-lock, never a wait; it registers no claim
+ * and announces nothing.
  */
 export function excludeSessionWriters(id) {
   if (!isMainThread) return null;
@@ -318,82 +231,19 @@ const _excludedWaiters = [];
  * Resolves once no exclusion of `id`'s writers is held in this process: it
  * ends with its batch's index write, which wakes the waiters. A creator that
  * reuses an id (reserved, home and room ids are created again when missing)
- * awaits this before its claim, so a prune batch of this process that is only
- * deciding about the id's old record gives way instead of refusing the
- * creation. An exclusion held by ANOTHER process has no such signal (the OS
- * lock reports nothing on release); the claim reports it as any other holder.
+ * awaits this before its claim. An exclusion held by ANOTHER process has no
+ * such signal; the claim reports it as any other holder.
  */
 export async function whenSessionWritersFree(id) {
   const path = _claimPath(id);
   while (_excluded.has(path)) await new Promise((resolve) => _excludedWaiters.push(resolve));
 }
-/** The load cache records the stamp of the record each document was parsed from. */
-export function rememberSessionBaseStamp(doc, stamp) {
-  if (doc && typeof doc === 'object' && stamp) _baseStamps.set(doc, stamp);
-}
 
-/** A landed close/detach barrier ends this process's tenure: the claim goes,
- *  and the record the barrier left is remembered as this process's own. */
-export function releaseSessionWriterAfterBarrier(id) {
-  _rememberTenureEnd(id, true);
-  void releaseSessionWriter(id);
-}
-
-// How a claim just taken at a save relates to the record that save replaces:
-// 'current' — nothing there, exactly the record the copy was parsed from,
-//   this process's own commit, the record as this process let it go idle, or
-//   a copy built here for a session this process never let go: it writes and
-//   keeps the claim;
-// 'released' — the record this process's own close/detach left (a late save
-//   of a copy it already let go) or an unreadable file: written by nobody,
-//   the save ends as a dropped no-op (only a resume or turn opens it again);
-// 'stale' — another writer replaced the record after this copy was read, or
-//   after this process let the session go.
-function _freshClaimBase(id, session) {
-  const target = sessionPath(id);
-  let current;
-  try {
-    current = statSessionStamp(target);
-  } catch (error) {
-    return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'current' : 'released';
-  }
-  const base = _baseStamps.get(session);
-  if ((base && sameSessionStamp(base, current)) || ownCommittedLifecycle(target, current)) return 'current';
-  const ended = _endedTenures.get(target);
-  if (ended && sameSessionStamp(ended.stamp, current)) return ended.barrier ? 'released' : 'current';
-  // A copy not parsed from a record (built in this process) has no read to be
-  // stale against, unless this process let the session go since.
-  if (!base && !ended) return 'current';
-  const record = readCanonicalSessionRecord(target, true, { ownCommitsOnly: true });
-  // A file holding no data is no record (see the load cache).
-  if (record === null) return 'current';
-  return record === CANONICAL_RECORD_UNREADABLE ? 'released' : 'stale';
-}
-
-/**
- * Save pre-admission: null when this process may write `session` — it then
- * holds the claim — else the refusal `{ id, reason, path? }`. A claim this
- * call took for a copy that may not keep it is given back, so a later fresh
- * load can take it.
- */
-export function sessionWriterRefusal(session) {
-  const id = session?.id;
-  if (!id) return null;
-  let claim;
-  try {
-    claim = claimSessionWriter(id);
-  } catch (error) {
-    return { id, reason: 'unclaimable', cause: error };
-  }
-  if (!claim.held) return { id, reason: 'claimed', path: claim.path };
-  if (!claim.fresh) return null;
-  const base = _freshClaimBase(id, session);
-  if (base === 'current') return null;
-  _giveBackFreshClaim(id);
-  return { id, reason: base === 'stale' ? 'changed' : 'released' };
-}
-
-const REFUSAL_CODES = { claimed: 'ESESSIONCLAIMED', changed: 'ESESSIONCHANGED', unclaimable: 'ESESSIONUNCLAIMABLE' };
+const REFUSAL_CODES = {
+  claimed: 'ESESSIONCLAIMED',
+  changed: 'ESESSIONCHANGED',
+  unclaimable: 'ESESSIONUNCLAIMABLE',
+};
 
 export function sessionWriterRefusalError(refusal) {
   const { id, reason, path, cause } = refusal;
@@ -411,15 +261,25 @@ export function sessionWriterRefusalError(refusal) {
   return error;
 }
 
-/** A refused save: reported on stderr and recorded as the id's save failure
- *  (desktop notice, getSessionSaveError), never a silent drop. A late save of
- *  a copy this process already let go ('released') writes nothing and ends
- *  as a dropped save, as the write admission drops a stale one: null. */
-export function refuseSessionWrite(refusal) {
-  if (refusal.reason === 'released') {
-    _recordSaveDrop(refusal.id);
-    return null;
+/**
+ * Save pre-admission: null when this process holds (or just took) `id`'s
+ * claim, else the refusal `{ id, reason, path? }`. `fresh` reports a claim
+ * this call took.
+ */
+export function sessionWriterRefusal(id) {
+  let claim;
+  try {
+    claim = claimSessionWriter(id);
+  } catch (error) {
+    return { refusal: { id, reason: 'unclaimable', cause: error } };
   }
+  if (!claim.held) return { refusal: { id, reason: 'claimed', path: claim.path } };
+  return { refusal: null, fresh: claim.fresh };
+}
+
+/** A refused save: reported on stderr and recorded as the id's save failure
+ *  (desktop notice, getSessionSaveError), never a silent drop. */
+export function refuseSessionWrite(refusal) {
   const error = sessionWriterRefusalError(refusal);
   process.stderr.write(`[session-store] ${error.message}\n`);
   _recordSaveFailure(refusal.id, error);

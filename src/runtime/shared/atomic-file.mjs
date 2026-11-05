@@ -241,7 +241,11 @@ export function _renameCoordinationForTest() {
   return { entries: targetUse.size, waiters };
 }
 
-async function renameWithRetry(src, dst, opts = {}) {
+/**
+ * renameWithRetrySync's schedule with the waits on timers: the event loop
+ * keeps running while a refused rename is retried.
+ */
+export async function renameWithRetry(src, dst, opts = {}) {
   const backoffs = renameBackoffs(opts);
   let lastErr = null;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {

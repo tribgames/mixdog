@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { drainSessionStore, saveSessionAsync, saveSessionAsyncDeferred, subscribeLiveSessions } from './store.mjs';
+import { drainSessionStore, saveSessionAsync, subscribeLiveSessions } from './store.mjs';
 import { settleSessionSummaryIndex } from './store/listing.mjs';
 
-// The store's worker can still be retiring a temp file under the data dir
-// when the test tears down; a recursive rm racing that lands ENOTEMPTY on
-// Linux. Retry briefly instead of failing the assertion-clean test.
+// A recursive rm racing a late summary-index write lands ENOTEMPTY on Linux.
+// Retry briefly instead of failing the assertion-clean test.
 async function removeDataDir(root) {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -22,7 +21,7 @@ async function removeDataDir(root) {
   }
 }
 
-test('async and deferred session saves publish their admitted live snapshots', async () => {
+test('async session saves publish their admitted live snapshots', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-live-session-publication-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -44,7 +43,7 @@ test('async and deferred session saves publish their admitted live snapshots', a
   try {
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     session.messages.push({ role: 'assistant', content: 'done' });
-    await saveSessionAsyncDeferred(session, { expectedGeneration: session.generation });
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
 
     assert.deepEqual(published, [
       { id: session.id, messageCount: 1 },
@@ -87,7 +86,9 @@ test('an unowned async save publishes no live snapshot', async () => {
         generation: 0,
         closed: false,
       }),
-      (error) => error?.code === 'ESESSIONNOTOWNED'
+      // The json under this name is another session's: it does not load, so
+      // no log is built on it.
+      (error) => error?.code === 'ELEGACYUNREADABLE'
     );
     assert.deepEqual(published, []);
   } finally {

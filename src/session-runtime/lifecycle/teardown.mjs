@@ -6,7 +6,6 @@
  *   teardown/runtime-stops.mjs — process-wide service stops and their settlement
  */
 import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
-import { forgetSessionSaveBaseline } from '../../runtime/agent/orchestrator/session/store/save-worker.mjs';
 import { drainConfigWrites } from '../../runtime/shared/config.mjs';
 import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
 import { PROCESS_RESTART_FAILURE } from '../services/agent-tool/worker-index/row-liveness.mjs';
@@ -261,13 +260,10 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     });
     if (scope.detach) await settleDetached(withTeardownDeadline, stops);
     else await settleAll(withTeardownDeadline, stops);
-    // Reported closed only once the barrier is on disk (closeSession),
-    // and its write control is released only after that.
+    // Reported closed only once the barrier is on disk (closeSession).
     let ok = false;
     try {
       ok = await ownClose;
-      // The session went away (idle eviction included): free its save baselines.
-      if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId, { releaseWriteControl: true });
       // The close's saves and turns queued buffered data-dir writes (summary
       // index ops, gateway usage events, session-search writes) that run on
       // later ticks: land or cancel them under the teardown deadline.

@@ -4,7 +4,7 @@
 // archive saved before that. Real create / ask / clear / save / resume /
 // request assembly; only the provider response is fake.
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -22,6 +22,8 @@ const { deleteSession, drainSessionStore, evictLiveSession, loadSession, saveSes
   '../store.mjs'
 );
 const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
+const { readDurableSessionRecord } = await import('../store/transcript-durability.mjs');
+const { sessionIdsOfNames } = await import('../store/session-record.mjs');
 const { modelToolSchemaAllowlist } = await import('../../runtime-core/tool-profile.mjs');
 const { buildShellSpawnEnv } = await import('../../tools/builtin/bash-tool/spawn-env.mjs');
 const { requestPrefixIdentity } = await import('../thinking-binding.mjs');
@@ -54,21 +56,12 @@ const lineFor = (id) => `- Scratch: ${shellScratch(id)} `;
 const systemTexts = (session) => session.messages.filter((m) => m.role === 'system').map((m) => m.content);
 
 function storedRecord(id) {
-  drainSessionStore();
-  const dir = join(process.env.MIXDOG_DATA_DIR, 'sessions');
-  for (const name of readdirSync(dir).filter((n) => n.endsWith('.json'))) {
-    const record = JSON.parse(readFileSync(join(dir, name), 'utf8'));
-    if (record.id === id) return record;
-  }
-  return null;
+  return readDurableSessionRecord(id);
 }
 
 function storedIds() {
-  drainSessionStore();
   const dir = join(process.env.MIXDOG_DATA_DIR, 'sessions');
-  return readdirSync(dir)
-    .filter((n) => n.endsWith('.json'))
-    .map((n) => JSON.parse(readFileSync(join(dir, n), 'utf8')).id);
+  return sessionIdsOfNames(readdirSync(dir)).filter((id) => readDurableSessionRecord(id));
 }
 
 async function withSource(t, run) {

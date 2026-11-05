@@ -11,17 +11,17 @@ import { pathKey } from './paths.mjs';
 const loadManager = () => import('./manager.mjs');
 
 /**
- * Ids of every session record in the store (one `<id>.json` per session,
- * tombstones included). An unreadable store throws: it never reads as
- * "no sessions", which would make every worktree look orphaned.
+ * Ids of every session record in the store (an `<id>.log.jsonl` or a legacy
+ * `<id>.json` per session, tombstones included). An unreadable store throws:
+ * it never reads as "no sessions", which would make every worktree look
+ * orphaned.
  */
 export async function storedSessionIds() {
-  const { getStoreDir } = await import('../../agent/orchestrator/session/store/session-paths.mjs');
-  const names = await readdir(getStoreDir());
-  return names
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => name.slice(0, -5))
-    .filter((id) => /^[A-Za-z0-9_-]+$/.test(id));
+  const [{ getStoreDir }, { sessionIdsOfNames }] = await Promise.all([
+    import('../../agent/orchestrator/session/store/session-paths.mjs'),
+    import('../../agent/orchestrator/session/store/session-record.mjs'),
+  ]);
+  return sessionIdsOfNames(await readdir(getStoreDir()));
 }
 
 /** Authoritative consumers for destructive folder actions; unreadable records fail closed. */

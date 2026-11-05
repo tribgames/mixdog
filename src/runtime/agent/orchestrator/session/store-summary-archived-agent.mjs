@@ -12,9 +12,8 @@
  * directory: every vanished id reaches this path (deleted Lead records too),
  * and a synchronous scan of every session file froze the daemon loop.
  */
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
+import { loadLegacySession, readSessionRecord, recordSession } from './store/session-record.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 import { listStoredAgentWorkerLinks } from './store-agent-worker-rows.mjs';
 import { cleanValue, desktopSession, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
@@ -85,16 +84,17 @@ export async function readArchivedAgentResult(sessionId, { catalogRow } = {}) {
   const dir = join(dataDir(), 'sessions');
   let best = null;
   for (const parentId of parents) {
-    let raw;
+    let outcome;
     try {
-      raw = await readFile(join(dir, `${parentId}.json`), 'utf8');
+      outcome = await readSessionRecord(dir, parentId, {
+        // A legacy json that never names the child is not parsed at all.
+        loadLegacy: (text, id) => (text.includes(sessionId) ? loadLegacySession(text, id) : null),
+      });
     } catch {
       continue;
     }
-    if (!raw.includes(sessionId)) continue;
-    const record = readTopLevelLifecycleRecord(raw);
-    if (isLifecycleUnreadable(record) || record.id === sessionId) continue;
-    const parent = record.doc;
+    const parent = recordSession(outcome, parentId);
+    if (!parent || parent.id === sessionId) continue;
     const messages = Array.isArray(parent.messages) ? parent.messages : [];
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index];

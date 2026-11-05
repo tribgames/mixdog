@@ -76,9 +76,12 @@ function seededMessageId(sessionId, index, message) {
   return `msg_${createHash('sha1').update(seed).digest('hex').slice(0, 32)}`;
 }
 
-/** Stamp a stable id on every message that can carry one and has none, in
- *  place. Returns how many were stamped (the caller persists them). */
-export function stampMessageIds(messages, { sessionId = '' } = {}) {
+/** Stamp a stable id on every message that can carry one and has none. A
+ *  stamped message is REPLACED in `messages` (and in `live`, an array holding
+ *  the same objects at the same positions), never edited: a recorded message
+ *  is settled, and the session log only sees replaced references. Returns how
+ *  many were stamped (the caller persists them). */
+export function stampMessageIds(messages, { sessionId = '', live = null } = {}) {
   if (!Array.isArray(messages)) return 0;
   let stamped = 0;
   const seen = new Set();
@@ -93,7 +96,9 @@ export function stampMessageIds(messages, { sessionId = '' } = {}) {
     // Never two messages with one id within a transcript.
     for (let salt = 1; seen.has(id); salt += 1) id = seededMessageId(`${sessionId}#${salt}`, index, message);
     seen.add(id);
-    message.meta = withMessageId(message.meta, id);
+    const next = { ...message, meta: withMessageId(message.meta, id) };
+    messages[index] = next;
+    if (Array.isArray(live) && live !== messages && live[index] === message) live[index] = next;
     stamped += 1;
   });
   return stamped;

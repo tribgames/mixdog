@@ -508,9 +508,8 @@ export function _spawnCodeGraphWorker(
       // The graph has already arrived, so the worker has nothing left to run.
       // It cannot exit on its own either: reading its piped stdout/stderr
       // below keeps the underlying MessagePort ref'd for the worker's whole
-      // lifetime (the same trap save-worker.mjs documents). Measured on a
-      // desktop session worker: 10 builds left 26 live threads and ~450 MB
-      // resident with no build in flight. The timeout and abort paths already
+      // lifetime. Measured on a desktop session worker: 10 builds left 26
+      // live threads and ~450 MB resident with no build in flight. The timeout and abort paths already
       // terminate; this is the success path they were missing.
       if (_worker) {
         const finished = _worker;

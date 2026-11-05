@@ -36,9 +36,9 @@ const MODEL_ID = getConfiguredEmbeddingModelId();
 // alternate-screen frame (third-party noise: transformers.js progress,
 // ORT JS warnings, stray console.*). Piped stdio (stdout:true) is NOT an
 // option here — reading a worker's piped stdio refs the MessagePort for the
-// worker's lifetime and blocks process exit (see save-session-worker.mjs,
-// same pattern). __mixdogMemoryLog above intentionally keeps the raw bound
-// writer: it is already gated by MIXDOG_QUIET_MEMORY_LOG in TUI runs.
+// worker's lifetime and blocks process exit. __mixdogMemoryLog above
+// intentionally keeps the raw bound writer: it is already gated by
+// MIXDOG_QUIET_MEMORY_LOG in TUI runs.
 const __forwardWorkerWrite = (chunk, encoding, callback) => {
   const done = typeof encoding === 'function' ? encoding : callback;
   try {

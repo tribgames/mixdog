@@ -800,7 +800,7 @@ export async function runSessionCompaction(session, opts = {}) {
   // stamped now and persisted): the result's rewrites carry it, so what was
   // dropped is exactly the ids the result no longer holds. The snapshot is a
   // prefix of the live transcript holding the same message objects.
-  stampCompactionMessageIds(plan.messages, plan.resolvedSessionId);
+  stampCompactionMessageIds(plan.messages, plan.resolvedSessionId, plan.session.messages);
   const compactStartedAt = Date.now();
   try {
     await opts.onStageChange?.('compacting');

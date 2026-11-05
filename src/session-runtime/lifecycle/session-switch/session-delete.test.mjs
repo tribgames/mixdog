@@ -26,6 +26,9 @@ const { _sessionSummary, _writeSummaryIndex, settleSummaryIndexWrites } = await 
 );
 const { createLeadWorkerIndex } = await import('../../services/agent-tool/lead-worker-index.mjs');
 const { createCloseFlow } = await import('../../services/agent-tool/close-flow.mjs');
+const { readDurableSessionRecord } = await import(
+  '../../../runtime/agent/orchestrator/session/store/transcript-durability.mjs'
+);
 
 const roots = [];
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
@@ -165,7 +168,7 @@ for (const restart of [false, true]) {
   });
 }
 
-// The asynchronous save worker retains its startup data directory.
+// One data dir for these: the delegated child keeps writing after its parent goes.
 let executionRoot;
 for (const current of [false, true]) {
   for (const owner of ['user', 'agent']) {
@@ -199,7 +202,7 @@ for (const current of [false, true]) {
         await saveSessionAsync({ ...worker, messages });
         completeBackgroundTask(delegated.taskId, { content: 'done' });
         assert.equal(delegated.status, 'completed');
-        assert.deepEqual(JSON.parse(readFileSync(fileOf(root, worker.id), 'utf8')).messages, messages);
+        assert.deepEqual(readDurableSessionRecord(worker.id).messages, messages);
       } finally {
         cleanupBackgroundTasks({ force: true });
       }
@@ -283,7 +286,7 @@ for (const bulk of [false, true]) {
     } else {
       assert.equal((await flow.close({ sessionId: worker.id })).closed, true);
     }
-    const stored = JSON.parse(readFileSync(fileOf(root, worker.id), 'utf8'));
+    const stored = readDurableSessionRecord(worker.id);
     assert.equal(stored.closed, false);
     assert.deepEqual(stored.messages, worker.messages);
     assert.ok(mgr.listSessions().some((row) => row.id === worker.id));
@@ -309,7 +312,7 @@ test('the idle-only delete refuses, closing and deleting nothing, when a turn st
   const api = makeApi();
   const idle = { isHostedBusy: () => false };
   const untouched = () => {
-    const stored = JSON.parse(readFileSync(fileOf(root, record.id), 'utf8'));
+    const stored = readDurableSessionRecord(record.id);
     assert.equal(stored.closed, false);
     assert.equal(stored.generation, record.generation);
   };
@@ -350,65 +353,6 @@ test('the idle-only delete refuses, closing and deleting nothing, when a turn st
   // Idle, archived and unchanged: deleted.
   assert.deepEqual(await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, idle), { deleted: true });
   assert.equal(existsSync(fileOf(root, record.id)), false);
-});
-
-test('the idle-only delete backs out when a turn queues while its close waits on another thread', async (t) => {
-  const { registerSessionSidebarHost } = await import('../../../runtime/shared/session-sidebar-host.mjs');
-  const { acquireSessionLock } = await import('../../../runtime/agent/orchestrator/session/manager/session-lock.mjs');
-  const { underHeldCommit } = await import(
-    '../../../runtime/agent/orchestrator/session/store/commit-lock-holder.fixture.mjs'
-  );
-  const root = isolateDataDir();
-  const record = { ...lead('lead_auto_waiting'), lastUsedAt: 50 };
-  await seed(root, [record]);
-  const unregister = registerSessionSidebarHost(async () => {}, {
-    state: async () => ({ archived: { [record.id]: 1 }, favorites: {} }),
-  });
-  t.after(unregister);
-  const api = makeApi();
-  let turn = null;
-  const result = await underHeldCommit(record.id, () => {
-    const deleting = api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, { isHostedBusy: () => false });
-    // A bot send reaches the session's ask lock while the close waits.
-    setTimeout(() => {
-      turn = acquireSessionLock(record.id);
-    }, 50);
-    return deleting;
-  });
-  assert.deepEqual(result, { deleted: false, reason: 'turn-waiting' });
-  const stored = JSON.parse(readFileSync(fileOf(root, record.id), 'utf8'));
-  assert.equal(stored.closed, false);
-  assert.equal(stored.generation, record.generation, 'nothing landed: the close backed out');
-  // The queued turn gets the lock and its session.
-  (await turn)();
-});
-
-test('the idle-only delete backs out when the user makes the session current while its close waits', async (t) => {
-  const { registerSessionSidebarHost } = await import('../../../runtime/shared/session-sidebar-host.mjs');
-  const { underHeldCommit } = await import(
-    '../../../runtime/agent/orchestrator/session/store/commit-lock-holder.fixture.mjs'
-  );
-  const root = isolateDataDir();
-  const record = { ...lead('lead_auto_opened'), lastUsedAt: 50 };
-  await seed(root, [record]);
-  const unregister = registerSessionSidebarHost(async () => {}, {
-    state: async () => ({ archived: { [record.id]: 1 }, favorites: {} }),
-  });
-  t.after(unregister);
-  let current = { id: 'someone_else', messages: [] };
-  const api = makeApi({ getSession: () => current });
-  const result = await underHeldCommit(record.id, () => {
-    const deleting = api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, { isHostedBusy: () => false });
-    // The user opens the archived session while the close waits.
-    setTimeout(() => {
-      current = { id: record.id, messages: record.messages };
-    }, 50);
-    return deleting;
-  });
-  assert.deepEqual(result, { deleted: false, reason: 'current' });
-  const stored = JSON.parse(readFileSync(fileOf(root, record.id), 'utf8'));
-  assert.equal(stored.closed, false);
-  assert.equal(stored.generation, record.generation, 'nothing landed: the close backed out');
 });
 
 test('a deleted session whose turn is still running is not recreated when the turn settles', async () => {

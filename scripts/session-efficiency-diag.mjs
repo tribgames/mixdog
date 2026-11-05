@@ -3,12 +3,20 @@
 // diags (session-diag, tool-efficiency-diag) need agent-trace.jsonl, which a
 // shipped build does not write; the session store is always there.
 // Usage: node scripts/session-efficiency-diag.mjs [--since 5d] [--data-dir <dir>] [--agent lead] [--json]
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { argValue, hasFlag } from './lib/cli-args.mjs';
 import { parseSince } from './lib/parse-since.mjs';
+import {
+  readSessionRecordSync,
+  recordSession,
+  recordStampFingerprint,
+  sessionIdsOfNames,
+  sessionRecordStampOfSync,
+} from '../src/runtime/agent/orchestrator/session/store/session-record.mjs';
+import { parseJsonObject } from '../src/runtime/shared/agent-kind.mjs';
 import { DEFAULT_SHELL_AUTO_BACKGROUND_MS } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool/deadline-plan.mjs';
 
 const CONTEXT_BUCKETS = [50_000, 100_000, 200_000, 300_000, 500_000, Infinity];
@@ -255,18 +263,19 @@ function main() {
   const agentFilter = argValue('--agent', null);
   const sessionsDir = join(dataDir, 'sessions');
   const summary = createSummary();
-  let names;
+  let ids;
   try {
-    names = readdirSync(sessionsDir).filter((name) => name.endsWith('.json'));
+    ids = sessionIdsOfNames(readdirSync(sessionsDir));
   } catch {
     process.stderr.write(`no sessions directory at ${sessionsDir}\n`);
     return 1;
   }
-  for (const name of names) {
-    const file = join(sessionsDir, name);
+  for (const id of ids) {
     try {
-      if (sinceTs != null && statSync(file).mtimeMs < sinceTs) continue;
-      const session = JSON.parse(readFileSync(file, 'utf8'));
+      const touched = recordStampFingerprint(sessionRecordStampOfSync(sessionsDir, id));
+      if (!touched || (sinceTs != null && touched.mtimeMs < sinceTs)) continue;
+      const session = recordSession(readSessionRecordSync(sessionsDir, id, { loadLegacy: parseJsonObject }), id);
+      if (!session) continue;
       if (agentFilter && String(session.agent || '') !== agentFilter) continue;
       addSession(summary, session);
     } catch {

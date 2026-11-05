@@ -40,7 +40,8 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { withFileLockSync, writeJsonAtomicSync } from './atomic-file.mjs';
-import { evidenceKind, homeThreadEvidence } from './agent-kind.mjs';
+import { evidenceKind, homeThreadEvidence, parseJsonObject } from './agent-kind.mjs';
+import { readSessionRecordSync, recordSession } from '../agent/orchestrator/session/store/session-record.mjs';
 import { BOT_AGENT_KIND } from './agent-route-config.mjs';
 import { readMarkdownDocument } from './markdown-frontmatter.mjs';
 import {
@@ -139,7 +140,16 @@ export function mixyToMigrate(dataDir) {
 
 // The provider/model Mixy's thread runs on, or null.
 function threadRoute(dataDir, sessionId) {
-  const record = readJson(join(dataDir, 'sessions', `${sessionId}.json`));
+  let record = null;
+  try {
+    const dir = join(dataDir, 'sessions');
+    record = recordSession(
+      readSessionRecordSync(dir, sessionId, { loadLegacy: parseJsonObject, messages: false }),
+      sessionId
+    );
+  } catch {
+    // unreadable: no route
+  }
   const provider = String(record?.provider || '').trim();
   const model = String(record?.model || '').trim();
   return provider && model ? { provider, model } : null;

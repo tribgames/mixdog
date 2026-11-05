@@ -602,9 +602,8 @@ test('a quota failure without output preserves its notification and failure afte
 test('a close refused by its lifecycle barrier leaves the turn running and checkpointing', async (t) => {
   const { closeSession } = await import('./session-close.mjs');
   const { readTurnCheckpoint } = await import('./turn-checkpoint.mjs');
-  const { sessionPath } = await import('../store/session-paths.mjs');
+  const { _sessionLogIoForTest } = await import('../store/session-log-writer.mjs');
   const { saveSessionAsync } = await import('../store.mjs');
-  const { existsSync, readFileSync, unlinkSync, writeFileSync } = await import('node:fs');
   const until = async (predicate) => {
     const deadline = Date.now() + 5_000;
     while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
@@ -614,26 +613,22 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
     let checkpointed = null;
     setReply(async (_messages, sendOpts) => {
       sendOpts.onTextDelta?.('before');
-      // The turn's preflight save is fire-and-forget on the save worker, and
-      // earlier saves may already have created the record, so its existing
-      // proves nothing: a rename still pending in the worker would land on the
-      // foreign record below and let the close succeed. A save of the live
-      // session queues behind any in-flight write of its id, so once it
-      // resolves no worker write of this session can rename over the record.
+      // Every earlier save landed first, so only the barrier meets the fault.
       const live = loadSession(session.id);
       await saveSessionAsync(live, { expectedGeneration: live.generation });
-      const path = sessionPath(session.id);
-      const original = existsSync(path) ? readFileSync(path) : null;
-      // Another session's record renamed onto this path: the barrier refuses it.
-      writeFileSync(path, JSON.stringify({ id: 'sess_someone_else', messages: [] }));
+      // The session log refuses the barrier's write.
+      const io = _sessionLogIoForTest();
+      const write = io.writeSync;
+      io.writeSync = () => {
+        throw Object.assign(new Error('EIO'), { code: 'EIO' });
+      };
       const stderrWrite = process.stderr.write;
       process.stderr.write = () => true;
       try {
         refused = await closeSession(session.id, 'cli-agent-close');
       } finally {
         process.stderr.write = stderrWrite;
-        if (original) writeFileSync(path, original);
-        else unlinkSync(path);
+        io.writeSync = write;
       }
       sendOpts.onTextDelta?.(' after');
       await until(() => readTurnCheckpoint(session.id)?.interruption?.partialAssistantContent === 'before after');

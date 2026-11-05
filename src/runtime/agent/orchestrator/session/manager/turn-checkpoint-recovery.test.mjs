@@ -26,11 +26,13 @@ const { createTurnCheckpointRecorder, readTurnCheckpoint, settleTurnCheckpointWr
 const { createTurnInterruptionTracker } = await import('./turn-interruption.mjs');
 const { runtimeState } = await import('./runtime-state.mjs');
 const { projectStoredTranscript } = await import('../store-transcript-projection.mjs');
+const { readDurableSessionRecord } = await import('../store/transcript-durability.mjs');
 
 const PROMPT = 'keep working on the task';
 const PARTIAL = 'partial streamed answer';
 const ownerPath = join(root, 'daemon-owner.json');
 const sessionPath = (id) => join(root, 'sessions', `${id}.json`);
+const logPath = (id) => join(root, 'sessions', `${id}.log.jsonl`);
 
 async function storeRunningTurn(id) {
   const doc = {
@@ -107,13 +109,14 @@ test('a dead owner turn is recovered once on read', async (t) => {
   const projected = await read(id, doc);
   assert.equal(shows(projected, PARTIAL), true, 'the interrupted partial is committed');
   assert.equal(readTurnCheckpoint(id), null, 'the checkpoint is cleared after the durable save');
-  const recovered = readFileSync(sessionPath(id), 'utf8');
-  const stored = JSON.parse(recovered);
+  // The recovery is recorded in the session's log; the legacy json is only read.
+  const recovered = readFileSync(logPath(id), 'utf8');
+  const stored = readDurableSessionRecord(id);
   assert.equal(Object.hasOwn(stored, 'activeTurnCheckpoint'), false);
   assert.equal(Object.hasOwn(stored, 'providerState'), false);
   assert.equal(stored.messages.filter((message) => String(message.content).includes(PARTIAL)).length, 1);
-  const again = await read(id, JSON.parse(recovered));
-  assert.equal(readFileSync(sessionPath(id), 'utf8'), recovered, 'a second read recovers nothing more');
+  const again = await read(id, stored);
+  assert.equal(readFileSync(logPath(id), 'utf8'), recovered, 'a second read recovers nothing more');
   assert.equal(again.messages.filter((message) => String(message.content).includes(PARTIAL)).length, 1);
 });
 

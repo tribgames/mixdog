@@ -82,6 +82,8 @@ function checkLabel(check: DoctorCheck): string {
       return t('Config file');
     case 'logs':
       return t('Logs');
+    case 'sessionLog':
+      return t('Session log');
     default:
       return check.label;
   }

@@ -25,6 +25,7 @@ import {
   IMPORT_WARNING_CWD_MISSING,
 } from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
 import { sessionPath } from '../../runtime/agent/orchestrator/session/store/session-paths.mjs';
+import { sessionRecordFilesOf } from '../../runtime/agent/orchestrator/session/store/session-record.mjs';
 import {
   cachedMeta,
   convertCandidateFile,
@@ -61,11 +62,18 @@ export function resetConversationImportJobs() {
 
 const EXISTS_CONCURRENCY = 16;
 
-const sessionFileExists = (id) =>
-  access(sessionPath(id)).then(
+// A session exists while its log or its legacy json does.
+const sessionFileExists = (id) => {
+  const { jsonPath, logPath } = sessionRecordFilesOf(sessionPath(id));
+  return access(logPath).then(
     () => true,
-    () => false
+    () =>
+      access(jsonPath).then(
+        () => true,
+        () => false
+      )
   );
+};
 
 /**
  * `get(key)` → the id of an existing session imported under `key`, else null.

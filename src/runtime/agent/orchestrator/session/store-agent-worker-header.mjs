@@ -16,6 +16,32 @@
  * a document the full parse rejects included.
  */
 import { provenTopLevelObject } from './store-record-strict-scan.mjs';
+import { recordSession, sessionRecordFilesOf } from './store/session-record.mjs';
+import { legacySessionId, resolveSessionRecordSync } from './store/session-log-reader.mjs';
+
+function pickFields(doc, fields) {
+  const picked = {};
+  for (const field of fields) {
+    if (Object.hasOwn(doc, field)) picked[field] = doc[field];
+  }
+  return picked;
+}
+
+/**
+ * The `fields` of a worker session's header, the session named by its legacy
+ * record path `jsonPath`, through the record seam: a header scan of its log,
+ * or readTopLevelFields of its legacy json. Null when there is no record or
+ * it holds no header; throws a failed read.
+ */
+export function readWorkerRecordHeader(jsonPath, fields) {
+  const outcome = resolveSessionRecordSync({
+    ...sessionRecordFilesOf(jsonPath),
+    messages: false,
+    loadLegacy: (text) => readTopLevelFields(Buffer.from(text, 'utf8'), fields),
+  });
+  const session = recordSession(outcome, legacySessionId(jsonPath));
+  return session ? pickFields(session, fields) : null;
+}
 
 export function readTopLevelFields(bytes, fields) {
   const wanted = new Set(fields);
@@ -28,9 +54,5 @@ export function readTopLevelFields(bytes, fields) {
     }
     if (!doc || typeof doc !== 'object') return null;
   }
-  const picked = {};
-  for (const field of fields) {
-    if (Object.hasOwn(doc, field)) picked[field] = doc[field];
-  }
-  return picked;
+  return pickFields(doc, fields);
 }

@@ -17,9 +17,10 @@
 // coalesced or later-built write reports what it actually wrote). Only that
 // record proves what is on disk; a settled promise or an idle queue does not.
 import { randomUUID } from 'node:crypto';
-import { basename, dirname } from 'node:path';
-import { sessionPath } from './session-paths.mjs';
-import { _storedSessionFromFile, STORED_SESSION_UNREADABLE } from './serialize.mjs';
+import { sessionLogPath, sessionPath } from './session-paths.mjs';
+import { _ensureLifecycleFields } from './serialize.mjs';
+import { loadLegacySession } from './legacy-session.mjs';
+import { resolveSessionRecordSync } from './session-log-reader.mjs';
 
 const _landed = new WeakMap(); // session → { epoch, coverage, refs, saveEpoch }
 const _snapshotHooks = new WeakMap(); // session → () => void
@@ -48,13 +49,11 @@ export function captureTranscriptSnapshot(session) {
   };
 }
 
-/** A save of `snapshot` (issued under `saveEpoch`) landed on disk. */
-export function recordLandedTranscript(session, snapshot, saveEpoch) {
+/** A save of `snapshot` landed: its records are fsynced. A session's log
+ *  acknowledges in record order, so the last landing is the newest. */
+export function recordLandedTranscript(session, snapshot) {
   if (!session || !snapshot) return;
-  const current = _landed.get(session);
-  const issued = Number.isFinite(saveEpoch) ? saveEpoch : 0;
-  if (current && current.saveEpoch > issued) return;
-  _landed.set(session, { ...snapshot, saveEpoch: issued });
+  _landed.set(session, snapshot);
 }
 
 export function landedTranscript(session) {
@@ -79,10 +78,20 @@ export function durableTranscriptBase(session) {
   return { epoch: landed.epoch, refs: landed.refs };
 }
 
-/** The canonical record of `id` as it is on disk (never a cached or live
- *  copy), or null when it is absent, unreadable or not this session's. */
+/** The record of `id` as it is on disk (never a cached or live copy), or
+ *  null when it is absent, unreadable or not this session's. */
 export function readDurableSessionRecord(id) {
-  const path = sessionPath(id);
-  const record = _storedSessionFromFile(dirname(path), basename(path));
-  return record && record !== STORED_SESSION_UNREADABLE ? record : null;
+  let outcome;
+  try {
+    outcome = resolveSessionRecordSync({
+      jsonPath: sessionPath(id),
+      logPath: sessionLogPath(id),
+      loadLegacy: loadLegacySession,
+    });
+  } catch {
+    return null;
+  }
+  const session = outcome.session;
+  if (!session || session.id !== id || outcome.kind === 'log-invalid') return null;
+  return _ensureLifecycleFields(session);
 }

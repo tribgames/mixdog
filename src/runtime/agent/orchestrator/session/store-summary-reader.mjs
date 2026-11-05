@@ -6,12 +6,19 @@
  * unless a durable turn checkpoint exists; only then does it lazily enter the
  * reconnect recovery boundary so restored panes never paint a stale prompt.
  */
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 // Leaf helpers only (no store.mjs, no workers, no config): the three-way
-// present/absent/unreadable classification and the strict record parser the
-// authoritative store uses, so the cold catalog cannot disagree with it.
+// present/absent/unreadable classification, the session record seam and the
+// strict record parser the authoritative store uses, so the cold catalog
+// cannot disagree with it.
 import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
+import {
+  readSessionRecordText,
+  readSessionRecordTextSync,
+  recordLifecycle,
+  recordSession,
+  sessionRecordFiles,
+} from './store/session-record.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
 import {
@@ -64,7 +71,6 @@ import {
 import { inFlightSessionActivity } from './manager/runtime-state.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
-  offerStrictSessionRecord,
   statSessionStamp,
   sameSessionStamp,
   isSettledSessionStamp,
@@ -338,27 +344,37 @@ export function readStoredSessionCatalogRow(id) {
 
 /** Exact, fail-closed existence check for a durable session address.
  * Summary indexes and desktop metadata are presentation caches; neither may
- * make a missing sessions/<id>.json record addressable again. */
+ * make a missing session record addressable again. */
 export function storedSessionExists(id) {
   const sessionId = String(id || '').trim();
   if (!isStoredSessionId(sessionId)) return false;
-  // The store's strict lifecycle authority: a stat when the file is this
-  // process's own commit or an unchanged settled stamp, a strict read
-  // otherwise. Absent, unreadable, ambiguous or foreign → false.
-  // The session service asks this right before loading the session, so a
-  // strict read here hands its parse over to that load (handOff).
-  const lifecycle = readCanonicalLifecycle(join(dataDir(), 'sessions', `${sessionId}.json`), true, { handOff: true });
-  return Boolean(lifecycle && typeof lifecycle === 'object' && lifecycle.id === sessionId);
+  // The store's strict lifecycle verdict through the record seam (a header
+  // scan of the log, the strict read of a legacy json), reused while the
+  // record stamp is unchanged and settled. Absent, unreadable, ambiguous,
+  // invalid or foreign → false.
+  const { value } = stampedDerivation(
+    'exists',
+    join(dataDir(), 'sessions'),
+    sessionId,
+    (outcome) => Boolean(recordLifecycle(outcome, sessionId)),
+    { messages: false }
+  );
+  return value === true;
 }
 
-/** Metadata of the strictly parsed record at `recordPath`, or null when it is
+/** Metadata of session `sessionId`'s record (its header), or null when it is
  *  absent, unreadable, ambiguous or foreign to `sessionId`. */
-function readStoredSessionMetadata(recordPath, sessionId) {
-  const { value } = stampedDerivation('metadata', recordPath, (text) => {
-    const record = readTopLevelLifecycleRecord(text);
-    if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-    return storedSessionMetadata(sessionId, record.doc);
-  });
+function readStoredSessionMetadata(sessionId) {
+  const { value } = stampedDerivation(
+    'metadata',
+    join(dataDir(), 'sessions'),
+    sessionId,
+    (outcome) => {
+      const session = recordSession(outcome, sessionId);
+      return session ? storedSessionMetadata(sessionId, session) : null;
+    },
+    { messages: false }
+  );
   // Callers own what they get back; the cached value stays pristine.
   return value ? structuredClone(value) : null;
 }
@@ -406,10 +422,12 @@ function readVanishedSessionTranscript(sessionId) {
   });
 }
 
-/** The two files a stored transcript projection is built from. */
+/** The files a stored transcript projection is built from. */
 function storedTranscriptInputPaths(sessionId) {
+  const record = sessionRecordFiles(join(dataDir(), 'sessions'), sessionId);
   return {
-    recordPath: join(dataDir(), 'sessions', `${sessionId}.json`),
+    record,
+    recordPath: record.jsonPath,
     checkpointPath: join(dataDir(), 'turn-checkpoints', `${sessionId}.json`),
     // Written after the compaction commit that names it, so its identity
     // joins the projection's.
@@ -417,14 +435,39 @@ function storedTranscriptInputPaths(sessionId) {
   };
 }
 
+/** `{ state, fileStat, fingerprint }` of a session record by stat alone: the
+ *  file holding it (the log, else the json) as the transcript cache's
+ *  `fileStat`, and beside a log the json's stat in `fingerprint` (a json an
+ *  older build writes beside the log wins over it); '' without a log. */
+function probeSessionRecord({ jsonPath, logPath }) {
+  const log = probePath(logPath);
+  if (log.state === PROBE_ABSENT) {
+    const json = probePath(jsonPath);
+    return { state: json.state, fileStat: json, fingerprint: '' };
+  }
+  if (log.state !== PROBE_PRESENT) return { state: log.state, fileStat: log, fingerprint: '' };
+  const json = probePath(jsonPath);
+  if (json.state !== PROBE_PRESENT && json.state !== PROBE_ABSENT) {
+    return { state: json.state, fileStat: log, fingerprint: '' };
+  }
+  const jsonIdentity = [json.state, json.mtimeMs, json.ctimeMs, json.size, json.ino, json.dev].join(':');
+  return { state: PROBE_PRESENT, fileStat: log, fingerprint: `log|${jsonIdentity}` };
+}
+
+/** A cache fingerprint with the record's own (see probeSessionRecord). */
+function withRecordFingerprint(fingerprint, recordProbe) {
+  return recordProbe.fingerprint ? `${fingerprint}|${recordProbe.fingerprint}` : fingerprint;
+}
+
 /** Settled identity of the files readStoredSessionTranscript projects from:
- *  the canonical record and its turn-checkpoint sidecar. Null while either is
- *  too fresh to vouch for by stat alone (isSettledSessionStamp), unreadable,
- *  or the record is absent — the caller then reads normally. */
+ *  the record (log and json) and its turn-checkpoint and archive sidecars.
+ *  Null while any is too fresh to vouch for by stat alone
+ *  (isSettledSessionStamp), unreadable, or the record is absent — the caller
+ *  then reads normally. */
 export function storedSessionTranscriptStamp(id) {
   const sessionId = String(id || '').trim();
   if (!isStoredSessionId(sessionId)) return null;
-  const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
+  const { record, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
   const settled = (path, absent) => {
     let stamp;
     try {
@@ -435,10 +478,12 @@ export function storedSessionTranscriptStamp(id) {
     if (!isSettledSessionStamp(stamp)) return null;
     return `${stamp.dev}:${stamp.ino}:${stamp.size}:${stamp.mtimeNs}:${stamp.ctimeNs}`;
   };
-  const record = settled(recordPath, null);
-  const checkpoint = record && settled(checkpointPath, 'absent');
+  const json = settled(record.jsonPath, 'absent');
+  const log = json && settled(record.logPath, 'absent');
+  if (!log || (json === 'absent' && log === 'absent')) return null;
+  const checkpoint = settled(checkpointPath, 'absent');
   const archive = checkpoint && settled(archivePath, 'absent');
-  return archive ? `${record}|${checkpoint}|${archive}` : null;
+  return archive ? `${json}|${log}|${checkpoint}|${archive}` : null;
 }
 
 /** A large record with no checkpoint sidecar is read, digested, parsed and
@@ -531,26 +576,11 @@ async function produceStoredTranscript(text, stamp, context) {
   // The same strict verdict the lifecycle authority would reach for these
   // bytes (storedSessionExists runs next when the pane's runtime loads).
   if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, record);
-  // Hand the parse to the session load cache BEFORE projecting: a resume
-  // that runs while this projection is still being built (the daemon
-  // resumes the panes it restores) claims it instead of reading the file
-  // again. The projection path loads the store anyway, so loading its
-  // cache first costs nothing and gives the hand-off somewhere to go on
-  // the process's first read.
-  let handedOver = false;
-  if (stamp) {
-    await import('./store/load-cache.mjs');
-    handedOver = offerStrictSessionRecord(recordPath, stamp, record, text.length);
-  }
-  // Once handed over, the record is a runtime's mutable session. The
-  // projection is then built from a private parse of the same bytes, so
-  // nothing it retains aliases that session and it needs no copying. With
-  // a turn checkpoint the projection recovers through loadSession, the very
-  // load the hand-off serves, and projects the load cache's session
-  // exactly as before; only that projection is detached.
+  // The parse is this projection's own: the session load reads through the
+  // legacy seam and takes no hand-off (store/canonical-reader.mjs).
   const projectStartedAt = performance.now();
   const project = keepHistory || !slice.cursor ? projectStoredTranscript : cursorWindowProjector(slice.cursor, timing);
-  const projected = await project(sessionId, handedOver && checkpointAbsent ? JSON.parse(text) : record.doc, {
+  const projected = await project(sessionId, record.doc, {
     itemLimit,
     // Only a small session's whole display history is built (and kept) on
     // this thread; any other item read projects just its bounded window
@@ -563,15 +593,7 @@ async function produceStoredTranscript(text, stamp, context) {
   timing.projectMs = performance.now() - projectStartedAt;
   if (mode !== 'items' || !projected) return projected;
   if (keepHistory) smallHistories.retain(sessionId, historyStamp, context.sourceChars, projected);
-  let value = await sliceOf(projected, slice, historyStamp);
-  if (handedOver && !checkpointAbsent) {
-    try {
-      value = structuredClone(value);
-    } catch {
-      // Served as projected.
-    }
-  }
-  return producedSlice(value);
+  return producedSlice(await sliceOf(projected, slice, historyStamp));
 }
 
 /** The rows of one session's whole stored conversation that name attachments
@@ -581,18 +603,19 @@ async function produceStoredTranscript(text, stamp, context) {
  *  strict record authority as a transcript read, and cached by content
  *  identity in a cache of its own: the transcript windows are untouched.
  *  Null when the record is absent, unreadable or not this session's. */
-async function readStoredAttachmentHistory(sessionId, recordPath, archivePath) {
-  const recordStat = probePath(recordPath);
+async function readStoredAttachmentHistory(sessionId, recordFiles, archivePath) {
+  const recordStat = probeSessionRecord(recordFiles);
   if (recordStat.state !== PROBE_PRESENT) return null;
   const archive = probePath(archivePath);
   const key = `${sessionId}|attachments`;
   let complete = true;
+  const archiveIdentity = [archive.state, archive.mtimeMs, archive.ctimeMs, archive.size, archive.ino, archive.dev];
   const { value } = await attachmentHistoryCache.read({
     key,
-    fingerprint: [archive.state, archive.mtimeMs, archive.ctimeMs, archive.size, archive.ino, archive.dev].join(':'),
-    fileStat: recordStat,
+    fingerprint: withRecordFingerprint(archiveIdentity.join(':'), recordStat),
+    fileStat: recordStat.fileStat,
     loadText: () => {
-      const body = readTextFile(recordPath);
+      const body = readSessionRecordTextSync(recordFiles, sessionId);
       return body.state === PROBE_PRESENT ? body.text : null;
     },
     produce: async (text) => {
@@ -657,10 +680,10 @@ export async function readStoredSessionTranscript(id, options = {}) {
   if (!isStoredSessionId(sessionId)) return null;
   // Same strict authority as the store, and the same fail-closed rule: an
   // absent, unreadable, ambiguous or foreign record yields no transcript.
-  const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
-  if (options.metadataOnly === true) return readStoredSessionMetadata(recordPath, sessionId);
+  const { record: recordFiles, recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
+  if (options.metadataOnly === true) return readStoredSessionMetadata(sessionId);
   // The attachments the whole conversation names, apart from any window.
-  if (options.attachmentHistory === true) return readStoredAttachmentHistory(sessionId, recordPath, archivePath);
+  if (options.attachmentHistory === true) return readStoredAttachmentHistory(sessionId, recordFiles, archivePath);
   // One page of the display-only compaction archive (the live head loader
   // pages it once a runtime's in-memory rows are exhausted).
   if (options.compactionArchive && typeof options.compactionArchive === 'object') {
@@ -673,9 +696,10 @@ export async function readStoredSessionTranscript(id, options = {}) {
   const startedAt = performance.now();
   // Phase durations of the parse this call ran (absent on a cache hit).
   const timing = {};
-  const recordStat = probePath(recordPath);
-  if (recordStat.state === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
-  if (recordStat.state !== PROBE_PRESENT) return null;
+  const recordProbe = probeSessionRecord(recordFiles);
+  if (recordProbe.state === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
+  if (recordProbe.state !== PROBE_PRESENT) return null;
+  const recordStat = recordProbe.fileStat;
   const checkpoint = probePath(checkpointPath);
   const archive = probePath(archivePath);
   const requestedLimit = Number(options.transcriptItemLimit);
@@ -737,17 +761,20 @@ export async function readStoredSessionTranscript(id, options = {}) {
   // A large compaction archive counts: the display history holds its rows.
   const sourceChars = recordStat.size + (archive.state === PROBE_PRESENT ? Number(archive.size) || 0 : 0);
   const offloadable = !includeMessages && checkpointAbsent && sourceChars >= OFFLOAD_MIN_CHARS;
-  const fingerprint = [
-    checkpoint.state,
-    checkpoint.mtimeMs,
-    checkpoint.ctimeMs,
-    checkpoint.size,
-    checkpoint.ino,
-    checkpoint.dev,
-    archive.state,
-    archive.mtimeMs,
-    archive.size,
-  ].join(':');
+  const fingerprint = withRecordFingerprint(
+    [
+      checkpoint.state,
+      checkpoint.mtimeMs,
+      checkpoint.ctimeMs,
+      checkpoint.size,
+      checkpoint.ino,
+      checkpoint.dev,
+      archive.state,
+      archive.mtimeMs,
+      archive.size,
+    ].join(':'),
+    recordProbe
+  );
   const produceContext = {
     sessionId,
     recordPath,
@@ -777,21 +804,16 @@ export async function readStoredSessionTranscript(id, options = {}) {
     loadText: async () => {
       const readStartedAt = performance.now();
       const before = observeStamp(recordPath);
-      let body = null;
-      if (offloadable) {
-        // Reading a large record asynchronously keeps its multi-megabyte
-        // UTF-8 decode-and-copy off the loop; failures are classified below.
-        try {
-          body = { state: PROBE_PRESENT, text: (await readFile(recordPath)).toString('utf8') };
-        } catch {
-          body = null;
-        }
-      }
-      body ||= readTextFile(recordPath);
+      // Reading a large record asynchronously keeps its multi-megabyte
+      // UTF-8 decode-and-copy off the loop.
+      const body = offloadable
+        ? await readSessionRecordText(recordFiles, sessionId)
+        : readSessionRecordTextSync(recordFiles, sessionId);
       timing.readMs = performance.now() - readStartedAt;
       produceContext.readState = body.state;
       if (body.state !== PROBE_PRESENT) return null;
-      readStamp = before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
+      // Only the json's own bytes carry its stamp (and a verdict for it).
+      readStamp = body.legacy && before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
       return body.text;
     },
     produce: (text) => produceStoredTranscript(text, readStamp, produceContext),

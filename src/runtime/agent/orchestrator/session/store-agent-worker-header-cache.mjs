@@ -6,9 +6,9 @@
  * I/O and CPU right when the restored conversation was loading.
  *
  * The file only seeds the in-memory cache. Every seeded entry is still served
- * under that cache's full-stamp policy — the record must still have the exact
- * { dev, ino, size, mtimeNs, ctimeNs } its header was read from, a stamp that
- * was settled when cached — so a record changed while no daemon ran (or by
+ * under that cache's stamp policy — the record must still have the exact
+ * record stamp (log and json: ino, size, mtimeNs, ctimeNs) its header was read from, a
+ * stamp that was settled when cached — so a record changed while no daemon ran (or by
  * another process) is read again. Being a cache, an absent, unreadable,
  * damaged, other-version or other-field-set file seeds nothing (a bad entry
  * alone is skipped) and is replaced by the next write; writes are atomic.
@@ -16,12 +16,16 @@
 import { randomBytes } from 'node:crypto';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { sessionStampOf } from './store/canonical-reader.mjs';
+import { parseSessionRecordStamp } from './store/session-record.mjs';
 import { isStoredSessionId } from './store-summary-fields.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 
-const VERSION = 1;
-const STAMP_KEYS = ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'];
+// 3: record stamps carry each file's change time (session-log-reader.mjs).
+const VERSION = 3;
+// Per file of the record (log, then json): ino, size, mtimeNs, ctimeNs — or
+// four '-' for an absent file.
+const STAMP_FILES = ['log', 'json'];
+const STAMP_FIELDS = ['ino', 'size', 'mtimeNs', 'ctimeNs'];
 const UNSIGNED = /^\d+$/;
 
 export function storedAgentWorkerHeaderCachePath(dir = dataDir()) {
@@ -29,9 +33,22 @@ export function storedAgentWorkerHeaderCachePath(dir = dataDir()) {
 }
 
 function decodeStamp(value) {
-  if (!Array.isArray(value) || value.length !== STAMP_KEYS.length) return null;
-  if (!value.every((part) => typeof part === 'string' && UNSIGNED.test(part))) return null;
-  return sessionStampOf(Object.fromEntries(STAMP_KEYS.map((key, index) => [key, BigInt(value[index])])));
+  const width = STAMP_FIELDS.length;
+  if (!Array.isArray(value) || value.length !== STAMP_FILES.length * width) return null;
+  if (!value.every((part) => typeof part === 'string')) return null;
+  const parts = STAMP_FILES.map((file, index) => {
+    const fields = value.slice(index * width, (index + 1) * width);
+    if (fields.every((field) => field === '-')) return `${file}:-`;
+    return fields.every((field) => UNSIGNED.test(field)) ? `${file}:${fields.join(':')}` : null;
+  });
+  return parts.includes(null) ? null : parts.join('|');
+}
+
+function encodeStamp(stamp) {
+  const files = parseSessionRecordStamp(stamp);
+  return STAMP_FILES.flatMap((file) =>
+    files[file] ? STAMP_FIELDS.map((field) => String(files[file][field])) : STAMP_FIELDS.map(() => '-')
+  );
 }
 
 function decodeHeader(value, fields) {
@@ -70,7 +87,7 @@ export async function readPersistedWorkerHeaders(path, fields) {
 export async function writePersistedWorkerHeaders(path, fields, entries) {
   const sessions = {};
   for (const [sessionId, { stamp, header }] of entries) {
-    sessions[sessionId] = { stamp: STAMP_KEYS.map((key) => String(stamp[key])), header };
+    sessions[sessionId] = { stamp: encodeStamp(stamp), header };
   }
   // The temp shape is atomic-file.mjs's `<name>.mixdog-tmp-<hex>`.
   const tmp = `${path}.mixdog-tmp-${randomBytes(8).toString('hex')}`;

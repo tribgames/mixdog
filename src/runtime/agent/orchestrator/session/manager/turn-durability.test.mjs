@@ -26,7 +26,18 @@ const { createTurnCheckpointRecorder, readTurnCheckpoint, recoverTurnCheckpoint,
 const { _recoverTurnCheckpointDurably } = await import('./turn-checkpoint-recovery.mjs');
 const { createTurnInterruptionTracker } = await import('./turn-interruption.mjs');
 const { readDurableSessionRecord, setTranscriptSnapshotHook } = await import('../store/transcript-durability.mjs');
-const { bumpSessionGeneration, setSessionSaveFault } = await import('../store.mjs');
+const { bumpSessionGeneration } = await import('../store.mjs');
+const sessionLogIo = (await import('../store/session-log-writer.mjs'))._sessionLogIoForTest();
+const realLogWrite = sessionLogIo.writeSync;
+// Every session-log batch write fails while armed (the records stay queued and
+// ride the next batch once it is lifted).
+function setSessionSaveFault(armed) {
+  sessionLogIo.writeSync = armed
+    ? () => {
+        throw Object.assign(new Error('EIO: injected'), { code: 'EIO' });
+      }
+    : realLogWrite;
+}
 const { createSession, holdSessionRoute } = await import('./session-lifecycle.mjs');
 const { enqueuePendingMessage } = await import('./pending-messages.mjs');
 const { askSession } = await import('./ask-session.mjs');
@@ -86,26 +97,6 @@ test('a sealed turn whose terminal save never landed comes back once, as finishe
   const again = structuredClone(session);
   assert.equal(recoverTurnCheckpoint(again, structuredClone(session)).covered, true);
   assert.deepEqual(again.messages, session.messages);
-});
-
-test('a recovery save waits for another thread holding the commit lock without blocking the event loop', async () => {
-  const { underHeldCommit } = await import('../store/commit-lock-holder.fixture.mjs');
-  const id = 'durable_recover_under_lock';
-  const history = [{ role: 'system', content: 'sys' }];
-  const turn = openTurn(id, history, 'do it');
-  turn.outgoing.push(assistant('done'));
-  turn.flush({ sealed: true });
-  turn.recorder.stop({ keepQueued: true });
-  await settleTurnCheckpointWrites(id);
-  // Crash before the terminal save: disk still holds the base.
-  writeFileSync(sessionFile(id), JSON.stringify(record(id, history, { transcriptEpoch: 'e0' })));
-  const session = record(id, history, { transcriptEpoch: 'e0' });
-  const recovery = await underHeldCommit(id, () => _recoverTurnCheckpointDurably(session, id));
-  assert.equal(recovery.recovered, true);
-  // Durable when it resolved, and only then is the checkpoint gone.
-  assert.deepEqual(texts(readDurableSessionRecord(id).messages), ['system:sys', 'user:do it', 'assistant:done']);
-  assert.equal(readDurableSessionRecord(id).turnCoverage, turn.token);
-  assert.equal(readTurnCheckpoint(id), null);
 });
 
 test('a durable record that covers the turn deletes the checkpoint without a duplicate', async () => {

@@ -9,245 +9,15 @@ import { providerInputExcludesCache } from '../../providers/registry.mjs';
 import { reasoningUsage, combineReasoningUsage } from '../../../../shared/llm/reasoning-usage.mjs';
 import { foldUsageReadout } from '../../../../shared/usage-readout-totals.mjs';
 import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
-import {
-  loadSession,
-  saveSessionAsync,
-  parkSessionSnapshotForDrain,
-  unparkSessionSnapshotForDrain,
-  registerSessionPurgeHook,
-} from '../store.mjs';
+import { loadSession, saveSession, registerSessionPurgeHook } from '../store.mjs';
 
 // Per-session idempotency tracking: sessionId → Set of seen
 // turn:epoch:iteration:source keys.
 const _metricSeenIter = new Map();
 
-// ── Mid-turn save coalescing ──────────────────────────────────────────────
-// saveSessionAsync structured-clones the ENTIRE session on the main thread
-// per postMessage call (store.mjs saveSessionAsync). Calling it after EVERY
-// provider.send iteration is the cost this coalesces away: in-memory session
-// mutation above still happens every iteration (durability of the data is
-// unaffected — only how often it hits saveSessionAsync's postMessage clone).
-// sessionId → { inFlight, dirty, lastFlushAt, timer }
-const _metricSaveState = new Map();
-// sessionId → live session ref awaiting a still-deferred (timer-pending)
-// flush. Only populated for the window between "delta applied, save not yet
-// posted to the worker" and the actual saveSessionAsync call — once a save
-// is posted, store.mjs's own _saveWorkerPending covers process-exit drain.
-// While parked, the snapshot is ALSO registered with the store's own deferred
-// map (parkSessionSnapshotForDrain), so the canonical drain — not a second
-// exit hook — persists it under the shared epoch/lock/fence ordering.
-const _pendingMetricsFlush = new Map();
-const METRICS_SAVE_THROTTLE_MS = 500;
-
-function _metricsSaveState(sessionId) {
-  let state = _metricSaveState.get(sessionId);
-  if (state?.closed) {
-    // A CLOSED state belongs to a previous incarnation of this id (hard
-    // delete or close). It is never reused — and it must not block a
-    // re-created session: drop it and mint a fresh one. The old object
-    // stays non-current, so its in-flight callbacks remain inert.
-    _metricSaveState.delete(sessionId);
-    state = null;
-  }
-  if (!state) {
-    state = {
-      inFlight: false,
-      dirty: false,
-      lastFlushAt: 0,
-      timer: null,
-      closed: false,
-      failCount: 0,
-      drainHandle: null,
-    };
-    _metricSaveState.set(sessionId, state);
-  }
-  return state;
-}
-
-// Park/unpark keep the module-local ref and the store's drain registration in
-// lock-step. The park carries the generation observed when the delta was
-// applied, so a lifecycle barrier landing later still fences it by ownership.
-function _parkMetricsSnapshot(state, sessionId, session) {
-  _pendingMetricsFlush.set(sessionId, session);
-  state.drainHandle = parkSessionSnapshotForDrain(
-    session,
-    { expectedGeneration: session.generation },
-    state.drainHandle
-  );
-}
-
-function _unparkMetricsSnapshot(state, sessionId) {
-  // The shared map belongs to whichever state currently OWNS the id: an old
-  // (closed) callback must never erase the snapshot a re-created session
-  // parked under the same id.
-  if (!_metricSaveState.has(sessionId) || _metricSaveState.get(sessionId) === state) {
-    _pendingMetricsFlush.delete(sessionId);
-  }
-  if (!state?.drainHandle) return;
-  unparkSessionSnapshotForDrain(state.drainHandle);
-  state.drainHandle = null;
-}
-
-/**
- * Authoritative liveness of a save-state object. A hard delete (or a close)
- * marks the CURRENT state closed and drops it from the registry, so a callback
- * still holding that object must never re-park, re-arm a timer or re-flush —
- * not even for one microtask, which would be enough to re-create the file the
- * delete just unlinked.
- */
-function _isMetricsStateCurrent(sessionId, state) {
-  return !!state && state.closed !== true && _metricSaveState.get(sessionId) === state;
-}
-
-function _flushMetricsSave(session, sessionId, state = _metricSaveState.get(sessionId)) {
-  if (!_isMetricsStateCurrent(sessionId, state)) {
-    // Purged/closed while this flush was queued: leave no trace behind.
-    _unparkMetricsSnapshot(state, sessionId);
-    return;
-  }
-  if (state.timer) {
-    clearTimeout(state.timer);
-    state.timer = null;
-  }
-  // The park STAYS for the whole in-flight lifecycle and carries this
-  // snapshot's identity: the save — and every retry of it — runs under the
-  // epoch and guarded options (expectedGeneration included) assigned when the
-  // delta was first deferred. Minting fresh authority on a retry would let a
-  // stale payload outrank a session save that landed in the meantime.
-  _parkMetricsSnapshot(state, sessionId, session);
-  const identity = state.drainHandle;
-  state.dirty = false;
-  state.inFlight = true;
-  state.lastFlushAt = Date.now();
-  // Set when the store's exit drain settles this write: the drain already
-  // wrote the newest snapshot for the id and cleared its deferred handle, so
-  // that settlement is a TERMINAL ownership transfer for this identity.
-  let drainSettled = false;
-  saveSessionAsync(
-    session,
-    identity?.opts ?? { expectedGeneration: session.generation },
-    identity ? { epoch: identity.epoch, revision: identity.revision } : undefined
-  )
-    .then(() => {
-      if (!_isMetricsStateCurrent(sessionId, state)) return;
-      state.failCount = 0;
-      // Durable — release the identity, but ONLY when no newer delta
-      // parked itself behind this write (that snapshot is not durable
-      // yet and must stay in the canonical drain).
-      if (!state.dirty) _unparkMetricsSnapshot(state, sessionId);
-    })
-    .catch((err) => {
-      drainSettled = _onMetricsSaveRejected(err, state, sessionId, session);
-    })
-    .finally(() => _afterMetricsSave(state, sessionId, session, drainSettled));
-}
-
-// A rejected iteration save. Returns true when the store's exit drain
-// settled it, which is terminal for this identity.
-function _onMetricsSaveRejected(err, state, sessionId, session) {
-  process.stderr.write(`[usage-metrics] iteration save failed: ${err?.message ?? err}\n`);
-  if (err?.sessionStoreDrained === true) {
-    // Drain owns durability now. Re-parking here would register a
-    // NEW identity (fresh epoch) for an old payload, which could
-    // then overwrite a save that lands after the drain; retrying
-    // would do the same. Release the identity and stay inert.
-    state.dirty = false;
-    state.failCount = 0;
-    _unparkMetricsSnapshot(state, sessionId);
-    return true;
-  }
-  // Hard delete / close settled this id while the write was in
-  // flight: a re-park here would put a deferred entry (and with it a
-  // drain-recreated file) back for a session that no longer exists.
-  if (!_isMetricsStateCurrent(sessionId, state)) return false;
-  // A rejected save must not silently drop the delta already
-  // applied in-memory — re-park it so the process-exit drain
-  // and/or the retry still see it.
-  state.failCount += 1;
-  state.dirty = true;
-  // NEVER let the rejected closure overwrite a newer snapshot that
-  // parked while this write was in flight: the latest parked ref
-  // wins, under the same preserved identity.
-  const latest = _pendingMetricsFlush.get(sessionId);
-  _parkMetricsSnapshot(state, sessionId, latest ?? session);
-  return false;
-}
-
-// After a save settled either way: release a session that closed meanwhile,
-// or flush once more when a newer delta parked behind this write.
-function _afterMetricsSave(state, sessionId, session, drainSettled) {
-  state.inFlight = false;
-  if (drainSettled) return; // terminal: no repark, no retry, no timer
-  if (!_isMetricsStateCurrent(sessionId, state)) {
-    // dropMetricSeenState (close) or the hard-delete purge ran
-    // while this save was in flight — do not resurrect per-session
-    // state, timers or deferred entries.
-    _unparkMetricsSnapshot(state, sessionId);
-    if (_metricSaveState.get(sessionId) === state) _metricSaveState.delete(sessionId);
-    return;
-  }
-  // A newer delta (or the rejection re-park) landed while this save was
-  // in flight — flush once more so it is never stranded. Always take the
-  // LATEST parked session, not the (possibly stale/pre-detach-resume)
-  // closure `session` — a newer delta may have parked a fresher
-  // session/generation. failCount cap: a persistently failing save
-  // (broken dir/disk) must not spin reject→re-park→retry forever with no
-  // backoff. The session stays parked in _pendingMetricsFlush, so a later
-  // _scheduleMetricsSave (next iteration) or the process-exit drain still
-  // gets a shot at persisting it.
-  if (state.dirty && state.failCount <= 3) {
-    const latest = _pendingMetricsFlush.get(sessionId) ?? session;
-    _flushMetricsSave(latest, sessionId, state);
-  }
-}
-
-/**
- * Coalesce mid-turn metric saves: an in-flight guard collapses overlapping
- * saves into one trailing flush, and a >=500ms per-session throttle caps
- * how often a completed save re-triggers another. The idempotency Set above
- * still updates per-iteration regardless of whether this call ends up
- * actually posting to the worker this tick.
- */
-function _scheduleMetricsSave(session, sessionId) {
-  const state = _metricsSaveState(sessionId);
-  if (state.closed) return;
-  if (state.inFlight) {
-    state.dirty = true;
-    _parkMetricsSnapshot(state, sessionId, session);
-    return;
-  }
-  const elapsed = Date.now() - state.lastFlushAt;
-  if (elapsed >= METRICS_SAVE_THROTTLE_MS) {
-    _flushMetricsSave(session, sessionId, state);
-    return;
-  }
-  state.dirty = true;
-  _parkMetricsSnapshot(state, sessionId, session);
-  if (!state.timer) {
-    const t = setTimeout(() => {
-      state.timer = null;
-      if (!state.inFlight && _isMetricsStateCurrent(sessionId, state)) {
-        const latest = _pendingMetricsFlush.get(sessionId) ?? session;
-        _flushMetricsSave(latest, sessionId, state);
-      }
-    }, METRICS_SAVE_THROTTLE_MS - elapsed);
-    if (t.unref) t.unref();
-    state.timer = t;
-  }
-}
-
-// NO second exit-flush path lives here on purpose. Process exit can land
-// inside the throttle window, before the trailing timer ever calls
-// saveSessionAsync — but the parked snapshot is registered with the store's
-// own deferred map, so drainSessionStore() persists it in the canonical
-// ordering (epoch rank, fresh cancellation guard, shared commit lock,
-// ownership generation, landed-epoch fence, one global deadline). A
-// sync-flush here would instead mint fresh write authority AFTER that drain
-// and could overwrite a newer landed session or a lifecycle barrier.
-//
-// Hard delete is the mirror image: the store runs this module's own cleanup
-// synchronously (timers cancelled, park dropped, state closed) before it
-// unlinks the file, so no retry and no drain entry can resurrect it.
+// A hard delete drops the session's idempotency state with it. The store's
+// own delete takes any debounced copy of the session and fences the id, so no
+// metrics save recreates it.
 registerSessionPurgeHook((sessionId) => dropMetricSeenState(sessionId));
 
 // Injected accessor for manager's _runtimeState. Defaults to a no-op lookup so
@@ -263,21 +33,6 @@ export function configureUsageMetricsRuntime({ getRuntimeEntry } = {}) {
 export function dropMetricSeenState(sessionId) {
   if (!sessionId) return;
   _metricSeenIter.delete(sessionId);
-  const state = _metricSaveState.get(sessionId);
-  if (state) {
-    state.closed = true;
-    if (state.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
-    }
-    // Only delete the map entry when nothing is in flight — an in-flight
-    // save's own .finally (guarded by state.closed above) performs the
-    // cleanup itself once it settles, so a stray concurrent call cannot
-    // recreate a fresh (non-closed) entry via _metricsSaveState() while
-    // that write is still outstanding.
-    if (!state.inFlight) _metricSaveState.delete(sessionId);
-  }
-  _unparkMetricsSnapshot(state, sessionId);
 }
 
 /** Monotonic per-session ask/turn id for incremental usage idempotency. */
@@ -578,12 +333,9 @@ export async function persistIterationMetrics(delta) {
   }
   session.lastIterationIndex = iterationIndex;
   session.updatedAt = ts || Date.now();
-  // Coalesced mid-turn persistence (see _scheduleMetricsSave above): an
-  // in-flight guard + >=500ms per-session throttle collapse the per-
-  // iteration saveSessionAsync postMessage/clone cost. The idempotency Set
-  // update above already happened unconditionally this call, so a
-  // throttled/skipped flush here never loses delta accounting — only the
-  // disk-write cadence changes. Terminal save at turn end (askSession) and
-  // the exit drain above both still cover the last pending delta.
-  _scheduleMetricsSave(session, sessionId);
+  // The store's debounced save coalesces the per-iteration writes into one
+  // record of what changed; the terminal save at turn end and the exit drain
+  // both cover the last of them. A copy issued for an older ownership is
+  // dropped by its generation.
+  saveSession(session, { expectedGeneration: session.generation });
 }

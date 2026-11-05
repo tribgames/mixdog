@@ -31,6 +31,8 @@ import {
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { COMPACTION_ARCHIVE_SUFFIX } from '../agent/orchestrator/session/compaction-archive.mjs';
+import { SESSION_LOG_SUFFIX } from '../agent/orchestrator/session/store/session-log-format.mjs';
 import { writeFileAtomicSync, writeJsonAtomicAsync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { attachmentFileName } from './attachment-file-name.mjs';
@@ -902,6 +904,20 @@ function dropCachedAttachment(path) {
   bufferCacheBytes -= cached.length;
 }
 
+// Besides a legacy `<id>.json`, a session's messages live in its log
+// `<id>.log.jsonl`, in any log set aside as `<log>.<kind>-<ms>-<hex>`
+// (damaged, diverged, torn, invalid: kept whole for recovery), and in the
+// compaction archive of the history its compactions dropped (still shown).
+// A log temp file (`<log>.<hex>.tmp`) is counted too: it is the proven
+// replacement mid-swap, so the record it replaces may already be gone.
+const SET_ASIDE_LOG = /^(?:[a-z]+-\d+-[0-9a-f]+|[0-9a-f]+\.tmp)$/;
+
+function isSessionReferenceFile(name) {
+  if (name.endsWith(SESSION_LOG_SUFFIX) || name.endsWith(COMPACTION_ARCHIVE_SUFFIX)) return true;
+  const at = name.lastIndexOf(`${SESSION_LOG_SUFFIX}.`);
+  return at > 0 && SET_ASIDE_LOG.test(name.slice(at + SESSION_LOG_SUFFIX.length + 1));
+}
+
 async function persistedAttachmentReferencePaths() {
   const root = resolvePluginData();
   const paths = [];
@@ -918,7 +934,11 @@ async function persistedAttachmentReferencePaths() {
       if (!entry.isFile()) continue;
       // The turn-checkpoint journal appends `<session>.jsonl` records that
       // carry attachment refs of in-flight turns.
-      if (entry.name.endsWith('.json') || (subdir === 'turn-checkpoints' && entry.name.endsWith('.jsonl'))) {
+      if (
+        entry.name.endsWith('.json') ||
+        (subdir === 'turn-checkpoints' && entry.name.endsWith('.jsonl')) ||
+        (subdir === 'sessions' && isSessionReferenceFile(entry.name))
+      ) {
         paths.push(join(dir, entry.name));
       }
     }

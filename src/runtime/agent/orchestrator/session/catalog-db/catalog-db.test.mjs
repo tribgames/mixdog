@@ -29,7 +29,7 @@ import { _cacheSessionSummary } from '../store/summary-cache.mjs';
 import { _hasUnsettledSummaryOps, settleSummaryIndexWrites } from '../store-summary-index.mjs';
 import { settleSessionSummaryIndex } from '../store/listing.mjs';
 import { deleteSession } from '../store/session-delete.mjs';
-import { saveSessionDurably, saveSessionAsyncDeferred } from '../store.mjs';
+import { saveSessionAsync, saveSessionDurably } from '../store.mjs';
 import {
   closeSessionCatalogDb,
   configureSessionCatalogDbForTest,
@@ -268,11 +268,9 @@ test('no row from a queued, failed or refused save', async (t) => {
   await ready();
   _cacheSessionSummary(session('own_q', 'queued', 995));
   assert.equal(ids(await dbList()).includes('own_q'), false, 'not on disk: not listed (as at HEAD)');
-  const saving = saveSessionAsyncDeferred(session('own_d', 'mine', 990));
-  // Before the deferred save is promoted, the canonical record becomes a
-  // different session's: the promotion is refused.
+  // The record under this name is a different session's: the save is refused.
   writeFileSync(fileOf('own_d'), JSON.stringify(session('foreign_z', 'theirs', 980)));
-  await assert.rejects(saving, (error) => error.code === 'ESESSIONNOTOWNED');
+  await assert.rejects(saveSessionAsync(session('own_d', 'mine', 990)), (error) => error.code === 'ELEGACYUNREADABLE');
   const listed = await dbList();
   assert.equal(ids(listed).includes('own_d'), false);
   assert.equal(ids(listed).includes('foreign_z'), false);

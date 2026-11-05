@@ -175,15 +175,17 @@ test('a session file that is not JSON can still be deleted, its bytes kept aside
   assert.equal(readFileSync(join(dirname(f.path), aside), 'utf8'), '{"broken":');
 });
 
-test('failed-save recovery keeps the exact failed snapshot while unrelated corruption remains visible', (t) => {
+test('a failed save keeps its live copy speaking for the session while unrelated corruption remains visible', (t) => {
   const f = fixture(t);
   const failed = { ...f.saved, messages: [{ role: 'assistant', content: 'failed write payload' }] };
   setLiveSession(failed);
   assert.equal(loadSession(f.id), failed);
-  _recordSaveFailure(f.id, new Error('simulated save failure'), null, failed);
-  failed.messages.push({ role: 'assistant', content: 'later unsaved state' });
+  // The failed records stay queued and land with the next write: the live
+  // copy, later state included, is the newest one.
+  _recordSaveFailure(f.id, new Error('simulated save failure'));
+  failed.messages = [...failed.messages, { role: 'assistant', content: 'later unsaved state' }];
   f.write('unreadable JSON');
-  assert.deepEqual(loadSession(f.id).messages, [{ role: 'assistant', content: 'failed write payload' }]);
+  assert.equal(loadSession(f.id), failed);
   assert.equal(readFileSync(f.path, 'utf8'), 'unreadable JSON');
   clearSessionSaveError(f.id);
   assert.equal(loadSession(f.id), null);

@@ -1,8 +1,7 @@
-// The save worker is a long-lived thread whose process.env was copied when it
-// spawned. One process that runs several pristine headless sessions in turn
-// (qc-pages: one page session per slide) moves MIXDOG_DATA_DIR between them
-// and removes each run's root when it ends; a later session's save must land
-// in ITS data dir, not in the first run's removed one.
+// One process that runs several pristine headless sessions in turn (qc-pages:
+// one page session per slide) moves MIXDOG_DATA_DIR between them and removes
+// each run's root when it ends; a later session's save must land in ITS data
+// dir, not in the first run's removed one.
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +29,7 @@ const makeSession = (id) => ({
   closed: false,
   messages: [{ role: 'user', content: id }],
 });
-const sessionFile = (root, id) => join(root, 'sessions', `${id}.json`);
+const sessionFile = (root, id) => join(root, 'sessions', `${id}.log.jsonl`);
 
 test('a save after the data dir moved lands in the new dir, even once the old root is gone', async () => {
   await saveSessionAsync(makeSession('sess_datadir_first'), { expectedGeneration: 1 });

@@ -7,8 +7,6 @@ import {
   markSessionClosed,
   markSessionClosedAttempt,
   bumpSessionGenerationAttempt,
-  isLifecycleRetry,
-  waitForLifecycleRetry,
   getSessionLifecycleCommitError,
 } from '../store.mjs';
 import { clearReadDedupSession } from '../read-dedup.mjs';
@@ -22,7 +20,6 @@ import {
 } from './runtime-liveness.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
 import { forgetUnsettledTurn } from './turn-durability.mjs';
-import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
 import { publishSessionPersistence } from '../store/session-persistence-events.mjs';
 import { forgetSessionLoadCache } from '../store/load-cache.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
@@ -41,52 +38,33 @@ import { registerSessionPurgeHook } from '../store/session-observers.mjs';
  *
  * IMPORTANT: we deliberately do NOT unlink the session file here. The tombstone
  * on disk is the authoritative signal that blocks resurrection — a late
- * saveSession() re-reads disk via _shouldDrop() and will find the tombstone.
+ * saveSession() is checked against the recorded lifecycle and finds the tombstone.
  * If we delete the file, a late save sees no file, decides nothing to drop,
  * and recreates the session in its pre-close state.
  *
  * Long-term cleanup: `sweepTombstones()` (idle-cleanup.mjs) unlinks tombstones older than
  * TOMBSTONE_MAX_AGE_MS (1h — vastly longer than the microsecond in-flight race).
  *
- * Resolves whether the close landed, and never blocks the event loop. Each
- * barrier attempt stages the close snapshot and runs the barrier in one
- * synchronous stretch (the first one before this function first yields). An
- * attempt that finds another thread's commit of the session holding the
- * commit lock runs again once that commit lands, and a rename the OS refuses
- * with retries left is waited out with a timer. Between attempts the staged
- * snapshot is rolled back, so the turn keeps running untouched, and it is
- * re-staged from the then-current turn right before the next attempt: the
- * barrier that lands always carries the latest transcript. The session is
- * torn down — and reported closed — only after its barrier is on disk.
- * Nothing read before a wait is trusted after it: every attempt resolves the
- * runtime entry anew (a turn may have registered meanwhile) and asks
- * `opts.isSessionLive(id)` first; a session that turned live backs the close
+ * Resolves whether the close landed, and never blocks the event loop. The
+ * close snapshot is staged and the barrier takes the session's newest copy in
+ * one synchronous stretch, before this function first yields; the barrier
+ * record then lands in the session's log. The session is torn down — and
+ * reported closed — only after its barrier is on disk; a barrier that does
+ * not land rolls the staged snapshot back, so the turn keeps running
+ * untouched. A session `opts.isSessionLive(id)` reports live backs the close
  * out, changing nothing, and it resolves false.
  */
 export async function closeSession(id, reason = 'manual', opts = {}) {
   if (!id) return false;
   const tombstone = opts.tombstone !== false;
-  let attempt = 0;
-  for (;;) {
-    if (typeof opts.isSessionLive === 'function' && opts.isSessionLive(id)) return false;
-    const entry = _getRuntimeEntry(id);
-    const closeSnapshot = stageCloseSnapshot(entry, reason);
-    const outcome = { absent: false };
-    const newGen = tombstone
-      ? markSessionClosedAttempt(id, reason, { outcome }, attempt)
-      : bumpSessionGenerationAttempt(id, reason, { outcome, ownerClose: opts.ownerClose === true }, attempt);
-    if (!isLifecycleRetry(newGen)) {
-      return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
-    }
-    closeSnapshot?.rollback();
-    try {
-      attempt = await waitForLifecycleRetry(id, newGen, attempt);
-    } catch {
-      // The commit waited on is stranded (recorded as the lifecycle commit
-      // error): no barrier landed, so the runtime stays intact.
-      return finishClose({ id, reason, tombstone, entry, closeSnapshot: null, newGen: null, outcome });
-    }
-  }
+  if (typeof opts.isSessionLive === 'function' && opts.isSessionLive(id)) return false;
+  const entry = _getRuntimeEntry(id);
+  const closeSnapshot = stageCloseSnapshot(entry, reason);
+  const outcome = { absent: false };
+  const newGen = await (tombstone
+    ? markSessionClosedAttempt(id, reason, { outcome })
+    : bumpSessionGenerationAttempt(id, reason, { outcome, ownerClose: opts.ownerClose === true }));
+  return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
 }
 
 // askSession owns the interruption tracker that can merge committed
@@ -118,8 +96,8 @@ function stageCloseSnapshot(entry, reason) {
 // still bumped (bumpSessionGeneration): that alone protects the session from
 // a late save race. Any saveSession() still in flight from this detached turn
 // (e.g. the cancel-cleanup save below) carries the OLD generation as its
-// expectedGeneration, so _shouldDrop()'s ownership-counter rule drops it once
-// disk generation moves past that. Without this bump the late write could
+// expectedGeneration, so the store's ownership-counter rule drops it once
+// the recorded generation moves past that. Without this bump the late write could
 // silently overwrite the session after the user resumes it back (BL:
 // burned-session late-save clobber).
 function finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome }) {
@@ -304,19 +282,12 @@ function closeProviderConnections(id, cause, { inFlightOnly = false } = {}) {
 registerSessionPurgeHook((id) => closeProviderConnections(id, 'session-deleted'));
 
 // Session-scoped read caches: pure caches a resumed turn rebuilds from the
-// transcript/disk. The save delta baselines (parent and save-worker thread)
-// are one of them: a resumed session's next save simply goes out full; the
-// store's parsed load-cache document is another. The
+// transcript/disk. The store's parsed load-cache document is one of them. The
 // runtime teardown's own release misses these closes because the caller has
 // already dropped its session handle by then.
 function releaseSessionReadCaches(id) {
   try {
     clearReadDedupSession(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    forgetSessionSaveBaseline(id, { releaseWriteControl: true });
   } catch {
     /* ignore */
   }

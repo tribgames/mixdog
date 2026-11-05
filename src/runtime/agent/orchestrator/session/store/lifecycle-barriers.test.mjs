@@ -1,20 +1,21 @@
-// Detach barrier (bumpSessionGeneration) authority: bytes this realm renamed
-// into place are vouched for by the own-commit stamp instead of a strict full
-// read, while every foreign or ambiguous replacement is still read strictly
-// and refused, the written bytes are identical on both paths, and an
-// in-flight save never lands after the barrier.
+// Lifecycle barriers (detach bump, close tombstone) are records in the
+// session's log: a copy issued for an older ownership is dropped after them,
+// a save in flight when one lands is not lost, and a legacy json is only read.
 import assert from 'node:assert/strict';
-import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-lifecycle-barriers-'));
 process.env.MIXDOG_DATA_DIR = root;
-mkdirSync(join(root, 'sessions'));
+const dir = join(root, 'sessions');
+mkdirSync(dir);
 
-const { saveSessionAsync, bumpSessionGeneration, getSessionLifecycleCommitError } = await import('../store.mjs');
+const { saveSessionAsync, bumpSessionGeneration, markSessionClosed } = await import('../store.mjs');
+const { SAVE_OUTCOME_DROPPED, SAVE_OUTCOME_SAVED } = await import('./live-state.mjs');
+const { resolveSessionRecordSync } = await import('./session-log-reader.mjs');
+const { loadLegacySession } = await import('./legacy-session.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
 
 test.after(async () => {
@@ -23,118 +24,64 @@ test.after(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const sessionFile = (id) => join(root, 'sessions', `${id}.json`);
+const files = (id) => ({ jsonPath: join(dir, `${id}.json`), logPath: join(dir, `${id}.log.jsonl`) });
+const stored = (id) => resolveSessionRecordSync({ ...files(id), loadLegacy: loadLegacySession });
+const texts = (session) => session.messages.map((message) => message.content);
 
-function makeSession(id) {
-  return { id, generation: 1, closed: false, messages: [{ role: 'user', content: 'x'.repeat(256 * 1024) }] };
+function makeSession(id, generation = 1) {
+  return { id, generation, closed: false, messages: [{ role: 'user', content: 'first' }] };
 }
 
-function countReads(t, path) {
-  const original = fs.readFileSync;
-  let count = 0;
-  fs.readFileSync = function (file, ...rest) {
-    if (String(file) === path) count++;
-    return original.call(this, file, ...rest);
-  };
-  syncBuiltinESMExports();
-  t.after(() => {
-    fs.readFileSync = original;
-    syncBuiltinESMExports();
-  });
-  return {
-    get count() {
-      return count;
-    },
-  };
-}
-
-function replaceWith(path, text) {
-  writeFileSync(`${path}.other`, text);
-  renameSync(`${path}.other`, path);
-}
-
-test('a detach bump over our own commit skips the full read and writes the same bytes as the strict path', async (t) => {
-  const ownId = 'sess_barrier_equiv_own';
-  const coldId = 'sess_barrier_equiv_cld';
-  await saveSessionAsync(makeSession(ownId), { expectedGeneration: 1 });
-  // The same record, but not renamed into place by this realm: strict path.
-  replaceWith(
-    sessionFile(coldId),
-    readFileSync(sessionFile(ownId), 'utf8').replace(JSON.stringify(ownId), JSON.stringify(coldId))
-  );
-  t.mock.method(Date, 'now', () => 1_800_000_000_000);
-  const ownReads = countReads(t, sessionFile(ownId));
-  const coldReads = countReads(t, sessionFile(coldId));
-  assert.equal(await bumpSessionGeneration(ownId), 2);
-  assert.equal(ownReads.count, 0, 'own-commit bytes are not re-read');
-  assert.equal(await bumpSessionGeneration(coldId), 2);
-  assert.ok(coldReads.count >= 1, 'bytes of unknown origin are read strictly');
-  assert.equal(
-    readFileSync(sessionFile(ownId), 'utf8').replace(JSON.stringify(ownId), JSON.stringify(coldId)),
-    readFileSync(sessionFile(coldId), 'utf8')
-  );
-  assert.equal(getSessionLifecycleCommitError(ownId), null);
-});
-
-test('a foreign replacement of our own commit is read strictly and the detach bump is refused', async () => {
-  const id = 'sess_barrier_foreign_a';
-  const path = sessionFile(id);
-  await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
-  const foreign = readFileSync(path, 'utf8').replace(JSON.stringify(id), JSON.stringify('sess_barrier_foreign_b'));
-  replaceWith(path, foreign);
-  assert.equal(await bumpSessionGeneration(id), null);
-  assert.equal(getSessionLifecycleCommitError(id)?.code, 'ELIFECYCLEUNREADABLE');
-  assert.equal(readFileSync(path, 'utf8'), foreign, 'the foreign record is untouched');
-});
-
-test('an ambiguous (duplicate-key) replacement of our own commit refuses the detach bump', async () => {
-  const id = 'sess_barrier_ambiguous';
-  const path = sessionFile(id);
-  await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
-  const ambiguous = `{"generation":9,${readFileSync(path, 'utf8').slice(1)}`;
-  replaceWith(path, ambiguous);
-  assert.equal(await bumpSessionGeneration(id), null);
-  assert.equal(getSessionLifecycleCommitError(id)?.code, 'ELIFECYCLEUNREADABLE');
-  assert.equal(readFileSync(path, 'utf8'), ambiguous);
-});
-
-test('read-only lifecycle checks after a barrier reuse what it wrote; a foreign change is read strictly', async (t) => {
-  const { readSessionLifecycleStateFromDisk } = await import('../store.mjs');
-  const { _shouldDrop } = await import('./write-admission.mjs');
-  const id = 'sess_barrier_lifecycle_reads';
-  const path = sessionFile(id);
-  await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
+test('a detach bump drops a later save of the copy it detached, and keeps the transcript', async () => {
+  const id = 'sess_barrier_detach';
+  const copy = makeSession(id);
+  assert.equal(await saveSessionAsync(copy, { expectedGeneration: 1 }), SAVE_OUTCOME_SAVED);
   assert.equal(await bumpSessionGeneration(id), 2);
-  const reads = countReads(t, path);
-  for (let round = 0; round < 3; round++) {
-    assert.deepEqual(readSessionLifecycleStateFromDisk(id), { state: 'open', generation: 2 });
-  }
-  assert.equal(reads.count, 0, 'pending-message gates right after a detach read nothing');
-  assert.equal(_shouldDrop(id, { expectedGeneration: 1 }), true);
-  assert.equal(reads.count, 1, 'write authority still reads the barrier rewrite strictly');
-  replaceWith(path, readFileSync(path, 'utf8').replace(JSON.stringify(id), JSON.stringify('sess_barrier_lifecycle_x')));
-  assert.equal(readSessionLifecycleStateFromDisk(id).state, 'unreadable');
-  assert.equal(reads.count, 3, 'the foreign replacement was read strictly (test read + check)');
+  copy.messages = [...copy.messages, { role: 'assistant', content: 'late' }];
+  assert.equal(await saveSessionAsync(copy, { expectedGeneration: 1 }), SAVE_OUTCOME_DROPPED);
+  const outcome = stored(id);
+  assert.equal(outcome.kind, 'log');
+  assert.equal(outcome.session.generation, 2);
+  assert.deepEqual(texts(outcome.session), ['first']);
 });
 
-const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+test('a close tombstone outranks an older copy, and closing again keeps its generation and time', async () => {
+  const id = 'sess_barrier_close';
+  await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
+  assert.equal(await markSessionClosed(id, 'test'), 2);
+  const closed = stored(id).session;
+  assert.equal(closed.closed, true);
+  assert.equal(await saveSessionAsync(makeSession(id, 2), { expectedGeneration: 2 }), SAVE_OUTCOME_DROPPED);
+  assert.equal(await markSessionClosed(id, 'test'), 2);
+  const again = stored(id).session;
+  assert.equal(again.generation, 2);
+  assert.equal(again.updatedAt, closed.updatedAt);
+});
 
-test('a save in flight when the detach bump lands is never written after it and loses nothing', async () => {
-  for (let round = 0; round < 6; round++) {
+test('a barrier over a legacy json records it in a new log and leaves the json as it was', async () => {
+  const id = 'sess_barrier_legacy';
+  const text = JSON.stringify({ id, generation: 4, closed: false, messages: [{ role: 'user', content: 'old' }] });
+  writeFileSync(files(id).jsonPath, text);
+  assert.equal(await bumpSessionGeneration(id), 5);
+  assert.equal(readFileSync(files(id).jsonPath, 'utf8'), text, 'the json is only read');
+  const outcome = stored(id);
+  assert.equal(outcome.kind, 'log');
+  assert.equal(outcome.session.generation, 5);
+  assert.deepEqual(texts(outcome.session), ['old']);
+});
+
+test('a save in flight when the detach bump lands is not lost and never lands after it', async () => {
+  for (let round = 0; round < 4; round++) {
     const id = `sess_barrier_inflight_${round}`;
-    const path = sessionFile(id);
-    const session = makeSession(id);
-    await saveSessionAsync(session, { expectedGeneration: 1 });
-    session.messages = [...session.messages, { role: 'assistant', content: `reply ${round}` }];
-    const landing = saveSessionAsync(session, { expectedGeneration: 1 });
-    // Land the barrier at different points of the worker's write/rename.
-    if (round > 0) sleepSync(round * 3);
-    assert.equal(await bumpSessionGeneration(id), 2);
-    await Promise.allSettled([landing]);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const disk = JSON.parse(readFileSync(path, 'utf8'));
-    assert.equal(disk.generation, 2, `round ${round}: the barrier is the last write`);
-    assert.equal(disk.detachedReason, 'detach');
-    assert.equal(disk.messages.length, 2, `round ${round}: the in-flight content is kept`);
+    const copy = makeSession(id);
+    await saveSessionAsync(copy, { expectedGeneration: 1 });
+    copy.messages = [...copy.messages, { role: 'assistant', content: `answer ${round}` }];
+    const inFlight = saveSessionAsync(copy, { expectedGeneration: 1 });
+    const bumped = bumpSessionGeneration(id);
+    assert.equal(await inFlight, SAVE_OUTCOME_SAVED);
+    assert.equal(await bumped, 2);
+    const session = stored(id).session;
+    assert.equal(session.generation, 2);
+    assert.deepEqual(texts(session), ['first', `answer ${round}`]);
   }
 });

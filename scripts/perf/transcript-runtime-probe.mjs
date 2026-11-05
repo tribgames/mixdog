@@ -15,6 +15,13 @@ import {
 } from '../../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { readTopLevelLifecycleRecord } from '../../src/runtime/agent/orchestrator/session/lifecycle-scan.mjs';
 import { createCanonicalSessionReader } from '../../src/runtime/agent/orchestrator/session/store/canonical-reader.mjs';
+import {
+  SESSION_LOG_SUFFIX,
+  encodeCompacted,
+  encodeSessionRecord,
+  messageJson,
+} from '../../src/runtime/agent/orchestrator/session/store/session-log-format.mjs';
+import { readSessionRecordSync } from '../../src/runtime/agent/orchestrator/session/store/session-record.mjs';
 import { yieldToRenderer } from '../../src/tui/session/render-timing.mjs';
 import { median, sortedFinite } from '../lib/trace-stats.mjs';
 
@@ -26,6 +33,13 @@ const messages = Array.from({ length: 1000 }, (_, i) => ({
 const raw = JSON.stringify({ id: 'synthetic', closed: false, generation: 1, messages });
 const target = join(directory, 'synthetic.json');
 writeFileSync(target, raw);
+// The same session as an append-only log, read through the record seam.
+const logDirectory = mkdtempSync(join(tmpdir(), 'mixdog-transcript-perf-log-'));
+writeFileSync(
+  join(logDirectory, `synthetic${SESSION_LOG_SUFFIX}`),
+  encodeSessionRecord({ logId: 'perf', id: 'synthetic', header: { closed: false, generation: 1 } }) +
+    encodeCompacted(1, messages.map(messageJson))
+);
 const currentReader = createCanonicalSessionReader();
 const oldReader = () => readTopLevelLifecycleRecord(readFileSync(target, 'utf8'));
 const currentFloors = (value) => Math.max(denseTokenFloor(value), structuredTokenFloor(value));
@@ -61,6 +75,10 @@ results.push(await timed('context-summary-warm-after', () => summarizeContextMes
 results.push(await timed('canonical-before', oldReader));
 currentReader(target, true);
 results.push(await timed('canonical-warm-after', () => currentReader(target, true)));
+results.push(await timed('session-log-replay', () => readSessionRecordSync(logDirectory, 'synthetic')));
+results.push(
+  await timed('session-log-header-scan', () => readSessionRecordSync(logDirectory, 'synthetic', { messages: false }))
+);
 results.push(await timed('headless-render-yield-after', () => yieldToRenderer()));
 // An independent queued session callback shares the SAME event loop with the
 // heavy operation. Its delay attributes interference directly to this batch,
@@ -97,6 +115,7 @@ const report = {
   bytes: Buffer.byteLength(raw),
   messageCount: messages.length,
   directory,
+  logDirectory,
   results,
   limits: 'Synthetic same-event-loop contention, not attribution of the prior live 502ms event.',
 };

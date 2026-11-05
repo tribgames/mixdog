@@ -22,9 +22,17 @@
  *
  * This tool NEVER deletes. It only prints a report.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPluginData } from '../src/runtime/agent/orchestrator/config.mjs';
+import {
+  parseSessionRecordStamp,
+  readSessionRecordSync,
+  recordSession,
+  recordStampFingerprint,
+  sessionIdsOfNames,
+  sessionRecordStampOfSync,
+} from '../src/runtime/agent/orchestrator/session/store/session-record.mjs';
 import { summaryIndexPath, listStoredSessionSummaries } from '../src/runtime/agent/orchestrator/session/store.mjs';
 
 // ── Cheap top-level-only scalar scan ────────────────────────────────────────
@@ -156,10 +164,12 @@ function fmtTs(ms) {
 // index is stale here (most on-disk files are unindexed), so the file
 // itself — not the index — decides closed/age. Fall back to the index
 // row, then to file mtime, only when the scan can't resolve a field.
-function classifySessionFile({ full, mtimeMs, row, now, maxAgeMs, minClosedAgeMs }) {
+// The record is resolved through the session record seam: a header scan of
+// the log, or this top-level scan of a legacy json.
+function classifySessionFile({ dir, id, mtimeMs, row, now, maxAgeMs, minClosedAgeMs }) {
   let scan = null;
   try {
-    scan = scanTopLevelScalars(readFileSync(full, 'utf-8'));
+    scan = recordSession(readSessionRecordSync(dir, id, { loadLegacy: scanTopLevelScalars, messages: false }), id);
   } catch {
     scan = null;
   }
@@ -184,7 +194,7 @@ function classifySessionFile({ full, mtimeMs, row, now, maxAgeMs, minClosedAgeMs
 
 // Disk scan for sizes + mtime fallback, then the retention verdict per file
 // rolled into the totals the report prints.
-function collectRetention({ dir, jsonFiles, rowById, now, maxAgeMs, minClosedAgeMs }) {
+function collectRetention({ dir, sessionIds, rowById, now, maxAgeMs, minClosedAgeMs }) {
   let totalFiles = 0;
   let totalBytes = 0;
   const candidates = []; // { id, reason, updatedAt, bytes, inIndex }
@@ -198,16 +208,16 @@ function collectRetention({ dir, jsonFiles, rowById, now, maxAgeMs, minClosedAge
   let closedButFreshBytes = 0;
   const fileIds = new Set();
 
-  for (const f of jsonFiles) {
-    const id = f.slice(0, -5);
+  for (const id of sessionIds) {
     fileIds.add(id);
-    const full = join(dir, f);
     let bytes = 0;
     let mtimeMs = 0;
     try {
-      const st = statSync(full);
-      bytes = st.size || 0;
-      mtimeMs = st.mtimeMs || 0;
+      // A session's bytes are its log and its legacy json together.
+      const stamp = sessionRecordStampOfSync(dir, id);
+      const { log, json } = parseSessionRecordStamp(stamp);
+      bytes = Number(log?.size ?? 0) + Number(json?.size ?? 0);
+      mtimeMs = recordStampFingerprint(stamp)?.mtimeMs || 0;
     } catch {
       /* skip */
     }
@@ -215,7 +225,7 @@ function collectRetention({ dir, jsonFiles, rowById, now, maxAgeMs, minClosedAge
     totalBytes += bytes;
 
     const row = rowById.get(id) || null;
-    const verdict = classifySessionFile({ full, mtimeMs, row, now, maxAgeMs, minClosedAgeMs });
+    const verdict = classifySessionFile({ dir, id, mtimeMs, row, now, maxAgeMs, minClosedAgeMs });
     if (!verdict.scanned) scanFailFiles += 1;
 
     if (verdict.closed && !verdict.closedQualifies) {
@@ -328,8 +338,8 @@ function main() {
   const rowById = new Map();
   for (const r of rows) if (r?.id) rowById.set(r.id, r);
 
-  const jsonFiles = readdirSync(dir).filter((f) => f.endsWith('.json'));
-  const retention = collectRetention({ dir, jsonFiles, rowById, now, maxAgeMs, minClosedAgeMs });
+  const sessionIds = sessionIdsOfNames(readdirSync(dir));
+  const retention = collectRetention({ dir, sessionIds, rowById, now, maxAgeMs, minClosedAgeMs });
   process.stdout.write(renderReport({ dir, rows, now, maxAgeDays, minClosedAgeDays, retention }));
 }
 

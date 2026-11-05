@@ -1,58 +1,42 @@
 /**
  * Hard delete of a session and the strict enumeration that feeds it. The
- * unlink is irreversible, so this owns its own ownership proof at the commit
- * edge plus the full local-state purge that must happen under the same lock
- * (incarnation retirement, pending slots, purge hooks, markers, summary row).
+ * unlink is irreversible, so this owns its own ownership proof (each file is
+ * read as this session's before it goes) plus the full local-state purge.
  */
-import { unlinkSync } from 'node:fs';
+import { readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { listStoredAgentWorkerLinks } from '../store-agent-worker-rows.mjs';
 import { listStoredSessionSummaries } from './listing.mjs';
-import { STORED_SESSION_UNREADABLE, _storedSessionFromFile } from './serialize.mjs';
-import { getStoreDir, sessionPath } from './session-paths.mjs';
-import {
-  readCanonicalSessionRecord as _readCanonicalRecord,
-  CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
-  setAsideDamagedSessionRecord,
-} from './canonical-reader.mjs';
-import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
-import {
-  guardedSaveOptions as _guardedSaveOptions,
-  cancelSessionWrites as _cancelSessionWrites,
-  tryAcquireWriteCommit as _tryAcquireWriteCommit,
-  releaseWriteCommit as _releaseWriteCommit,
-  writeCommitSettled as _writeCommitSettled,
-  WRITE_COMMIT_BUSY as _WRITE_COMMIT_BUSY,
-} from './write-guards.mjs';
+import { STORED_SESSION_UNREADABLE } from './serialize.mjs';
+import { loadLegacySession } from './legacy-session.mjs';
+import { storedSessionSync } from './stored-session.mjs';
+import { getStoreDir, sessionLogPath, sessionPath } from './session-paths.mjs';
+import { resolveSessionRecordSync } from './session-log-reader.mjs';
+import { holdsNoData, quarantinePath, renameWithRetry } from '../../../../shared/atomic-file.mjs';
 import {
   _clearLiveSession,
   _liveSessions,
-  _retireSessionIncarnation,
   _clearSessionSaveState,
   clearSessionLifecycleCommitError,
   fenceSessionWrites,
   _recordLifecycleCommitFailure,
 } from './live-state.mjs';
-import {
-  claimSessionWriter,
-  forgetSessionWriter,
-  releaseSessionWriter,
-  sessionWriterRefusalError,
-} from './session-writer-claim.mjs';
-import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './save-worker.mjs';
+import { claimSessionWriter, forgetSessionWriter, releaseSessionWriter, sessionWriterRefusalError } from './session-writer-claim.mjs';
+import { finishRecorder } from './session-writers.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryRemoval, _cachedSummaryRows } from './summary-cache.mjs';
-import { _savePending, _clearDebounce, _releasePendingSlot } from './pending-saves.mjs';
+import { takePendingWrite } from './pending-writes.mjs';
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { _runSessionPurgeHooks } from './session-observers.mjs';
+import { forgetSessionLoadCache } from './load-cache.mjs';
 import { deleteCompactionArchive } from '../compaction-archive.mjs';
 import { removeSessionScratchDir } from '../../../../shared/session-scratch.mjs';
 
 /** Child-agent session ids linked to one visible parent. Candidates come from
  * metadata only (the summary rows and the agent-worker links — no folder
- * scan); each candidate's own file is then read strictly and must still be an
- * agent-owned record linked to this parent, so a stale/foreign metadata row
- * can never name a deletion target. Parent deletion no longer removes these
- * children; they outlive the parent as independent sessions. */
+ * scan); each candidate's own record is then read strictly and must still be
+ * an agent-owned record linked to this parent, so a stale/foreign metadata row
+ * can never name a deletion target. */
 export function listOwnedAgentSessionIds(ownerSessionId) {
   const ownerId = String(ownerSessionId || '').trim();
   if (!/^[A-Za-z0-9_-]+$/.test(ownerId)) return [];
@@ -67,7 +51,7 @@ export function listOwnedAgentSessionIds(ownerSessionId) {
   const dir = getStoreDir();
   const ids = [];
   for (const candidateId of candidates) {
-    const session = _storedSessionFromFile(dir, `${candidateId}.json`, false);
+    const session = storedSessionSync(dir, candidateId, false);
     // Unreadable, vanished, corrupt or foreign records are never deletion targets.
     if (!session || session === STORED_SESSION_UNREADABLE || !isAgentOwner(session)) continue;
     const linkedOwner = String(session.ownerSessionId || session.parentSessionId || '').trim();
@@ -86,34 +70,90 @@ function knownSessionCwds(id) {
   return [...new Set(cwds.filter((cwd) => typeof cwd === 'string' && cwd))];
 }
 
-/**
- * Hard-delete `id`; resolves true once the session is gone. Never waits on
- * the thread: an attempt that finds another thread's commit of the id holding
- * the commit lock took and changed nothing, and runs again — vetoes included
- * — once that commit's release notifies. `options.singleAttempt` (a caller
- * that decided on what it read in the first attempt's stretch, which the wait
- * would make stale) resolves false instead of waiting. A commit held by a
- * terminated save worker whose exit is overdue resolves false too, recorded
- * as the lifecycle commit failure (ESAVEWORKERHUNG): nothing is unlinked while
- * that worker might still rename over the record, and a later call retries.
- */
-export async function deleteSession(id, options = {}) {
-  for (;;) {
-    const deleted = _deleteSessionAttempt(id, options);
-    if (deleted !== _WRITE_COMMIT_BUSY) return deleted;
-    if (options.singleAttempt === true) return false;
+const ABSENT = (err) => err?.code === 'ENOENT' || err?.code === 'ENOTDIR';
+
+// The legacy json's verdict for a delete: 'absent', 'ours', 'damaged' (no
+// data, or not JSON at all: kept as `<file>.corrupt-<ts>`, never somebody's
+// session) or 'foreign' (valid JSON that is not this session's: never
+// deleted). Throws when it cannot be read.
+function _jsonVerdict(id, jsonPath) {
+  let raw;
+  try {
+    raw = readFileSync(jsonPath, 'utf-8');
+  } catch (err) {
+    if (ABSENT(err)) return 'absent';
+    throw err;
+  }
+  if (loadLegacySession(raw, id)) return 'ours';
+  if (!holdsNoData(raw)) {
     try {
-      await _writeCommitSettled(id);
-    } catch (err) {
-      _recordLifecycleCommitFailure(id, err, 'delete');
-      return false;
+      JSON.parse(raw);
+      return 'foreign';
+    } catch {
+      /* not JSON: damaged */
     }
+  }
+  return 'damaged';
+}
+
+// Which of the session's files may go, read strictly: { files, damaged,
+// absent } or null when a file is not this session's (foreign or ambiguous
+// bytes are never deleted) or cannot be read.
+function _deletionPlan(id) {
+  const jsonPath = sessionPath(id);
+  const logPath = sessionLogPath(id);
+  let outcome;
+  let json;
+  try {
+    outcome = resolveSessionRecordSync({ jsonPath, logPath, loadLegacy: loadLegacySession, messages: false });
+    json = _jsonVerdict(id, jsonPath);
+  } catch {
+    return null;
+  }
+  if (json === 'foreign') return null;
+  const logPresent = outcome.kind === 'log' || outcome.kind === 'orphan' || outcome.kind === 'diverged' || outcome.kind === 'log-invalid';
+  if ((outcome.kind === 'log' || outcome.kind === 'orphan' || outcome.kind === 'diverged') && outcome.log.sessionId !== id) {
+    return null;
+  }
+  return {
+    jsonPath,
+    logPath,
+    json,
+    logPresent,
+    damaged: json === 'damaged' || outcome.kind === 'log-invalid',
+    absent: outcome.kind === 'absent',
+  };
+}
+
+function _unlinkIfThere(path) {
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    if (!ABSENT(err)) throw err;
   }
 }
 
-function _deleteSessionAttempt(id, options) {
-  // Keep caller probes and all vetoes ahead of the non-reentrant lock and
-  // ahead of pending-save disruption, matching markSessionClosed().
+// The copies kept aside beside the log (torn, damaged, diverged, invalid).
+function _asideCopies(logPath) {
+  const dir = dirname(logPath);
+  const prefix = `${basename(logPath)}.`;
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    names = [];
+  }
+  return names.filter((name) => name.startsWith(prefix) && !name.endsWith('.tmp')).map((name) => join(dir, name));
+}
+
+/**
+ * Hard-delete `id`; resolves true once the session is gone (its json, its log
+ * and the copies kept aside beside the log). An absent record is a successful
+ * (idempotent) delete; false means nothing was deleted: a liveness veto,
+ * another process holding the session, a record that is not this session's,
+ * or a failed unlink. `options.damagedOnly` deletes only a damaged record.
+ */
+export async function deleteSession(id, options = {}) {
   if (_runtimeLivenessVeto(id, options)) return false;
   // A session another process holds is that process's: deleting it under
   // its writer would only have the next save recreate it.
@@ -131,108 +171,48 @@ function _deleteSessionAttempt(id, options) {
     _recordLifecycleCommitFailure(id, err, 'delete');
     return false;
   }
-  const deleted = _deleteSession(id, options);
-  if (deleted === true) void forgetSessionWriter(id);
+  const deleted = await _deleteSession(id, options);
+  if (deleted) void forgetSessionWriter(id);
   else if (claim.fresh) void releaseSessionWriter(id);
   return deleted;
 }
 
-function _deleteSession(id, options) {
-  const deleteGuard = _guardedSaveOptions(id);
-  const commitControl = _tryAcquireWriteCommit(deleteGuard);
-  if (commitControl === _WRITE_COMMIT_BUSY) return _WRITE_COMMIT_BUSY;
-  if (commitControl === false) return false;
+async function _deleteSession(id, options) {
+  const plan = _deletionPlan(id);
+  if (!plan) return false;
+  if (options.damagedOnly === true && !plan.damaged && !plan.absent) return false;
+  // Nothing of this process lands any more: the recorder drops its queue and
+  // its file closes before the files go.
+  await finishRecorder(id, { discard: true });
   try {
-    // ── 1. unlink FIRST, still holding the commit lock ─────────────────────
-    // A failed unlink is NOT a delete: the canonical bytes are still there, so
-    // nothing may be purged, cancelled or closed — every pending write, parked
-    // snapshot and metrics timer stays usable and persistable.
-    const path = sessionPath(id);
-    const probe = probePath(path);
-    // An unreadable probe is NOT absence: purging markers/pending state while
-    // the canonical bytes survive would strand a live session behind a file
-    // nobody owns any more. Nothing was deleted, so report exactly that.
-    if (probe.state !== PROBE_PRESENT && probe.state !== PROBE_ABSENT) return false;
-    // CONTRACT: an ABSENT canonical record is a SUCCESSFUL (idempotent)
-    // delete — the session does not exist once this call returns, so the id's
-    // local state is purged and `true` is reported. `false` is reserved for
-    // "nothing was deleted AND nothing was mutated": a liveness veto, a
-    // cancelled guard, an unreadable probe, ambiguous/foreign bytes, or a
-    // failed unlink.
-    if (probe.state === PROBE_PRESENT) {
-      // STRICT OWNERSHIP AT THE COMMIT EDGE. The bytes are re-read here,
-      // under the same commit lock, immediately before the unlink — not
-      // inferred from the earlier stat, and not from any cache: between the
-      // probe and this read another process can rename a different session's
-      // record (or a torn write) onto this path, and an unlink is
-      // irreversible. Ambiguous/foreign bytes are therefore never deleted.
-      let record = _readCanonicalRecord(path);
-      // A record that holds no data or is not JSON is damage, not somebody's
-      // session: keep its bytes aside so the delete can finish.
-      if (record === null || record === LIFECYCLE_AMBIGUOUS) {
-        try {
-          if (setAsideDamagedSessionRecord(path)) record = null;
-        } catch {
-          return false; // could not move it: nothing was deleted
-        }
-      }
-      if (record === LIFECYCLE_AMBIGUOUS) return false;
-      if (record !== null) {
-        // Damage-only mode (a caller's no-data verdict was taken before this
-        // lock): content that is valid now was repaired or republished since,
-        // and is never deleted.
-        if (options.damagedOnly === true) return false;
-        if (record.id !== id) return false;
-        try {
-          unlinkSync(path);
-        } catch {
-          return false; // canonical file survives → nothing was deleted
-        }
-      }
-      // record === null: the file vanished inside this window — fall through
-      // to the absent contract (nothing removed, local state still purged).
-    }
-    // ── 2. finalize UNDER THE SAME LOCK ────────────────────────────────────
-    // The file is gone. Cancellation + purge happen before the lock is
-    // released, so a writer waiting for the lock is refused by its own
-    // cancellation re-check instead of renaming the file back, and no parked
-    // snapshot, timer or deferred entry survives to resurrect it.
-    // Retire the id's incarnation: every write, queued payload and parked
-    // snapshot stamped BEFORE this point becomes permanently non-current, so
-    // its settlement moves no marker and touches no bookkeeping — and a
-    // re-created id gets a brand new incarnation of its own.
-    _retireSessionIncarnation(id);
-    // An explicit user delete also fences the id: a still-running turn's later
-    // saves get fresh guards/incarnations and would otherwise recreate the file.
-    if (options.fenceWrites === true) fenceSessionWrites(id);
-    _cancelSessionWrites(id);
-    _clearDebounce(id);
-    _releasePendingSlot(_savePending.get(id));
-    _savePending.delete(id);
-    _purgeSessionSaveBookkeeping(id);
-    _runSessionPurgeHooks(id, { cwds: knownSessionCwds(id) });
-    // The display-only compaction archive has no meaning without its session.
-    deleteCompactionArchive(getStoreDir(), id);
-    // The session's scratch directory (shell TEMP/TMP/TMPDIR) goes with it.
-    try {
-      removeSessionScratchDir(id);
-    } catch {
-      /* a locked scratch file never fails the delete */
-    }
-    _clearLiveSession(id);
-    // The file is gone: every marker of the retired incarnation goes with it
-    // (save error + failed-snapshot evidence, split-brain drop flag, lifecycle
-    // commit error), so a re-created id starts clean.
-    _clearSessionSaveState(id);
-    clearSessionLifecycleCommitError(id);
-    // deferSummaryUpdate: bulk callers (tombstone sweep) remove thousands of
-    // rows — a per-id _removeSessionSummary would parse+rewrite the multi-MB
-    // summary index once PER DELETION. They batch the index update themselves.
-    if (options.deferSummaryUpdate === true) _uncacheSessionSummary(id);
-    else _queueSessionSummaryRemoval(id);
-    // Both PRESENT-and-unlinked and ABSENT reach here: the session is gone.
-    return true;
-  } finally {
-    _releaseWriteCommit(commitControl);
+    // The json first: a delete cut short leaves at most the log, which reads
+    // as the session (orphan), never an older legacy copy of it.
+    if (plan.json === 'damaged') await renameWithRetry(plan.jsonPath, quarantinePath(plan.jsonPath));
+    else if (plan.json === 'ours') _unlinkIfThere(plan.jsonPath);
+    if (plan.logPresent) _unlinkIfThere(plan.logPath);
+    for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
+  } catch {
+    return false;
   }
+  // An explicit user delete also fences the id: a still-running turn's later
+  // saves would otherwise create the record again.
+  if (options.fenceWrites === true) fenceSessionWrites(id);
+  takePendingWrite(id);
+  _runSessionPurgeHooks(id, { cwds: knownSessionCwds(id) });
+  // The display-only compaction archive has no meaning without its session.
+  deleteCompactionArchive(getStoreDir(), id);
+  // The session's scratch directory (shell TEMP/TMP/TMPDIR) goes with it.
+  try {
+    removeSessionScratchDir(id);
+  } catch {
+    /* a locked scratch file never fails the delete */
+  }
+  _clearLiveSession(id);
+  forgetSessionLoadCache(id);
+  _clearSessionSaveState(id);
+  clearSessionLifecycleCommitError(id);
+  // deferSummaryUpdate: bulk callers (tombstone sweep) batch the index update.
+  if (options.deferSummaryUpdate === true) _uncacheSessionSummary(id);
+  else _queueSessionSummaryRemoval(id);
+  return true;
 }

@@ -9,8 +9,9 @@
 // Never a member: a root Lead, a task session from `session create`, a bot
 // home chat or a group room's log/member session.
 import { agentParentIds, isAgentOnlySession, isRootLeadSession } from '../../store-summary-visibility.mjs';
-import { probePath, PROBE_PRESENT } from '../fs-probe.mjs';
+import { dirname } from 'node:path';
 import { sessionPath } from '../session-paths.mjs';
+import { ABSENT_RECORD_STAMP, sessionRecordStampOfSync } from '../session-record.mjs';
 import { _queueSummaryIndexPrune } from '../summary-cache.mjs';
 import { deleteSession } from '../session-delete.mjs';
 import { readSweepRecord } from './sweep-record.mjs';
@@ -77,10 +78,16 @@ export function subAgentTrees(members) {
 
 /** The stored activity time of `id` now; null when its record cannot be read. */
 function storedActivityAt(id) {
-  const path = sessionPath(id);
-  const probe = probePath(path);
-  if (probe.state !== PROBE_PRESENT) return null;
-  const record = readSweepRecord(id, path, probe);
+  // sessionPath asserts the id's shape before it names a file.
+  const dir = dirname(sessionPath(id));
+  let stamp;
+  try {
+    stamp = sessionRecordStampOfSync(dir, id);
+  } catch {
+    return null;
+  }
+  if (stamp === ABSENT_RECORD_STAMP) return null;
+  const record = readSweepRecord(id, dir, stamp);
   return record?.id === id ? subAgentActivityAt(record.doc) : null;
 }
 

@@ -1458,7 +1458,8 @@ async function processDelivery() {
       { isSessionTurnInFlight },
       { getPluginData },
       { createAgentEditorApi },
-      { probePath, PROBE_ABSENT },
+      { ABSENT_RECORD_STAMP, sessionRecordFilesOf },
+      { sessionRecordStampSync },
       { sessionPath },
       { mixdogRoot },
     ] = await Promise.all([
@@ -1466,7 +1467,8 @@ async function processDelivery() {
       import('../runtime/agent/orchestrator/session/manager/runtime-liveness.mjs'),
       import('../runtime/agent/orchestrator/config.mjs'),
       import('./workflow-agents-api/agent-editor.mjs'),
-      import('../runtime/agent/orchestrator/session/store/fs-probe.mjs'),
+      import('../runtime/agent/orchestrator/session/store/session-record.mjs'),
+      import('../runtime/agent/orchestrator/session/store/session-log-reader.mjs'),
       import('../runtime/agent/orchestrator/session/store/session-paths.mjs'),
       import('../runtime/shared/plugin-paths.mjs'),
     ]);
@@ -1485,11 +1487,13 @@ async function processDelivery() {
       // module, hence late).
       mixyExists: async () => (await import('./routine-owner.mjs')).readMixyExists(),
       // Deleting a session unlinks its record (session-delete.mjs) and leaves
-      // no tombstone: only an absent file with no in-memory copy proves it.
-      // An unreadable file probes 'unreadable' and stays.
+      // no tombstone: only an absent record with no in-memory copy proves it.
+      // An unreadable file fails its stat and stays.
       sessionDeleted: (sessionId) => {
         try {
-          return probePath(sessionPath(sessionId)).state === PROBE_ABSENT && !loadSession(sessionId);
+          // Neither its log nor its legacy json: a stat failure throws.
+          const stamp = sessionRecordStampSync(sessionRecordFilesOf(sessionPath(sessionId)));
+          return stamp === ABSENT_RECORD_STAMP && !loadSession(sessionId);
         } catch {
           return false;
         }
