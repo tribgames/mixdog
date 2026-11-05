@@ -201,3 +201,6 @@ benchmarks/terminal-bench-2.1/mixdog-prebake/
 benchmarks/terminal-bench-2.1/.runtime-build/
 # Task corpora fetched by the harness (upstream content, never committed).
 benchmarks/terminal-bench-2.1/benchmarks/
+
+# Rust core workspace build output
+native/core/target/

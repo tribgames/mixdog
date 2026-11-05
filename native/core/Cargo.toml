@@ -1,0 +1,134 @@
+# Mixdog Rust core workspace. Owner: WP-INTEGRATE (WORK-PACKAGES §1 rule 3).
+# Crate list and layering: SPEC §3.2. Edition 2024, one [[bin]] `mixdogd` in `mixdog-cli`.
+#
+# The existing native tools (native/mixdog-spawn, -patch, -graph, -computer,
+# -secure-desktop) are NOT members yet: each is a standalone edition-2021 package with its
+# own Cargo.lock, `--locked --manifest-path` CI/release builds and per-crate target/ dirs
+# (see .github/workflows/{spawn,patch,graph}-release.yml, release-gate.yml). Joining them
+# would move their lockfile, target dir and release profile. They are linked into the core
+# by path dependency when their owning packages (WP-PROC, WP-TOOLS-*, WP-DESKTOP) land.
+[workspace]
+resolver = "3"
+members = [
+    "crates/mixdog-protocol",
+    "crates/mixdog-app-protocol",
+    "crates/mixdog-core-api",
+    "crates/mixdog-rt",
+    "crates/mixdog-store",
+    "crates/mixdog-ledger",
+    "crates/mixdog-migrate",
+    "crates/mixdog-ai",
+    "crates/mixdog-sandboxing",
+    "crates/mixdog-tools",
+    "crates/mixdog-agent",
+    "crates/mixdog-mcp",
+    "crates/mixdog-services",
+    "crates/mixdog-workspace",
+    "crates/mixdog-scm",
+    "crates/mixdog-remote",
+    "crates/mixdog-exthost",
+    "crates/mixdog-core",
+    "crates/mixdog-app-server",
+    "crates/mixdog-app-server-transport",
+    "crates/mixdog-app-server-daemon",
+    "crates/mixdog-app-server-client",
+    "crates/mixdog-cli",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Placeholder: WP-RT delivers the RL §13 ban configuration (this block and clippy.toml).
+[workspace.lints.rust]
+
+[workspace.lints.clippy]
+
+[workspace.dependencies]
+# Internal crates (layering: SPEC §3.2; protocol/api crates at the bottom).
+mixdog-protocol = { path = "crates/mixdog-protocol" }
+mixdog-app-protocol = { path = "crates/mixdog-app-protocol" }
+mixdog-core-api = { path = "crates/mixdog-core-api" }
+mixdog-rt = { path = "crates/mixdog-rt" }
+mixdog-store = { path = "crates/mixdog-store" }
+mixdog-ledger = { path = "crates/mixdog-ledger" }
+mixdog-migrate = { path = "crates/mixdog-migrate" }
+mixdog-ai = { path = "crates/mixdog-ai" }
+mixdog-sandboxing = { path = "crates/mixdog-sandboxing" }
+mixdog-tools = { path = "crates/mixdog-tools" }
+mixdog-agent = { path = "crates/mixdog-agent" }
+mixdog-mcp = { path = "crates/mixdog-mcp" }
+mixdog-services = { path = "crates/mixdog-services" }
+mixdog-workspace = { path = "crates/mixdog-workspace" }
+mixdog-scm = { path = "crates/mixdog-scm" }
+mixdog-remote = { path = "crates/mixdog-remote" }
+mixdog-exthost = { path = "crates/mixdog-exthost" }
+mixdog-core = { path = "crates/mixdog-core" }
+mixdog-app-server = { path = "crates/mixdog-app-server" }
+mixdog-app-server-transport = { path = "crates/mixdog-app-server-transport" }
+mixdog-app-server-daemon = { path = "crates/mixdog-app-server-daemon" }
+mixdog-app-server-client = { path = "crates/mixdog-app-server-client" }
+
+# External crates. Versions match codex-rs/Cargo.toml wherever Codex uses the same crate;
+# the few not in Codex are marked. Declared once here, referenced with `workspace = true`.
+anyhow = "1"
+arc-swap = "1.9.0"
+async-trait = "0.1.92" # not in Codex
+base64 = "0.22.1"
+bytes = "1.10.1"
+chrono = "0.4.43"
+clap = "4"
+crossbeam-channel = "0.5.15"
+dirs = "6"
+flate2 = "1.1.8"
+futures = { version = "0.3", default-features = false }
+gix = { version = "0.89.0", default-features = false, features = ["sha1"] }
+globset = "0.4"
+hmac = "0.12.1"
+http = "1.3.1"
+ignore = "0.4.23"
+indexmap = "2.12.0"
+insta = "1.46.3"
+libc = "0.2.182"
+notify = "8.2.0"
+once_cell = "1.20.2"
+pretty_assertions = "1.4.1"
+rand = "0.9"
+regex = "1.12.3"
+reqwest = { version = "0.12", features = ["cookies"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] } # not in Codex (it uses sqlx)
+rustls = { version = "0.23.46", default-features = false }
+schemars = "0.8.22"
+semver = "1.0"
+serde = { version = "1", features = ["rc", "derive"] }
+serde_json = "1"
+serial_test = "3.2.0"
+sha2 = "0.10"
+shlex = "1.3.0"
+similar = "2.7.0"
+strum = "0.27.2"
+strum_macros = "0.28.0"
+tempfile = "3.23.0"
+thiserror = "2.0.17"
+time = "0.3.47"
+tokio = "1"
+tokio-rustls = "0.26.4"
+tokio-stream = "0.1.18"
+tokio-test = "0.4"
+# Codex pins openai-oss-forks git revisions of tokio-tungstenite/tungstenite; the crates.io
+# release is used here (no git dependency in the skeleton).
+tokio-tungstenite = { version = "0.28.0", features = ["proxy", "rustls-tls-native-roots"] }
+tokio-util = "0.7.18"
+toml = "0.9.5"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
+ts-rs = "11"
+tungstenite = { version = "0.27.0", features = ["deflate", "proxy"] }
+url = "2"
+uuid = "1"
+walkdir = "2.5.0"
+which = "8"
+windows-sys = "0.61.2"
+wiremock = "0.6"
+zstd = "0.13"

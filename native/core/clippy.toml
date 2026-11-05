@@ -1,0 +1,5 @@
+# Placeholder. Owner: WP-RT (WORK-PACKAGES §2): the RL §13 bans go here as
+# `disallowed-methods` / `disallowed-types` (spawn_blocking, block_in_place, tokio::fs,
+# std::fs and thread::sleep in RT crates, tokio::sync::Mutex/RwLock, raw
+# rusqlite::Connection outside mixdog-store::sqlite, std::process::Command outside
+# mixdog-spawn). WP-INTEGRATE owns only the file's existence and the workspace wiring.
