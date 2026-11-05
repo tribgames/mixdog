@@ -46,8 +46,11 @@ async function mount(
   } = {}
 ) {
   if (clearStorage) window.localStorage.clear();
-  resetSidebarReferenceCache();
-  resetMixyStatus();
+  // A guide mounted earlier in the same test hears these resets.
+  await act(async () => {
+    resetSidebarReferenceCache();
+    resetMixyStatus();
+  });
   const saved = [];
   window.mixdogDesktop = {
     invokeCapability: async ({ capability, args }) => {
@@ -112,17 +115,17 @@ test('a paired device completes remote access once: emptied connection info does
   const { render } = await mount(t);
   const api = window.mixdogDesktop;
   const toasts = () => document.querySelectorAll('.starter-guide-toast').length;
-  setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] });
+  await act(async () => setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] }));
   await render();
   await settle();
   assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).visited, ['remote']);
   // The relay reconnects / access is switched off: the cache empties and refills.
-  setCachedConnectionInfo(api, null);
+  await act(async () => setCachedConnectionInfo(api, null));
   await render();
   await settle();
   assert.match(pill().textContent, /2\/6/, 'still done while the cache is empty');
   const before = toasts();
-  setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] });
+  await act(async () => setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] }));
   await render();
   await settle();
   assert.equal(toasts(), before, 'no second "Done" notice');
@@ -292,26 +295,146 @@ test('the create stop lights the visible button, not a hidden retained twin, and
   assert.equal(document.querySelector('.starter-tour-hole'), null);
 });
 
-test('the completion notice covers the pill, at least its width, instead of the panel above it', async (t) => {
+/** Fakes the window timers the component schedules with; the returned
+ *  advance(ms) runs the due ones in order inside act, without real waiting. */
+function fakeWindowTimers(t) {
+  const real = { setTimeout: window.setTimeout, clearTimeout: window.clearTimeout };
+  const queue = new Map();
+  let now = 0;
+  let nextId = 1;
+  window.setTimeout = (fn, ms = 0, ...args) => {
+    queue.set(nextId, { at: now + ms, run: () => fn(...args) });
+    return nextId++;
+  };
+  window.clearTimeout = (id) => queue.delete(id);
+  t.after(() => Object.assign(window, real));
+  return (ms) =>
+    act(async () => {
+      const end = now + ms;
+      for (;;) {
+        const [due] = [...queue].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at || a[0] - b[0]);
+        if (!due) break;
+        queue.delete(due[0]);
+        now = due[1].at;
+        due[1].run();
+      }
+      now = end;
+    });
+}
+
+// jsdom has no ResizeObserver: this one reports a resize when the test says so.
+const resizeObservers = new Set();
+globalThis.ResizeObserver = class {
+  constructor(callback) {
+    this.callback = callback;
+  }
+  observe() {
+    resizeObservers.add(this);
+  }
+  disconnect() {
+    resizeObservers.delete(this);
+  }
+};
+const reportResize = () => act(async () => resizeObservers.forEach((observer) => observer.callback([])));
+
+const toast = () => document.querySelector('.starter-guide-toast');
+const toastMeter = () => toast().querySelector('.starter-guide-meter > span').style.width;
+const percent = (done) => `${(done / 6) * 100}%`;
+
+test('the completion notice takes the pill’s exact box and fills from the old count to the new', async (t) => {
   await mount(t);
   await click(button('Maybe later'));
-  const guide = document.querySelector('.starter-guide');
-  guide.getBoundingClientRect = () => ({ top: 720, left: 60, width: 230, height: 32, right: 290, bottom: 752 });
+  const advance = fakeWindowTimers(t);
+  const bar = document.querySelector('.starter-guide-pill');
+  bar.getBoundingClientRect = () => ({ top: 720, left: 60, width: 230, height: 32, right: 290, bottom: 752 });
   await click(pill());
   await click(steps()[2]);
   await click(button('Next'));
   await click(button('Next'));
   await click(button('Next'));
   await click(button('Done'));
-  const toast = document.querySelector('.starter-guide-toast');
-  assert.equal(toast.style.bottom, `${window.innerHeight - 752}px`, 'bottom edge on the pill’s');
-  assert.equal(toast.style.left, '60px');
-  assert.equal(toast.style.minWidth, '230px');
-  assert.equal(toast.style.width, '', 'grows to fit the step name');
-  assert.equal(toast.style.maxWidth, `${window.innerWidth - 60 - 16}px`);
+  // Exactly the pill: nothing reaches the Connectors pill above or the main area beside it.
+  assert.equal(toast().style.left, '60px');
+  assert.equal(toast().style.bottom, `${window.innerHeight - 752}px`);
+  assert.equal(toast().style.width, '230px');
+  assert.equal(toast().style.height, '32px');
+  assert.equal(toast().style.maxWidth, '');
+  // One line: the step name (the live text), then the count and meter — no "Done".
+  assert.equal(toast().querySelector('.starter-guide-toast-label').textContent, 'Set up workflows and agents');
+  assert.doesNotMatch(toast().textContent, /Done/);
+  assert.equal(toast().querySelector('.starter-guide-count').textContent, '1/6');
+  assert.equal(toastMeter(), percent(1));
+  await advance(399);
+  assert.equal(toast().querySelector('.starter-guide-count').textContent, '1/6');
+  await advance(1);
+  assert.equal(toast().querySelector('.starter-guide-count').textContent, '2/6');
+  assert.equal(toastMeter(), percent(2));
+  assert.match(pill().textContent, /2\/6/);
+  await advance(3059);
+  assert.ok(toast(), 'still fading out');
+  await advance(1);
+  assert.equal(toast(), null);
+  assert.ok(document.querySelector('.starter-guide'), 'the pill stays: steps remain');
 });
 
-test('with no visible pill the completion notice still stops 16px short of the window edge', async (t) => {
+test('the last step fills the meter, and the pill stays until its notice ends, then folds away', async (t) => {
+  window.localStorage.clear();
+  window.localStorage.setItem(
+    'mixdog.desktop.starter-guide.v1',
+    JSON.stringify({ closed: false, welcomed: true, visited: ['workflow', 'extensions'] })
+  );
+  const { render } = await mount(t, { connected: true, projects: [{ path: 'C:/work' }], clearStorage: false });
+  assert.match(pill().textContent, /5\/6/);
+  const advance = fakeWindowTimers(t);
+  await act(async () => setCachedConnectionInfo(window.mixdogDesktop, { clients: [{ id: 'c1' }] }));
+  await render();
+  await settle();
+  assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).closed, true);
+  assert.ok(document.querySelector('.starter-guide'), 'the pill stays under its notice');
+  assert.equal(toast().querySelector('.starter-guide-count').textContent, '5/6');
+  assert.equal(toastMeter(), percent(5));
+  await advance(400);
+  assert.equal(toast().querySelector('.starter-guide-count').textContent, '6/6');
+  assert.equal(toastMeter(), percent(6));
+  assert.equal(toast().dataset.full, 'true');
+  await advance(2799);
+  assert.equal(document.querySelector('.starter-guide')?.dataset.folding, undefined);
+  await advance(1);
+  assert.equal(document.querySelector('.starter-guide')?.dataset.folding, 'true', 'folds as the notice fades');
+  await advance(259);
+  assert.ok(document.querySelector('.starter-guide'), 'still folding');
+  await advance(1);
+  assert.equal(toast(), null);
+  assert.equal(document.querySelector('.starter-guide'), null);
+});
+
+test('the notice follows the pill’s live box while it shows', async (t) => {
+  await mount(t);
+  await click(button('Maybe later'));
+  const advance = fakeWindowTimers(t);
+  const bar = document.querySelector('.starter-guide-pill');
+  bar.getBoundingClientRect = () => ({ top: 720, left: 60, width: 230, height: 32, right: 290, bottom: 752 });
+  await click(pill());
+  await click(steps()[2]);
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Next'));
+  await click(button('Done'));
+  assert.equal(toast().style.width, '230px');
+  // The side panel narrows: the observer reports the pill's new size.
+  bar.getBoundingClientRect = () => ({ top: 720, left: 60, width: 160, height: 32, right: 220, bottom: 752 });
+  await reportResize();
+  assert.equal(toast().style.width, '160px');
+  // The window resizes: the pill moves with the panel foot.
+  bar.getBoundingClientRect = () => ({ top: 600, left: 60, width: 160, height: 32, right: 220, bottom: 632 });
+  await act(async () => window.dispatchEvent(new window.Event('resize')));
+  assert.equal(toast().style.bottom, `${window.innerHeight - 632}px`);
+  await advance(3460);
+  assert.equal(toast(), null);
+  assert.equal(resizeObservers.size, 0, 'the subscription ends with the notice');
+});
+
+test('with no visible pill the completion notice takes a pill-sized box in the bottom-left corner', async (t) => {
   await mount(t);
   await click(button('Maybe later'));
   // The side panel is closed: the pill has no box (jsdom's default rect).
@@ -321,10 +444,10 @@ test('with no visible pill the completion notice still stops 16px short of the w
   await click(button('Next'));
   await click(button('Next'));
   await click(button('Done'));
-  const toast = document.querySelector('.starter-guide-toast');
-  assert.equal(toast.style.left, '60px');
-  assert.equal(toast.style.bottom, '16px');
-  assert.equal(toast.style.maxWidth, `${window.innerWidth - 60 - 16}px`);
+  assert.equal(toast().style.left, '60px');
+  assert.equal(toast().style.bottom, '16px');
+  assert.equal(toast().style.width, '240px');
+  assert.equal(toast().style.height, '32px');
 });
 
 test('the delegation stop lights where a session tab shows and sets its mode', async (t) => {
