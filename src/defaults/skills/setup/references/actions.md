@@ -450,8 +450,10 @@ markers are read with `status desktop`.
   direct fallback. `off` ignores the Windows/macOS proxy and every proxy variable
   (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`). In `system` mode `NO_PROXY=*` forces
   direct and an `ALL_PROXY`-only environment is followed. It applies to the next
-  connection of provider registration and tests, sign-in, model lists, usage,
-  requests, the OpenAI WebSocket and Cursor. The `status network-proxy` route
+  request of provider registration and tests, sign-in, model lists, usage,
+  requests, the OpenAI WebSocket and Cursor: pooled connections opened under the
+  old setting are closed, and a request already in flight finishes on its
+  connection, which is then not reused. The `status network-proxy` route
   names what is in effect. A manual `url` cannot carry a user name or password
   (it is stored in plain text); a proxy that needs one goes in `HTTPS_PROXY`.
 - `set_worktree_settings`: `maxWorktrees` / `unusedDays` of `0` disable that

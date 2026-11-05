@@ -22,7 +22,7 @@
 import { createRequire } from 'node:module';
 import { BlockList, isIP } from 'node:net';
 import { runInRootAsyncContext } from '../root-async-context.mjs';
-import { currentProxySetting, decideProxyRoute } from './proxy-policy.mjs';
+import { currentProxySetting, decideProxyRoute, onProxyRouteChange, proxyRouteEpoch } from './proxy-policy.mjs';
 
 const require = createRequire(import.meta.url);
 let _undici = null;
@@ -163,7 +163,8 @@ export function withEnvProxy(env) {
  * The global dispatcher: each origin goes where the network proxy setting
  * sends it (routeForUrl) — the shared LLM pool when direct, a ProxyAgent leg
  * of the chosen proxy otherwise. The setting is asked per request, so a change
- * applies to the next connection. `direct` and `proxied` replace the legs
+ * applies to the next request; the proxy legs and the direct pool are retired
+ * on a change (onProxyRouteChange), which closes their idle connections. `direct` and `proxied` replace the legs
  * (tests); a `direct` dispatcher instance stands for the pool.
  */
 export function createProxyDispatcher({ direct = null, proxied = null } = {}) {
@@ -282,10 +283,48 @@ export function createRoutedProxyDispatcher({
   const directLeg = direct ?? (() => (ownDirect ??= new Agent()));
   class SystemProxyRouter extends Dispatcher {
     #proxied = new Map();
+    #unsubscribe = null;
 
-    #leg(decision) {
+    constructor() {
+      super();
+      // A proxy leg keeps its tunnels alive: when the setting changes, the legs
+      // are retired (in-flight requests finish, idle tunnels close) and the next
+      // request through a proxy builds a new one. Weakly held: an abandoned
+      // router never stays subscribed.
+      const self = new WeakRef(this);
+      const unsubscribe = onProxyRouteChange(() => {
+        const router = self.deref();
+        if (router) router.#retireLegs();
+        else unsubscribe();
+      });
+      this.#unsubscribe = unsubscribe;
+    }
+
+    #retireLegs() {
+      const legs = [...this.#proxied.values()];
+      this.#proxied.clear();
+      for (const leg of legs) leg.close().catch(() => {});
+    }
+
+    // `epoch`: the route epoch when the request was dispatched. A decision that
+    // resolved after a change (an async OS lookup) still serves its request, but
+    // on a leg that is not kept: it drains this request and closes, like a
+    // pooled WebSocket released after a change.
+    #leg(decision, epoch) {
       const uri = decision?.proxy;
       if (!uri) return directLeg();
+      if (epoch !== proxyRouteEpoch()) {
+        const transient = proxied(uri);
+        return {
+          dispatch(opts, handler) {
+            try {
+              return transient.dispatch(opts, handler);
+            } finally {
+              transient.close().catch(() => {});
+            }
+          },
+        };
+      }
       let leg = this.#proxied.get(uri);
       if (!leg) {
         leg = proxied(uri);
@@ -295,6 +334,7 @@ export function createRoutedProxyDispatcher({
     }
 
     dispatch(opts, handler) {
+      const epoch = proxyRouteEpoch();
       const url = new URL(opts.origin);
       let decided = null;
       if (!bypassLocal || !isLocalHost(url.hostname)) {
@@ -304,14 +344,14 @@ export function createRoutedProxyDispatcher({
           decided = Promise.reject(error);
         }
       }
-      if (typeof decided?.then !== 'function') return this.#leg(decided).dispatch(opts, handler);
+      if (typeof decided?.then !== 'function') return this.#leg(decided, epoch).dispatch(opts, handler);
       const started = startDeferred(handler);
       decided.then(
         (decision) => {
           const legHandler = started();
           if (!legHandler) return;
           try {
-            this.#leg(decision).dispatch(opts, legHandler);
+            this.#leg(decision, epoch).dispatch(opts, legHandler);
           } catch (error) {
             failDispatch(legHandler, error);
           }
@@ -325,10 +365,12 @@ export function createRoutedProxyDispatcher({
     }
 
     async close() {
+      this.#unsubscribe?.();
       await Promise.all([directLeg().close(), ...[...this.#proxied.values()].map((leg) => leg.close())]);
     }
 
     async destroy(error) {
+      this.#unsubscribe?.();
       await Promise.all([directLeg().destroy(error), ...[...this.#proxied.values()].map((leg) => leg.destroy(error))]);
     }
   }
@@ -430,6 +472,13 @@ export function recycleLlmDispatcher() {
   }
   return true;
 }
+
+// The direct pool's sockets were opened under the old setting too (off → manual
+// leaves them idle for up to the keep-alive window): retire them with the
+// proxy legs. In-flight requests finish; the next direct request gets a new pool.
+onProxyRouteChange(() => {
+  recycleLlmDispatcher();
+});
 
 // Origins warmed (or warming) recently, with the timestamp of the last warm.
 // A time-based gate (instead of a permanent Set) lets us RE-warm a socket once

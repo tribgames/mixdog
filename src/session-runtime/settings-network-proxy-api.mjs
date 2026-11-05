@@ -1,7 +1,8 @@
 // Settings → System → Network proxy: how Mixdog reaches AI services
 // (runtime/shared/llm/proxy-policy.mjs). Persisted at agent config
 // `networkProxy` `{ mode, url, exceptions }`; defaults are not stored. Every
-// outbound provider path reads the stored value on its next connection.
+// outbound provider path follows the stored value on its next request: a
+// change closes the pooled connections opened under the old one.
 import { OPENAI_COMPAT_PRESETS } from '../runtime/agent/orchestrator/providers/openai-compat-presets.mjs';
 import { adoptProxySetting, applyNetworkProxyPatch, normalizeNetworkProxy } from '../runtime/shared/llm/proxy-policy.mjs';
 import {
@@ -29,7 +30,7 @@ export function createNetworkProxySettings({ getConfig, saveConfigAndAdopt, flus
       saveConfigAndAdopt({ ...config, networkProxy: applyNetworkProxyPatch(config.networkProxy, patch) });
       // The connections of every process follow the stored file, so it is written before this answers.
       await flushConfigSaves?.({ requireSaved: true });
-      // This process's next connection follows it at once; other processes hear the file's watch event.
+      // This process's next request follows it at once (its pooled connections retire here); other processes hear the file's watch event.
       adoptProxySetting(getConfig().networkProxy);
       return view(options?.provider);
     },

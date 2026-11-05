@@ -45,12 +45,35 @@ import { completionChunk, createStreamSink } from './cursor-wire-stream-sink.mjs
 import { createBridgeController } from './cursor-wire-stream-bridge.mjs';
 import { markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { TRANSPORT_SCOPE_DISPOSED } from './transport-scope.mjs';
+import { onProxyRouteChange, proxyRouteEpoch } from '../../../shared/llm/proxy-policy.mjs';
 
 export { clearModelCache, getCursorModels, getCursorUsage } from './cursor-wire-models.mjs';
 
 const conversations = new Map();
 const activeRuns = new Map();
 const MEMORY_TTL_MS = 30 * 60_000;
+
+// The route epoch (proxy-policy.mjs) each bridge was opened under, read before
+// it connected. A bridge parked for its tool results is reused by a later
+// request, so one opened before a network proxy change must not be.
+const bridgeRouteEpochs = new WeakMap();
+
+function routeChangedSince(bridge) {
+  const opened = bridgeRouteEpochs.get(bridge);
+  return opened !== undefined && opened !== proxyRouteEpoch();
+}
+
+// Close a parked run's connection as a server hang-up would: its bridge handler
+// forgets the run, and the next request starts a new run on the current route.
+// The pending calls stay authorized for the tool batch being executed.
+function retireParkedRun(active) {
+  clearInterval(active.heartbeat);
+  active.bridge.close(new Error('Cursor run closed (network proxy changed)'));
+}
+
+onProxyRouteChange(() => {
+  for (const active of [...activeRuns.values()]) retireParkedRun(active);
+});
 
 function forgetActiveRun(key, expected = null) {
   const active = activeRuns.get(key);
@@ -70,6 +93,9 @@ function storeActiveRun(key, active) {
   }, MEMORY_TTL_MS);
   active.expiryTimer.unref?.();
   activeRuns.set(key, active);
+  // The run's stream was in flight when the setting changed and has just parked:
+  // close it after this batch is handed over (closing now would read as a failure of the stream).
+  if (routeChangedSince(active.bridge)) queueMicrotask(() => retireParkedRun(active));
 }
 
 function disposeActiveRun(active, error) {
@@ -437,7 +463,9 @@ function createStreamResponse({
 }
 
 function startRun(accessToken, requestBytes) {
+  const routeEpoch = proxyRouteEpoch();
   const bridge = openCursorStream({ accessToken });
+  bridgeRouteEpochs.set(bridge, routeEpoch);
   try {
     bridge.write(connectFrame(requestBytes));
   } catch (error) {
@@ -533,6 +561,7 @@ export async function handleChatCompletion(
     active &&
     parsed.toolResults.length &&
     active.bridge.alive &&
+    !routeChangedSince(active.bridge) &&
     canReuseRun(active, { tools: toolDefinitions, cloudRule, modelParameters, maxMode })
   ) {
     forgetActiveRun(key, active);
@@ -608,6 +637,8 @@ export const __cursorWireInternals = Object.freeze({
   requestModelParameters,
   selectToolsForChoice,
   activeRunPendingCount: (key) => activeRuns.get(key)?.pending?.length || 0,
+  parkRun: storeActiveRun,
+  stampBridgeRoute: (bridge) => bridgeRouteEpochs.set(bridge, proxyRouteEpoch()),
   normalizeCursorUsage,
   normalizeParameterizedModels,
   withCanonicalAutoModels,
