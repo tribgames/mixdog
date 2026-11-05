@@ -28,6 +28,7 @@ Bản phát hành này bổ sung phê duyệt thao tác, quyền trang web của
 - Sửa lỗi nhấp chuột của Computer Use lệch mục tiêu trên màn hình HiDPI có thu phóng, thao tác chạy nền chiếm tiêu điểm làm nhấp nháy cửa sổ đang dùng, và thao tác chuột hoặc bàn phím của bạn làm tạm dừng mọi agent thay vì chỉ agent bị gián đoạn — nay agent đó sẽ tiếp tục khi bạn ngừng thao tác hoặc bấm Tiếp tục (#323).
 - Sửa lỗi trạng thái của worker và sub-agent để hiển thị đúng trạng thái thực từ đầu đến cuối và tính cả quá trình suy nghĩ ẩn vào tiến độ, nhờ đó agent đang làm việc không còn bị coi là bị treo (#319).
 - Sửa lỗi chi tiết vé đặt lại trong cửa sổ bật lên về mức sử dụng để mở rộng ngay tại chỗ, giúp thời hạn của từng vé không bị cắt mất (#324).
+- Sửa lỗi dòng trạng thái trực tiếp bên dưới lượt đang chạy bị đè chữ lên nhau trong cửa sổ hẹp khi chờ lâu (#326).
 - Sửa lỗi khung cửa sổ nhấp nháy sang giao diện không hoạt động khi chuyển tiêu điểm sang cửa sổ khác hoặc quay lại trên Windows Mica.
 - Sửa lỗi đầy ổ đĩa làm tắt dịch vụ chạy nền thay vì thử lưu lại và vẫn tiếp tục trả về kết quả shell.
 - Sửa lỗi lệnh `/stop` trên tác vụ shell để báo đúng các tác vụ đã hoàn tất thay vì báo "Không thể dừng" và giải phóng thư mục dự án ngay lập tức.

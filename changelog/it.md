@@ -28,6 +28,7 @@ Questa versione aggiunge le approvazioni delle azioni, le autorizzazioni dei sit
 - Risolto il problema per cui i clic di Computer Use mancavano i bersagli su schermi HiDPI ridimensionati, le azioni in background sottraevano il focus facendo sfarfallare la finestra attiva e l'input del mouse o della tastiera dell'utente metteva in pausa tutti gli agenti invece del solo agente interrotto, che ora riprende quando sei inattivo o con Riprendi (#323).
 - Risolto il problema per cui lo stato di worker e sotto-agenti non mostrava lo stato reale dall'inizio alla fine e il ragionamento nascosto non veniva contato come avanzamento, evitando che un agente attivo venga trattato come bloccato (#319).
 - Risolto il problema per cui i dettagli dei ticket di ripristino nel popup di utilizzo si espandono ora sul posto, mantenendo leggibile la scadenza di ogni ticket (#324).
+- Risolto il problema per cui il testo della riga di stato in tempo reale sotto un turno in corso si sovrapponeva nelle finestre strette durante un'attesa prolungata (#326).
 - Risolto lo sfarfallio della cornice della finestra verso l'aspetto inattivo quando il focus passa a un'altra finestra o ritorna su Windows Mica.
 - Risolto il problema per cui il disco pieno arrestava il servizio in background invece di riprovare i salvataggi e continuare a consegnare i risultati della shell.
 - Risolto il problema per cui `/stop` sui processi della shell segnalava "Impossibile interrompere" invece di indicare i processi già terminati e liberare subito la cartella del progetto.
