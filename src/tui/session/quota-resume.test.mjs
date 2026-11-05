@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import fs, { mkdtempSync, rmSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -17,6 +18,7 @@ import { createSessionRouteApi } from './session-api/routes.mjs';
 import { createSessionResetActions } from './session-api/lifecycle/session-reset.mjs';
 import {
   deferQuotaResumeEntry,
+  hasUnsavedQuotaSuspension,
   publicQuotaResume,
   quotaResumeEntry,
   quotaSuspendedGoal,
@@ -679,4 +681,49 @@ test('a fire without a suspended Goal revives none', (t) => {
   const { generation } = h.bag.onQuotaTurnSettled();
   assert.equal(h.bag.fireQuotaResume({ generation }), 'fired');
   assert.deepEqual(reactivated, []);
+});
+
+test('a Goal suspension whose write hit a full disk is kept and still revives the Goal at the fire', async (t) => {
+  const reactivated = [];
+  const h = harness(t, {
+    runtime: {
+      reactivateUsageLimitedGoal: async (goalId, options = {}) => {
+        reactivated.push(goalId);
+        if (options.isCurrent?.() === false || options.accept?.() === false) return null;
+        return { id: goalId, status: 'active' };
+      },
+    },
+  });
+  const realWrite = fs.writeFileSync;
+  let full = false;
+  fs.writeFileSync = (target, ...rest) => {
+    if (full && typeof target === 'number') {
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+    }
+    return realWrite(target, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.writeFileSync = realWrite;
+    syncBuiltinESMExports();
+  });
+  const entry = h.bag.beginQuotaSettlement();
+  full = true;
+  assert.throws(() => h.bag.finishQuotaSettlement({ suspendedGoalId: 'goal-1' }), { code: 'ENOSPC' });
+  full = false;
+  assert.equal(quotaSuspendedGoal(SESSION, 'turn:u1'), 'goal-1', 'the association is not lost');
+  assert.equal(hasUnsavedQuotaSuspension(), true, 'and it is marked as not on disk');
+  const enqueue = h.bag.enqueue;
+  h.bag.enqueue = (text, options) => {
+    const accepted = enqueue(text, options);
+    h.patch({ busy: true });
+    return accepted;
+  };
+  assert.equal(await h.bag.fireQuotaResume({ generation: entry.generation }), 'fired');
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(reactivated, ['goal-1']);
+  assert.equal(h.enqueued.length, 1);
+  assert.equal(hasUnsavedQuotaSuspension(), false, 'the next successful write carried it to disk');
+  reloadQuotaResumeStore();
+  assert.equal(quotaSuspendedGoal(SESSION, 'turn:u1'), '', 'the spent association is gone from disk too');
 });

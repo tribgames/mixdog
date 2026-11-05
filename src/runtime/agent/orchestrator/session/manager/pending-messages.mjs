@@ -228,7 +228,9 @@ function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
 
 export function finalizePendingMessageDelivery(session, deliveredEntries, durableSave, persistPrunedLedger) {
   const ids = new Set((Array.isArray(deliveredEntries) ? deliveredEntries : []).map(pendingMessageId).filter(Boolean));
-  if (!session || ids.size === 0) return Promise.resolve(false);
+  // Nothing to acknowledge, but the save is still the caller's to hear about:
+  // dropping it here would leave its failure (a full disk) an unhandled rejection.
+  if (!session || ids.size === 0) return Promise.resolve(durableSave).then(() => false);
   // Strict durability order: ledger/session first, spool deletion second.
   // Both operations are detached from the completion tick.
   return Promise.resolve(durableSave).then(async () => {

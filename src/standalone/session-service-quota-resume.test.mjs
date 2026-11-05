@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import fs, { mkdtempSync, rmSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -542,4 +543,129 @@ test('a cancel landing during the usage reading prevents the fire', async (t) =>
   await run;
   assert.equal(retries.length, 0);
   assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
+});
+
+test('a due pass on a full disk keeps its reservation in memory and on disk, and a later pass settles it', async (t) => {
+  isolateDataDir(t);
+  const unhandled = [];
+  const onUnhandled = (error) => unhandled.push(error);
+  process.on('unhandledRejection', onUnhandled);
+  t.after(() => process.off('unhandledRejection', onUnhandled));
+  // The real atomic write: its data write goes through a descriptor.
+  const realWrite = fs.writeFileSync;
+  let full = false;
+  fs.writeFileSync = (target, ...rest) => {
+    if (full && typeof target === 'number') {
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+    }
+    return realWrite(target, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.writeFileSync = realWrite;
+    syncBuiltinESMExports();
+  });
+  const logs = [];
+  const armed = [];
+  let clock = Date.now();
+  let fire = null;
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => {
+      throw new Error('session unavailable');
+    },
+    readQuotaUsable: async () => true,
+    log: (line) => logs.push(line),
+    now: () => clock,
+    setTimer: (task, ms) => {
+      fire = task;
+      armed.push(ms);
+      return { unref() {} };
+    },
+    clearTimer: () => {},
+  });
+  const entry = quotaResumeStore.scheduleQuotaResumeEntry({
+    sessionId: SESSION,
+    turnKey: 'turn:u1',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    resetAt: PAST,
+  });
+  scheduler.start();
+  full = true;
+  fire();
+  await scheduler.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(unhandled, []);
+  assert.ok(logs.some((line) => /ENOSPC/.test(line)), `the failed write is reported: ${logs.join(' | ')}`);
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION)?.generation, entry.generation, 'memory is not ahead of the disk');
+  assert.ok(armed.at(-1) >= QUOTA_RESUME_RETRY_MS, 'a failed pass is not retried at once');
+  quotaResumeStore.reloadQuotaResumeStore();
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION)?.generation, entry.generation, 'the disk still holds it');
+  full = false;
+  await scheduler.tick();
+  assert.ok(quotaResumeStore.quotaResumeEntry(SESSION), 'the failed entry waits out its own spacing');
+  clock += QUOTA_RESUME_RETRY_MS;
+  await scheduler.tick();
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
+  quotaResumeStore.reloadQuotaResumeStore();
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null, 'the cancellation reached the disk');
+  scheduler.stop();
+});
+
+test("one reservation's failed write does not delay another that is due sooner", async (t) => {
+  isolateDataDir(t);
+  const realWrite = fs.writeFileSync;
+  let full = false;
+  fs.writeFileSync = (target, ...rest) => {
+    if (full && typeof target === 'number') {
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+    }
+    return realWrite(target, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.writeFileSync = realWrite;
+    syncBuiltinESMExports();
+  });
+  let clock = 1_000_000_000_000;
+  const armed = [];
+  let fire = null;
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => {
+      throw new Error('session unavailable');
+    },
+    readQuotaUsable: async () => true,
+    log: () => {},
+    now: () => clock,
+    setTimer: (task, ms) => {
+      fire = task;
+      armed.push(ms);
+      return { unref() {} };
+    },
+    clearTimer: () => {},
+  });
+  const entry = (sessionId, resetAt) =>
+    quotaResumeStore.scheduleQuotaResumeEntry({
+      sessionId,
+      turnKey: 'turn:u1',
+      provider: 'openai-oauth',
+      model: 'gpt-x',
+      resetAt,
+    });
+  entry('sess_quota_a', clock - 1);
+  entry('sess_quota_b', clock + 1_000);
+  scheduler.start();
+  full = true;
+  await scheduler.tick();
+  assert.equal(armed.at(-1), 1_000, "B's own time arms the timer, not A's 5-minute spacing");
+  full = false;
+  clock += 1_000;
+  fire();
+  await scheduler.tick();
+  assert.equal(quotaResumeStore.quotaResumeEntry('sess_quota_b'), null, 'B ran on time');
+  assert.ok(quotaResumeStore.quotaResumeEntry('sess_quota_a'), 'A still waits out its spacing');
+  assert.equal(armed.at(-1), QUOTA_RESUME_RETRY_MS - 1_000);
+  scheduler.stop();
 });
