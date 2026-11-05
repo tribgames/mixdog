@@ -2141,8 +2141,21 @@ test('bridge clients authenticate and preserve text plus image results', async (
       if (deferTimers.includes(timer)) timer.cleared = true;
       else realClearTimeout(timer);
     };
+    // The deferral derives its timer delay from two clock reads (due time, then time left), so a
+    // millisecond tick between them arms DEFER_MS - 1 and the delay no longer names it. Pin the
+    // clock for that synchronous call only.
+    const deferPinned = () => {
+      const realNow = Date.now;
+      const pinned = realNow();
+      Date.now = () => pinned;
+      try {
+        return deferComputerSessionRelease('computer-session-1', DEFER_MS);
+      } finally {
+        Date.now = realNow;
+      }
+    };
     try {
-      assert.equal(deferComputerSessionRelease('computer-session-1', DEFER_MS), true);
+      assert.equal(deferPinned(), true);
       const continued = await executeComputerTool(
         { action: 'list', input: { kind: 'windows' } },
         { sessionId: 'computer-session-1' }
@@ -2160,7 +2173,7 @@ test('bridge clients authenticate and preserve text plus image results', async (
         'no release happened after the original deadline passed'
       );
       // Re-arming is a fresh deferral and sends exactly one release.
-      assert.equal(deferComputerSessionRelease('computer-session-1', DEFER_MS), true);
+      assert.equal(deferPinned(), true);
       assert.equal(deferTimers.length, 2);
       deferTimers[1].fn();
       await waitUntil(() => seen.some((entry) => entry.body.action === 'session_release'), {
