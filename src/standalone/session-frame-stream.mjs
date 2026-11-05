@@ -160,8 +160,9 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     client.paused = true;
   }
 
-  // A stream paused past the stall deadline: bytes still buffered mean the
-  // consumer stopped reading; none buffered means a drain that never fired.
+  // A stream paused past the stall deadline. Report-only: the socket facts
+  // (ownership, buffered bytes, need-drain on response and socket) tell a
+  // consumer that stopped reading from a response whose drain did not arrive.
   function reportStall(client, res) {
     if (typeof onDiagnostic !== 'function') return;
     const atMs = nowMs();
