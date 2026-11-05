@@ -186,6 +186,7 @@
       "id": "update-before-user.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -412,6 +413,7 @@
       "id": "update-after-tool-batch.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -670,6 +672,7 @@
       "id": "batch-update-superseded-by-user.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -928,6 +931,7 @@
       "id": "batch-update-then-user-same.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -1118,6 +1122,7 @@
       "id": "no-change.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -1304,6 +1309,7 @@
       "id": "floor.claude-opus-4-8.oauth",
       "mode": null,
       "model": "claude-opus-4-8",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -1509,6 +1515,7 @@
       "id": "floor.claude-opus-5-0.oauth",
       "mode": "anthropic",
       "model": "claude-opus-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -1717,6 +1724,7 @@
       "id": "floor.claude-opus-5-5.oauth",
       "mode": "anthropic",
       "model": "claude-opus-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -1883,6 +1891,7 @@
       "id": "floor.claude-sonnet-5-4.oauth",
       "mode": null,
       "model": "claude-sonnet-5-4",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -2089,6 +2098,7 @@
       "id": "floor.claude-sonnet-5-5.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -2295,6 +2305,7 @@
       "id": "floor.claude-sonnet-5-5-20260101.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5-20260101",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -2498,6 +2509,7 @@
       "id": "floor.claude-sonnet-6-0.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-6-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -2664,6 +2676,7 @@
       "id": "floor.claude-haiku-5-4.oauth",
       "mode": null,
       "model": "claude-haiku-5-4",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -2867,6 +2880,7 @@
       "id": "floor.claude-haiku-5-5.oauth",
       "mode": "anthropic",
       "model": "claude-haiku-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -3035,6 +3049,7 @@
       "id": "floor.claude-fable-5-0.oauth",
       "mode": null,
       "model": "claude-fable-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -3243,6 +3258,7 @@
       "id": "floor.claude-fable-5-1.oauth",
       "mode": "anthropic",
       "model": "claude-fable-5-1",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -3409,6 +3425,7 @@
       "id": "floor.claude-mythos-5-0.oauth",
       "mode": null,
       "model": "claude-mythos-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -3615,6 +3632,7 @@
       "id": "floor.claude-mythos-5-1.oauth",
       "mode": "anthropic",
       "model": "claude-mythos-5-1",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -3781,6 +3799,7 @@
       "id": "floor.claude-foo-4-9.oauth",
       "mode": null,
       "model": "claude-foo-4-9",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -3984,6 +4003,7 @@
       "id": "floor.claude-foo-5-0.oauth",
       "mode": "anthropic",
       "model": "claude-foo-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -4187,6 +4207,7 @@
       "id": "floor.claude-foo-6-2.oauth",
       "mode": "anthropic",
       "model": "claude-foo-6-2",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -4353,6 +4374,7 @@
       "id": "floor.claude-sonnet-5.oauth",
       "mode": null,
       "model": "claude-sonnet-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -4519,6 +4541,7 @@
       "id": "floor.not-a-claude-model.oauth",
       "mode": null,
       "model": "not-a-claude-model",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -4725,6 +4748,7 @@
       "id": "gate.official-url.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "baseURL": "https://api.anthropic.com/v1"
       },
@@ -4916,6 +4940,7 @@
       "id": "gate.gateway-url.oauth",
       "mode": null,
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "baseURL": "https://gateway.example/v1"
       },
@@ -4984,7 +5009,24 @@
       "options": {
         "thinkingBudgetTokens": 4096
       },
-      "route": "anthropic-oauth"
+      "route": "anthropic-oauth",
+      "tools": [
+        {
+          "description": "Read a value",
+          "inputSchema": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
     },
     {
       "expected": {
@@ -5155,6 +5197,7 @@
       "id": "gate.disabled.oauth",
       "mode": null,
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "effortConfigurationEnabled": false
       },
@@ -5346,6 +5389,7 @@
       "id": "gate.beta-headers-off.oauth",
       "mode": null,
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "disableBetaHeaders": true
       },
@@ -5548,6 +5592,7 @@
       "id": "update-before-user.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -5768,6 +5813,7 @@
       "id": "update-after-tool-batch.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -6020,6 +6066,7 @@
       "id": "batch-update-superseded-by-user.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -6272,6 +6319,7 @@
       "id": "batch-update-then-user-same.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -6456,6 +6504,7 @@
       "id": "no-change.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -6636,6 +6685,7 @@
       "id": "floor.claude-opus-4-8.api",
       "mode": null,
       "model": "claude-opus-4-8",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -6835,6 +6885,7 @@
       "id": "floor.claude-opus-5-0.api",
       "mode": "anthropic",
       "model": "claude-opus-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -7037,6 +7088,7 @@
       "id": "floor.claude-opus-5-5.api",
       "mode": "anthropic",
       "model": "claude-opus-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -7197,6 +7249,7 @@
       "id": "floor.claude-sonnet-5-4.api",
       "mode": null,
       "model": "claude-sonnet-5-4",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -7397,6 +7450,7 @@
       "id": "floor.claude-sonnet-5-5.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -7597,6 +7651,7 @@
       "id": "floor.claude-sonnet-5-5-20260101.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5-20260101",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -7794,6 +7849,7 @@
       "id": "floor.claude-sonnet-6-0.api",
       "mode": "anthropic",
       "model": "claude-sonnet-6-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -7954,6 +8010,7 @@
       "id": "floor.claude-haiku-5-4.api",
       "mode": null,
       "model": "claude-haiku-5-4",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -8151,6 +8208,7 @@
       "id": "floor.claude-haiku-5-5.api",
       "mode": "anthropic",
       "model": "claude-haiku-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -8313,6 +8371,7 @@
       "id": "floor.claude-fable-5-0.api",
       "mode": null,
       "model": "claude-fable-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -8515,6 +8574,7 @@
       "id": "floor.claude-fable-5-1.api",
       "mode": "anthropic",
       "model": "claude-fable-5-1",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -8675,6 +8735,7 @@
       "id": "floor.claude-mythos-5-0.api",
       "mode": null,
       "model": "claude-mythos-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -8875,6 +8936,7 @@
       "id": "floor.claude-mythos-5-1.api",
       "mode": "anthropic",
       "model": "claude-mythos-5-1",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -9035,6 +9097,7 @@
       "id": "floor.claude-foo-4-9.api",
       "mode": null,
       "model": "claude-foo-4-9",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -9195,6 +9258,7 @@
       "id": "floor.claude-foo-5-0.api",
       "mode": null,
       "model": "claude-foo-5-0",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -9355,6 +9419,7 @@
       "id": "floor.claude-foo-6-2.api",
       "mode": null,
       "model": "claude-foo-6-2",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -9515,6 +9580,7 @@
       "id": "floor.claude-sonnet-5.api",
       "mode": null,
       "model": "claude-sonnet-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -9675,6 +9741,7 @@
       "id": "floor.not-a-claude-model.api",
       "mode": null,
       "model": "not-a-claude-model",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -9875,6 +9942,7 @@
       "id": "gate.official-url.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "baseURL": "https://api.anthropic.com/v1"
       },
@@ -9909,21 +9977,11 @@
           "max_tokens": 65536,
           "messages": [
             {
-              "content": [
-                {
-                  "text": "First question.",
-                  "type": "text"
-                }
-              ],
+              "content": "First question.",
               "role": "user"
             },
             {
-              "content": [
-                {
-                  "text": "First answer.",
-                  "type": "text"
-                }
-              ],
+              "content": "First answer.",
               "role": "assistant"
             },
             {
@@ -9961,7 +10019,6 @@
           "tools": [
             {
               "description": "Read a value",
-              "eager_input_streaming": true,
               "input_schema": {
                 "properties": {
                   "key": {
@@ -9980,21 +10037,11 @@
         "controlEfforts": [],
         "messages": [
           {
-            "content": [
-              {
-                "text": "First question.",
-                "type": "text"
-              }
-            ],
+            "content": "First question.",
             "role": "user"
           },
           {
-            "content": [
-              {
-                "text": "First answer.",
-                "type": "text"
-              }
-            ],
+            "content": "First answer.",
             "role": "assistant"
           },
           {
@@ -10060,6 +10107,7 @@
       "id": "gate.gateway-url.api",
       "mode": null,
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "baseURL": "https://gateway.example/v1"
       },
@@ -10128,7 +10176,24 @@
       "options": {
         "thinkingBudgetTokens": 4096
       },
-      "route": "anthropic"
+      "route": "anthropic",
+      "tools": [
+        {
+          "description": "Read a value",
+          "inputSchema": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
     },
     {
       "expected": {
@@ -10293,6 +10358,7 @@
       "id": "gate.disabled.api",
       "mode": null,
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "effortConfigurationEnabled": false
       },
@@ -10317,7 +10383,7 @@
     },
     {
       "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "betaHeader": null,
         "betas": [
           "interleaved-thinking-2025-05-14",
           "effort-2025-11-24"
@@ -10454,9 +10520,632 @@
       "id": "gate.beta-headers-off.api",
       "mode": null,
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "disableBetaHeaders": true
       },
+      "route": "anthropic",
+      "tools": [
+        {
+          "description": "Read a value",
+          "inputSchema": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+        "betas": [
+          "oauth-2025-04-20",
+          "interleaved-thinking-2025-05-14",
+          "context-management-2025-06-27",
+          "effort-2025-11-24",
+          "thinking-display-updates-2026-08-18"
+        ],
+        "body": {
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "content": [
+                {
+                  "text": "Hello.",
+                  "type": "text"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Hi.",
+                  "type": "text"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "text": "Again.",
+                  "type": "text"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-5-5-20260101",
+          "output_config": {
+            "effort": "low"
+          },
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are a fixture assistant.",
+              "type": "text"
+            }
+          ],
+          "thinking": {
+            "display": "updates",
+            "type": "adaptive"
+          },
+          "tools": [
+            {
+              "description": "Read a value",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "type": "object"
+              },
+              "name": "lookup"
+            }
+          ]
+        },
+        "controlEfforts": [],
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "Hello.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "text": "Hi.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "Again.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "midConversation": false,
+        "outputConfig": {
+          "effort": "low"
+        },
+        "thinking": {
+          "display": "updates",
+          "type": "adaptive"
+        }
+      },
+      "history": [
+        {
+          "content": "You are a fixture assistant.",
+          "role": "system"
+        },
+        {
+          "content": "Hello.",
+          "role": "user"
+        },
+        {
+          "content": "Hi.",
+          "role": "assistant"
+        },
+        {
+          "content": "Again.",
+          "role": "user"
+        }
+      ],
+      "id": "turn-scoped.dated-compact.oauth",
+      "mode": "anthropic",
+      "model": "claude-sonnet-5-5-20260101",
+      "noProjection": true,
+      "options": {},
+      "route": "anthropic-oauth",
+      "tools": [
+        {
+          "description": "Read a value",
+          "inputSchema": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+        "betas": [
+          "oauth-2025-04-20",
+          "interleaved-thinking-2025-05-14",
+          "context-management-2025-06-27",
+          "effort-2025-11-24"
+        ],
+        "body": {
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "content": "Hello.",
+              "role": "user"
+            },
+            {
+              "content": "Hi.",
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "text": "Again.",
+                  "type": "text"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-5-5-2026-01-01",
+          "output_config": {
+            "effort": "low"
+          },
+          "stream": true,
+          "system": [
+            {
+              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "\n\nYou are a fixture assistant.",
+              "type": "text"
+            }
+          ],
+          "thinking": {
+            "type": "adaptive"
+          },
+          "tools": [
+            {
+              "description": "Read a value",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "type": "object"
+              },
+              "name": "lookup"
+            }
+          ]
+        },
+        "controlEfforts": [],
+        "messages": [
+          {
+            "content": "Hello.",
+            "role": "user"
+          },
+          {
+            "content": "Hi.",
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "Again.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "midConversation": false,
+        "outputConfig": {
+          "effort": "low"
+        },
+        "thinking": {
+          "type": "adaptive"
+        }
+      },
+      "history": [
+        {
+          "content": "You are a fixture assistant.",
+          "role": "system"
+        },
+        {
+          "content": "Hello.",
+          "role": "user"
+        },
+        {
+          "content": "Hi.",
+          "role": "assistant"
+        },
+        {
+          "content": "Again.",
+          "role": "user"
+        }
+      ],
+      "id": "turn-scoped.dated-dashed.oauth",
+      "mode": "anthropic",
+      "model": "claude-sonnet-5-5-2026-01-01",
+      "noProjection": true,
+      "options": {},
+      "route": "anthropic-oauth",
+      "tools": [
+        {
+          "description": "Read a value",
+          "inputSchema": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+        "betas": [
+          "interleaved-thinking-2025-05-14",
+          "effort-2025-11-24",
+          "thinking-display-updates-2026-08-18"
+        ],
+        "body": {
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "content": [
+                {
+                  "text": "Hello.",
+                  "type": "text"
+                }
+              ],
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "text": "Hi.",
+                  "type": "text"
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "text": "Again.",
+                  "type": "text"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-5-5-20260101",
+          "output_config": {
+            "effort": "low"
+          },
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are a fixture assistant.",
+              "type": "text"
+            }
+          ],
+          "thinking": {
+            "display": "updates",
+            "type": "adaptive"
+          },
+          "tools": [
+            {
+              "description": "Read a value",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "type": "object"
+              },
+              "name": "lookup"
+            }
+          ]
+        },
+        "controlEfforts": [],
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "Hello.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "text": "Hi.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "Again.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "midConversation": false,
+        "outputConfig": {
+          "effort": "low"
+        },
+        "thinking": {
+          "display": "updates",
+          "type": "adaptive"
+        }
+      },
+      "history": [
+        {
+          "content": "You are a fixture assistant.",
+          "role": "system"
+        },
+        {
+          "content": "Hello.",
+          "role": "user"
+        },
+        {
+          "content": "Hi.",
+          "role": "assistant"
+        },
+        {
+          "content": "Again.",
+          "role": "user"
+        }
+      ],
+      "id": "turn-scoped.dated-compact.api",
+      "mode": "anthropic",
+      "model": "claude-sonnet-5-5-20260101",
+      "noProjection": true,
+      "options": {},
+      "route": "anthropic",
+      "tools": [
+        {
+          "description": "Read a value",
+          "inputSchema": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "betas": [
+          "interleaved-thinking-2025-05-14",
+          "effort-2025-11-24"
+        ],
+        "body": {
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "content": "Hello.",
+              "role": "user"
+            },
+            {
+              "content": "Hi.",
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "cache_control": {
+                    "type": "ephemeral"
+                  },
+                  "text": "Again.",
+                  "type": "text"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-sonnet-5-5-2026-01-01",
+          "output_config": {
+            "effort": "low"
+          },
+          "stream": true,
+          "system": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "You are a fixture assistant.",
+              "type": "text"
+            }
+          ],
+          "thinking": {
+            "type": "adaptive"
+          },
+          "tools": [
+            {
+              "description": "Read a value",
+              "eager_input_streaming": true,
+              "input_schema": {
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "type": "object"
+              },
+              "name": "lookup"
+            }
+          ]
+        },
+        "controlEfforts": [],
+        "messages": [
+          {
+            "content": "Hello.",
+            "role": "user"
+          },
+          {
+            "content": "Hi.",
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "Again.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "midConversation": false,
+        "outputConfig": {
+          "effort": "low"
+        },
+        "thinking": {
+          "type": "adaptive"
+        }
+      },
+      "history": [
+        {
+          "content": "You are a fixture assistant.",
+          "role": "system"
+        },
+        {
+          "content": "Hello.",
+          "role": "user"
+        },
+        {
+          "content": "Hi.",
+          "role": "assistant"
+        },
+        {
+          "content": "Again.",
+          "role": "user"
+        }
+      ],
+      "id": "turn-scoped.dated-dashed.api",
+      "mode": "anthropic",
+      "model": "claude-sonnet-5-5-2026-01-01",
+      "noProjection": true,
+      "options": {},
       "route": "anthropic",
       "tools": [
         {
@@ -10680,6 +11369,7 @@
       "id": "deferred-tools.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -10880,6 +11570,7 @@
       "id": "deferred-tools.no-updates.oauth",
       "mode": null,
       "model": "claude-sonnet-5-4",
+      "noProjection": false,
       "options": {},
       "route": "anthropic-oauth",
       "tools": [
@@ -11114,6 +11805,7 @@
       "id": "deferred-tools.api",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -11308,6 +12000,7 @@
       "id": "deferred-tools.no-updates.api",
       "mode": null,
       "model": "claude-sonnet-5-4",
+      "noProjection": false,
       "options": {},
       "route": "anthropic",
       "tools": [
@@ -11510,6 +12203,7 @@
       "id": "seed-from-options.oauth",
       "mode": "anthropic",
       "model": "claude-sonnet-5-5",
+      "noProjection": false,
       "options": {
         "effortConfiguration": {
           "effort": "high",

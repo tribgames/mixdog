@@ -90,6 +90,12 @@ for (const route of ['anthropic-oauth', 'anthropic']) {
   add(`gate.disabled.${suffix}`, route, SUPPORTED, 'update-before-user', { effortConfigurationEnabled: false });
   add(`gate.beta-headers-off.${suffix}`, route, SUPPORTED, 'update-before-user', { disableBetaHeaders: true });
 }
+// The turn-scoped layout takes `-YYYYMMDD` snapshot ids only: a dashed date is not that model.
+for (const route of ['anthropic-oauth', 'anthropic']) {
+  const suffix = route === 'anthropic-oauth' ? 'oauth' : 'api';
+  add(`turn-scoped.dated-compact.${suffix}`, route, 'claude-sonnet-5-5-20260101', 'unmarked', {}, { noProjection: true });
+  add(`turn-scoped.dated-dashed.${suffix}`, route, 'claude-sonnet-5-5-2026-01-01', 'unmarked', {}, { noProjection: true });
+}
 // No marked message: the session snapshot in the options seeds the update.
 // Deferred (tool-search) tools: `defer_loading` on the tool and the tool-search beta, both routes.
 for (const route of ['anthropic-oauth', 'anthropic']) {
@@ -124,15 +130,18 @@ export async function recordAnthropicEffort(tree, outFile) {
     const mode = config.effortConfigurationMode(c.route, c.model, options);
     let body;
     let betas;
+    // The anthropic-beta header actually sent; absent (null) when the route sends none.
+    let outgoingBeta = null;
     try {
       if (c.route === 'anthropic-oauth') {
         body = oauth._buildRequestBodyForCacheSmoke(history, c.model, tools, { effort: 'low', ...options });
         betas = oauth._test.buildOAuthBetaHeaders(body, { toolSearch: body.tools.some((t) => t?.defer_loading === true), model: c.model, opts: { effort: 'low', ...options } }).split(',');
+        outgoingBeta = betas.join(',');
       } else {
         const { disableBetaHeaders, ...opts } = options;
         const built = await api.buildAnthropicApiRequest({
           name: 'anthropic',
-          config: { disableBetaHeaders },
+          config: { disableBetaHeaders, baseURL: options.baseURL },
           messages: history,
           useModel: c.model,
           tools,
@@ -141,10 +150,11 @@ export async function recordAnthropicEffort(tree, outFile) {
         });
         body = built.params;
         betas = built.betas;
+        outgoingBeta = built.requestHeaders?.['anthropic-beta'] ?? null;
       }
     } catch (error) {
       // A builder refusal is a recorded outcome (the manual budget on an adaptive-only model).
-      out.push({ id: c.id, route: c.route, model: c.model, options: c.options, history, mode, error: String(error.message) });
+      out.push({ id: c.id, route: c.route, model: c.model, options: c.options, tools, history, mode, error: String(error.message) });
       continue;
     }
     const controls = body.messages.filter((m) => m.role === 'system');
@@ -156,9 +166,11 @@ export async function recordAnthropicEffort(tree, outFile) {
       tools,
       history,
       mode,
+      // No effort projection reaches the request builder: only the layout gates apply.
+      noProjection: c.noProjection === true,
       expected: {
         body,
-        betaHeader: betas.join(','),
+        betaHeader: outgoingBeta,
         messages: body.messages,
         outputConfig: body.output_config ?? null,
         thinking: body.thinking ?? null,

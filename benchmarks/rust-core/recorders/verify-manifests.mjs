@@ -7,7 +7,7 @@ import { join, relative, sep } from 'node:path';
 import { FIXTURES_ROOT, parseArgs, sha256, walkFiles, writeJson } from './lib/common.mjs';
 
 const args = parseArgs();
-const SETS = ['providers', 'providers-intercepted', 'tools', 'desktop', 'session-state', 'lifecycle', 'migration/ledger-v145', 'providers-ai-other', 'remote-e2ee'];
+const SETS = ['providers', 'providers-intercepted', 'tools', 'desktop', 'session-state', 'lifecycle', 'migration/ledger-v145', 'migration/session-summary','providers-ai-other', 'remote-e2ee'];
 let bad = 0;
 const index = [];
 for (const set of SETS) {

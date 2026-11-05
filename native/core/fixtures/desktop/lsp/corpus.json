@@ -30,13 +30,11 @@
           "version": 1
         }
       ],
-      "op": "lspDocument",
-      "result": {
-        "available": false,
-        "detail": "rust-analyzer did not finish initializing. error: Unknown binary 'rust-analyzer.exe' in official toolchain 'stable-x86_64-pc-windows-msvc'. Retrying after 1s.",
-        "server": "rust-analyzer",
-        "status": "error"
-      }
+      "error": {
+        "message": "recorder timeout after 20s",
+        "name": "Error"
+      },
+      "op": "lspDocument"
     },
     {
       "args": [
@@ -160,33 +158,22 @@
         {
           "name": "terminal-data",
           "value": {
-            "data": "\u001b[?25l\u001b[8;30;100t\u001b[HPS <WORK>\\project> \u001b[93mecho \u001b[37mMIXDOG_FIXTURE_MARKER\u001b[K\u001b[m\r\nMIXDOG_FIXTURE_MARKER\u001b[K\r\nPS <WORK>\\project>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[4;89H\u001b[?25h",
-            "id": "term_12300_1"
+            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[H\u001b]0;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\u0007\u001b[?25h",
+            "id": "term_54960_1"
           }
         },
         {
           "name": "terminal-data",
           "value": {
             "data": "\u001b[?9001l\u001b[?1004l",
-            "id": "term_12300_1"
+            "id": "term_54960_1"
           }
         },
         {
           "name": "terminal-data",
           "value": {
             "data": "\r\n[process exited with code -1073741510]\r\n",
-            "id": "term_12300_1"
-          }
-        },
-        {
-          "name": "lsp-status",
-          "value": {
-            "available": false,
-            "detail": "rust-analyzer did not finish initializing. error: Unknown binary 'rust-analyzer.exe' in official toolchain 'stable-x86_64-pc-windows-msvc'. Retrying after 1s.",
-            "languageId": "rust",
-            "projectPath": "<WORK>\\project",
-            "server": "rust-analyzer",
-            "status": "error"
+            "id": "term_54960_1"
           }
         }
       ],

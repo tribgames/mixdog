@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, REPO_ROOT, parseArgs, resolveTree, sha256, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, stageSet, REPO_ROOT, parseArgs, resolveTree, sha256, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -57,8 +57,8 @@ const { claimSingletonOwner, refreshSingletonOwner, refreshSingletonOwnerAsync, 
 // ---- barrier bytes (LR §2.2) -----------------------------------------------
 const BARRIER = '4294967296 0 mixdog-barrier-v1:fixture-instance\n';
 const RECORD = '{"kind":"mixdog-daemon","pid":"Update Mixdog to continue","protocol":2,"version":"1.4.6"}\n';
-const outDir = join(FIXTURES_ROOT, 'lifecycle');
-rmSync(outDir, { recursive: true, force: true });
+const finalDir = join(FIXTURES_ROOT, 'lifecycle');
+const outDir = stageSet(finalDir);
 writeText(join(outDir, 'barrier', 'daemon-owner.json.claim.lock'), BARRIER);
 writeText(join(outDir, 'barrier', 'daemon-owner.json'), RECORD);
 
@@ -143,5 +143,6 @@ writeSetManifest(outDir, {
   identityTree: tagTree,
   identityRef: tagCommit,
 });
+commitStage(outDir, finalDir);
 rmSync(work, { recursive: true, force: true });
 console.log(JSON.stringify({ barrierUnit, daemon: { exit: run.status, lines: exitLine.length } }, null, 1));

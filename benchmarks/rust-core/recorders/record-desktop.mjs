@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -152,8 +152,9 @@ await step('ports', 'parseLsofListen', [lsof], () => ports.parseLsofListen(lsof)
 await step('ports', 'parseProcNetTcp', [proc4, 4], () => ports.parseProcNetTcp(proc4, 4), []);
 await step('ports', 'mergeListeningSockets', ['lsof', 100], () => ports.mergeListeningSockets(ports.parseLsofListen(lsof), 100), []);
 
-const outDir = join(FIXTURES_ROOT, 'desktop');
-rmSync(outDir, { recursive: true, force: true });
+// Only this recorder's own domains are replaced; settings/github/terminal/... belong to record-desktop-services.
+const finalDir = join(FIXTURES_ROOT, 'desktop');
+const outDir = stageSet(finalDir, Object.keys(corpora));
 for (const [domain, cases] of Object.entries(corpora)) writeJson(join(outDir, domain, 'corpus.json'), { domain, cases });
 writeSetManifest(outDir, {
   set: 'desktop-golden-twin',
@@ -161,5 +162,6 @@ writeSetManifest(outDir, {
   command: 'node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>',
   extra: { domains: Object.fromEntries(Object.entries(corpora).map(([k, v]) => [k, v.length])) },
 });
+commitStage(outDir, finalDir);
 rmSync(work, { recursive: true, force: true });
 console.log(JSON.stringify(Object.fromEntries(Object.entries(corpora).map(([k, v]) => [k, v.length]))));

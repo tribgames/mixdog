@@ -1,0 +1,32 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-summary.mjs --tree <tree> [--corpus <migration-corpus>]",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 121007,
+      "path": "summaries.json",
+      "sha256": "748f110c90815dbdc1641c618bf969dd9a9c0fd58b3b853f217b72a731145469"
+    }
+  ],
+  "product": {
+    "appsSha256": "5b0bb7349c22f42a80a22abbbe631bf13fbd5983f962a36ad81675cd8bbcdd87",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9207,
+    "refComparison": {
+      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
+      "commitFilesMissingFromTree": 6,
+      "exact": false,
+      "filesDifferingFromCommit": 176
+    },
+    "srcSha256": "57324ea0209c5f1138d4de4f58183c0acdfb22b10f63d65cb48d821e153f4d21",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-summary.mjs",
+  "sessions": 59,
+  "set": "migration/session-summary",
+  "skipped": 0,
+  "totalBytes": 121007
+}

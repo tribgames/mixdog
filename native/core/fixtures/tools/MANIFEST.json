@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 102,
+  "fileCount": 109,
   "files": [
     {
       "bytes": 702,
@@ -371,19 +371,19 @@
       "sha256": "e99b16326060376ffc8a5131c32d95e31b61f43c69d5ae68b34e6fd098cb097f"
     },
     {
-      "bytes": 1913,
+      "bytes": 1908,
       "path": "office/create-docx.json",
-      "sha256": "06cc0e9e3585c9def69eaad5709c0c41b77c781ee42b4e99c5e525f48e412031"
+      "sha256": "d428c06a3a1dcc1d15e6819f8bc3c81831073add0a569f7809a6dd9401541f51"
     },
     {
-      "bytes": 1277,
+      "bytes": 1272,
       "path": "office/create-pptx.json",
-      "sha256": "d8b3a42264101b39e54065669347077431b3d244475df006b0445f1c2b805ade"
+      "sha256": "2443df9e1ccaa50c5fd143b14e014d0fa05185af5e0796aa45d95788af5b809f"
     },
     {
-      "bytes": 1899,
+      "bytes": 1895,
       "path": "office/create-xlsx.json",
-      "sha256": "88e9974a3efccd243e0711f06a1ea9baf8cea4611af30bd0fe8dbf5536c28f91"
+      "sha256": "1fce5b6beeeea9b68ffd540d5f05e3049720bcb1d64f604a78132e60bc044f21"
     },
     {
       "bytes": 6891,
@@ -401,9 +401,9 @@
       "sha256": "a490d5ec3ec016d059944cfba33067ca91bc1e0ed9abe0e5edb76107698ba944"
     },
     {
-      "bytes": 1409,
+      "bytes": 1413,
       "path": "office/detect.json",
-      "sha256": "d07ac0b5c955527a4a7568f4228e30013f05ee06a4acaf516c32661c176d510b"
+      "sha256": "57fecbd4892be2ac3f761fa2ea90a3410e854c0f8885aa1ca802b35542b687a7"
     },
     {
       "bytes": 246,
@@ -426,9 +426,9 @@
       "sha256": "3b1bdd4368b9be893023bbed4b26620e9c8db19ca0a4525c6f94353383d728f0"
     },
     {
-      "bytes": 1626,
+      "bytes": 1622,
       "path": "office/open-xlsx-batch.json",
-      "sha256": "0296c8fa93cb1552fa5c5e6a636760121131d0e08f81763014a5fb17573d1611"
+      "sha256": "725c927201010a7c07ebcb1e28541c12481a448988691ec2ba68c5107476f132"
     },
     {
       "bytes": 1137,
@@ -446,9 +446,9 @@
       "sha256": "92695cf8bfabef5b0a1eaeaa60a29daf6246476dae327d886e7053d5eeee8ee3"
     },
     {
-      "bytes": 1661,
+      "bytes": 1657,
       "path": "office/snapshot-csv.json",
-      "sha256": "5298b5e3cb9a56f4644f039b8d8428787112ad80c8c2f5866a6139ff3168d234"
+      "sha256": "1d1b82a3201df35f763940700cdbe613a6c921da168d509dd336d3227a942cac"
     },
     {
       "bytes": 142,
@@ -506,9 +506,44 @@
       "sha256": "f2a07872ed8467b9cd299ac9a08a25d557bd95011eadea10602cab72eedcaef3"
     },
     {
+      "bytes": 549,
+      "path": "shell/shell-background-start.json",
+      "sha256": "9dcc7cdbb7e1e40736c4cb3636a51003887ef7800886e3a585e646ea0b8c6c9e"
+    },
+    {
+      "bytes": 246,
+      "path": "shell/shell-cancelled-foreground.json",
+      "sha256": "d4bbd1ada88d4194fd3ad9787d773b528153fe86bdbc662fe0f4f27f8eb91114"
+    },
+    {
       "bytes": 137,
       "path": "shell/shell-echo.json",
       "sha256": "7fae529c699130e663336d75996c08e4037acb74c17433c9146edba473f5ae20"
+    },
+    {
+      "bytes": 586,
+      "path": "shell/shell-hold-expiry.json",
+      "sha256": "9c1099b4618572f534c0455454493fcd928c57ef45159d87e5883254399063cc"
+    },
+    {
+      "bytes": 273,
+      "path": "shell/shell-timeout.json",
+      "sha256": "c0c538f9c5669c9e2c69d63323e5b887fcd07ecb62f365cfb1946c87d5735376"
+    },
+    {
+      "bytes": 222,
+      "path": "shell/task-cancel-again.json",
+      "sha256": "26fba87b3b442879e82588d243b9bc806dccfaaad148aa0682c63eaba57fd86d"
+    },
+    {
+      "bytes": 173,
+      "path": "shell/task-cancel-running.json",
+      "sha256": "719d29e8b4b8d164cb1788a96a3a5e270d7aa9196aeff4cc9a2b288947ff0f9f"
+    },
+    {
+      "bytes": 254,
+      "path": "shell/task-read-cancelled.json",
+      "sha256": "10a51f415cb095aa3a0a448aeb3c1c387c19dba67b6b3220556d1ba302c7b43c"
     },
     {
       "bytes": 183,
@@ -563,11 +598,11 @@
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "commit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -579,5 +614,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs",
   "set": "tools",
-  "totalBytes": 489037
+  "totalBytes": 491322
 }

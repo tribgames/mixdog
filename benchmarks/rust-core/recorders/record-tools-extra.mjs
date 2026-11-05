@@ -46,7 +46,7 @@ const scrub = (text) =>
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<UUID>')
     .replace(/\b(office|sess|session)_[A-Za-z0-9]{6,}\b/g, '$1_<ID>')
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, '<TS>')
-    .replace(/"(elapsedMs|durationMs|ms)":\s*\d+/g, '"$1": 0');
+    .replace(/(\\*)"(elapsedMs|durationMs|ms)\1":\s*\d+(\.\d+)?/g, '$1"$2$1": 0');
 const { normalizeToolEnvelope } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/tool-envelope.mjs');
 const { executeBuiltinTool } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/builtin.mjs');
 const { executeCodeGraphTool } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/code-graph.mjs');

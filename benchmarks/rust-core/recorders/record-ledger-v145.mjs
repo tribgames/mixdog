@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, REPO_ROOT, parseArgs, resolveTree, sha256, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, stageSet, REPO_ROOT, parseArgs, resolveTree, sha256, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -87,9 +87,8 @@ for (const t of tables) {
 const meta = { userVersion: db.prepare('PRAGMA user_version').get().user_version, applicationId: db.prepare('PRAGMA application_id').get().application_id, journalMode: db.prepare('PRAGMA journal_mode').get().journal_mode };
 db.close();
 
-const outDir = join(FIXTURES_ROOT, 'migration', 'ledger-v145');
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+const finalDir = join(FIXTURES_ROOT, 'migration', 'ledger-v145');
+const outDir = stageSet(finalDir);
 copyFileSync(ledgerPath, join(outDir, 'ledger.sqlite'));
 writeJson(join(outDir, 'schema.json'), {
   counts: { tables: tables.length, indexes: byType('index').length, views: byType('view').length, triggers: byType('trigger').length },
@@ -112,6 +111,7 @@ writeSetManifest(outDir, {
     rowCounts: Object.fromEntries(Object.entries(tableInfo).map(([k, v]) => [k, v.rows])),
   },
 });
+commitStage(outDir, finalDir);
 rmSync(work, { recursive: true, force: true });
 console.log(JSON.stringify({ rowsRecorded: rows.length, counts: { tables: tables.length, indexes: byType('index').length, views: byType('view').length, triggers: byType('trigger').length }, rowCounts: Object.fromEntries(Object.entries(tableInfo).map(([k, v]) => [k, v.rows])) }));
 process.exit(0);

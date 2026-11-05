@@ -1,0 +1,9 @@
+{
+  "input": {
+    "command": "echo begin; Start-Sleep 30",
+    "timeout_ms": 1500
+  },
+  "isError": true,
+  "text": "Error: [shell-run-failed] [timeout: 1500ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\nbegin\n",
+  "tool": "shell"
+}
