@@ -4191,7 +4191,6 @@
   "Reset conversation": "会話をリセット",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "リセットを確認できませんでした（{{reason}}）。再試行しても安全です。",
   "Reset could not be confirmed. Retrying is safe.": "リセットを確認できませんでした。再試行しても安全です。",
-  "Reset credit {{index}}": "リセットクレジット{{index}}",
   "Reset credit details": "リセットクレジットの詳細",
   "Reset credits": "リセットクレジット",
   "Reset due": "リセット予定",

@@ -4191,7 +4191,6 @@
   "Reset conversation": "Đặt lại cuộc trò chuyện",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "Không thể xác nhận reset ({{reason}}). Thử lại an toàn.",
   "Reset could not be confirmed. Retrying is safe.": "Không thể xác nhận reset. Thử lại an toàn.",
-  "Reset credit {{index}}": "Tín dụng reset {{index}}",
   "Reset credit details": "Chi tiết tín dụng reset",
   "Reset credits": "Tín dụng reset",
   "Reset due": "Đến hạn reset",

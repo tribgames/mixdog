@@ -35,7 +35,7 @@ const SHELL = `
                 <span class="sidebar-usage-meters"><span class="sidebar-usage-meter"><small id="usage-window">5H</small><i><i style="width: 42%"></i></i><b id="usage-percent">42%</b><em id="usage-reset-at">2h 10m</em></span></span>
                 <div class="sidebar-usage-credit"><small id="usage-credits">Credits</small><span class="sidebar-usage-credit-value"><b id="usage-credit-value">$12.40</b><small class="sidebar-usage-credit-limit" id="usage-credit-limit"> · Monthly limit $50</small></span><button type="button" role="switch" class="sidebar-usage-credit-switch" aria-checked="false"></button></div>
                 <div class="sidebar-usage-reset-credit"><div class="sidebar-usage-reset-line"><small id="usage-reset">Reset credits</small><span class="sidebar-usage-credit-value"><b id="usage-reset-left">2 left</b></span></div>
-                  <ul class="sidebar-usage-reset-popover" role="dialog"><li><span id="reset-item">Reset credit 1</span><small id="reset-when">Expires in 3 days</small></li></ul></div>
+                  <ul class="sidebar-usage-reset-popover" role="dialog"><li><small id="reset-when">Expires in 3 days</small></li></ul></div>
               </div>
             </div></div>
           </section>
@@ -119,7 +119,6 @@ const SURFACES = {
     'usage-credit-limit',
     'usage-reset',
     'usage-reset-left',
-    'reset-item',
     'reset-when',
   ],
   'transcript-message': TRANSCRIPT.ids,

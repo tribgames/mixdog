@@ -4191,7 +4191,6 @@
   "Reset conversation": "重置对话",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "无法确认重置（{{reason}}）。可安全重试。",
   "Reset could not be confirmed. Retrying is safe.": "无法确认重置。可安全重试。",
-  "Reset credit {{index}}": "重置额度 {{index}}",
   "Reset credit details": "重置额度详情",
   "Reset credits": "重置额度",
   "Reset due": "待重置",
