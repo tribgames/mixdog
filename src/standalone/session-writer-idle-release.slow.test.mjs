@@ -3,7 +3,7 @@
 // `--plain` REPL writes through) opens it; work or a view keeps the lock.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -24,6 +24,8 @@ const { _clearSessionRuntime, _detachTurnController, _touchRuntime, markSessionD
 const { _dropPendingMessageState, drainPendingMessages, enqueuePendingMessage, settlePendingMessageWrites } =
   await import('../runtime/agent/orchestrator/session/manager/pending-messages.mjs');
 const { createSessionService } = await import('./session-service.mjs');
+// The record as a restarted process reads it (the log, never a cached copy).
+const { readDurableSessionRecord } = await import('../runtime/agent/orchestrator/session/store/transcript-durability.mjs');
 
 const PEER = fileURLToPath(
   new URL('../runtime/agent/orchestrator/session/store/session-writer-claim.fixture.mjs', import.meta.url)
@@ -43,7 +45,7 @@ function fixture(t, { deferService = false, external = false } = {}) {
     root,
     id,
     session: { id, generation: 0, closed: false, messages: [{ role: 'user', content: 'daemon-1' }] },
-    onDisk: () => JSON.parse(readFileSync(join(root, 'sessions', `${id}.json`), 'utf8')).messages.map((m) => m.content),
+    onDisk: () => readDurableSessionRecord(id).messages.map((m) => m.content),
     startService() {
       service = createSessionService({
         createSessionRuntime: async () => {

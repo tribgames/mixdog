@@ -17,8 +17,22 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
-import { deleteSession, evictIdleLiveSessions, loadSession, loadSessionStatus, saveSession } from '../store.mjs';
+import {
+  deleteSession,
+  drainSessionStore,
+  evictIdleLiveSessions,
+  getSessionSaveError,
+  hasPendingSessionWrite,
+  loadSession,
+  loadSessionStatus,
+  saveSession,
+  saveSessionAsync,
+} from '../store.mjs';
 import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs';
+import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
+import { releaseSessionWriter } from './session-writer-claim.mjs';
+import { _sessionLogIoForTest } from './session-log-writer.mjs';
+import { readDurableSessionRecord } from './transcript-durability.mjs';
 import {
   _clearSessionSaveState,
   _liveSessions,
@@ -164,6 +178,217 @@ test('a NUL-filled session file is absent, can be saved over, and a delete sets 
   const aside = readdirSync(dirname(f.path)).filter((name) => name.startsWith(`${f.id}.json.corrupt-`));
   assert.equal(aside.length, 1);
 });
+
+test('a debounced save that falls due while a delete runs writes nothing, and the delete leaves no lock held', async (t) => {
+  const f = fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  saveSession({ ...f.saved, messages: [{ role: 'user', content: 'debounced' }] });
+  const deleting = deleteSession(f.id);
+  // The debounce runs out while the delete is under way.
+  t.mock.timers.tick(1000);
+  assert.equal(await deleting, true);
+  // Another process could take the session's writer lock now.
+  const lockPath = join(dirname(dirname(f.path)), 'session-writer-locks', `${f.id}.lock`);
+  const other = acquireOsExclusiveLockSync(lockPath, { namespace: 'session-writer' });
+  assert.equal(other.held, true, 'the delete resolved with the writer lock still held');
+  other.release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    readdirSync(dirname(f.path)).filter((name) => name.startsWith(f.id)),
+    [],
+    'a file of the deleted session is there'
+  );
+  assert.equal(loadSession(f.id), null);
+});
+
+test('saves made while a delete runs wait behind it, then create the session anew; the delete holds nothing after it', async (t) => {
+  const f = fixture(t);
+  const lockPath = join(dirname(dirname(f.path)), 'session-writer-locks', `${f.id}.lock`);
+  assert.equal(await saveSessionAsync({ ...f.saved, messages: [{ role: 'user', content: 'saved' }] }), 'saved');
+  const deleting = deleteSession(f.id);
+  saveSession({ ...f.saved, messages: [{ role: 'user', content: 'debounced during the delete' }] });
+  const during = saveSessionAsync({ ...f.saved, messages: [{ role: 'user', content: 'awaited during the delete' }] });
+  assert.equal(hasPendingSessionWrite(f.id), true, 'the saves made during the delete are not accepted');
+  assert.equal(await deleting, true);
+  // The delete let its claim go before the saves behind it ran.
+  assert.equal(await during, 'saved');
+  // The awaited save is the newer one: it superseded the debounced copy.
+  assert.equal(hasPendingSessionWrite(f.id), false, 'a superseded debounced copy is still pending');
+  forgetSessionLoadCache(f.id);
+  assert.deepEqual(
+    readDurableSessionRecord(f.id).messages.map((message) => message.content),
+    ['awaited during the delete']
+  );
+  assert.equal(await releaseSessionWriter(f.id), true);
+  const other = acquireOsExclusiveLockSync(lockPath, { namespace: 'session-writer' });
+  assert.equal(other.held, true);
+  other.release();
+});
+
+test('a save made after a delete creates the session again from its copy, as v1.4.5 did', async (t) => {
+  const f = fixture(t);
+  // A copy read from the record, then the record deleted under it.
+  const loaded = loadSession(f.id);
+  assert.equal(await deleteSession(f.id), true);
+  loaded.messages = [...loaded.messages, { role: 'assistant', content: 'after the delete' }];
+  assert.equal(await saveSessionAsync(loaded, { expectedGeneration: loaded.generation }), 'saved');
+  forgetSessionLoadCache(f.id);
+  assert.deepEqual(
+    loadSession(f.id).messages.map((message) => message.content),
+    ['saved conversation', 'after the delete']
+  );
+  // The session is this process's again; its lock goes before the dir does.
+  assert.equal(await releaseSessionWriter(f.id), true);
+});
+
+const turns = async (count) => {
+  for (let i = 0; i < count; i++) await new Promise((resolve) => setImmediate(resolve));
+};
+
+test('overlapping deletes run one after the other, a save made meanwhile lands after both, and nothing acknowledged is deleted', async (t) => {
+  const f = fixture(t);
+  const copy = (...contents) => ({ ...f.saved, messages: contents.map((content) => ({ role: 'user', content })) });
+  assert.equal(await saveSessionAsync(copy('saved')), 'saved');
+  // A batch is mid-fsync when the first delete starts: it waits for it.
+  const io = _sessionLogIoForTest();
+  const realFsync = io.fsync;
+  let resume = null;
+  io.fsync = (fd, callback) => {
+    io.fsync = realFsync;
+    resume = () => realFsync(fd, callback);
+  };
+  t.after(() => {
+    io.fsync = realFsync;
+  });
+  const inFlight = saveSessionAsync(copy('saved', 'in flight'));
+  const first = deleteSession(f.id);
+  const second = deleteSession(f.id);
+  let secondEnded = false;
+  void second.then(() => (secondEnded = true));
+  await turns(20);
+  assert.equal(secondEnded, false, 'the second delete ended while the first was still under way');
+  let duringOutcome = null;
+  const during = saveSessionAsync(copy('during the deletes')).then((outcome) => (duringOutcome = outcome));
+  await turns(20);
+  assert.equal(duringOutcome, null, 'a save ran inside a delete accepted before it');
+  resume();
+  assert.deepEqual(await Promise.all([inFlight, first, second, during]), ['saved', true, true, 'saved']);
+  // The save came after both deletes: it created the session, and nothing deleted it.
+  await turns(20);
+  forgetSessionLoadCache(f.id);
+  assert.deepEqual(
+    readDurableSessionRecord(f.id).messages.map((message) => message.content),
+    ['during the deletes']
+  );
+  assert.equal(await releaseSessionWriter(f.id), true);
+});
+
+test('a delete whose unlink fails leaves the recorder, the live copy and its debounced save as they were', async (t) => {
+  const f = fixture(t);
+  const live = loadSession(f.id);
+  live.messages = [...live.messages, { role: 'user', content: 'saved' }];
+  assert.equal(await saveSessionAsync(live), 'saved');
+  live.messages = [...live.messages, { role: 'user', content: 'queued' }];
+  saveSession(live);
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = function (path, ...rest) {
+    if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+    return realUnlink.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await deleteSession(f.id), false);
+  } finally {
+    fs.unlinkSync = realUnlink;
+    syncBuiltinESMExports();
+  }
+  assert.equal(hasPendingSessionWrite(f.id), true, 'the debounced save was lost');
+  // The exit drain writes the live copy's debounced save where the log stands.
+  drainSessionStore();
+  assert.equal(getSessionSaveError(f.id), null);
+  forgetSessionLoadCache(f.id);
+  assert.deepEqual(
+    readDurableSessionRecord(f.id).messages.map((message) => message.content),
+    ['saved conversation', 'saved', 'queued']
+  );
+});
+
+test('a fresh save made during a delete that fails lands on the intact session', async (t) => {
+  const f = fixture(t);
+  const live = loadSession(f.id);
+  live.messages = [...live.messages, { role: 'user', content: 'saved' }];
+  assert.equal(await saveSessionAsync(live), 'saved');
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = function (path, ...rest) {
+    if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+    return realUnlink.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+  let deleted;
+  const fresh = { ...live, messages: [...live.messages, { role: 'user', content: 'fresh during the delete' }] };
+  try {
+    const deleting = deleteSession(f.id);
+    saveSession(fresh);
+    deleted = await deleting;
+  } finally {
+    fs.unlinkSync = realUnlink;
+    syncBuiltinESMExports();
+  }
+  assert.equal(deleted, false);
+  await turns(5);
+  // The live session is the fresh copy as it was submitted (taken when accepted).
+  assert.deepEqual(
+    loadSession(f.id).messages.map((message) => message.content),
+    fresh.messages.map((message) => message.content),
+    'the fresh copy is not the live session'
+  );
+  drainSessionStore();
+  forgetSessionLoadCache(f.id);
+  assert.deepEqual(
+    readDurableSessionRecord(f.id).messages.map((message) => message.content),
+    ['saved conversation', 'saved', 'fresh during the delete']
+  );
+});
+
+for (const awaited of [true, false]) {
+  test(`a${awaited ? 'n awaited' : ' debounced'} save accepted behind a delete that fails writes what was submitted, not what the caller changed after`, async (t) => {
+    const f = fixture(t);
+    const live = loadSession(f.id);
+    assert.equal(await saveSessionAsync(live), 'saved');
+    const realUnlink = fs.unlinkSync;
+    fs.unlinkSync = function (path, ...rest) {
+      if (String(path).includes(f.id)) throw Object.assign(new Error(`EACCES: injected, unlink '${path}'`), { code: 'EACCES' });
+      return realUnlink.call(this, path, ...rest);
+    };
+    syncBuiltinESMExports();
+    let deleted;
+    let saved;
+    try {
+      const deleting = deleteSession(f.id);
+      live.title = 'intended';
+      live.messages = [...live.messages, Object.freeze({ role: 'user', content: 'intended' })];
+      const saving = awaited ? saveSessionAsync(live) : (saveSession(live), Promise.resolve('debounced'));
+      // Changed after the save was submitted, and never submitted.
+      live.messages = [];
+      live.title = 'never submitted';
+      [deleted, saved] = await Promise.all([deleting, saving]);
+    } finally {
+      fs.unlinkSync = realUnlink;
+      syncBuiltinESMExports();
+    }
+    assert.equal(deleted, false);
+    assert.equal(saved, awaited ? 'saved' : 'debounced');
+    await turns(5);
+    drainSessionStore();
+    forgetSessionLoadCache(f.id);
+    const stored = readDurableSessionRecord(f.id);
+    assert.equal(stored.title, 'intended', 'the record holds a title nobody submitted');
+    assert.deepEqual(
+      stored.messages.map((message) => message.content),
+      ['saved conversation', 'intended']
+    );
+  });
+}
 
 test('a session file that is not JSON can still be deleted, its bytes kept aside', async (t) => {
   const f = fixture(t);

@@ -23,7 +23,8 @@ import { takePendingWrite } from './pending-writes.mjs';
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { loadSession } from './load-session.mjs';
 import { claimSessionWriter, releaseSessionWriter, sessionWriterRefusalError } from './session-writer-claim.mjs';
-import { finishRecorder, recorderFor } from './session-writers.mjs';
+import { endTenureAtBarrier, finishRecorder, recorderFor } from './session-writers.mjs';
+import { inSessionOrder } from './session-sequence.mjs';
 import { sessionRecordStampSync } from './session-log-reader.mjs';
 import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
 import { ABSENT_RECORD_STAMP } from './session-record.mjs';
@@ -114,7 +115,14 @@ function _recordAbsent(options) {
  * barrier ends this process's tenure, so the claim is given up; one that did
  * not land leaves a claim this process already held in place.
  */
-async function _asSessionWriter(id, reason, action, options, barrier) {
+function _asSessionWriter(id, reason, action, options, barrier) {
+  // One operation in the session's order (session-sequence.mjs): behind a
+  // delete accepted before it, it runs on what that delete left — an absent
+  // session reads as absent, an intact one is closed or detached as usual.
+  return inSessionOrder(id, 'barrier', () => _asSessionWriterNow(id, reason, action, options, barrier));
+}
+
+async function _asSessionWriterNow(id, reason, action, options, barrier) {
   let claim;
   try {
     claim = claimSessionWriter(id);
@@ -132,7 +140,9 @@ async function _asSessionWriter(id, reason, action, options, barrier) {
   try {
     result = await _runBarrier(id, reason, options, barrier);
   } finally {
-    if (typeof result === 'number' || claim.fresh) void releaseSessionWriter(id);
+    // Resolved only once the lock is gone: another process may open the
+    // session the moment a close or detach reports success.
+    if (typeof result === 'number' || claim.fresh) await releaseSessionWriter(id);
   }
   return result;
 }
@@ -178,6 +188,7 @@ async function _runBarrier(id, reason, options, barrier) {
     _recordLifecycleCommitFailure(id, err, reason);
     return null;
   }
+  endTenureAtBarrier(id);
   clearSessionSaveError(id);
   _clearLiveSession(id);
   _queueSessionSummaryUpsert(landed.record);

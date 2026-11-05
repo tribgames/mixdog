@@ -11,6 +11,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-compact-append-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 const { runSessionCompaction } = await import('./manager/compaction-runner.mjs');
 const { _touchRuntime } = await import('./manager/runtime-liveness.mjs');
+const { messageIdOf, withoutMessageIdsReplacer } = await import('./message-ids.mjs');
 
 test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 
@@ -191,5 +192,12 @@ test('a turn still in flight at commit keeps the live transcript untouched', asy
   assert.equal(result.changed, false);
   assert.match(result.error, /changed while compacting/);
   assert.equal(session.messages, live);
-  assert.deepEqual(session.messages, [...before, ...provisional]);
+  // The compaction stamped stable ids on the messages it ran on, replacing
+  // them (a recorded message is never edited in place); apart from those ids
+  // the transcript is exactly what it was, the turn's messages after it.
+  const withoutIds = (messages) => messages.map((message) => JSON.stringify(message, withoutMessageIdsReplacer));
+  assert.deepEqual(withoutIds(session.messages), withoutIds([...before, ...provisional]));
+  assert.ok(session.messages.slice(0, before.length).every((message) => messageIdOf(message)));
+  assert.equal(session.messages.at(-2), provisional[0]);
+  assert.equal(session.messages.at(-1), provisional[1]);
 });

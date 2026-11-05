@@ -107,13 +107,13 @@ test('a runtime start resolves its own data folder, not the first start of the p
   }
 
   const idA = await runInDataDir(dataA);
-  assert.ok(existsSync(join(dataA, 'sessions', `${idA}.json`)), 'the first run saved its session in its own folder');
+  assert.ok(existsSync(join(dataA, 'sessions', `${idA}.log.jsonl`)), 'the first run saved its session in its own folder');
   // A pristine boundary removes its folder once the run is over.
   rmSync(dataA, { recursive: true, force: true });
 
   const idB = await runInDataDir(dataB);
   assert.equal(process.env.MIXDOG_DATA_DIR, dataB, 'the runtime start kept the folder it was started with');
-  assert.ok(existsSync(join(dataB, 'sessions', `${idB}.json`)), 'the second run saved its session in its own folder');
+  assert.ok(existsSync(join(dataB, 'sessions', `${idB}.log.jsonl`)), 'the second run saved its session in its own folder');
   assert.equal(existsSync(dataA), false, 'the first run folder was not recreated by the second run');
   assert.deepEqual(
     logged.filter((line) => /ENOENT|durable lifecycle barrier/.test(line)),

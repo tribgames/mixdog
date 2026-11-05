@@ -2,7 +2,7 @@
 // session carries the new prompt with the new exposure, and a native ↔
 // bridge round trip at the boundary keeps native discoveries.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,8 @@ const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = root;
 
 const { saveSessionAsync } = await import('../store.mjs');
+// The record as a restarted process reads it (the log, never a cached copy).
+const { readDurableSessionRecord } = await import('../store/transcript-durability.mjs');
 const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
 const { migrateToolExposureAtBoundary } = await import('./tool-exposure-migration.mjs');
 const { applyDeferredToolSurface, selectDeferredTools } = await import('../../runtime-core/tool-catalog.mjs');
@@ -70,7 +72,7 @@ test('a saved boundary migration persists the bridge prompt with bridge-v1, neve
   assert.equal(session.messages[1], working[1], 'the canonical transcript takes the rewritten prompt');
   await saveSessionAsync(session);
 
-  const disk = JSON.parse(readFileSync(join(root, 'sessions', `${session.id}.json`), 'utf8'));
+  const disk = readDurableSessionRecord(session.id);
   assert.equal(disk.toolExposureMode, 'bridge-v1');
   const system = disk.messages.filter((message) => message.role === 'system').map((message) => message.content);
   assert.equal(system.join('\n').match(/<tool-bridge>/g)?.length, 1);

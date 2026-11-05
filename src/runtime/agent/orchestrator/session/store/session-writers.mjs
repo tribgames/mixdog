@@ -41,8 +41,20 @@ import { redactSensitiveText, sensitiveValuesVersion } from '../sensitive-values
 import { redactSensitiveMessage } from '../sensitive-projection.mjs';
 
 const _recorders = new Map(); // id → SessionLogRecorder
-const _bindings = new WeakMap(); // loaded session → { log | legacy, messages }
+const _bindings = new WeakMap(); // loaded session → { log | legacy, messages, released? }
 const _lastCopies = new Map(); // id → the copy last handed to its recorder this tenure
+// id → { logId, seq }: where a landed close/detach barrier left the log as
+// this process let the session go. Kept until a tenure here opens the log
+// again (never evicted: a forgotten end would admit an old copy as current).
+const _barrierEnds = new Map();
+// The records this process deleted, by identity: the logIds of deleted logs
+// and the sha1 of deleted legacy jsons. A copy bound to one of them (read
+// from that very record, or the copy its tenure last wrote) creates the
+// session anew once nothing of it is left, as in v1.4.5; any other copy of a
+// session gone from disk was deleted elsewhere and is refused. Never
+// evicted: a forgotten identity would refuse that copy.
+const _deletedLogIds = new Set();
+const _deletedJsons = new Set();
 
 /** Records what a loaded copy came from (`outcome`: the seam's resolution). */
 export function bindLoadedSession(session, outcome) {
@@ -74,6 +86,24 @@ function recorderOptions(id) {
 
 function changed(id) {
   return sessionWriterRefusalError({ id, reason: 'changed' });
+}
+
+// A late save of a copy issued before this process let the session go at a
+// barrier, taking the claim again by itself: while the log is still where
+// that barrier left it, only a copy read from it since (bound there, not the
+// barrier's own) may write. A writer entry that claimed the session first
+// (resume, turn open) is a new tenure and writes what it chooses.
+function releasedAtBarrier(id, recorder, binding) {
+  const end = _barrierEnds.get(id);
+  if (!end || end.logId !== recorder.logId || end.seq !== recorder.seq) return false;
+  const readSince = binding?.log && !binding.released && binding.log.logId === end.logId && binding.log.seq === end.seq;
+  return !readSince;
+}
+
+function released(id) {
+  const error = new Error(`session ${id} was closed or detached here; this copy is from before that`);
+  error.code = SESSION_LOG_ERRORS.RELEASED;
+  return error;
 }
 
 function statOrNull(path) {
@@ -125,11 +155,11 @@ function openConverted(id, logPath, converted, binding) {
   return recorder;
 }
 
-function openRecorder(session) {
+function openRecorder(session, claimedNow) {
   const id = session.id;
   const jsonPath = sessionPath(id);
   const logPath = sessionLogPath(id);
-  const binding = _bindings.get(session) ?? null;
+  const binding = bindingOf(session);
   const options = recorderOptions(id);
   let recorder = null;
   if (existsSync(logPath)) {
@@ -150,6 +180,7 @@ function openRecorder(session) {
   }
   if (recorder && !divergedFrom(recorder, jsonPath)) {
     try {
+      if (claimedNow && releasedAtBarrier(id, recorder, binding)) throw released(id);
       adoptBinding(recorder, binding, id);
     } catch (err) {
       recorder.closeUnused();
@@ -174,7 +205,9 @@ function openRecorder(session) {
     const converted = convertLegacySession({ jsonPath, logPath, loadLegacy: loadLegacySession, claim: options.claim });
     return openConverted(id, logPath, converted, binding);
   }
-  if (binding) throw changed(id); // its record is gone (deleted elsewhere)
+  // Its record is gone: deleted elsewhere, the copy is refused; a copy of the
+  // record this process deleted creates the session again.
+  if (binding && !boundToDeletedRecord(binding)) throw changed(id);
   return createSessionLog({ logPath, session, ...options });
 }
 
@@ -198,22 +231,90 @@ function retireRecorder(id, recorder) {
 
 /**
  * The recorder of `session`'s id, opened (or created, or converted from the
- * legacy json) when this tenure has none yet. The caller holds the claim.
- * Throws ESESSIONCHANGED for a copy the log moved past, or the conversion's
- * error.
+ * legacy json) when this tenure has none yet. The caller holds the claim;
+ * `claimedNow`: the caller's save just took it. Throws ESESSIONCHANGED for a
+ * copy the log moved past, ESESSIONRELEASED for a copy from before a close or
+ * detach here (releasedAtBarrier), or the conversion's error.
  */
-export function recorderFor(session) {
+export function recorderFor(session, { claimedNow = false } = {}) {
   const id = session.id;
   const open = _recorders.get(id);
+  // A copy accepted for a save (acceptSessionCopy) stands for its owner: that
+  // is the copy a tenure's end binds.
+  const copy = ownerOf(session);
   if (open && !open.finished && open.atLogEnd) {
-    _lastCopies.set(id, session);
+    _lastCopies.set(id, copy);
     return open;
   }
   if (open) retireRecorder(id, open);
-  _lastCopies.set(id, session);
-  const recorder = openRecorder(session);
+  _lastCopies.set(id, copy);
+  const recorder = openRecorder(session, claimedNow);
   _recorders.set(id, recorder);
+  _barrierEnds.delete(id);
   return recorder;
+}
+
+// accepted copy → its owner: the session no accepted copy was taken from at
+// the root of its provenance (acceptSessionCopy). Always one hop.
+const _copyOf = new WeakMap();
+
+/** The session `session` stands for: its owner when it is an accepted copy. */
+function ownerOf(session) {
+  return _copyOf.get(session) ?? session;
+}
+
+/** `copy` is what a save of `original` means, taken when it was accepted
+ *  (store.mjs). An accepted copy becomes the live session and can be saved
+ *  again, so `original` may itself be one: `copy` is linked to its owner,
+ *  never to it. It is judged by the owner's binding as that stands when the
+ *  save runs, and a tenure's end binds the owner. */
+export function acceptSessionCopy(copy, original) {
+  _copyOf.set(copy, ownerOf(original));
+}
+
+function bindingOf(session) {
+  return _bindings.get(ownerOf(session)) ?? null;
+}
+
+function boundToDeletedRecord(binding) {
+  if (binding.log) return _deletedLogIds.has(binding.log.logId);
+  return binding.legacy ? _deletedJsons.has(binding.legacy) : false;
+}
+
+/** Resolves once everything `id`'s open recorder accepted so far has landed
+ *  (a rewrite in flight included) or failed; it stays open. */
+export async function settleRecorder(id) {
+  await openRecorderOf(id)
+    ?.flush()
+    .catch(() => {});
+}
+
+/**
+ * The files of `id` are gone (`record`: { logId, jsonSha1 } of what was
+ * removed): its recorder is discarded and closed, the copy its tenure last
+ * wrote is bound to the deleted log, and both identities are remembered, so
+ * copies of exactly that record create the session anew.
+ */
+export async function forgetDeletedRecorder(id, { logId = null, jsonSha1 = null } = {}) {
+  if (logId) _deletedLogIds.add(logId);
+  if (jsonSha1) _deletedJsons.add(jsonSha1);
+  _barrierEnds.delete(id);
+  const recorder = _recorders.get(id);
+  const copy = _lastCopies.get(id);
+  _lastCopies.delete(id);
+  if (!recorder) return;
+  _recorders.delete(id);
+  _deletedLogIds.add(recorder.logId);
+  if (copy) _bindings.set(copy, { log: { logId: recorder.logId, seq: recorder.seq }, messages: null });
+  recorder.discard();
+  await recorder.close().catch(() => {});
+}
+
+/** A close/detach barrier of `id` landed: this tenure ends there. Its copies
+ *  (the barrier's included) never write again while the log stays put. */
+export function endTenureAtBarrier(id) {
+  const recorder = _recorders.get(id);
+  if (recorder) _barrierEnds.set(id, { logId: recorder.logId, seq: recorder.seq });
 }
 
 const _redactedVersions = new Map(); // id → sensitive-values version the files were rewritten for
@@ -284,8 +385,16 @@ export async function finishRecorder(id, { discard = false } = {}) {
   // The copy this tenure wrote is bound to where the log stands now: once
   // another process writes the session, a later save of it is refused
   // (ESESSIONCHANGED) instead of being recorded over that process's records.
+  const end = _barrierEnds.get(id);
+  const atBarrier = end?.logId === recorder.logId;
+  // Records queued behind the barrier landed with it: the tenure ends after them.
+  if (atBarrier && closed) _barrierEnds.set(id, { logId: recorder.logId, seq: recorder.seq });
   if (closed && copy && !discard) {
-    _bindings.set(copy, { log: { logId: recorder.logId, seq: recorder.seq }, messages: recorder.recordedMessages() });
+    _bindings.set(copy, {
+      log: { logId: recorder.logId, seq: recorder.seq },
+      messages: recorder.recordedMessages(),
+      released: atBarrier,
+    });
   }
 }
 
