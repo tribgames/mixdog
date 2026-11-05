@@ -175,6 +175,9 @@ async function statOrNull(path) {
  *             loader `(text) => session | null` (imported by the worker)
  *   claimFor  (id) => { held, claim: { assertHeld }, release() }
  *   signal    stops between files (exit)
+ *   onPublished  ({ id, json: { mtimeMs, size }, size }) runs synchronously
+ *             right after a base is published (`json`: the json it was
+ *             proven on, `size`: the base's byte length)
  * Resolves with { total, migrated, converted, skipped: {reason: n}, bytes,
  * ms, aborted, complete }.
  */
@@ -185,6 +188,7 @@ export async function migrateLegacySessions({
   claimFor,
   signal = null,
   log = () => {},
+  onPublished = () => {},
   createWorker = (url, options) => new Worker(url, options),
 }) {
   const startedAt = Date.now();
@@ -249,7 +253,11 @@ export async function migrateLegacySessions({
           record(MIGRATION_SKIP.BUSY, null);
         } else {
           try {
-            await publishLegacyBase(reply.prepared, { claim: holder.claim });
+            publishLegacyBase(reply.prepared, { claim: holder.claim });
+            // Synchronously after the publish, under the claim: nothing can
+            // have appended to the log yet, so it is still exactly its base.
+            const { legacy, size } = reply.prepared;
+            onPublished({ id, json: { mtimeMs: legacy.mtimeMs, size: legacy.size }, size });
             delete progress.skipped[id];
             report.migrated += 1;
             report.bytes += reply.prepared.size;

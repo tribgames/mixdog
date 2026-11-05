@@ -36,12 +36,20 @@ export function storedSessionSync(dir, id, ensureLifecycle = true) {
 }
 
 export async function storedSessionAsync(dir, id, ensureLifecycle = true) {
-  if (!isSessionRecordId(id)) return null;
+  return (await storedSessionRecordAsync(dir, id, ensureLifecycle)).session;
+}
+
+/** storedSessionAsync as `{ session, logLegacy }`: `logLegacy` the base
+ *  `legacy` of the log the session was read from (null for a log built from
+ *  no json), undefined when the record is not a log. */
+export async function storedSessionRecordAsync(dir, id, ensureLifecycle = true) {
+  if (!isSessionRecordId(id)) return { session: null, logLegacy: undefined };
   let outcome;
   try {
     outcome = await readSessionRecord(dir, id, { loadLegacy: legacyLoader(ensureLifecycle) });
   } catch (err) {
-    return isAbsentReadError(err) ? null : STORED_SESSION_UNREADABLE;
+    return { session: isAbsentReadError(err) ? null : STORED_SESSION_UNREADABLE, logLegacy: undefined };
   }
-  return storedOf(outcome, id, ensureLifecycle);
+  const session = storedOf(outcome, id, ensureLifecycle);
+  return { session, logLegacy: session && isLogRecord(outcome) ? outcome.log.legacy : undefined };
 }

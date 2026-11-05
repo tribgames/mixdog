@@ -356,6 +356,9 @@ function _normalizeSummaryRow(row) {
     generation: typeof row.generation === 'number' ? row.generation : 0,
     storageMtimeMs: _positiveNumber(row.storageMtimeMs, 0),
     storageSize: _positiveNumber(row.storageSize, 0),
+    // A row of a session log: what the json beside it may look like for the
+    // log to stay the record (session-record.mjs logLegacyProof).
+    ...(typeof row.storageLegacy === 'string' ? { storageLegacy: row.storageLegacy } : {}),
     detachedReason: row.detachedReason || null,
     importKey: importKey(row),
     inheritedFromSessionId: inheritedFromSessionId(row),
@@ -445,6 +448,7 @@ const SUMMARY_RETRY_DELAY_MS = 1000;
 const SUMMARY_LOG_COMPACT_BYTES = 1024 * 1024;
 const _pendingUpserts = new Map(); // id → summary row (latest wins)
 const _pendingRemovals = new Set(); // ids to drop (upsert/removal are mutually exclusive per id)
+const _pendingMoves = new Map(); // id → fingerprint move (store-summary-log.mjs `m` op)
 let _summaryRetryTimer = null;
 let _summaryFlushScheduled = false;
 let _summaryFlushInflight = 0;
@@ -456,6 +460,7 @@ export function _hasUnsettledSummaryOps() {
   return (
     _pendingUpserts.size > 0 ||
     _pendingRemovals.size > 0 ||
+    _pendingMoves.size > 0 ||
     _summaryFlushScheduled ||
     _summaryFlushInflight > 0 ||
     _summaryRewritesInflight > 0
@@ -535,7 +540,7 @@ function _scheduleSummaryFlush() {
 }
 
 export function _flushPendingSummaryOps({ sync = false } = {}) {
-  if (_pendingUpserts.size === 0 && _pendingRemovals.size === 0) return;
+  if (_pendingUpserts.size === 0 && _pendingRemovals.size === 0 && _pendingMoves.size === 0) return;
   // One async flush in flight per process; ops queued meanwhile stay pending
   // and are drained by the follow-up flush scheduled when it settles.
   if (!sync && (_summaryFlushInflight > 0 || _summaryAppendHolds > 0)) return;
@@ -544,8 +549,10 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
   // (without clobbering anything newer queued meanwhile).
   const upserts = new Map(_pendingUpserts);
   const removals = new Set(_pendingRemovals);
+  const moves = new Map(_pendingMoves);
   _pendingUpserts.clear();
   _pendingRemovals.clear();
+  _pendingMoves.clear();
   const cleanUpserts = [];
   for (const row of upserts.values()) {
     const cleanRow = _normalizeSummaryRow(row);
@@ -562,14 +569,15 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
     for (const id of removals) {
       if (!_pendingUpserts.has(id)) _pendingRemovals.add(id);
     }
+    for (const [id, move] of moves) if (!_pendingMoves.has(id)) _pendingMoves.set(id, move);
     _scheduleSummaryRetry();
   };
   // Exit-drain path needs the synchronous write (the loop may not pump
   // after 'exit'). Normal scheduled flushes on the lead/TUI main process
   // use the async try-lock: the lock WAIT is off the event loop, so a
   // busy multi-MB index never freezes typing/rendering.
-  if (cleanUpserts.length === 0 && removals.size === 0) return;
-  const text = encodeSummaryOps(cleanUpserts, removals);
+  if (cleanUpserts.length === 0 && removals.size === 0 && moves.size === 0) return;
+  const text = encodeSummaryOps(cleanUpserts, removals, moves.values());
   const path = summaryIndexPath();
   if (sync) {
     // Exit drain: append only (never compact — that is a full rewrite).
@@ -753,6 +761,14 @@ export function _upsertSessionSummaryRow(row) {
   _pendingRemovals.delete(row.id);
   _pendingUpserts.set(row.id, row);
   _scheduleSummaryFlush();
+}
+
+/** Queues fingerprint moves (`{ id, from, to }`): each row that still
+ *  describes the record file `from` is re-pointed at `to`, a session log that
+ *  holds exactly that record (see store-summary-log.mjs). */
+export function _moveSessionSummaryFingerprints(moves) {
+  for (const move of moves) if (typeof move?.id === 'string') _pendingMoves.set(move.id, move);
+  if (_pendingMoves.size > 0) _scheduleSummaryFlush();
 }
 
 export function _removeSessionSummary(id) {

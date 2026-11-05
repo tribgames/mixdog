@@ -197,7 +197,9 @@ async function _write(session, opts, summaryVersion) {
     _recordSaveFailure(id, err);
     throw err;
   }
-  _queueSessionSummaryUpsertRow(row, summaryVersion);
+  // The recorder wrote its log only after proving the json beside it still
+  // leaves the log the record: its base's legacy is the row's log proof.
+  _queueSessionSummaryUpsertRow(row, summaryVersion, { logLegacy: recorder.legacy ?? null });
   recordLandedTranscript(accepted?.original ?? session, transcript);
   _recordSaveLanded(id);
   return SAVE_OUTCOME_SAVED;

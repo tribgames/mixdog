@@ -19,6 +19,7 @@ import {
   ABSENT_RECORD_STAMP,
   isAbsentReadError,
   isSettledRecordStamp,
+  logLegacyProof,
   readSessionRecordStep,
   recordSession,
   presentFilesKeepStamp,
@@ -26,6 +27,7 @@ import {
   sessionRecordFiles,
   sessionRecordPresenceOfNames,
   sessionRecordStampStep,
+  stampKeepsLogRecord,
   stampMatchesPresence,
 } from './store/session-record.mjs';
 // The catalog's reads are store-read steps: the ordinary catalog runs them
@@ -38,6 +40,7 @@ import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './stor
 import {
   SUMMARY_PAIR_ATTEMPTS,
   applySummaryLogText,
+  movedSummaryRow,
   summaryBaseIdentityStep,
   summaryLogPath,
 } from './store-summary-log.mjs';
@@ -385,14 +388,16 @@ function* reconcileSessionFileSteps(directory, storageId, retained, forceRead) {
   // Provably gone: the row legitimately disappears with the record.
   if (stamp === ABSENT_RECORD_STAMP) return null;
   const fingerprint = { stamp, ...recordStampFingerprint(stamp) };
-  if (
-    !forceRead &&
-    retained &&
+  const describesFile = (file) =>
+    Boolean(retained) &&
     retained.storageMtimeMs > 0 &&
     retained.storageSize > 0 &&
-    retained.storageMtimeMs === fingerprint.mtimeMs &&
-    retained.storageSize === fingerprint.size
-  ) {
+    retained.storageMtimeMs === file.mtimeMs &&
+    retained.storageSize === file.size;
+  // A row of a log also needs the json beside it to leave the log the record
+  // (a json an older build rewrote is the record then): stats only, the
+  // seam's own rule (stampKeepsLogRecord).
+  if (!forceRead && describesFile(fingerprint) && stampKeepsLogRecord(stamp, indexRowLogProof.get(retained))) {
     return { kind: 'indexed', ...fingerprint };
   }
   // A record the index does not describe (never saved by the store, or
@@ -404,7 +409,10 @@ function* reconcileSessionFileSteps(directory, storageId, retained, forceRead) {
     storageId,
     (outcome) => {
       const session = recordSession(outcome, storageId);
-      return session ? rowFromSession(session) : null;
+      const row = session ? rowFromSession(session) : null;
+      if (!row) return null;
+      const fromLog = outcome.kind === 'log' || outcome.kind === 'orphan';
+      return { row, base: conversionBaseOf(outcome), proof: fromLog ? logLegacyProof(outcome.log.legacy) : null };
     },
     { loadLegacy: loadCatalogLegacy, stamp }
   );
@@ -413,15 +421,36 @@ function* reconcileSessionFileSteps(directory, storageId, retained, forceRead) {
   // rather than let a transient IO error delete it from view.
   if (read.state !== PROBE_PRESENT) return UNREADABLE_ENTRY;
   if (!read.value) return { kind: 'none', ...fingerprint };
+  const { base, proof } = read.value;
+  // The read proved the log is the record. The index row describes it when
+  // it was written from the json this log is still exactly the conversion
+  // of, or from this very log (only its json proof was missing or stale).
+  // `moved` asks the index owner to re-point the row at the log with that
+  // proof, so the read is not repeated.
+  if (!forceRead && proof !== null && ((base && describesFile(base)) || describesFile(fingerprint))) {
+    const from = { mtimeMs: retained.storageMtimeMs, size: retained.storageSize };
+    return { kind: 'indexed', ...fingerprint, moved: { from, proof } };
+  }
   return {
     kind: 'row',
     row: deepFreeze({
-      ...structuredClone(read.value),
+      ...structuredClone(read.value.row),
       storageMtimeMs: fingerprint.mtimeMs,
       storageSize: fingerprint.size,
     }),
     ...fingerprint,
   };
+}
+
+/** `{ mtimeMs, size }` of the legacy json a log is the untouched conversion
+ *  of (its base and nothing after it, written from that json), or null. */
+function conversionBaseOf(outcome) {
+  if (outcome?.kind !== 'log' && outcome?.kind !== 'orphan') return null;
+  const { log } = outcome;
+  const pristine =
+    log.valid && log.seq === 1 && log.prev === null && !log.tornTail && !log.damage && log.skipped.length === 0;
+  if (!pristine || !(Number(log.legacy?.mtimeMs) > 0) || !(Number(log.legacy?.size) > 0)) return null;
+  return { mtimeMs: log.legacy.mtimeMs, size: log.legacy.size };
 }
 
 /** Cached rows are shared by every listing that hands them out: frozen, so
@@ -570,6 +599,21 @@ const NO_INDEX_ROWS = new Map();
 const NEWLINE = 0x0a;
 let summaryIndexSerial = 0;
 
+// The log proof (`storageLegacy`, see session-record.mjs logLegacyProof) of
+// each index row: not a catalog field, so neither listings nor the catalog DB
+// carry it; only the reconcile reads it.
+const indexRowLogProof = new WeakMap();
+
+/** The frozen catalog row of a raw index row (null when it is none), with
+ *  its log proof kept beside it. */
+function indexRowOf(raw) {
+  const row = normalizedRow(raw);
+  if (!row) return null;
+  deepFreeze(row);
+  if (typeof raw.storageLegacy === 'string') indexRowLogProof.set(row, raw.storageLegacy);
+  return row;
+}
+
 function sameOptionalStamp(left, right) {
   return (!left && !right) || sameSessionStamp(left, right);
 }
@@ -651,14 +695,20 @@ function* readSummaryIndexSteps(cached) {
         }
         // Same semantics as applySummaryLogText: last writer wins per id.
         if (op?.u && typeof op.u.id === 'string') {
-          const row = normalizedRow(op.u);
-          if (row) rowsById.set(row.id, deepFreeze(row));
+          const row = indexRowOf(op.u);
+          if (row) rowsById.set(row.id, row);
           else rowsById.delete(op.u.id);
           touched.add(op.u.id);
         } else if (Array.isArray(op?.r)) {
           for (const id of op.r) {
             rowsById.delete(id);
             touched.add(id);
+          }
+        } else if (typeof op?.m?.id === 'string') {
+          const moved = movedSummaryRow(rowsById.get(op.m.id), op.m);
+          if (moved) {
+            rowsById.set(op.m.id, indexRowOf(moved));
+            touched.add(op.m.id);
           }
         }
       }
@@ -686,9 +736,8 @@ function* readSummaryIndexSteps(cached) {
       }
     }
     const rows = applySummaryLogText({ rows: baseRows ?? [] }, index.logBytes.toString('utf8'))
-      .rows.map((row) => normalizedRow(row))
-      .filter(Boolean)
-      .map(deepFreeze);
+      .rows.map(indexRowOf)
+      .filter(Boolean);
     for (const row of rows) index.signatures.set(row.id, JSON.stringify(row));
     if (baseRows) {
       index.rows = rows;
@@ -853,6 +902,7 @@ export function createOrdinaryCatalog() {
   // Bumped by clear(): a build that started before it must not install.
   let clearEpoch = 0;
   let building = null;
+  const reportedMoves = new WeakSet();
 
   function adoptIndex({ index, cacheable }) {
     if (cacheable) summaryIndexCache = index;
@@ -1046,6 +1096,20 @@ export function createOrdinaryCatalog() {
     /** The row `id` contributes to the current catalog. */
     entryRow: (catalog, id) => entryRow(catalog.entries.get(id), id, catalog.index.rowsById),
     current: () => sessionCatalog,
+    /** Index fingerprint moves (`{ id, from, to }`, see store-summary-log.mjs)
+     *  for the entries of the current catalog that matched their index row
+     *  only through the log's conversion base; each entry is handed out once. */
+    takeIndexMoves() {
+      const moves = [];
+      if (!sessionCatalog) return moves;
+      for (const [id, entry] of sessionCatalog.entries) {
+        if (!entry.moved || reportedMoves.has(entry)) continue;
+        reportedMoves.add(entry);
+        const { from, proof } = entry.moved;
+        moves.push({ id, from, to: { mtimeMs: entry.mtimeMs, size: entry.size, legacy: proof } });
+      }
+      return moves;
+    },
     /** `listener()` runs when a background pass finds a session file that
      *  changed without a directory or index change. Returns the unsubscribe. */
     subscribe(listener) {

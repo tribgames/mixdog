@@ -10,6 +10,8 @@ import { join } from 'node:path';
 import { readSingletonOwner } from '../../../../shared/singleton-owner.mjs';
 import { dataDir } from '../store-summary-locations.mjs';
 import { getStoreDir } from './session-paths.mjs';
+import { logLegacyProof, recordStampFingerprint, sessionRecordStampOfSync } from './session-record.mjs';
+import { _moveSessionSummaryFingerprints } from '../store-summary-index.mjs';
 import { LEGACY_SESSION_LOADER } from './legacy-session.mjs';
 import { migrateLegacySessions, sessionLogMigrationProgressPath } from './session-log-migration.mjs';
 import {
@@ -20,6 +22,21 @@ import {
 } from './session-writer-claim.mjs';
 
 let _started = null;
+
+/** The migration's onPublished: the session's summary-index row, written from
+ *  the json the new log was proven on, now describes that log. Left stale, every
+ *  start would read every log again to learn what the row already says. */
+export function repointSummaryRow({ id, json, size }) {
+  let to;
+  try {
+    to = recordStampFingerprint(sessionRecordStampOfSync(getStoreDir(), id));
+  } catch {
+    return;
+  }
+  // Only the base itself: anything else is described by its own save's row.
+  if (to?.size !== size) return;
+  _moveSessionSummaryFingerprints([{ id, from: json, to: { ...to, legacy: logLegacyProof(json) } }]);
+}
 
 /** The migration's claimFor (session-log-migration.mjs): `id`'s writer claim,
  *  taken here unless another process holds it. */
@@ -62,6 +79,7 @@ export function startSessionLogMigration() {
         loader: LEGACY_SESSION_LOADER,
         claimFor,
         log: (line) => process.stderr.write(`[session-log-migration] ${line}\n`),
+        onPublished: repointSummaryRow,
       });
       process.stderr.write(
         `[session-log-migration] migrated=${report.migrated} converted=${report.converted} total=${report.total} ` +

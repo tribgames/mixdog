@@ -3,7 +3,7 @@
 // the daemon's own landed writes reach it as storage hints (ids only);
 // anything it cannot answer falls back to the JSON path.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
@@ -30,6 +30,10 @@ import { _hasUnsettledSummaryOps, settleSummaryIndexWrites } from '../store-summ
 import { settleSessionSummaryIndex } from '../store/listing.mjs';
 import { deleteSession } from '../store/session-delete.mjs';
 import { saveSessionAsync, saveSessionDurably } from '../store.mjs';
+import { applySummaryLogText } from '../store-summary-log.mjs';
+import { convertLegacySession } from '../store/session-log-writer.mjs';
+import { repointSummaryRow } from '../store/session-log-startup.mjs';
+import { loadLegacy } from '../store/session-log-legacy-loader.fixture.mjs';
 import {
   closeSessionCatalogDb,
   configureSessionCatalogDbForTest,
@@ -485,10 +489,11 @@ test('a dead worker is respawned and reopened; repeated deaths give up for a whi
   seed();
   await ready();
   // The worker dies (during a rebuild); the mismatch starts the rebuild,
-  // which kills the thread before it answers.
+  // which kills the thread after its first batch.
   configure({ crashAfterBatches: 1 });
   await db().testExec("DELETE FROM sessions WHERE id='lead_c'");
-  await assert.rejects(db().shadow(), /worker exited/);
+  assert.ok((await db().shadow()).missing > 0, 'the mismatch is reported');
+  await assert.rejects(db().settled(), /worker exited/);
   configure({ crashAfterBatches: undefined });
   // A hint while no worker runs is dropped: the respawned worker rescans.
   rewriteInPlace('lead_b', 'bravo two');
@@ -550,4 +555,63 @@ test('paging: one order (activity, then id) on both paths, ties across page boun
   const first = await db().list({ limit: 3, after: null });
   assert.deepEqual([ids(first.rows), first.more], [['new_1', 'tie_a', 'tie_b'], true], 'only the page crosses');
   await assert.rejects(listStoredSessionSummaryPage({ cursor: 'not-a-cursor' }), /invalid session catalog cursor/);
+});
+
+// v1.4.6 RC boot (daemon.log 2026-11-05T11:09Z): the session-log migration
+// left every index row describing the json, so each start strict-read every
+// log, and the first listing waited the whole resync (55 s) for it.
+test('a start after the session-log conversion lists at once and re-points the index at the logs', async (t) => {
+  setup(t, 'mixdog-catalog-db-converted-');
+  save('lead_a', 'alpha', 500);
+  save('lead_b', 'bravo', 400);
+  await ready();
+  const before = await dbList();
+  for (const id of ['lead_a', 'lead_b']) {
+    convertLegacySession({
+      jsonPath: fileOf(id),
+      logPath: join(dataDir(), 'sessions', `${id}.log.jsonl`),
+      loadLegacy,
+      claim: { assertHeld() {} },
+    });
+  }
+  // The next start: its resync answers from the rows the DB already holds.
+  await closeSessionCatalogDb();
+  assert.deepEqual(await dbList(), before, 'the first listing is answered while the resync runs');
+  await db().settled();
+  await settleSummaryIndexWrites();
+  const index = applySummaryLogText(
+    JSON.parse(readFileSync(join(dataDir(), 'session-summaries.json'), 'utf8')),
+    readFileSync(join(dataDir(), 'session-summaries.log'), 'utf8')
+  );
+  for (const id of ['lead_a', 'lead_b']) {
+    const log = statSync(join(dataDir(), 'sessions', `${id}.log.jsonl`));
+    const row = index.rows.find((entry) => entry.id === id);
+    assert.deepEqual(
+      [row.storageMtimeMs, row.storageSize, row.title],
+      [log.mtimeMs, log.size, `indexed:${id === 'lead_a' ? 'alpha' : 'bravo'}`],
+      `${id}: the index row now describes its log`
+    );
+  }
+  const content = (rows) => rows.map(({ storageMtimeMs: _m, storageSize: _s, ...row }) => row);
+  assert.deepEqual(content(await dbList()), content(before), 'the converted sessions list as before');
+});
+
+// Review P1: once a row describes the log, an older build that rewrites the
+// json beside it (the json is the record then) must not be hidden by it.
+test('a json rewritten beside a log whose index row was re-pointed is read, not shortcut', async (t) => {
+  setup(t, 'mixdog-catalog-db-diverged-');
+  save('lead_a', 'old', 500);
+  const json = statSync(fileOf('lead_a'));
+  const logFile = join(dataDir(), 'sessions', 'lead_a.log.jsonl');
+  convertLegacySession({ jsonPath: fileOf('lead_a'), logPath: logFile, loadLegacy, claim: { assertHeld() {} } });
+  repointSummaryRow({ id: 'lead_a', json: { mtimeMs: json.mtimeMs, size: json.size }, size: statSync(logFile).size });
+  await settleSummaryIndexWrites();
+  clearStoredSessionCatalog();
+  assert.equal(rowOf(listStoredSessionSummaries(), 'lead_a').title, 'indexed:old', 'the re-pointed row stands');
+  // A v1.4.5 write: the json changes, the log and the index do not.
+  rewriteInPlace('lead_a', 'NEW LEGACY CONTENT');
+  clearStoredSessionCatalog();
+  assert.equal(rowOf(listStoredSessionSummaries(), 'lead_a').preview, 'NEW LEGACY CONTENT', 'a fresh catalog');
+  await ready();
+  assert.equal(rowOf(await dbList(), 'lead_a').preview, 'NEW LEGACY CONTENT', 'the catalog DB');
 });

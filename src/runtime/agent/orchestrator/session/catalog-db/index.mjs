@@ -14,8 +14,10 @@
  * (hintSessionCatalogStorage); the worker re-checks it from storage on the
  * next listing. Hints carry no row data. Whenever the DB cannot answer — not
  * the daemon, not Electron, SQLite gate, another process holds the DB,
- * off-switch, backfill or rebuild in progress, any error — `list()` resolves
- * null and the caller uses the JSON path unchanged.
+ * off-switch, a first backfill or a rebuild in progress, any error — `list()`
+ * resolves null and the caller uses the JSON path unchanged. During the
+ * resync at start the rows the DB already holds answer, and listeners are
+ * told to list again once it changed them.
  */
 import { isMainThread } from 'node:worker_threads';
 import { createWorkerRequestClient } from '../../../../shared/worker-requests.mjs';
@@ -37,6 +39,7 @@ let testOptions = null;
 let requestWorker = null;
 let controller = null;
 const changeListeners = new Set();
+const indexMoveListeners = new Set();
 const noop = () => {};
 
 function log(line) {
@@ -56,7 +59,18 @@ function log(line) {
 
 function onWorkerEvent(event) {
   if (event?.type === 'log') log(event.line);
-  else if (event?.type === 'changed') {
+  else if (event?.type === 'index-moves') {
+    // Moves of another data dir than the current one are dropped: the rows
+    // they re-point live in that dir's index.
+    if (event.dataDir !== currentDataDir()) return;
+    for (const listener of indexMoveListeners) {
+      try {
+        listener(event.moves);
+      } catch {
+        /* a listener's failure is its own */
+      }
+    }
+  } else if (event?.type === 'changed') {
     for (const listener of changeListeners) {
       try {
         listener();
@@ -122,6 +136,14 @@ export function currentSessionCatalogDb(dataDir) {
 export function onSessionCatalogDbChange(listener) {
   changeListeners.add(listener);
   return () => changeListeners.delete(listener);
+}
+
+/** `listener(moves)` runs when the worker proved summary-index rows describe
+ *  session logs converted from the json they were written from (moves as
+ *  store-summary-log.mjs `m` ops); the store queues them (summary-cache.mjs). */
+export function onSessionCatalogIndexMoves(listener) {
+  indexMoveListeners.add(listener);
+  return () => indexMoveListeners.delete(listener);
 }
 
 /**
