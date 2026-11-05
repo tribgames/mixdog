@@ -16,9 +16,12 @@
  * wrote since. A copy built in this process that no tenure wrote (no binding)
  * is recorded against whatever the log holds. An open recorder is used only
  * while the log still ends where it left it (recorder.atLogEnd); one the log
- * moved past outside it is retired the same way (retireRecorder).
+ * moved past outside it is retired the same way (retireRecorder). A batch
+ * whose json an older build wrote since it was built from is refused before
+ * it is written (ESESSIONCHANGED); its recorder is then finished and retired
+ * too, and the session is opened again from its record, the json.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { sessionLogPath, sessionPath } from './session-paths.mjs';
 import {
   sessionWriterHeldHere,
@@ -32,9 +35,7 @@ import {
   openSessionLog,
   setAsideSessionLog,
 } from './session-log-writer.mjs';
-import { fileFingerprint, sameFingerprint, sha1Hex } from './session-log-format.mjs';
 import { legacyJsonPresentSync } from './session-log-reader.mjs';
-import { holdsNoData } from '../../../../shared/atomic-file.mjs';
 import { TRANSIENT_SESSION_KEYS, _messageForDisk, _sessionHeaderForDisk } from './serialize.mjs';
 import { loadLegacySession } from './legacy-session.mjs';
 import { redactSensitiveText, sensitiveValuesVersion } from '../sensitive-values.mjs';
@@ -106,30 +107,6 @@ function released(id) {
   return error;
 }
 
-function statOrNull(path) {
-  try {
-    return statSync(path);
-  } catch (err) {
-    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') return null;
-    throw err;
-  }
-}
-
-// The json beside a log is not the one the log was built from (an older
-// build wrote it after a downgrade, or a json appeared beside a log-born
-// session). A missing json is the orphan case: the log stays authoritative.
-function divergedFrom(recorder, jsonPath) {
-  const st = statOrNull(jsonPath);
-  if (!st) return false;
-  if (recorder.legacy && sameFingerprint(recorder.legacy, fileFingerprint(st))) return false;
-  const bytes = readFileSync(jsonPath);
-  // A json that holds no data is none (the seam reads it the same way).
-  if (holdsNoData(bytes)) return false;
-  if (!recorder.legacy) return true;
-  const sha1 = sha1Hex(bytes);
-  return sha1 !== recorder.legacy.sha1 && sha1 !== recorder.legacy.redactedFrom;
-}
-
 function adoptBinding(recorder, binding, id) {
   if (binding?.log) recorder.adopt(binding.log, binding.messages);
   else if (binding?.legacy) {
@@ -178,7 +155,9 @@ function openRecorder(session, claimedNow) {
     recorder = null;
     setAsideSessionLog(logPath, 'invalid');
   }
-  if (recorder && !divergedFrom(recorder, jsonPath)) {
+  // The json beside the log is not the one it was built from (an older build
+  // wrote it after a downgrade, or a json appeared beside a log-born session).
+  if (recorder && !recorder.jsonDivergedSync()) {
     try {
       if (claimedNow && releasedAtBarrier(id, recorder, binding)) throw released(id);
       adoptBinding(recorder, binding, id);
