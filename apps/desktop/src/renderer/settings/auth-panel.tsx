@@ -186,6 +186,8 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
 
   return (
     <>
+      <CookieAutoImportGroup api={api} active={active} revision={importRevision} />
+
       <Group
         title={t('Logins')}
         actions={
@@ -329,8 +331,6 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
       </Group>
 
       <BrowserPermissionsGroup api={api} active={active} />
-
-      <CookieAutoImportGroup api={api} active={active} revision={importRevision} />
 
       {!noLogins && logins !== null && (
         <button

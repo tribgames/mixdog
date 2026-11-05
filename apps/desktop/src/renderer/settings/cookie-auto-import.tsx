@@ -21,14 +21,14 @@ type CookieAutoImportApi = Partial<
 /** While a run is in progress the status is re-read at this pace. */
 const RUNNING_REFRESH_MS = 2_000;
 
-/** The one-line state of the last run. */
+/** The one-line state of the last run; empty until there is one to report. */
 export function cookieAutoImportSummary(status: DesktopCookieAutoImportStatus): string {
   if (status.running) return t('In progress');
   if (status.needsManualImport) {
     return t('Needs one manual import: use Import to approve once and save the Chrome key.');
   }
   if (status.lastError) return t('Last import failed: {{error}}', { error: status.lastError });
-  if (status.lastImportAt === undefined) return t('Not imported yet.');
+  if (status.lastImportAt === undefined) return '';
   return t('Last imported {{time}} · {{total}} cookies', {
     time: new Date(status.lastImportAt).toLocaleString(uiFormatLocale()),
     total: (status.lastCount ?? 0).toLocaleString(uiFormatLocale()),
@@ -79,6 +79,7 @@ export function CookieAutoImportGroup({
   }, [running, refresh]);
 
   if (!status || profiles.length === 0 || !api.browserCookieAutoImportConfigure) return null;
+  const summary = status.enabled || status.lastImportAt !== undefined ? cookieAutoImportSummary(status) : '';
 
   const run = (work: Promise<DesktopCookieAutoImportStatus> | undefined) => {
     setError('');
@@ -113,9 +114,9 @@ export function CookieAutoImportGroup({
           run(api.browserCookieAutoImportConfigure?.({ enabled: status.enabled, profileId: value }));
         }}
       />
-      {(status.enabled || status.lastImportAt !== undefined) && (
+      {summary && (
         <p className="settings-empty" role="status">
-          {cookieAutoImportSummary(status)}
+          {summary}
         </p>
       )}
       {status.keySaved && (
