@@ -34,7 +34,8 @@ const SHELL = `
               <div class="sidebar-usage-row"><span class="sidebar-usage-line"><span class="sidebar-usage-provider-icon"></span><b id="usage-provider">Claude</b></span>
                 <span class="sidebar-usage-meters"><span class="sidebar-usage-meter"><small id="usage-window">5H</small><i><i style="width: 42%"></i></i><b id="usage-percent">42%</b><em id="usage-reset-at">2h 10m</em></span></span>
                 <div class="sidebar-usage-credit"><small id="usage-credits">Credits</small><span class="sidebar-usage-credit-value"><b id="usage-credit-value">$12.40</b><small class="sidebar-usage-credit-limit" id="usage-credit-limit"> · Monthly limit $50</small></span><button type="button" role="switch" class="sidebar-usage-credit-switch" aria-checked="false"></button></div>
-                <div class="sidebar-usage-reset-credit"><div class="sidebar-usage-reset-line"><small id="usage-reset">Reset credits</small><span class="sidebar-usage-credit-value"><b id="usage-reset-left">2 left</b></span></div></div>
+                <div class="sidebar-usage-reset-credit"><div class="sidebar-usage-reset-line"><small id="usage-reset">Reset credits</small><span class="sidebar-usage-credit-value"><b id="usage-reset-left">2 left</b></span></div>
+                  <ul class="sidebar-usage-reset-popover" role="dialog"><li><span id="reset-item">Reset credit 1</span><small id="reset-when">Expires in 3 days</small></li></ul></div>
               </div>
             </div></div>
           </section>
@@ -88,7 +89,6 @@ const PORTALED = `
   <div class="schedules-dialog-layer"><section class="schedules-dialog agent-create-dialog" role="dialog"><header><h2 id="agent-title">Lead appearance</h2></header><form><label class="schedules-field"><span id="agent-label">Name</span><small id="agent-help">Shown on the bot's messages.</small></label></form></section></div>
   <div class="schedules-dialog-layer"><section class="schedules-dialog workflows-dialog" role="dialog"><header><h2 id="workflow-title">Edit workflow</h2></header><form><label class="schedules-field"><span id="workflow-label">Steps</span><small id="workflow-help">Runs top to bottom.</small></label></form></section></div>
   <div class="mx-dialog-layer"><section class="mx-dialog" role="dialog"><header class="mx-dialog-header"><h2 id="mx-dialog-title">Open file?</h2></header><div class="mx-dialog-body"><p id="mx-dialog-body">It opens in the default app.</p></div></section></div>
-  <ul class="sidebar-usage-reset-popover" role="dialog" style="position: fixed; top: 400px; left: 10px"><li><b id="reset-item">Reset credit 1</b><small id="reset-when">Expires in 3 days</small></li></ul>
   <div class="starter-guide-toast" style="position: fixed; top: 400px; left: 300px"><span id="starter-toast">Step done</span></div>
   <div class="settings-confirm-layer"><section class="settings-confirm-dialog" role="alertdialog"><h2 id="confirm-title">Discard changes?</h2><p id="confirm-body">Unsaved edits are lost.</p></section></div>
   <div class="settings-confirm-layer"><section class="settings-confirm-dialog skin-custom-dialog" role="dialog"><h2 id="custom-title">Custom picture</h2><p id="custom-body">Pick a picture.</p></section></div>
@@ -119,6 +119,8 @@ const SURFACES = {
     'usage-credit-limit',
     'usage-reset',
     'usage-reset-left',
+    'reset-item',
+    'reset-when',
   ],
   'transcript-message': TRANSCRIPT.ids,
   'composer-pill': ['pill-agents', 'pill-branch', 'pill-files', 'pill-added', 'pill-removed', 'pill-pr'],
@@ -146,7 +148,6 @@ const SURFACES = {
   'agent-editor': ['agent-title', 'agent-label', 'agent-help'],
   'workflow-editor': ['workflow-title', 'workflow-label', 'workflow-help'],
   'mx-dialog': ['mx-dialog-title', 'mx-dialog-body'],
-  'reset-popover': ['reset-item', 'reset-when'],
   'starter-toast': ['starter-toast'],
   'confirm-dialog': ['confirm-title', 'confirm-body'],
   'skin-custom-dialog': ['custom-title', 'custom-body'],
@@ -169,7 +170,6 @@ const PLATES = {
   'agent-editor': '.agent-create-dialog',
   'workflow-editor': '.workflows-dialog',
   'mx-dialog': '.mx-dialog',
-  'reset-popover': '.sidebar-usage-reset-popover',
   'starter-toast': '.starter-guide-toast',
   'confirm-dialog': '.settings-confirm-dialog:not(.skin-custom-dialog)',
   'skin-custom-dialog': '.skin-custom-dialog',
