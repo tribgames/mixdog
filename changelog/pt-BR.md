@@ -10,7 +10,7 @@ Esta versão adiciona aprovações de ações, permissões de sites do navegador
 
 - **Aprovações de ações** — Adicionado Permitir nesta sessão e, em conversas de código, Permitir sempre aos cartões de aprovação, revogáveis com "Perguntar novamente"; pagamentos e exclusões permanentes sempre pedem confirmação.
 - **Permissões de sites do navegador** — Adicionadas permissões padrão e exceções por site em Configurações › Autenticação, com avisos que lembram escolhas para um site, para todos os sites ou até o app ser fechado.
-- **Importação automática de cookies do Chrome** — Adicionado "Importar cookies automaticamente" em Configurações › Autenticação para reimportar cookies quando o Chrome é fechado e manter os sites conectados.
+- **Importação automática de cookies do Chrome** — Adicionado em Configurações › Autenticação para reimportar cookies automaticamente ao iniciar o app e ao fechar o Chrome após uma primeira importação manual com aprovação de administrador, mantendo os sites conectados para o Browser Use; pode ser desativado no mesmo local.
 - **Códigos de verificação automáticos** — Adicionado o preenchimento automático de códigos únicos de login da sua caixa de entrada conectada, além de avisos no celular para senhas e códigos.
 - **Proxy de rede** — Adicionados os modos de proxy do sistema, `http`/`https`/`socks5` personalizado e desativado com regras de exceção e teste de conexão em Configurações › Sistema › Proxy de rede e nas configurações pelo celular, aplicando alterações já na solicitação seguinte em todos os provedores (#317).
 

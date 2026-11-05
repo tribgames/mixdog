@@ -10,7 +10,7 @@ Diese Version fügt Aktionsfreigaben, Website-Berechtigungen im Browser und Netz
 
 - **Aktionsfreigaben** — Freigabekarten um „Für diese Sitzung erlauben“ und in Coding-Chats um „Immer erlauben“ erweitert, widerrufbar über „Nochmals fragen“; Zahlungen und dauerhafte Löschungen fragen immer nach.
 - **Website-Berechtigungen im Browser** — Standardberechtigungen und Ausnahmen pro Website unter Einstellungen › Authentifizierung hinzugefügt, mit Abfragen, die Entscheidungen für eine Website, alle Websites oder bis zum Beenden der App speichern.
-- **Automatischer Import von Chrome-Cookies** — „Cookies automatisch importieren“ unter Einstellungen › Authentifizierung hinzugefügt, um Cookies nach dem Schließen von Chrome erneut zu importieren und Websites angemeldet zu halten.
+- **Automatischer Import von Chrome-Cookies** — Unter Einstellungen › Authentifizierung hinzugefügt, um Cookies nach einem manuellen Erstimport mit Administratorfreigabe beim App-Start und nach dem Schließen von Chrome automatisch erneut zu importieren und Browser Use angemeldet zu halten; dort auch deaktivierbar.
 - **Automatische Bestätigungscodes** — Automatisches Ausfüllen einmaliger Anmeldecodes aus dem verbundenen Postfach sowie Smartphone-Abfragen für Passwörter und Codes hinzugefügt.
 - **Netzwerk-Proxy** — Proxy-Modi „System“, benutzerdefiniertes `http`/`https`/`socks5` und „Aus“ mit Ausnahmeregeln und Verbindungstest unter Einstellungen › System › Netzwerk-Proxy sowie in den Smartphone-Einstellungen hinzugefügt; Änderungen gelten bei allen Anbietern sofort ab der nächsten Anfrage (#317).
 

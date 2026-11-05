@@ -11,7 +11,7 @@ This release adds action approvals, browser site permissions and network proxy s
 
 - **Action approvals** — Added Allow for this session and, in coding chats, Always allow to approval cards, revocable with "Ask again"; payments and permanent deletes always ask.
 - **Browser site permissions** — Added default permissions and per-site exceptions under Settings › Authentication, with prompts that remember choices for a site, all sites, or until the app quits.
-- **Chrome cookie auto-import** — Added "Import cookies automatically" under Settings › Authentication to re-import cookies when Chrome closes and keep sites signed in.
+- **Chrome cookie auto-import** — Added under Settings › Authentication to re-import cookies on app start and Chrome close after one manual import with administrator approval, keeping Browser Use signed in.
 - **Automatic verification codes** — Added automatic filling of one-time sign-in codes from your connected mailbox, plus phone prompts for passwords and codes.
 - **Network proxy** — Added system, custom `http`/`https`/`socks5`, and off proxy modes with bypass rules and connection testing under Settings › System › Network proxy and phone settings, applying changes to the very next request across all providers (#317).
 

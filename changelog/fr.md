@@ -11,7 +11,7 @@ Cette version ajoute les approbations d'actions, les autorisations des sites du 
 
 - **Approbations d'actions** — Ajout d'Autoriser pour cette session et, dans les discussions de code, de Toujours autoriser sur les cartes d'approbation, révocables via « Demander à nouveau » ; les paiements et suppressions définitives demandent toujours.
 - **Autorisations des sites du navigateur** — Ajout des autorisations par défaut et des exceptions par site dans Réglages › Authentification, avec des invites mémorisant le choix pour un site, tous les sites ou jusqu'à la fermeture de l'application.
-- **Importation automatique des cookies Chrome** — Ajout d'« Importer les cookies automatiquement » dans Réglages › Authentification pour réimporter les cookies à la fermeture de Chrome et garder les sites connectés.
+- **Importation automatique des cookies Chrome** — Ajout dans Réglages › Authentification pour réimporter automatiquement les cookies au démarrage de l'application et à la fermeture de Chrome après une première importation manuelle avec approbation d'administrateur, afin de garder les sites connectés pour Browser Use ; désactivable au même endroit.
 - **Codes de vérification automatiques** — Ajout du remplissage automatique des codes de connexion à usage unique depuis votre boîte mail connectée, ainsi que d'invites sur téléphone pour les mots de passe et les codes.
 - **Proxy réseau** — Ajout des modes proxy système, `http`/`https`/`socks5` personnalisé et désactivé avec règles de contournement et test de connexion dans Réglages › Système › Proxy réseau et dans les réglages sur téléphone, en appliquant les changements dès la requête suivante chez tous les fournisseurs (#317).
 

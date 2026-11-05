@@ -10,7 +10,7 @@ Questa versione aggiunge le approvazioni delle azioni, le autorizzazioni dei sit
 
 - **Approvazioni delle azioni** — Aggiunti Consenti per questa sessione e, nelle chat di codice, Consenti sempre alle schede di approvazione, revocabili con "Chiedi di nuovo"; pagamenti ed eliminazioni definitive chiedono sempre conferma.
 - **Autorizzazioni dei siti del browser** — Aggiunte le autorizzazioni predefinite e le eccezioni per sito in Impostazioni › Autenticazione, con avvisi che ricordano le scelte per un sito, per tutti i siti o fino alla chiusura dell'app.
-- **Importazione automatica dei cookie di Chrome** — Aggiunto "Importa i cookie automaticamente" in Impostazioni › Autenticazione per reimportare i cookie alla chiusura di Chrome e mantenere l'accesso ai siti.
+- **Importazione automatica dei cookie di Chrome** — Aggiunto in Impostazioni › Autenticazione per reimportare automaticamente i cookie all'avvio dell'app e alla chiusura di Chrome dopo una prima importazione manuale con approvazione dell'amministratore, mantenendo l'accesso ai siti per Browser Use; disattivabile nello stesso posto.
 - **Codici di verifica automatici** — Aggiunta la compilazione automatica dei codici di accesso monouso dalla casella di posta collegata, oltre agli avvisi sul telefono per password e codici.
 - **Proxy di rete** — Aggiunte le modalità proxy di sistema, `http`/`https`/`socks5` personalizzato e disattivato con regole di esclusione e test della connessione in Impostazioni › Sistema › Proxy di rete e nelle impostazioni sul telefono, applicando le modifiche già dalla richiesta successiva su tutti i provider (#317).
 
