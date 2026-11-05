@@ -1,10 +1,8 @@
-// closeSession waits out a rename the OS refuses (Windows EPERM/EBUSY while a
-// scanner holds the file) on timers: the event loop keeps ticking through the
-// whole retry schedule, the barrier still lands, and a rename that never
-// succeeds ends with the rename's own error.
+// closeSession lands its barrier as a record in the session's log, off the
+// thread: a barrier whose write fails ends the close with that write's own
+// error and leaves the record as it was; once writes land again, so does it.
 import assert from 'node:assert/strict';
-import fs, { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -14,7 +12,8 @@ process.env.MIXDOG_DATA_DIR = root;
 
 const { closeSession } = await import('./session-close.mjs');
 const { saveSessionAsync, getSessionLifecycleCommitError } = await import('../store.mjs');
-const { sessionPath } = await import('../store/session-paths.mjs');
+const { readDurableSessionRecord } = await import('../store/transcript-durability.mjs');
+const { _sessionLogIoForTest } = await import('../store/session-log-writer.mjs');
 const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
 const { flushSessionCloseMetrics } = await import('../store/lifecycle-barriers.mjs');
 
@@ -35,78 +34,72 @@ const session = (id) => ({
   messages: [{ role: 'user', content: 'hello' }],
 });
 
-/** renameSync onto `target` refused with `code` for the first `times` calls. */
-function refuseRenames(t, target, code, times) {
-  const original = fs.renameSync;
-  const state = { refused: 0, ticksAtRefusal: [] };
-  fs.renameSync = function (from, to, ...rest) {
-    if (String(to) === target && state.refused < times) {
-      state.refused++;
-      state.ticksAtRefusal.push(loopTicks);
-      const err = new Error(`${code}: operation not permitted, rename '${from}' -> '${to}'`);
-      err.code = code;
-      throw err;
-    }
-    return original.call(this, from, to, ...rest);
+/** Every session-log batch write fails with `code` while the test runs. */
+function refuseLogWrites(t, code) {
+  const io = _sessionLogIoForTest();
+  const original = io.writeSync;
+  const state = { refused: 0 };
+  io.writeSync = () => {
+    state.refused++;
+    throw Object.assign(new Error(`${code}: injected`), { code });
   };
-  syncBuiltinESMExports();
   t.after(() => {
-    fs.renameSync = original;
-    syncBuiltinESMExports();
+    io.writeSync = original;
   });
   return state;
 }
 
-// The retries wait on timers, so the loop's own timer fires between any two
-// refusals. Counted ticks replace a wall-clock gap limit.
-let loopTicks = 0;
-
-/** Runs `run` while counting 1 ms loop ticks; the value comes back with them. */
-async function withLoopTicks(run) {
-  const timer = setInterval(() => {
-    loopTicks += 1;
-  }, 1);
-  try {
-    return await run();
-  } finally {
-    clearInterval(timer);
-  }
-}
-
-const tickedBetween = (ticksAtRefusal) => ticksAtRefusal.every((ticks, i) => i === 0 || ticks > ticksAtRefusal[i - 1]);
-
-for (const [code, tombstone] of [
-  ['EPERM', false],
-  ['EBUSY', true],
-]) {
-  test(`a ${code}-refused barrier rename retries without blocking the loop (tombstone=${tombstone})`, async (t) => {
-    const id = `sess_close_async_${code.toLowerCase()}`;
+for (const tombstone of [false, true]) {
+  test(`a barrier lands its generation bump without blocking the loop (tombstone=${tombstone})`, async () => {
+    const id = `sess_close_async_${tombstone ? 'tombstone' : 'detach'}`;
     await saveSessionAsync(session(id));
-    const before = JSON.parse(readFileSync(sessionPath(id), 'utf8')).generation;
-    // Four refusals: 25 + 50 + 100 + 200 ms of backoff (plus jitter) — a
-    // ~400 ms freeze were they slept on the thread.
-    const refused = refuseRenames(t, sessionPath(id), code, 4);
-    const value = await withLoopTicks(() => closeSession(id, 'cli-agent-close', { tombstone }));
-    assert.equal(value, true);
-    assert.equal(refused.refused, 4);
-    assert.ok(tickedBetween(refused.ticksAtRefusal), 'the loop ticked between retries');
-    const disk = JSON.parse(readFileSync(sessionPath(id), 'utf8'));
+    const before = readDurableSessionRecord(id).generation;
+    let ticked = false;
+    setImmediate(() => {
+      ticked = true;
+    });
+    assert.equal(await closeSession(id, 'cli-agent-close', { tombstone }), true);
+    assert.equal(ticked, true, 'the loop ran while the barrier landed');
+    const disk = readDurableSessionRecord(id);
     assert.equal(disk.generation, before + 1, 'the generation bump landed');
     assert.equal(disk.closed, tombstone);
     assert.equal(getSessionLifecycleCommitError(id), null);
   });
 }
 
-test('a rename refused through the whole schedule fails the close with the rename error', async (t) => {
-  const id = 'sess_close_async_exhausted';
+test('a barrier whose write fails fails the close with the write error', async (t) => {
+  const id = 'sess_close_async_refused';
   await saveSessionAsync(session(id));
-  const before = readFileSync(sessionPath(id), 'utf8');
-  const refused = refuseRenames(t, sessionPath(id), 'EPERM', Infinity);
-  const value = await withLoopTicks(() => closeSession(id, 'cli-agent-close', { tombstone: false }));
-  assert.equal(value, false);
-  // DEFAULT_BACKOFFS_MS has 23 delays: 24 attempts, as renameWithRetrySync makes.
-  assert.equal(refused.refused, 24);
-  assert.ok(tickedBetween(refused.ticksAtRefusal), 'the loop ticked between retries');
-  assert.equal(getSessionLifecycleCommitError(id)?.code, 'EPERM');
-  assert.equal(readFileSync(sessionPath(id), 'utf8'), before, 'the canonical record is untouched');
+  const before = readDurableSessionRecord(id);
+  const refused = refuseLogWrites(t, 'EIO');
+  assert.equal(await closeSession(id, 'cli-agent-close', { tombstone: false }), false);
+  assert.ok(refused.refused >= 1);
+  assert.equal(getSessionLifecycleCommitError(id)?.code, 'EIO');
+  assert.deepEqual(readDurableSessionRecord(id), before, 'the record is as it was');
+});
+
+test('a barrier that did not land never rides a later save', async (t) => {
+  const id = 'sess_close_async_not_carried';
+  const copy = session(id);
+  await saveSessionAsync(copy);
+  const before = readDurableSessionRecord(id);
+  const io = _sessionLogIoForTest();
+  const write = io.writeSync;
+  io.writeSync = () => {
+    throw Object.assign(new Error('EIO'), { code: 'EIO' });
+  };
+  try {
+    assert.equal(await closeSession(id, 'cli-agent-close'), false);
+  } finally {
+    io.writeSync = write;
+  }
+  copy.messages = [...copy.messages, { role: 'assistant', content: 'after' }];
+  await saveSessionAsync(copy, { expectedGeneration: before.generation });
+  const disk = readDurableSessionRecord(id);
+  assert.equal(disk.closed, false, 'no tombstone landed');
+  assert.equal(disk.generation, before.generation);
+  assert.deepEqual(
+    disk.messages.map((message) => message.content),
+    ['hello', 'after']
+  );
 });

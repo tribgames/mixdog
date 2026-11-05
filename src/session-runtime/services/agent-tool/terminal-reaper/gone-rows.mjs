@@ -3,7 +3,7 @@
 // reads; a row whose owner never comes back would stay forever. Here a row
 // leaves the index (tombstoned, as the scoped sweep does) only when ALL of
 // these hold:
-//   - its session file is absent,
+//   - its session record (log and legacy json) is absent,
 //   - its status is terminal,
 //   - it is past the settled retention,
 //   - it is not a restart failure its owner is still owed.
@@ -32,6 +32,10 @@ import {
   sessionRecordPath,
   storeRecordDir,
 } from '../../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
+import {
+  sessionIdsOfNames,
+  sessionRecordFilesOf,
+} from '../../../../runtime/agent/orchestrator/session/store/session-record.mjs';
 import { excludeSessionWriters } from '../../../../runtime/agent/orchestrator/session/store/session-writer-claim.mjs';
 import { daemonOwnerLockHeldHere } from '../../../../standalone/daemon-owner-lock.mjs';
 import { clean } from '../helpers.mjs';
@@ -57,13 +61,16 @@ function backupBeforeFirstRemoval(file) {
 // stretch of the loop.
 const REMOVAL_BATCH = 50;
 
-const recordPath = (sessionId) => {
+// A session's record is its log and its legacy json: absent only when both are.
+const recordFiles = (sessionId) => {
   try {
-    return sessionRecordPath(sessionId);
+    return sessionRecordFilesOf(sessionRecordPath(sessionId));
   } catch {
     return null; // not a session id of this store: never judged gone
   }
 };
+
+const recordExists = ({ jsonPath, logPath }) => existsSync(logPath) || existsSync(jsonPath);
 
 /** The exclusions one persisted removal holds until its index file has landed
  *  (or the sweep gives up on it). */
@@ -74,11 +81,11 @@ function createFence() {
     /** Excludes the writers of `sessionId` and reports whether its record is
      *  absent; the exclusion stays held when it is (the row is going). */
     absent(sessionId) {
-      const path = recordPath(sessionId);
-      if (!path) return false;
+      const files = recordFiles(sessionId);
+      if (!files) return false;
       const hold = excludeSessionWriters(sessionId);
       if (!hold) return false;
-      if (existsSync(path)) {
+      if (recordExists(files)) {
         hold.release();
         return false;
       }
@@ -137,8 +144,8 @@ export function createGoneRowSweep({ cfgMod, mgr, tagMaps, index, ownsDataDir = 
       const getConfig = configOnce();
       const absent = projection
         ? (sessionId) => {
-            const path = recordPath(sessionId);
-            return path !== null && !existsSync(path);
+            const files = recordFiles(sessionId);
+            return files !== null && !recordExists(files);
           }
         : (sessionId) => fence.absent(sessionId);
       const gone = [...byKey.values()].filter(
@@ -158,13 +165,13 @@ export function createGoneRowSweep({ cfgMod, mgr, tagMaps, index, ownsDataDir = 
     // cannot be listed says nothing about its sessions: nothing is removed.
     let present;
     try {
-      present = new Set(await readdir(storeRecordDir()));
+      present = new Set(sessionIdsOfNames(await readdir(storeRecordDir())));
     } catch {
       return 0;
     }
     const candidates = new Set(
       settledRows()
-        .filter((row) => !present.has(`${clean(row.sessionId)}.json`))
+        .filter((row) => !present.has(clean(row.sessionId)))
         .map((row) => clean(row.sessionId))
     );
     if (candidates.size === 0) return 0;

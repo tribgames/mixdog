@@ -37,14 +37,13 @@ const {
   stampCompactionMessageIds,
 } = await import('./compaction-archive-capture.mjs');
 const { stampMessageIds } = await import('./message-ids.mjs');
-const { _savePending } = await import('./store/pending-saves.mjs');
+const { schedulePendingWrite, takePendingWrite } = await import('./store/pending-writes.mjs');
 const { publishSessionPersistence } = await import('./store/session-persistence-events.mjs');
 const { rememberSensitiveValues } = await import('./sensitive-values.mjs');
 const { contextAckMessage, isProtectedContextAckMessage } = await import('./compact/messages.mjs');
 const { restoreTranscriptItems } = await import('./transcript-restore/restore.mjs');
 const { toAnthropicMessages } = await import('../providers/lib/anthropic-request-utils.mjs');
 const { toOpenAIMessages } = await import('../providers/openai-compat-wire.mjs');
-const { _buildWirePayload, _hasSessionSaveBaseline } = await import('./store/save-delta.mjs');
 const {
   compactionArchivePageFromText,
   compactionSegmentLine,
@@ -134,9 +133,15 @@ const SUMMARY_MESSAGE = {
 };
 const at = (value) => ({ meta: { transcript: { at: value } } });
 const idOf = (message) => message.meta.transcript.messageId;
-/** Messages as a compaction receives them: stamped. */
+/** Messages as a compaction receives them: stamped. stampMessageIds replaces
+ *  each message it stamps; the fixtures' own objects take the stamped form, as
+ *  a transcript loaded already stamped holds them. */
 const stamped = (messages, sessionId = 'stamp-test') => {
-  stampMessageIds(messages, { sessionId });
+  const out = messages.slice();
+  stampMessageIds(out, { sessionId });
+  out.forEach((message, index) => {
+    if (message !== messages[index]) Object.assign(messages[index], message);
+  });
   return messages;
 };
 
@@ -215,15 +220,13 @@ test('stamping never serializes inline media and never reaches a provider payloa
   assert.deepEqual(toOpenAIMessages(messages, 'openai'), toOpenAIMessages(plain(), 'openai'));
 });
 
-test('stamped ids are persisted: the next save goes out whole', () => {
-  const session = { id: `stamp-save-${process.pid}`, messages: [{ role: 'user', content: 'hi' }] };
-  _buildWirePayload(session.id, session);
-  assert.equal(_hasSessionSaveBaseline(session.id), true);
+test('stamped ids are persisted: a stamped message is a new object the next save records', () => {
+  const original = { role: 'user', content: 'hi' };
+  const session = { id: `stamp-save-${process.pid}`, messages: [original] };
   assert.equal(stampCompactionMessageIds(session.messages, session.id), 1);
-  assert.equal(_hasSessionSaveBaseline(session.id), false);
-  const payload = _buildWirePayload(session.id, session);
-  assert.equal(payload.delta, undefined);
-  assert.equal(idOf(payload.session.messages[0]), idOf(session.messages[0]));
+  assert.notEqual(session.messages[0], original, 'replaced, never edited in place');
+  assert.equal(original.meta, undefined);
+  assert.ok(idOf(session.messages[0]));
 });
 
 for (const path of ['rules', 'summary']) {
@@ -247,7 +250,11 @@ for (const path of ['rules', 'summary']) {
       { role: 'tool', toolCallId: 'late-call', content: `big\n${'line\n'.repeat(4_000)}` },
       { role: 'user', content: 'latest request' }
     );
-    const before = session.messages.slice();
+    // As a compaction receives them: stamped (each stamped message replaced).
+    stampCompactionMessageIds(session.messages, session.id);
+    // As a compaction receives them: stamped (each stamped message replaced).
+  stampCompactionMessageIds(session.messages, session.id);
+  const before = session.messages.slice();
     const result = await compact(session, summaryProvider([]));
     assert.equal(result.changed, true);
     const ids = new Set(before.map(idOf));
@@ -268,6 +275,7 @@ test('recompacting a compacted transcript keeps the summary ack and archives not
   session.messages.push({ role: 'user', content: 'latest request' });
   await compact(session, summaryProvider([]));
   await flushCompactionArchiveWrites();
+  stampCompactionMessageIds(session.messages, session.id);
   const ack = session.messages.find(isProtectedContextAckMessage);
   assert.ok(ack);
   assert.equal(archiveLines(session.id).length, 1);
@@ -393,6 +401,8 @@ test('a partial loss (kept id and call, lost text) archives the text row live an
 test('after a rules compaction a restart shows no turn both above and below the divider', async () => {
   const session = storedSession('rules-restart');
   session.compaction = { conversationThresholdTokens: 100_000_000 };
+  // As a compaction receives them: stamped (each stamped message replaced).
+  stampCompactionMessageIds(session.messages, session.id);
   const before = session.messages.slice();
   const result = await compact(session, summaryProvider([]));
   assert.equal(result.changed, true);
@@ -420,6 +430,8 @@ test('after a rules compaction a restart shows no turn both above and below the 
 
 test('a committed compaction archives what it dropped as one display-only segment', async () => {
   const session = storedSession('commit');
+  // As a compaction receives them: stamped (each stamped message replaced).
+  stampCompactionMessageIds(session.messages, session.id);
   const before = session.messages.slice();
   const sent = [];
   const result = await compact(session, summaryProvider(sent));
@@ -970,7 +982,7 @@ async function parkedSession(t, tag) {
   _setCompactionArchivePublishHook(async () => {
     _setCompactionArchivePublishHook(null);
     rmSync(recordPath);
-    _savePending.set(session.id, {});
+    schedulePendingWrite(session.id, session, {}, 0, () => {});
   });
   let parkedSignal;
   const parked = new Promise((resolve) => {
@@ -980,7 +992,7 @@ async function parkedSession(t, tag) {
   t.after(() => {
     _setCompactionArchivePublishHook(null);
     _setCompactionArchiveParkHook(null);
-    _savePending.delete(session.id);
+    takePendingWrite(session.id);
     _resetCompactionArchiveState();
   });
   const log = [];
@@ -1023,7 +1035,7 @@ test('a publication refused while the session is live waits for its save to land
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
   // The save lands: both segments are written, in order, none lost.
   writeFileSync(recordPath, JSON.stringify({ id: session.id }));
-  _savePending.delete(session.id);
+  takePendingWrite(session.id);
   publishSessionPersistence(session.id, 'landed');
   assert.ok(await scheduled.written);
   assert.ok(await second.written);
@@ -1056,7 +1068,7 @@ test('a close before the record exists keeps the segment; the next process publi
   assert.equal(existsSync(pending), true);
   // Restart: nothing in memory; the session is saved again.
   _resetCompactionArchiveState();
-  _savePending.delete(session.id);
+  takePendingWrite(session.id);
   writeFileSync(recordPath, JSON.stringify({ id: session.id }));
   publishSessionPersistence(session.id, 'landed');
   await flushCompactionArchiveWrites();

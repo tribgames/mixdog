@@ -25,14 +25,18 @@
 //
 // A manager without `loadSessionStatus` answers getSession from memory and is
 // asked directly.
-import fsp from 'node:fs/promises';
-
 import {
   inMemorySessionCopy,
   resolveSessionCopy,
   sessionMemoryCopies,
 } from '../../../../runtime/agent/orchestrator/session/store/load-session.mjs';
 import { sessionRecordPath } from '../../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
+import {
+  isLogRecord,
+  recordSession,
+  sessionRecordFilesOf,
+} from '../../../../runtime/agent/orchestrator/session/store/session-record.mjs';
+import { resolveSessionRecord } from '../../../../runtime/agent/orchestrator/session/store/session-log-reader.mjs';
 import { isLifecycleUnreadable } from '../../../../runtime/agent/orchestrator/session/lifecycle-scan.mjs';
 import { readStrictRecordFields } from '../../../../runtime/agent/orchestrator/session/store-record-strict-scan.mjs';
 import { holdsNoData } from '../../../../runtime/shared/atomic-file.mjs';
@@ -78,37 +82,60 @@ function recordView(session) {
   return view;
 }
 
-/** One read of `id`'s record at `path`, as resolveSessionCopy takes it. A
- *  failed read (not an absent file) rejects: the cache keeps what it had,
- *  and the next watch event reads again. */
-async function readRecord(id, path) {
-  let bytes;
+// A legacy json holding no data (a crash before its bytes landed) reads as no record.
+const NO_DATA = Object.freeze({});
+
+// The legacy json's view document under the store's strict verdict
+// (load-cache.mjs _ownedRecord): only an unambiguous document claiming this
+// id is the session's record.
+function loadLegacyView(text, id) {
+  if (holdsNoData(text)) return NO_DATA;
+  const parsed = readStrictRecordFields(Buffer.from(text, 'utf8'), RECORD_VIEW_READ);
+  return isLifecycleUnreadable(parsed) || parsed.id !== id ? null : parsed.doc;
+}
+
+/** One read of `id`'s record (`files`: its log and legacy json), through the
+ *  record seam's header scan, as resolveSessionCopy takes it. A failed read
+ *  (not an absent file) rejects: the cache keeps what it had, and the next
+ *  watch event reads again. */
+async function readRecord(id, files) {
+  let outcome;
   try {
-    bytes = await fsp.readFile(path);
+    outcome = await resolveSessionRecord({ ...files, loadLegacy: loadLegacyView, messages: false });
   } catch (error) {
     if (ABSENT_CODES.has(error?.code)) return { value: ABSENT };
     throw error;
   }
-  if (holdsNoData(bytes)) return { value: ABSENT };
-  // The store's strict verdict (load-cache.mjs _ownedRecord): only an
-  // unambiguous document claiming this id is the session's record.
-  const parsed = readStrictRecordFields(bytes, RECORD_VIEW_READ);
-  if (isLifecycleUnreadable(parsed) || parsed.id !== id) return { value: UNREADABLE };
-  return { value: { exists: true, session: recordView(parsed.doc) } };
+  if (outcome.kind === 'absent') return { value: ABSENT };
+  const session = recordSession(outcome, id);
+  if (session === NO_DATA) return { value: ABSENT };
+  if (!session) return { value: UNREADABLE };
+  const view = recordView(session);
+  if (isLogRecord(outcome)) view.messageCount = outcome.log.messageCount;
+  return { value: { exists: true, session: view } };
 }
 
-function recordPathOf(id) {
+function recordFilesOf(id) {
   try {
-    return sessionRecordPath(id);
+    return sessionRecordFilesOf(sessionRecordPath(id));
   } catch {
     return null;
   }
 }
 
+// A session's record is cached at its log (`path`). Its legacy json is
+// watched too — a json an older build writes beside the log, or the only
+// file of a session never migrated, decides the record — under an entry that
+// holds no value of its own: only its watch event re-reads the record's
+// entry. It is attached by a (file-free) load, never `set`: a set's read-back
+// would re-read the record with no event.
+const JSON_WATCH = Object.freeze({ jsonWatch: true });
+
 function createSessionRecords() {
-  // sessionId -> { path, live (the copy this process holds, else null), holders }
+  // sessionId -> { path (its log), files, last, holders }
   const entries = new Map();
   const idsByPath = new Map();
+  const logPathByJsonPath = new Map();
   const listeners = new Set();
   let closed = false;
 
@@ -126,12 +153,18 @@ function createSessionRecords() {
   let reading = 0;
   const waiting = [];
   async function readLimited(path) {
+    const logPath = logPathByJsonPath.get(path);
+    if (logPath) {
+      // Write-through of what the record's entry holds: it is read back.
+      cache.set(logPath, cache.peek(logPath) ?? UNLOADED);
+      return { value: JSON_WATCH };
+    }
     if (reading >= RECORD_RELOADS_AT_ONCE) await new Promise((resolve) => waiting.push(resolve));
     reading += 1;
     try {
-      const id = idsByPath.get(path);
-      if (!id) return { value: ABSENT };
-      return await readRecord(id, path);
+      const entry = entries.get(idsByPath.get(path));
+      if (!entry) return { value: ABSENT };
+      return await readRecord(idsByPath.get(path), entry.files);
     } finally {
       reading -= 1;
       waiting.shift()?.();
@@ -140,15 +173,16 @@ function createSessionRecords() {
 
   const cache = createWatchedFileCache(
     {
-      load() {
+      load(path) {
+        if (logPathByJsonPath.has(path)) return { value: JSON_WATCH };
         throw new Error('session records are only read asynchronously');
       },
       loadAsync: readLimited,
     },
     {
       onChange(path) {
-        // A record no longer needed tells nobody.
-        if (!entries.has(idsByPath.get(path)) || closed) return;
+        // A record no longer needed tells nobody; a json watch holds no record.
+        if (logPathByJsonPath.has(path) || !entries.has(idsByPath.get(path)) || closed) return;
         emit();
       },
     }
@@ -158,6 +192,8 @@ function createSessionRecords() {
     entries.delete(id);
     if (!entry.path) return;
     idsByPath.delete(entry.path);
+    logPathByJsonPath.delete(entry.files.jsonPath);
+    cache.delete(entry.files.jsonPath);
     cache.delete(entry.path);
   }
 
@@ -169,12 +205,17 @@ function createSessionRecords() {
       const memory = sessionMemoryCopies(id);
       let entry = entries.get(id);
       if (!entry) {
-        const path = recordPathOf(id);
-        entry = { path, last: null, holders: new Set() };
+        const files = recordFilesOf(id);
+        const path = files?.logPath ?? null;
+        entry = { path, files, last: null, holders: new Set() };
         entries.set(id, entry);
-        if (path) idsByPath.set(path, id);
-        // The cache reads it off the pulse once its folder is watched.
-        if (path) cache.set(path, UNLOADED);
+        if (path) {
+          idsByPath.set(path, id);
+          logPathByJsonPath.set(files.jsonPath, path);
+          // The cache reads it off the pulse once its folder is watched.
+          cache.set(path, UNLOADED);
+          cache.get(files.jsonPath);
+        }
       }
       entry.holders.add(holder);
       const record = entry.path ? cache.peek(entry.path) : ABSENT;

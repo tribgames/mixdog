@@ -422,19 +422,24 @@ async function project({ sessionId, recordPath, known, fingerprint = '', slice =
   const importStartedAt = performance.now();
   const [
     { statSessionStamp, sameSessionStamp },
-    { readTextFile, PROBE_PRESENT },
+    { PROBE_PRESENT },
+    { readSessionRecordTextSync, sessionRecordFilesOf },
     { transcriptTextHash, historyStampOf },
     projection,
   ] = await Promise.all([
     import('./store/canonical-reader.mjs'),
     import('./store/fs-probe.mjs'),
+    import('./store/session-record.mjs'),
     import('./store-transcript-cache.mjs'),
     import('./store-transcript-projection.mjs'),
   ]);
   const timing = { importMs: performance.now() - importStartedAt };
-  const observe = () => {
+  // The record is the log beside `recordPath` (the legacy json), resolved
+  // through the record seam.
+  const recordFiles = sessionRecordFilesOf(recordPath);
+  const observe = (path = recordPath) => {
     try {
-      return statSessionStamp(recordPath);
+      return statSessionStamp(path);
     } catch {
       return null;
     }
@@ -442,7 +447,7 @@ async function project({ sessionId, recordPath, known, fingerprint = '', slice =
   for (let restarts = 0; ; restarts += 1) {
     if (restarts > 0) timing.restarts = restarts;
     // Room for the body is reserved before it is read (bytes bound chars).
-    const sized = observe();
+    const sized = observe(recordFiles.logPath) || observe();
     const admitStartedAt = performance.now();
     const ticket = await baseBuilds.admit(sized ? Number(sized.size) : 0);
     timing.admitMs = performance.now() - admitStartedAt;
@@ -450,9 +455,11 @@ async function project({ sessionId, recordPath, known, fingerprint = '', slice =
     try {
       const readStartedAt = performance.now();
       const before = observe();
-      let body = readTextFile(recordPath);
+      let body = readSessionRecordTextSync(recordFiles, sessionId);
       if (body.state !== PROBE_PRESENT) return { state: body.state, timing };
-      const stamp = before && sameSessionStamp(before, observe()) ? before : null;
+      if (body.text === null) return { state: PROBE_PRESENT, unreadable: true, timing };
+      // Only the json's own bytes carry its stamp.
+      const stamp = body.legacy && before && sameSessionStamp(before, observe()) ? before : null;
       let text = body.text;
       body = null;
       baseBuilds.resize(ticket, text.length);

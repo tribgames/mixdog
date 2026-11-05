@@ -4,8 +4,6 @@
  * registries — they persist nothing and import no write path — so outside
  * code has exactly one place to attach to session events.
  */
-import { _setLiveSessionPublisher } from './save-worker.mjs';
-
 // ── Hard-delete purge hooks ─────────────────────────────────────────────────
 // Owners of parked snapshots (usage-metrics) register a SYNCHRONOUS cleanup
 // here. deleteSession runs them while it still holds the id's commit lock, so
@@ -41,8 +39,6 @@ export function _publishLiveSession(session) {
     }
   }
 }
-
-_setLiveSessionPublisher(_publishLiveSession);
 
 /** `context` (optional, e.g. `{ cwds }`: working folders the session is known
  *  to have used) is passed to every hook as its second argument. */

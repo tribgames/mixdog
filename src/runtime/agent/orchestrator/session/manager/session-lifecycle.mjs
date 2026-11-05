@@ -5,12 +5,11 @@
 // resolution + context-meta + agent-runtime resolution helpers.
 import { getProvider } from '../../providers/registry.mjs';
 import { invalidateContextUsageSnapshot, invalidateProviderContextBaseline } from '../loop/compact-policy.mjs';
-import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
+import { saveSession, saveSessionAsync, loadSession, setLiveSession } from '../store.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
 import {
   claimSessionWriterOrThrow,
   releaseSessionWriter,
-  sessionWriterReopened,
 } from '../store/session-writer-claim.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
@@ -625,7 +624,6 @@ export async function resumeSession(sessionId, preset, options = {}) {
   let resumed = null;
   try {
     resumed = await _resumeClaimedSession(sessionId, preset, options);
-    if (resumed) sessionWriterReopened(sessionId);
     return resumed;
   } finally {
     // A claim this resume took goes back when nothing was resumed on it.
@@ -657,10 +655,10 @@ async function _resumeClaimedSession(sessionId, preset, options) {
     invalidateContextUsageSnapshot(session);
     markToolSurfaceMigrated(session, 'prompt_fold');
   }
-  // The live session already owns the refreshed tools and desktop scope.
-  // Defer the structured clone + worker round-trip so opening a conversation
-  // is not blocked on persisting the same in-memory state back to disk.
-  void saveSessionAsyncDeferred(session, { expectedGeneration: session.generation }).catch((err) => {
+  // The live session already owns the refreshed tools and desktop scope; the
+  // save records only what the resume changed, so opening a conversation
+  // does not wait on it.
+  void saveSessionAsync(session, { expectedGeneration: session.generation }).catch((err) => {
     try {
       process.stderr.write(`[session] resume save failed: ${err?.message || err}\n`);
     } catch {}

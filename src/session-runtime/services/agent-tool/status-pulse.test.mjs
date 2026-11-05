@@ -1,7 +1,7 @@
 import '../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import fs, { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -24,7 +24,9 @@ const { resolveAgentTerminalReapMs } = await import(
 );
 const { TAG_TOMBSTONE_TTL_MS } = await import('./worker-rows.mjs');
 const { _liveSessions } = await import('../../../runtime/agent/orchestrator/session/store/live-state.mjs');
-const { sessionPath } = await import('../../../runtime/agent/orchestrator/session/store/session-paths.mjs');
+const { sessionLogPath, sessionPath } = await import('../../../runtime/agent/orchestrator/session/store/session-paths.mjs');
+const { parseSessionLog } = await import('../../../runtime/agent/orchestrator/session/store/session-log-reader.mjs');
+const { encodePatch } = await import('../../../runtime/agent/orchestrator/session/store/session-log-format.mjs');
 const { eventually, trackWatchers } = await import('../../../runtime/shared/watched-file-cache.test-helpers.mjs');
 const { executeTodoTool } = await import('../../../runtime/agent/orchestrator/runtime-core/todo-list.mjs');
 const { emitSessionActivityChange } = await import('../../../runtime/shared/session-activity-signal.mjs');
@@ -227,12 +229,13 @@ async function pulseUntil(pulse, done) {
   return { value, calls };
 }
 
-// The worker's session as another process would leave it: its record
-// rewritten in place, with no live copy in this process.
+// The worker's session as another process would leave it: a header patch
+// appended to its log, with no live copy in this process.
 function rewriteRecord(sessionId, patch) {
-  const file = sessionPath(sessionId);
-  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
-  writeFileSync(file, JSON.stringify({ ...stored, ...patch }));
+  const file = sessionLogPath(sessionId);
+  const { seq } = parseSessionLog(fs.readFileSync(file));
+  const set = Object.entries(patch).map(([key, value]) => [key, JSON.stringify(value)]);
+  appendFileSync(file, encodePatch(seq + 1, set, []));
 }
 
 test('a status pulse over every Lead reads no file in steady state, with the same contents', async (t) => {
@@ -700,7 +703,7 @@ async function absentRecordWorker(t, watches) {
   const ctx = await scenario(t, { leads: 1, sessionManager: { ...mgr } });
   const sessionId = ctx.running.get(ctx.leadIds[0]);
   _liveSessions.delete(sessionId);
-  fs.rmSync(sessionPath(sessionId));
+  fs.rmSync(sessionLogPath(sessionId));
   const workerStatus = () => ctx.pulse()[0].agentJobs.find((row) => row.sessionId === sessionId)?.workerStatus;
   const opened = watches.opened();
   assert.equal(workerStatus(), undefined);
@@ -756,15 +759,21 @@ test("a legacy tombstone's owner is resolved off the status read and announced w
   );
 });
 
-// Counts the async reads of `sessionId`'s record file.
+// Counts the async reads of `sessionId`'s record file (its log; named
+// imports included).
 function countRecordReads(t, sessionId) {
-  const recordFile = sessionPath(sessionId);
+  const recordFile = sessionLogPath(sessionId);
   const readFile = fsp.readFile;
   let reads = 0;
-  t.mock.method(fsp, 'readFile', async (path, ...args) => {
+  fsp.readFile = async (path, ...args) => {
     const bytes = await readFile(path, ...args);
     if (String(path) === recordFile) reads += 1;
     return bytes;
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fsp.readFile = readFile;
+    syncBuiltinESMExports();
   });
   return () => reads;
 }
@@ -794,12 +803,23 @@ test('while the sessions folder is watched, nothing re-checks records on a clock
   assert.equal(workerStatus(), undefined, 'only a watch event would say the record appeared');
 });
 
+test('without a watch event, a record is read once', async (t) => {
+  silentSessionWatches(t);
+  const ctx = await scenario(t, { leads: 1 });
+  const sessionId = ctx.running.get(ctx.leadIds[0]);
+  const recordReads = countRecordReads(t, sessionId);
+  ctx.pulse();
+  await eventually(() => recordReads() > 0);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(recordReads(), 1);
+});
+
 test('a sessions folder created after the first read is watched from its parent, and its records are seen', async (t) => {
   const ctx = await scenario(t, { leads: 1, sessionManager: { ...mgr } });
   const sessionId = ctx.running.get(ctx.leadIds[0]);
   const sessionsDir = dirname(sessionPath(sessionId));
   // Nothing of the folder is left; its sessions are in no process's memory.
-  const record = fs.readFileSync(sessionPath(sessionId));
+  const record = fs.readFileSync(sessionLogPath(sessionId));
   _liveSessions.delete(sessionId);
   fs.rmSync(sessionsDir, { recursive: true, force: true });
   const workerStatus = () => ctx.pulse()[0].agentJobs.find((row) => row.sessionId === sessionId)?.workerStatus;
@@ -808,7 +828,7 @@ test('a sessions folder created after the first read is watched from its parent,
   assert.equal(workerStatus(), undefined, 'no folder, no record');
   // Another process creates the folder and writes the record.
   fs.mkdirSync(sessionsDir, { recursive: true });
-  writeFileSync(sessionPath(sessionId), record);
+  writeFileSync(sessionLogPath(sessionId), record);
   const seen = await pulseUntil(workerStatus, (status) => status === 'running');
   assert.deepEqual(seen.calls, []);
 });

@@ -1,6 +1,6 @@
 // Two real Mixdog processes on one data dir, each holding the same session:
-// every save replaces the whole record, so without a per-session writer claim
-// the later save silently discards the other process's messages.
+// without a per-session writer claim the later save would record over the
+// other process's records and silently discard its messages.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,21 +16,41 @@ import {
   drainSessionStore,
   getSessionSaveError,
   loadSession,
-  parkSessionSnapshotForDrain,
   releaseIdleSessionWriter,
+  saveSession,
   saveSessionDurably,
   saveSessionAsync,
-  setSessionSaveFault,
 } from '../store.mjs';
+import { resolveSessionRecordSync } from './session-log-reader.mjs';
+import { loadLegacySession } from './legacy-session.mjs';
+import { _sessionLogIoForTest } from './session-log-writer.mjs';
 import { SAVE_OUTCOME_DROPPED } from './live-state.mjs';
 import { claimSessionWriter, releaseIdleSessionWriterClaim } from './session-writer-claim.mjs';
-import { acquireWriteCommit, guardedSaveOptions, releaseWriteCommit } from './write-guards.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
 import { settleAndOpenTurn, settleTurnBase } from '../manager/ask-turn-open.mjs';
 import { TurnPersistenceError } from '../manager/turn-durability.mjs';
 
-// Read when a fault is armed (setSessionSaveFault), not at import.
-process.env.MIXDOG_SESSION_SAVE_FAULT_HOOKS = '1';
+const sessionLogIo = _sessionLogIoForTest();
+const realLogWrite = sessionLogIo.writeSync;
+// Every session-log batch write of this process fails while armed.
+function setSessionSaveFault(armed) {
+  sessionLogIo.writeSync = armed
+    ? () => {
+        throw Object.assign(new Error('EIO: injected'), { code: 'EIO' });
+      }
+    : realLogWrite;
+}
+
+// The session as its record says (the log, or the legacy json without one).
+function storedSession(root, id) {
+  const dir = join(root, 'sessions');
+  const outcome = resolveSessionRecordSync({
+    jsonPath: join(dir, `${id}.json`),
+    logPath: join(dir, `${id}.log.jsonl`),
+    loadLegacy: loadLegacySession,
+  });
+  return outcome.session;
+}
 
 const PEER = fileURLToPath(new URL('./session-writer-claim.fixture.mjs', import.meta.url));
 
@@ -51,8 +71,8 @@ function fixture(t) {
     root,
     id,
     session: { id, generation: 0, closed: false, messages: [{ role: 'user', content: 'parent-1' }] },
-    record: () => JSON.parse(readFileSync(join(root, 'sessions', `${id}.json`), 'utf8')),
-    onDisk: () => JSON.parse(readFileSync(join(root, 'sessions', `${id}.json`), 'utf8')).messages.map((m) => m.content),
+    record: () => storedSession(root, id),
+    onDisk: () => storedSession(root, id).messages.map((m) => m.content),
     lockPath: join(root, 'session-writer-locks', `${id}.lock`),
   };
 }
@@ -144,19 +164,19 @@ test('an exit-drain snapshot is written only as the session writer', async (t) =
   const loaded = loadSession(f.id);
   const parked = (content) => ({ ...loaded, messages: [...loaded.messages, { role: 'assistant', content }] });
 
-  parkSessionSnapshotForDrain(parked('refused'), { expectedGeneration: loaded.generation });
+  saveSession(parked('refused'), { expectedGeneration: loaded.generation });
   drainSessionStore();
   assert.deepEqual(f.onDisk(), ['peer-1']);
   assert.match(getSessionSaveError(f.id)?.message ?? '', /is open in another Mixdog process/);
 
   // Once the peer let go, the drain takes the lock itself and writes.
   await peer.exit();
-  parkSessionSnapshotForDrain(parked('drained'), { expectedGeneration: loaded.generation });
+  saveSession(parked('drained'), { expectedGeneration: loaded.generation });
   drainSessionStore();
   assert.deepEqual(f.onDisk(), ['peer-1', 'drained']);
 });
 
-test('a late save of a copy this process let go writes nothing, not even through the save worker', async (t) => {
+test('a late save of a copy this process let go writes nothing', async (t) => {
   const f = fixture(t);
   await saveSessionDurably(f.session);
   const old = loadSession(f.id);
@@ -181,7 +201,7 @@ test('a turn that fails to open gives back the claim it took', async (t) => {
   assert.deepEqual(await peer.send({ op: 'create', id: f.id, text: 'peer-1' }), { saved: true });
   await peer.exit();
   // The transcript the turn opens on cannot be saved here.
-  setSessionSaveFault({ ids: f.id });
+  setSessionSaveFault(true);
   try {
     await assert.rejects(settleTurnBase(f.id, { recoverCheckpoint: false }), TurnPersistenceError);
   } finally {
@@ -233,32 +253,6 @@ test('a turn whose runtime claim fails after its base settled gives back the wri
   await next.send({ op: 'load', id: f.id });
   assert.deepEqual(await next.send({ op: 'append', id: f.id, text: 'peer-2' }), { saved: true });
   await next.exit();
-});
-
-test('letting a writer lock go never blocks the thread while a rename is in flight', async (t) => {
-  const f = fixture(t);
-  await saveSessionDurably(f.session);
-  // A rename holds the session's commit lock, as the save worker's does mid-commit.
-  const rename = acquireWriteCommit(guardedSaveOptions(f.id));
-  assert.ok(rename);
-  let ticked = false;
-  setImmediate(() => {
-    ticked = true;
-  });
-  const started = performance.now();
-  const released = releaseIdleSessionWriter(f.id);
-  assert.ok(performance.now() - started < 1000, 'the release waited for the rename on the thread');
-  await new Promise(setImmediate);
-  assert.equal(ticked, true);
-
-  // The lock stays this process's until that rename lands.
-  const peer = startPeer(t, f.root);
-  await peer.send({ op: 'load', id: f.id });
-  assert.equal((await peer.send({ op: 'append', id: f.id, text: 'peer-early' })).code, 'ESESSIONCLAIMED');
-  releaseWriteCommit(rename);
-  assert.equal(await released, true);
-  assert.equal((await peer.send({ op: 'append', id: f.id, text: 'peer-1' })).saved, true);
-  await peer.exit();
 });
 
 test('a released tenure is remembered however many sessions were let go since', async (t) => {

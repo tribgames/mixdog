@@ -27,7 +27,9 @@ import {
 import { readJsonProjection } from '../../../shared/pending-json-projection.mjs';
 import { createWorkerRequestClient } from '../../../shared/worker-requests.mjs';
 import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
-import { readTopLevelFields } from './store-agent-worker-header.mjs';
+import { readWorkerRecordHeader } from './store-agent-worker-header.mjs';
+import { ABSENT_RECORD_STAMP, isSettledRecordStamp, sessionRecordFilesOf } from './store/session-record.mjs';
+import { sessionRecordStampSync } from './store/session-log-reader.mjs';
 import {
   readPersistedWorkerHeaders,
   storedAgentWorkerHeaderCachePath,
@@ -465,35 +467,46 @@ function observeStamp(path) {
   }
 }
 
-// A header is reused only under the canonical full-stamp policy: the file
-// still has the exact { dev, ino, size, mtimeNs, ctimeNs } its bytes were
-// proven to come from (stat → read → stat), and that stamp was past the racy
-// window when read. Size + mtime alone let an equal-length rewrite that kept
-// its mtime serve stale ownership, status and cancel fields.
+/** The record stamp (log and json) of the session whose legacy record path is
+ *  `path`; null when it has no record or cannot be statted. */
+function observeRecordStamp(path) {
+  try {
+    const stamp = sessionRecordStampSync(sessionRecordFilesOf(path));
+    return stamp === ABSENT_RECORD_STAMP ? null : stamp;
+  } catch {
+    return null;
+  }
+}
+
+// A header is reused only while the record still has the exact record stamp
+// (log and json: ino, size, mtimeNs) it was proven to come from (stamp →
+// read → stamp), and that stamp was past the racy window when read. Size +
+// mtime alone let an equal-length rewrite that kept its mtime serve stale
+// ownership, status and cancel fields.
 function probeWorkerSessionHeader(path) {
   // Absent and unreadable alike: no header, and no cached one kept for it.
-  const before = observeStamp(path);
+  const before = observeRecordStamp(path);
   if (!before) {
     dropHeader(path);
     return null;
   }
   const cached = workerSessionHeaderCache.get(path);
-  if (cached && sameSessionStamp(cached.stamp, before)) {
+  if (cached && cached.stamp === before) {
     cached.pass = headerPass;
     return cached.header;
   }
   dropHeader(path);
-  // A rewrite re-reads only this record, and only its top-level fields are
-  // decoded: the transcript bytes are validated, never materialized.
+  // A rewrite re-reads only this record, and only its header is kept: a
+  // header scan of the log, the top-level fields of a legacy json.
   let header = null;
   try {
-    header = readTopLevelFields(readFileSync(path), WORKER_HEADER_FIELDS);
+    header = readWorkerRecordHeader(path, WORKER_HEADER_FIELDS);
   } catch {
     return null;
   }
   if (!header) return null;
   workerHeaderReads += 1;
-  if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
+  if (isSettledRecordStamp(before) && before === observeRecordStamp(path)) {
     cacheHeader(path, { stamp: before, header, pass: headerPass });
   }
   return header;

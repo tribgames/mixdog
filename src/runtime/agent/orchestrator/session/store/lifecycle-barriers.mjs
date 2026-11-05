@@ -1,34 +1,15 @@
 /**
- * Durable lifecycle barriers: the tombstone plant (markSessionClosed) and the
- * non-tombstoning detach bump (bumpSessionGeneration). Both rewrite the
- * canonical record under their OWN authority read and the commit lock, so
- * they bypass the save queue entirely — that is why they live apart from the
- * write pipeline — and both fence late saves through the generation counter.
+ * Durable lifecycle barriers: the tombstone (markSessionClosed) and the
+ * non-tombstoning detach bump (bumpSessionGeneration). Each records its
+ * lifecycle fields in the session's log as the session's writer and resolves
+ * the new generation once that record is fsynced; both fence late saves
+ * through the generation counter (store.mjs _dropsAgainst), checked against
+ * the recorder's own state, so no disk re-read and no lock is involved.
  */
-import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../../lib/mixdog-debug.cjs';
 import { createAsyncLogAppender } from '../../../../shared/async-log-appender.mjs';
-import { sessionPath } from './session-paths.mjs';
-import {
-  readCanonicalSessionRecord as _readCanonicalRecord,
-  CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
-  stampSessionScratch as _stampSessionScratch,
-  lifecycleOfSessionDocument as _lifecycleOfSessionDocument,
-} from './canonical-reader.mjs';
-import {
-  guardedSaveOptions as _guardedSaveOptions,
-  cancelSessionWrites as _cancelSessionWrites,
-  tryAcquireWriteCommit as _tryAcquireWriteCommit,
-  releaseWriteCommit as _releaseWriteCommit,
-  writeCommitSettled as _writeCommitSettled,
-  WRITE_COMMIT_BUSY as _WRITE_COMMIT_BUSY,
-} from './write-guards.mjs';
-import { _sessionForDisk } from './serialize.mjs';
-import { _commitSessionWriteAttempt, _discardSaveTmp, _trackSaveTmp, _untrackSaveTmp } from './save-fault.mjs';
-import { sleep } from '../../../../shared/sleep.mjs';
 import {
   _droppedSaveIds,
   _clearLiveSession,
@@ -38,18 +19,17 @@ import {
   clearSessionLifecycleCommitError,
 } from './live-state.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryUpsert } from './summary-cache.mjs';
-import { _savePending, _clearDebounce } from './pending-saves.mjs';
+import { takePendingWrite } from './pending-writes.mjs';
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { loadSession } from './load-session.mjs';
-import {
-  claimSessionWriter,
-  releaseSessionWriter,
-  releaseSessionWriterAfterBarrier,
-  sessionWriterRefusalError,
-} from './session-writer-claim.mjs';
+import { claimSessionWriter, releaseSessionWriter, sessionWriterRefusalError } from './session-writer-claim.mjs';
+import { finishRecorder, recorderFor } from './session-writers.mjs';
+import { sessionRecordStampSync } from './session-log-reader.mjs';
+import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
+import { ABSENT_RECORD_STAMP } from './session-record.mjs';
 
 // Cancellation truth, single rule: an UNCONFIRMED stop outranks a confirmed
-// one, in either direction (already on disk, or requested by this close). A
+// one, in either direction (already recorded, or requested by this close). A
 // cancel whose kill was never proven must never be rewritten as a success —
 // not by a re-close, not by an idle sweep, not by a later tombstone rewrite.
 const _CANCEL_CLOSE_REASON = /^(?:cli-agent-close(?:-all)?|agent-task-cancel)$/i;
@@ -69,7 +49,7 @@ function _mergeCancelStatus(existing, requested) {
 // Agent cancel/close must survive the worker-index drop: the pool summary
 // reads cancelStatus even when the row is already gone. `requested` is the
 // close path's OWN answer about the kill (see closeSession): an unconfirmed
-// stop must reach disk instead of the default confirmed `cancelled`, and a
+// stop must be recorded instead of the default confirmed `cancelled`, and a
 // later re-stamp must never downgrade it.
 function _cancelStatusFields(base, reason, requested, closeTime) {
   if (!_CANCEL_CLOSE_REASON.test(String(reason || '').trim()) && !_cleanCancelStatus(requested)) return {};
@@ -79,82 +59,8 @@ function _cancelStatusFields(base, reason, requested, closeTime) {
   };
 }
 
-/**
- * Durable authority for a lifecycle barrier, read under the commit lock
- * BEFORE any disruption. The barrier rewrites the canonical file, so the bytes
- * it is derived from must be provably ours: a duplicate/ambiguous/foreign/
- * identity-less record is NEVER re-serialized through a lenient parse or
- * replaced from live memory. The barrier is refused and the cause surfaced,
- * exactly like a failed commit (closeSession must not report a close that
- * never fenced anything). Returns LIFECYCLE_AMBIGUOUS on refusal, else the
- * record (null when absent).
- *
- * `lifecycleOnly` is for a barrier that derives nothing from the disk document
- * (the detach bump rewrites `loadSession`'s copy): the verdict then comes from
- * this realm's own-commit stamp when the canonical file is exactly our last
- * rename, and otherwise from the same strict read of the current bytes. Never
- * from the settled-stamp cache — this is a final write authority, exactly like
- * _shouldDrop.
- */
-function _readLifecycleAuthority(id, reason, action, lifecycleOnly = false) {
-  const authority = lifecycleOnly
-    ? _readCanonicalRecord(sessionPath(id), true, { ownCommitsOnly: true })
-    : _readCanonicalRecord(sessionPath(id));
-  if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
-    const err = new Error(`[session-store] ${id}: refusing to ${action} — canonical record is unreadable or foreign`);
-    err.code = 'ELIFECYCLEUNREADABLE';
-    _recordLifecycleCommitFailure(id, err, reason);
-    return LIFECYCLE_AMBIGUOUS;
-  }
-  return authority;
-}
-
-/** Commit a barrier record, bypassing the save queue + guard. False when it did not land.
- *  `attempt` commits with ONE rename of the retry schedule: a retryable
- *  refusal with attempts left discards the scratch file, records nothing and
- *  returns a retry ({ retryInMs }) instead of sleeping. */
-function _writeLifecycleRecord(id, record, existing, reason, attempt) {
-  const target = sessionPath(id);
-  const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
-  try {
-    const disk = _sessionForDisk(record);
-    // fsync before the rename, like every session save (see _doSaveSync): an
-    // OS crash must not publish a tombstone whose data blocks never landed.
-    const fd = openSync(tmp, 'w');
-    try {
-      writeFileSync(fd, JSON.stringify(disk), 'utf-8');
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    const scratch = _stampSessionScratch(tmp);
-    const retryInMs = _commitSessionWriteAttempt(tmp, target, id, attempt);
-    if (retryInMs !== null) {
-      _discardSaveTmp(tmp);
-      return { retryInMs };
-    }
-    // Read-only lifecycle checks (pending-message gates right after a close/
-    // detach) reuse what this barrier wrote; write authority still re-reads.
-    _readCanonicalRecord.rememberOwnBarrier(target, scratch, _lifecycleOfSessionDocument(disk));
-    _untrackSaveTmp(tmp);
-    return true;
-  } catch (err) {
-    // The durable lifecycle barrier did NOT land: no tombstone, no
-    // generation bump, nothing fencing a late save. Same contract as a
-    // failed session save — reclaim the scratch file, pin the live
-    // snapshot (non-evictable, not shadowed by the stale disk copy) and
-    // publish the cause so closeSession refuses to report success.
-    _discardSaveTmp(tmp);
-    _recordSaveFailure(id, err, null, existing);
-    _recordLifecycleCommitFailure(id, err, reason);
-    return false;
-  }
-}
-
 // Structured close metric. Single emission point because every close path
-// funnels through markSessionClosed. lifeMs = updatedAt-createdAt straddles
-// the tombstone (updatedAt was just set to Date.now()), so it reflects the
-// session's full lifetime including the close turn.
+// funnels through markSessionClosed.
 const closeMetricLog = createAsyncLogAppender({ maxBytes: PLUGIN_LOG_MAX_BYTES, keepBytes: PLUGIN_LOG_KEEP_BYTES });
 
 /** Resolves once every queued session-close metric line is written. */
@@ -170,9 +76,6 @@ function _logSessionCloseMetric(id, existing, closedAt, reason) {
     const lifeMs = typeof existing.createdAt === 'number' && existing.createdAt > 0 ? closedAt - existing.createdAt : 0;
     const agent = existing.agent || '-';
     const owner = existing.owner || '-';
-    // Queued, not written inline: a close must not pay a stat + append (and
-    // an occasional rewrite) on the caller's thread. `flushSessionCloseMetrics`
-    // lets a caller that tears the data dir down wait for the write.
     closeMetricLog.append(
       join(dataDir, 'tool-events.log'),
       `[${ts}] [session-close] owner=${owner} agent=${agent} reason=${reason} lifeMs=${lifeMs} id=${id}\n`
@@ -184,39 +87,34 @@ function _logSessionCloseMetric(id, existing, closedAt, reason) {
 
 /**
  * A barrier that found no record at all — nothing on disk and no live or
- * pending copy in memory — fenced nothing because there is nothing to fence:
- * its pending writes were already cancelled under the commit lock. It still
- * returns null (no generation exists), but a caller passing `options.outcome`
- * learns that the record was legitimately gone rather than vetoed, contended
- * or failed.
+ * pending copy in memory — fenced nothing because there is nothing to fence.
+ * It returns null (no generation exists); a caller passing `options.outcome`
+ * learns the record was legitimately gone rather than vetoed or failed.
  */
+function _recordPresent(id) {
+  try {
+    return (
+      sessionRecordStampSync({ jsonPath: sessionRecordPath(id), logPath: sessionLogRecordPath(id) }) !==
+      ABSENT_RECORD_STAMP
+    );
+  } catch {
+    // Not even stat-able: there, and not readable.
+    return true;
+  }
+}
+
 function _recordAbsent(options) {
   if (options?.outcome && typeof options.outcome === 'object') options.outcome.absent = true;
   return null;
 }
 
 /**
- * Atomically mark a session closed on disk with a bumped generation.
- * Resolves the new generation, or null if the session file doesn't exist.
- * `options.outcome` (an object) gets `absent: true` when no record existed.
- * Used by closeSession() to plant a tombstone that races against in-flight
- * saveSession() calls. Never blocks the event loop (see isLifecycleRetry).
+ * Run `barrier(existing, recorder)` as the session's writer: another process
+ * holding the claim refuses it (recorded like a failed commit). A landed
+ * barrier ends this process's tenure, so the claim is given up; one that did
+ * not land leaves a claim this process already held in place.
  */
-export function markSessionClosed(id, reason = 'manual', options = {}) {
-  return _runBarrierAttempts(id, options, (attempt) => _markSessionClosed(id, reason, options, attempt));
-}
-
-// The attempt found another thread's commit of the id holding the lock: it
-// took nothing and recorded nothing, and runs again once that commit lands.
-const COMMIT_BUSY_RETRY = Object.freeze({ retryAfterCommit: true });
-
-/**
- * Run a barrier as the session's writer. Another live process holding the
- * writer claim refuses the barrier (surfaced like a failed commit). A landed
- * barrier ends this process's tenure, so the claim is given up; a barrier
- * that did not land leaves a claim this process already held in place.
- */
-function _asSessionWriter(id, reason, action, barrier) {
+async function _asSessionWriter(id, reason, action, options, barrier) {
   let claim;
   try {
     claim = claimSessionWriter(id);
@@ -230,232 +128,153 @@ function _asSessionWriter(id, reason, action, barrier) {
     _recordLifecycleCommitFailure(id, err, reason);
     return null;
   }
-  const result = barrier();
-  if (typeof result === 'number') releaseSessionWriterAfterBarrier(id);
-  else if (claim.fresh) void releaseSessionWriter(id);
+  let result = null;
+  try {
+    result = await _runBarrier(id, reason, options, barrier);
+  } finally {
+    if (typeof result === 'number' || claim.fresh) void releaseSessionWriter(id);
+  }
   return result;
 }
 
-function _markSessionClosed(id, reason, options, attempt) {
-  // Only a fresh failure from THIS attempt may be observed by closeSession's
-  // durable-barrier check — a veto must not surface a stale error.
-  clearSessionLifecycleCommitError(id);
-  // Caller-provided probes may re-enter the store, so evaluate them before
-  // taking the non-reentrant Atomics commit lock. A veto must also precede
-  // pending-save cancellation so debounce durability remains intact.
-  if (_runtimeLivenessVeto(id, options)) return null;
-  return _asSessionWriter(id, reason, 'close', () => _plantTombstone(id, reason, options, attempt));
-}
-
-function _plantTombstone(id, reason, options, attempt) {
-  const closeGuard = _guardedSaveOptions(id);
-  const commitControl = _tryAcquireWriteCommit(closeGuard);
-  if (commitControl === _WRITE_COMMIT_BUSY) return COMMIT_BUSY_RETRY;
-  if (commitControl === false) return null;
-  try {
-    const authority = _readLifecycleAuthority(id, reason, 'close');
-    if (authority === LIFECYCLE_AMBIGUOUS) return null;
-    // Only a committed close may disrupt pending persistence.
-    _clearDebounce(id);
-    _cancelSessionWrites(id);
-    _uncacheSessionSummary(id);
-    const existing = loadSession(id);
-    if (!existing) return _recordAbsent(options);
-    // Re-close idempotence: a session that is ALREADY tombstoned keeps its
-    // ORIGINAL close time (updatedAt) and generation. The old code refreshed
-    // updatedAt=Date.now() on every call, so the 5-min idle sweep re-closing a
-    // stale summary row reset the tombstone age each cycle — tombstones never
-    // matured past the sweep threshold (immortality loop). Preserving the
-    // original close time lets the age accumulate so the tombstone sweep can
-    // reclaim it.
-    //
-    // The alreadyClosed / original-close-time / generation decision MUST come
-    // from the ON-DISK record, read cache-bypassing — NOT from loadSession(),
-    // which can serve a stale in-memory OPEN payload (a pending debounced save
-    // or a _liveSessions entry) after a late save. Deciding off that stale open
-    // copy would make a re-close of an already-tombstoned session look like a
-    // FIRST close and reset updatedAt+generation, resurrecting the exact
-    // immortality refresh this guard prevents. The disk file is the
-    // authoritative tombstone state.
-    const onDisk = authority ? authority.doc : null;
-    const alreadyClosed = onDisk ? onDisk.closed === true || onDisk.status === 'closed' : existing.closed === true;
-    // When the on-disk copy is already closed, base the (idempotent) tombstone
-    // rewrite on IT rather than on `existing`, so a stale open in-memory
-    // payload can never clobber the persisted tombstone's content/fields.
-    const base = alreadyClosed && onDisk ? onDisk : existing;
-    const closeTime =
-      alreadyClosed && typeof base.updatedAt === 'number' && base.updatedAt > 0 ? base.updatedAt : Date.now();
-    const newGen = (typeof base.generation === 'number' ? base.generation : 0) + (alreadyClosed ? 0 : 1);
-    const tombstone = {
-      ...base,
-      closed: true,
-      closedReason: alreadyClosed && reason !== 'desktop-session-delete' ? base.closedReason || reason : reason,
-      status: 'closed',
-      generation: newGen,
-      updatedAt: closeTime,
-      ..._cancelStatusFields(base, reason, options.cancelStatus, closeTime),
-    };
-    const wrote = _writeLifecycleRecord(id, tombstone, existing, reason, attempt);
-    if (wrote !== true) return wrote || null;
-    _savePending.delete(id);
-    clearSessionSaveError(id);
-    _clearLiveSession(id);
-    _queueSessionSummaryUpsert(tombstone);
-    _droppedSaveIds.delete(id);
-    // Emit the close metric only on the FIRST close — a re-close of an
-    // already-tombstoned session is a no-op idempotent write and must not
-    // spam the close log or double-count lifetimes.
-    if (!alreadyClosed) _logSessionCloseMetric(id, existing, tombstone.updatedAt, reason);
-    return newGen;
-  } finally {
-    _releaseWriteCommit(commitControl);
+async function _runBarrier(id, reason, options, barrier) {
+  // The newest copy: a debounced one is folded in (its slot goes, so it
+  // cannot land after the barrier).
+  const existing = loadSession(id);
+  takePendingWrite(id);
+  if (!existing) {
+    // A record that is there and holds no session of this id (corrupt, or
+    // another session's) owns the identity: the barrier refuses, it is not
+    // an absent record.
+    if (!_recordPresent(id)) return _recordAbsent(options);
+    const err = new Error(`[session-store] ${id}: the record is not readable as this session; refusing to ${reason}`);
+    err.code = 'ELIFECYCLEUNREADABLE';
+    process.stderr.write(`[session-store] lifecycle barrier failed session=${id} reason=${reason}: ${err.message}\n`);
+    _recordLifecycleCommitFailure(id, err, reason);
+    return null;
   }
+  let recorder;
+  try {
+    recorder = recorderFor(existing);
+  } catch (err) {
+    _recordSaveFailure(id, err);
+    _recordLifecycleCommitFailure(id, err, reason);
+    return null;
+  }
+  _uncacheSessionSummary(id);
+  let landed;
+  try {
+    landed = barrier(existing, recorder);
+    await landed.write;
+  } catch (err) {
+    // The barrier did NOT land: no tombstone, no generation bump fencing a
+    // late save. Its records must never ride a later batch, so the recorder
+    // goes with them; the next write reopens the log as it is on disk. The
+    // live snapshot stays pinned and the cause is published so closeSession
+    // refuses to report success.
+    recorder.discard(err);
+    await finishRecorder(id, { discard: true });
+    _recordSaveFailure(id, err);
+    _recordLifecycleCommitFailure(id, err, reason);
+    return null;
+  }
+  clearSessionSaveError(id);
+  _clearLiveSession(id);
+  _queueSessionSummaryUpsert(landed.record);
+  _droppedSaveIds.delete(id);
+  return landed.generation;
 }
 
 /**
- * Bump a session's generation WITHOUT planting a closed:true tombstone.
- * Used by closeSession(id, reason, { tombstone: false }) — the runtime side
- * (bash shells, controller, in-memory entry) is detached, but the
- * session file itself stays valid/resumable. The generation bump alone is
- * what protects it from a late save race: any saveSession() still in flight
- * from the detached turn was issued with the OLD generation as its
- * `expectedGeneration`, so once we bump the on-disk generation here, that
- * late write's own _shouldDrop() check (generation-as-ownership-counter
- * rule, see store/write-admission.mjs) sees disk generation > expected and drops itself instead
- * of clobbering whatever the resumed session writes next.
- * `options.ownerClose` (the agent tool's owner close) also stamps
- * `ownerClosedAt` on the record.
- * Resolves the new generation, or null if the session file doesn't exist.
+ * Mark a session closed with a bumped generation. Resolves the new
+ * generation, or null when vetoed, refused, failed or absent
+ * (`options.outcome.absent`).
+ */
+export function markSessionClosed(id, reason = 'manual', options = {}) {
+  return markSessionClosedAttempt(id, reason, options);
+}
+
+/** markSessionClosed under the name closeSession uses. */
+export async function markSessionClosedAttempt(id, reason = 'manual', options = {}) {
+  // Only a fresh failure from THIS call may be observed by closeSession's
+  // durable-barrier check — a veto must not surface a stale error.
+  clearSessionLifecycleCommitError(id);
+  if (_runtimeLivenessVeto(id, options)) return null;
+  return _asSessionWriter(id, reason, 'close', options, (existing, recorder) => {
+    // Re-close idempotence: an already-recorded tombstone keeps its ORIGINAL
+    // close time (updatedAt) and generation, and its transcript: only the
+    // lifecycle fields are recorded, so a stale open in-memory copy can never
+    // clobber the tombstone's content (the tombstone sweep matures it).
+    const alreadyClosed = recorder.recordedHeader('closed') === true || recorder.recordedHeader('status') === 'closed';
+    if (alreadyClosed) {
+      const recordedGeneration = recorder.recordedHeader('generation');
+      const generation = typeof recordedGeneration === 'number' ? recordedGeneration : 0;
+      const recordedUpdatedAt = recorder.recordedHeader('updatedAt');
+      const closeTime = typeof recordedUpdatedAt === 'number' && recordedUpdatedAt > 0 ? recordedUpdatedAt : Date.now();
+      const base = {
+        cancelStatus: recorder.recordedHeader('cancelStatus'),
+        cancelledAt: recorder.recordedHeader('cancelledAt'),
+      };
+      const fields = {
+        closed: true,
+        status: 'closed',
+        ...(reason === 'desktop-session-delete' ? { closedReason: reason } : {}),
+        ..._cancelStatusFields(base, reason, options.cancelStatus, closeTime),
+      };
+      const write = recorder.recordFields(fields);
+      return { write, generation, record: { ...existing, ...fields, generation, updatedAt: closeTime } };
+    }
+    const closeTime = Date.now();
+    const generation = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
+    const tombstone = {
+      ...existing,
+      closed: true,
+      closedReason: reason,
+      status: 'closed',
+      generation,
+      updatedAt: closeTime,
+      ..._cancelStatusFields(existing, reason, options.cancelStatus, closeTime),
+    };
+    const write = recorder.record(tombstone).then((ack) => {
+      _logSessionCloseMetric(id, existing, closeTime, reason);
+      return ack;
+    });
+    return { write, generation, record: tombstone };
+  });
+}
+
+/**
+ * Bump a session's generation WITHOUT a closed:true tombstone: the runtime is
+ * detached but the record stays resumable. Any save still in flight from the
+ * detached turn carries the OLD generation as its `expectedGeneration`, so
+ * the bump alone drops it. `options.ownerClose` (the agent tool's owner
+ * close) also stamps `ownerClosedAt`. Resolves the new generation, or null.
  */
 export function bumpSessionGeneration(id, reason = 'detach', options = {}) {
-  return _runBarrierAttempts(id, options, (attempt) => _bumpSessionGeneration(id, reason, options, attempt));
+  return bumpSessionGenerationAttempt(id, reason, options);
 }
 
-function _bumpSessionGeneration(id, reason, options, attempt) {
+/** bumpSessionGeneration under the name closeSession uses. */
+export async function bumpSessionGenerationAttempt(id, reason = 'detach', options = {}) {
   clearSessionLifecycleCommitError(id);
-  return _asSessionWriter(id, reason, 'detach', () => _plantDetach(id, reason, options, attempt));
-}
-
-function _plantDetach(id, reason, options, attempt) {
-  // The detach barrier is a canonical write and MUST take the same commit
-  // lock as markSessionClosed. Cancellation alone is not a barrier: a writer
-  // that already passed its cancellation check can still be holding (or
-  // about to take) the rename lock, and would then land AFTER the generation
-  // bump — exactly the late-save clobber this function exists to prevent.
-  // Holding the lock serialises it before us (this attempt then runs again
-  // once it lands); taking it after cancellation makes the acquisition
-  // refuse it (it re-checks cancellation while holding the lock).
-  const detachGuard = _guardedSaveOptions(id);
-  const commitControl = _tryAcquireWriteCommit(detachGuard);
-  if (commitControl === _WRITE_COMMIT_BUSY) return COMMIT_BUSY_RETRY;
-  if (commitControl === false) return null;
-  try {
-    // Same durable authority as the tombstone barrier, but only its verdict
-    // is consumed here: bytes this realm renamed into place (own-commit
-    // stamp) are not re-read and re-parsed; anything else is read strictly.
-    if (_readLifecycleAuthority(id, reason, 'detach', true) === LIFECYCLE_AMBIGUOUS) return null;
-    // Only a VALIDATED barrier may disrupt pending persistence: on an
-    // ambiguous/foreign refusal above the debounced save stays scheduled
-    // and usable.
-    _clearDebounce(id);
-    _cancelSessionWrites(id);
-    _uncacheSessionSummary(id);
-    const existing = loadSession(id);
-    if (!existing) return _recordAbsent(options);
-    const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
+  return _asSessionWriter(id, reason, 'detach', options, (existing, recorder) => {
+    const generation = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
     const now = Date.now();
     const detached = {
       ...existing,
-      generation: newGen,
+      generation,
       updatedAt: now,
       detachedReason: reason,
       // The agent's owner closed it: the record keeps that for its lifetime
       // (agent-reap-state.mjs ownerClosedSinceLastTurn).
       ...(options.ownerClose === true ? { ownerClosedAt: now } : {}),
     };
-    const wrote = _writeLifecycleRecord(id, detached, existing, reason, attempt);
-    if (wrote !== true) return wrote || null;
-    _savePending.delete(id);
-    clearSessionSaveError(id);
-    _clearLiveSession(id);
-    _queueSessionSummaryUpsert(detached);
-    _droppedSaveIds.delete(id);
-    return newGen;
-  } finally {
-    _releaseWriteCommit(commitControl);
-  }
-}
-
-// ── Barrier attempts ─────────────────────────────────────────────────────────
-// No barrier ever waits on the thread. An attempt runs the complete barrier —
-// liveness veto, writer claim, authority read, cancellation, record built from
-// the current copy, ONE rename — synchronously under the commit lock, taken
-// with a single compare-exchange. It returns a retry having recorded nothing
-// when another thread's commit of the id holds that lock
-// ({ retryAfterCommit }: the same attempt runs again once that commit's
-// release notifies) or when the OS refuses the rename with attempts left
-// (Windows EPERM/EBUSY while a scanner holds the file; { retryInMs }: the next
-// attempt of the backoff schedule runs on a timer). The lock is free between
-// attempts; the next attempt re-reads everything, so a save that landed in
-// between is folded into the barrier instead of overwriting it.
-// `options.singleAttempt`: the caller decided on what it read in the stretch
-// of the first attempt, which a wait would make stale — an attempt asking to
-// be retried resolves null (nothing landed) instead; its next pass decides
-// again.
-
-/** Whether a barrier attempt asked to be retried (see waitForLifecycleRetry). */
-export function isLifecycleRetry(result) {
-  return typeof result?.retryInMs === 'number' || result?.retryAfterCommit === true;
-}
-
-/** Wait out `retry` of attempt `attempt` of `id`'s barrier; resolves the
- *  attempt number to run next. Rejects (ESAVEWORKERHUNG, recorded as the
- *  id's lifecycle commit failure) when the commit waited on is a terminated
- *  save worker's whose exit is overdue: the attempt took and wrote nothing,
- *  so the session stays open and unchanged, and a later call retries. */
-export async function waitForLifecycleRetry(id, retry, attempt) {
-  if (retry.retryAfterCommit === true) {
-    try {
-      await _writeCommitSettled(id);
-    } catch (err) {
-      _recordLifecycleCommitFailure(id, err);
-      throw err;
-    }
-    return attempt;
-  }
-  await sleep(retry.retryInMs);
-  return attempt + 1;
-}
-
-/** Attempt `attempt` of markSessionClosed (see isLifecycleRetry). */
-export function markSessionClosedAttempt(id, reason = 'manual', options = {}, attempt = 0) {
-  return _markSessionClosed(id, reason, options, attempt);
-}
-
-/** Attempt `attempt` of bumpSessionGeneration (see isLifecycleRetry). */
-export function bumpSessionGenerationAttempt(id, reason = 'detach', options = {}, attempt = 0) {
-  return _bumpSessionGeneration(id, reason, options, attempt);
-}
-
-async function _runBarrierAttempts(id, options, run) {
-  let attempt = 0;
-  for (;;) {
-    const result = run(attempt);
-    if (!isLifecycleRetry(result)) return result;
-    if (options.singleAttempt === true) return null;
-    try {
-      attempt = await waitForLifecycleRetry(id, result, attempt);
-    } catch {
-      // Recorded by the wait: no barrier landed, like any failed commit.
-      return null;
-    }
-  }
+    return { write: recorder.record(detached), generation, record: detached };
+  });
 }
 
 /** Stamp the agent owner's close (`ownerClosedAt`) on a session record that
- *  stays open: bumpSessionGeneration with `ownerClose`. For a close whose
- *  runtime close wrote no such stamp (already terminal, or closed earlier for
- *  another reason). */
+ *  stays open: bumpSessionGeneration with `ownerClose`. */
 export function markSessionOwnerClosed(id, reason = 'cli-agent-close', options = {}) {
   return bumpSessionGeneration(id, reason, { ...options, ownerClose: true });
 }

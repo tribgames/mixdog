@@ -31,8 +31,7 @@ import { quarantinePath, renameWithRetrySync } from '../../../shared/atomic-file
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 
 import { getStoreDir } from './store/session-paths.mjs';
-import { forgetSessionSaveBaseline } from './store/save-worker.mjs';
-import { _hasPendingPersistence } from './store/pending-saves.mjs';
+import { hasPendingSessionWrite as _hasPendingPersistence } from './store/pending-writes.mjs';
 import { _messagesForDisk } from './store/serialize.mjs';
 import { subscribeSessionPersistence } from './store/session-persistence-events.mjs';
 import { registerSessionPurgeHook } from './store/session-observers.mjs';
@@ -155,13 +154,11 @@ function droppedIdentitySummary(projection) {
 }
 
 /** Stamp stable ids on the transcript a compaction is about to run on (or a
- *  resumed session restores rows from) and make sure they are persisted: the
- *  next save goes out whole instead of as a delta that would leave the
- *  stamped, already-saved messages unchanged on disk. Returns the count. */
-export function stampCompactionMessageIds(messages, sessionId) {
-  const stamped = stampMessageIds(messages, { sessionId });
-  if (stamped && sessionId) forgetSessionSaveBaseline(String(sessionId));
-  return stamped;
+ *  resumed session restores rows from). Stamped messages are replaced (in
+ *  `live` too, the session's array when `messages` is a snapshot of it), so
+ *  the next save records them. Returns the count. */
+export function stampCompactionMessageIds(messages, sessionId, live = null) {
+  return stampMessageIds(messages, { sessionId, live });
 }
 // ── Segment projection and publication ───────────────────────────────────────
 

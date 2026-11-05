@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createModelRouteApi } from './model-route-api.mjs';
-import {
-  _buildWirePayload,
-  _invalidateDeltaBaseline,
-} from '../runtime/agent/orchestrator/session/store/save-delta.mjs';
 import { createContextStatus } from '../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createRuntimeFacade } from './runtime-facade.mjs';
 import { trackSessionGeneration } from './model-route/route-ownership.mjs';
@@ -440,21 +436,15 @@ test('continueSessionInModel rejects a session that is not the addressed one', a
 
 const crossRoute = { provider: 'anthropic', model: 'claude-x', effort: 'low', fast: false };
 
-test('the model-switch boundary replaces its anchor message so the save worker persists it', async () => {
+test('the model-switch boundary replaces its anchor message so the session log records it', async () => {
   const { api, state } = fixture();
-  const sessionId = state.session.id;
   const anchorBefore = state.session.messages.at(-1);
-  // The save worker's baseline: the message references last handed to it.
-  _buildWirePayload(sessionId, state.session);
   const { modelSwitch } = await api.setRoute(crossRoute, { applyToCurrentSession: true });
   const anchor = state.session.messages.at(-1);
+  // The recorder diffs message references: an edit in place would never be written.
   assert.notEqual(anchor, anchorBefore, 'the anchor is a new object, not edited in place');
   assert.equal(anchorBefore.meta, undefined);
-  const payload = _buildWirePayload(sessionId, state.session);
-  const sent = payload.session?.messages ?? payload.delta?.tailMessages;
-  assert.ok(payload.session, 'a changed prefix message forces a full snapshot');
-  assert.deepEqual(sent.at(-1).meta.modelSwitches, [modelSwitch]);
-  _invalidateDeltaBaseline(sessionId);
+  assert.deepEqual(anchor.meta.modelSwitches, [modelSwitch]);
 });
 
 test('validateOnly accepts or rejects a selection without adopting it', async () => {

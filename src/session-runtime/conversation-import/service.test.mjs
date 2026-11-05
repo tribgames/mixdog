@@ -26,7 +26,7 @@ const { candidateId, convertCandidateFile, getCandidate, resetConversationDiscov
 const { deleteSession, listStoredSessionSummaries, loadSession } = await import(
   '../../runtime/agent/orchestrator/session/store.mjs'
 );
-const { sessionPath } = await import('../../runtime/agent/orchestrator/session/store/session-paths.mjs');
+const { sessionLogPath, sessionPath } = await import('../../runtime/agent/orchestrator/session/store/session-paths.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../runtime/agent/orchestrator/providers/registry.mjs');
 const { modelToolSchemaAllowlist } = await import('../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs');
 process.on('exit', () => {
@@ -826,7 +826,8 @@ test('a batch reads the session catalog once, checks existence asynchronously an
       listings += 1;
       return listStoredSessionSummaries();
     };
-    const exists = async (id) => existsSync(sessionPath(id));
+    // A session exists while its log or its legacy json does.
+    const exists = async (id) => existsSync(sessionLogPath(id)) || existsSync(sessionPath(id));
     const api = freshApi(fixture.env, { listSessionSummaries, sessionExists: exists });
     const page = await listUntilComplete(api, { source: 'codex' });
     const ids = page.rows.map((row) => row.id);

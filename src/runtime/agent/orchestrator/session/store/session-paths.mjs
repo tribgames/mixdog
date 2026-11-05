@@ -80,3 +80,12 @@ export function sessionRecordPath(id) {
   _assertSessionId(id);
   return _memoFilePath(_storeDirPath(), id, '.json');
 }
+/** The session's log `<id>.log.jsonl` (session-log-format.mjs). */
+export function sessionLogPath(id) {
+  return _sessionFilePath(id, '.log.jsonl');
+}
+/** sessionLogPath without ensuring the store folder. */
+export function sessionLogRecordPath(id) {
+  _assertSessionId(id);
+  return _memoFilePath(_storeDirPath(), id, '.log.jsonl');
+}

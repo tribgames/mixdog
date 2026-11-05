@@ -13,7 +13,7 @@ import { runFsStepsAsync, runFsStepsSync } from './fs-steps.mjs';
 
 export const PROBE_PRESENT = 'present';
 export const PROBE_ABSENT = 'absent';
-const PROBE_UNREADABLE = 'unreadable';
+export const PROBE_UNREADABLE = 'unreadable';
 
 // ONLY these mean "nothing is at this path". Everything else means a file is
 // very likely there and we simply cannot look at it (same classification the

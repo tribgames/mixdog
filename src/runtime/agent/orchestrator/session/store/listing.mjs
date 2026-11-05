@@ -8,7 +8,6 @@ import { getPluginData } from '../../config.mjs';
 import { getStoreDir, storeRecordDir } from './session-paths.mjs';
 import { probePath, probePathStep, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import { runFsStepsAsync, runFsStepsSync } from './fs-steps.mjs';
-import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import {
   SESSION_SUMMARY_INDEX_VERSION,
   summaryIndexPath,
@@ -34,9 +33,11 @@ import {
   _scanStoredSessionSummaryRowsAsync,
   _summaryRowsCache,
 } from './summary-cache.mjs';
-import { _saveAsyncQueued, _saveWorkerPending } from './save-worker.mjs';
-import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields, _storedSessionFromFile } from './serialize.mjs';
-import { _savePending } from './pending-saves.mjs';
+import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields } from './serialize.mjs';
+import { sessionIdOfRecordName, sessionIdsOfNames } from './session-record.mjs';
+import { storedSessionSync } from './stored-session.mjs';
+import { forEachUnpersistedSession } from './pending-writes.mjs';
+import { isSessionWriteFenced } from './live-state.mjs';
 import { closeSessionCatalogDb } from '../catalog-db/index.mjs';
 
 // Disk mtime of the summary index when the in-memory cache was last refreshed
@@ -51,19 +52,17 @@ export function listStoredSessions(options = {}) {
   // NOT "no sessions": listing yields nothing, but nothing may be treated as
   // deleted/absent on that basis either.
   if (probePath(dir).state !== PROBE_PRESENT) return [];
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
   const sessionsById = new Map();
   const invalidStorageIds = options._invalidStorageIds instanceof Set ? options._invalidStorageIds : new Set();
-  for (const f of files) {
-    const session = _storedSessionFromFile(dir, f);
+  for (const storageId of sessionIdsOfNames(readdirSync(dir))) {
+    const session = storedSessionSync(dir, storageId);
     if (session && session !== STORED_SESSION_UNREADABLE) {
       sessionsById.set(session.id, session);
       continue;
     }
     // Present-but-unreadable owns its identity too: it may never be
     // replaced by a live/pending overlay, so it is marked invalid.
-    const storageId = f.slice(0, -5);
-    if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
+    invalidStorageIds.add(storageId);
   }
   const stored = [...sessionsById.values()];
   const listed =
@@ -80,22 +79,19 @@ function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {
     // particular, a long-lived runtime object must never replace a
     // tombstone or changed desktop authorization metadata. Only active
     // local writes with no disk record get read-your-writes visibility.
-    if (sessionsById.has(id) || invalidStorageIds.has(id) || _isCancelledWrite(opts)) return;
+    if (sessionsById.has(id) || invalidStorageIds.has(id)) return;
     if (session?.id === id) sessionsById.set(id, _ensureLifecycleFields(session));
   };
   _forEachUnpersistedWrite(addIfUnpersisted);
   return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-// Every save that may not be on disk yet: debounced (queued or in-flight
-// payload), the worker's in-flight writes and its latest-wins queue.
+// Every save that may not be on disk yet: the debounced copies (a recorded
+// one has its log from its first write on). A fenced (deleted) id is none.
 function _forEachUnpersistedWrite(visit) {
-  for (const [id, pending] of _savePending) {
-    const payload = pending.queued || pending.payload;
-    visit(id, payload?.session, payload?.opts);
-  }
-  for (const [, pending] of _saveWorkerPending) visit(pending.id, pending.session, pending.opts);
-  for (const [id, pending] of _saveAsyncQueued) visit(id, pending.session, pending.opts);
+  forEachUnpersistedSession((id, session) => {
+    if (!isSessionWriteFenced(id)) visit(id, session);
+  });
 }
 
 // Summary-level twin of _withUnpersistedSessions: overlay queued/in-flight
@@ -103,7 +99,7 @@ function _forEachUnpersistedWrite(visit) {
 function _overlayUnpersistedSummaryRows(rows, invalidStorageIds = new Set()) {
   const byId = new Map(rows.map((row) => [row.id, row]));
   const addIfUnpersisted = (id, session, opts) => {
-    if (!id || byId.has(id) || invalidStorageIds.has(id) || _isCancelledWrite(opts)) return;
+    if (!id || byId.has(id) || invalidStorageIds.has(id)) return;
     if (session?.id !== id) return;
     const row = _sessionSummary(_ensureLifecycleFields(session));
     if (row) byId.set(id, row);
@@ -388,7 +384,7 @@ function* _coldSummaryRowsInWindow(window, dataDir) {
     // Only listed, never created: an absent store simply has no files.
     const dir = storeRecordDir();
     const hasSessionFiles =
-      (yield* probePathStep(dir)).state === PROBE_PRESENT && (yield ['readdir', dir]).some((f) => f.endsWith('.json'));
+      (yield* probePathStep(dir)).state === PROBE_PRESENT && (yield ['readdir', dir]).some(sessionIdOfRecordName);
     // The rebuild targets the current dir: only on this dir's evidence.
     if (hasSessionFiles && getPluginData() === dataDir) scheduleSessionSummaryIndexRebuild();
     return _adoptIndexRows(window, dataDir, indexedRows);
@@ -406,10 +402,9 @@ function* _coldSummaryRowsInWindow(window, dataDir) {
 export function getStoredSessionsRaw() {
   const dir = getStoreDir();
   if (probePath(dir).state !== PROBE_PRESENT) return [];
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
   const sessions = [];
-  for (const f of files) {
-    const session = _storedSessionFromFile(dir, f, false);
+  for (const storageId of sessionIdsOfNames(readdirSync(dir))) {
+    const session = storedSessionSync(dir, storageId, false);
     if (session && session !== STORED_SESSION_UNREADABLE) sessions.push(session);
   }
   return sessions;

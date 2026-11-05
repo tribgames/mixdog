@@ -121,9 +121,9 @@ test('unknown engine syntax or missing metadata is unverified, never healthy', (
 test('healthy report preserves the shared desktop/TUI text contract without speculative Defender advice', async () => {
   const report = await buildDoctorReport(runtime(), state);
   const lines = report.split('\n');
-  assert.equal(lines.length, 17);
+  assert.equal(lines.length, 18);
   assert.equal(lines[0], 'mixdog doctor — installation health');
-  assert.equal(lines.at(-1), '15 ok · 0 warnings · 0 failed');
+  assert.equal(lines.at(-1), '16 ok · 0 warnings · 0 failed');
   assert.equal(reportRow(report, 'mixdog'), '✓ mixdog: v1.0.0 · up to date');
   assert.equal(reportRow(report, 'providers'), '✓ providers: 1 ready · route openai');
   assert.equal(reportRow(report, 'memory'), '✓ memory: installed · enabled · recap enabled');
@@ -164,16 +164,17 @@ test('structured rows carry summary counts and the command that fixes each probl
       'data',
       'config',
       'logs',
+      'sessionLog',
     ]
   );
-  assert.deepEqual(result.summary, { ok: 13, warn: 1, fail: 1 });
+  assert.deepEqual(result.summary, { ok: 14, warn: 1, fail: 1 });
   assert.deepEqual(byId.mixdog.fix, { command: '/update' });
   assert.equal(byId.providers.level, 'fail');
   assert.deepEqual(byId.providers.fix, { command: '/providers' });
   assert.equal(byId.hooks.fix, undefined);
   const report = formatDoctorReport(result);
   assert.match(report, /✗ providers: route openai has no auth · 0 ready\n {4}→ run \/providers\n/);
-  assert.equal(report.split('\n').at(-1), '13 ok · 1 warnings · 1 failed');
+  assert.equal(report.split('\n').at(-1), '14 ok · 1 warnings · 1 failed');
 });
 
 async function rowOf(id, overrides) {

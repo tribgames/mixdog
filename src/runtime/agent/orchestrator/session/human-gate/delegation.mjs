@@ -33,7 +33,7 @@ import { agentIdOfHomeSession } from '../agent-home.mjs';
 import { roomMemberOfSession } from '../agent-room.mjs';
 import { loadSession } from '../store/load-session.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
-import { saveSessionAsync } from '../store/save-worker.mjs';
+import { saveSessionAsync } from '../store.mjs';
 import { isTurnInFlight, runtimeState } from '../manager/runtime-state.mjs';
 import { unattendedApprovalPort } from './unattended-port.mjs';
 

@@ -1,9 +1,9 @@
 // A session save never serializes the whole record on the main thread: a
 // durable save of a multi-MB session and the save every open runtime makes
-// when a bot profile changes hand the record to the save worker, which
-// projects and stringifies it there, and the bytes on disk are the record.
+// when a bot profile changes record into the session's log message by message
+// (only what changed after the first), and the log replays as the record.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -13,6 +13,8 @@ process.env.MIXDOG_DATA_DIR = root;
 mkdirSync(join(root, 'sessions'));
 
 const { saveSessionDurably } = await import('../store.mjs');
+const { resolveSessionRecordSync } = await import('./session-log-reader.mjs');
+const { loadLegacySession } = await import('./legacy-session.mjs');
 const { subscribeSessionPersistence } = await import('./session-persistence-events.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
 const { followAgentProfileChanges } = await import('../../../../../session-runtime/boot/apis.mjs');
@@ -25,7 +27,12 @@ test.after(async () => {
 });
 
 const RECORD_BYTES = 2 * 1024 * 1024;
-const onDisk = (id) => JSON.parse(readFileSync(join(root, 'sessions', `${id}.json`), 'utf8'));
+const onDisk = (id) =>
+  resolveSessionRecordSync({
+    jsonPath: join(root, 'sessions', `${id}.json`),
+    logPath: join(root, 'sessions', `${id}.log.jsonl`),
+    loadLegacy: loadLegacySession,
+  }).session;
 
 /** A session record of about RECORD_BYTES. */
 function largeSession(id) {
@@ -69,8 +76,8 @@ test('a durable save of a multi-MB session runs no whole-record stringify on the
   const whole = spyWholeRecordStringify(t);
   await saveSessionDurably(session);
   assert.deepEqual(whole, [], 'whole-record stringify on the main thread');
-  // Durable when it resolved, and byte-for-byte the record.
-  assert.equal(readFileSync(join(root, 'sessions', `${session.id}.json`), 'utf8'), JSON.stringify(session));
+  // Durable when it resolved, and the log replays as the record.
+  assert.deepEqual(onDisk(session.id), session);
 });
 
 test('a profile change saves only the open sessions it changed, none serialized on the main thread', async (t) => {

@@ -1,9 +1,7 @@
-// A pane's cold transcript read, the durable existence check and the runtime's
-// resume share ONE strict read of an unchanged file: the verdict and the parsed
-// record are reused only under the full stamp the bytes provably came from.
-// A replacement (another writer's rename, a foreign record) is always read
-// strictly again, and the handed-over record is never aliased by the cached
-// projection.
+// A pane's cold transcript read and the runtime's resume each read a legacy
+// record strictly: a parse is reused only under the full stamp the bytes
+// provably came from, and a replacement (another writer's rename, a foreign
+// record) is always read strictly again.
 import assert from 'node:assert/strict';
 import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -92,29 +90,6 @@ function countReads(t, onRead = null) {
   return (id) => counts.get(fileOf(id)) ?? 0;
 }
 
-test('pane read, existence check and resume load share one strict read of an unchanged file', async (t) => {
-  const id = ids[0];
-  const onDisk = JSON.parse(readFileSync(fileOf(id), 'utf8'));
-  const reads = countReads(t);
-  const view = await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  assert.ok(view.items.length > 0);
-  assert.equal(reads(id), 1);
-  assert.equal(reader.storedSessionExists(id), true);
-  const session = loadSession(id);
-  // Exactly the record on disk (loadSession defaults a missing `tools`).
-  assert.deepEqual(session, { ...onDisk, tools: [] });
-  assert.equal(reads(id), 1, 'one read served all three');
-  // The loaded record is the runtime's to mutate; the cached projection
-  // never sees it.
-  const itemsBefore = JSON.stringify(view);
-  session.messages.push({ role: 'user', content: 'runtime-only turn' });
-  session.model = 'mutated';
-  session.modelParameters = { temperature: 1 };
-  const again = await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  assert.equal(JSON.stringify(again), itemsBefore);
-  assert.equal(reads(id), 1);
-});
-
 test('a foreign replacement after the shared read is read strictly and refused', async (t) => {
   const id = ids[1];
   const reads = countReads(t);
@@ -137,65 +112,6 @@ test('another writer’s same-id rewrite after the shared read is loaded from it
   assert.equal(reads(id), 2);
 });
 
-test('every pane read at boot hands over to its later resume, beyond the ordinary document budget', async (t) => {
-  const reads = countReads(t);
-  // Desktop restores every pane first; the resumes come after all of them.
-  for (const id of bulk) await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  for (const id of bulk) {
-    assert.equal(reader.storedSessionExists(id), true);
-    assert.equal(loadSession(id).padding.length, 1_100_000);
-  }
-  assert.deepEqual(
-    bulk.map(reads),
-    bulk.map(() => 1),
-    'one read per session: pane read, existence check and load'
-  );
-  assert.equal(sessionLoadCacheStats().pendingHandoffs, 0, 'every hand-off was claimed');
-  assert.ok(sessionLoadCacheStats().chars <= 8 * 1024 * 1024, 'claimed documents obey the ordinary budget');
-});
-
-test('the pre-load existence check hands its strict parse to the load', (t) => {
-  const id = 'sess_share_exists';
-  const reads = countReads(t);
-  assert.equal(reader.storedSessionExists(id), true);
-  assert.equal(loadSession(id).id, id);
-  assert.equal(reads(id), 1);
-});
-
-test('a replacement between the existence check and the load is read strictly and refused', (t) => {
-  const id = 'sess_share_exists_foreign';
-  const reads = countReads(t);
-  assert.equal(reader.storedSessionExists(id), true);
-  replace(id, record(`${id}_x`));
-  assert.equal(loadSession(id), null, 'the pending parse of the old file is never served');
-  assert.equal(reads(id), 2);
-  assert.equal(sessionLoadCacheStats().pendingHandoffs, 0);
-});
-
-test('a pane read with a turn checkpoint hands over to the load its recovery performs', async (t) => {
-  const id = 'sess_share_ckpt';
-  const reads = countReads(t);
-  const view = await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  assert.ok(view.items.length > 0);
-  assert.equal(reads(id), 1, 'the recovery load claimed the pane parse');
-});
-
-test('an unclaimed hand-off (a pane nobody resumes) is released after its lifetime', async (t) => {
-  const [id, next] = ['sess_share_ttl', 'sess_share_ttl_next'];
-  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-  const reads = countReads(t);
-  await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  assert.ok(sessionLoadCacheStats().pendingHandoffs >= 1);
-  t.mock.timers.tick(20_001);
-  // The next hand-off sweeps expired ones (the unref'd timer does the same
-  // when nothing else happens).
-  await reader.readStoredSessionTranscript(next, { transcriptItemLimit: 40 });
-  assert.equal(loadSession(id).id, id);
-  assert.equal(reads(id), 2, 'the expired parse was released, so the load read the file');
-  assert.equal(loadSession(next).id, next);
-  assert.equal(reads(next), 1, 'a live hand-off is still claimed');
-});
-
 test('dropping a closed session from the load cache announces a release to the idle collector', async (t) => {
   const { createIdleGc } = await import('../../../../shared/idle-gc.mjs');
   const { forgetSessionLoadCache } = await import('./load-cache.mjs');
@@ -215,30 +131,6 @@ test('dropping a closed session from the load cache announces a release to the i
     delete process.env.MIXDOG_IDLE_GC_IDLE_MS;
     delete process.env.MIXDOG_IDLE_GC_MIN_HEAP_MB;
   }
-});
-
-test('a completed restore batch (every hand-off claimed) arms one idle sweep', async (t) => {
-  const { createIdleGc } = await import('../../../../shared/idle-gc.mjs');
-  process.env.MIXDOG_IDLE_GC_IDLE_MS = '1000';
-  process.env.MIXDOG_IDLE_GC_MIN_HEAP_MB = '0';
-  t.after(() => {
-    delete process.env.MIXDOG_IDLE_GC_IDLE_MS;
-    delete process.env.MIXDOG_IDLE_GC_MIN_HEAP_MB;
-  });
-  const id = 'sess_share_batch';
-  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-  const gc = createIdleGc({ isBusy: () => false });
-  t.mock.timers.tick(1_100);
-  assert.equal(await gc._tickForTest(), 'swept');
-  assert.equal(await gc._tickForTest(), 'unchanged');
-  await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  assert.equal(sessionLoadCacheStats().pendingHandoffs, 1);
-  assert.equal(await gc._tickForTest(), 'unchanged', 'a batch still in progress arms nothing');
-  assert.equal(loadSession(id).id, id);
-  assert.equal(sessionLoadCacheStats().pendingHandoffs, 0);
-  assert.equal(await gc._tickForTest(), 'settling', 'the finished batch is a release');
-  t.mock.timers.tick(1_100);
-  assert.equal(await gc._tickForTest(), 'swept');
 });
 
 test('a live session released from the document budget is reloaded without a read while its file is unchanged', async (t) => {
@@ -275,22 +167,3 @@ test('a live session released from the document budget is reloaded without a rea
   assert.ok(after > before, 'released documents without an owner were collected');
 });
 
-test('bytes that changed under the read are neither handed over nor vouched for', async (t) => {
-  const id = ids[3];
-  let raced = false;
-  const reads = countReads(t, (path) => {
-    // A writer renames new bytes in between the reader's stat and read.
-    if (!raced && path === fileOf(id)) {
-      raced = true;
-      replace(id, record(id, { model: 'model-raced' }));
-    }
-  });
-  const view = await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
-  assert.equal(view.model, 'model-raced');
-  assert.equal(reads(id), 1);
-  assert.equal(reader.storedSessionExists(id), true);
-  assert.equal(loadSession(id).model, 'model-raced');
-  // Nothing from the pane read was reused: the existence check read the new
-  // bytes strictly, and the load claimed that check's own parse.
-  assert.equal(reads(id), 2, 'the existence check re-read strictly; the load used its parse');
-});

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { holdsNoData, writeJsonAtomicSync } from '../../../../../shared/atomic-file.mjs';
 import { getPluginData } from '../../../config.mjs';
-import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../../lifecycle-scan.mjs';
+import { loadLegacySession, readSessionRecordSync, recordLifecycle } from '../session-record.mjs';
 
 export const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
 // Hard wall-clock ceiling for sessions stuck in status='running'. The
@@ -30,14 +30,14 @@ export const RESUMABLE_OPEN_MAX_COUNT = 300;
 // idle this long — see sweepUserOwnedRecord in sweep-row.mjs.
 export const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 
-// Sweep-local lifecycle record cache keyed by the session file's fingerprint.
-// The sweep decides from top-level fields only (owner/status/timestamps plus
-// the conversation count), yet it used to read and strictly parse EVERY
-// session transcript on each 5-minute pass — measured at 1,198 files / 758MB
-// per pass on one store. A file whose mtime, change time and size are
-// unchanged yields the same verdict, so only changed files are parsed; only
-// the decision fields are kept in the cached record (see the summary-repair
-// path, which re-reads).
+// Sweep-local lifecycle record cache keyed by the session's record stamp
+// (log and json, ../session-record.mjs). The sweep decides from top-level
+// fields only (owner/status/timestamps plus the conversation count), yet it
+// used to read and strictly parse EVERY session transcript on each 5-minute
+// pass — measured at 1,198 files / 758MB per pass on one store. A record
+// whose stamp is unchanged yields the same verdict, so only changed records
+// are read; only the decision fields are kept in the cached record (see the
+// summary-repair path, which re-reads).
 //
 // The records are persisted beside the summary index as well. Held only in
 // memory they died with every process, so the first pass after each start
@@ -48,7 +48,8 @@ export const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 // running is still parsed again.
 const sweepRecordCache = new Map();
 const SWEEP_RECORD_CACHE_FILE = 'session-sweep-records.json';
-const SWEEP_RECORD_CACHE_VERSION = 3;
+// 4: entries are keyed by record stamp.
+const SWEEP_RECORD_CACHE_VERSION = 4;
 let sweepRecordCacheDataDir = null;
 let sweepRecordCacheDirty = false;
 let sweepRecordParses = 0;
@@ -69,13 +70,7 @@ function syncSweepRecordCache() {
   }
   if (persisted?.version !== SWEEP_RECORD_CACHE_VERSION) return;
   for (const [id, entry] of Object.entries(persisted.entries || {})) {
-    if (
-      Number.isFinite(entry?.mtimeMs) &&
-      Number.isFinite(entry.ctimeMs) &&
-      Number.isFinite(entry.size) &&
-      typeof entry.record?.doc === 'object' &&
-      entry.record.doc !== null
-    ) {
+    if (typeof entry?.stamp === 'string' && typeof entry.record?.doc === 'object' && entry.record.doc !== null) {
       sweepRecordCache.set(id, entry);
     }
   }
@@ -116,24 +111,32 @@ function conversationCountOf(doc) {
 /** The file holds no data (empty or NUL-filled by a crash); never cached. */
 export const SWEEP_RECORD_NO_DATA = Symbol('sweep-record-no-data');
 
-/** `null` when the file could not be read; SWEEP_RECORD_NO_DATA for a file
- * without data; otherwise the lifecycle record (possibly
- * LIFECYCLE_SCAN_CONFLICT, which is never cached). */
-export function readSweepRecord(id, jsonPath, probe) {
+// A legacy json without data, as the sweep's legacy loader reports it.
+const NO_DATA_DOC = Object.freeze({});
+
+function loadSweepLegacy(text, sessionId) {
+  return holdsNoData(text) ? NO_DATA_DOC : loadLegacySession(text, sessionId);
+}
+
+/** `null` when the record could not be read or holds no session of `id`;
+ * SWEEP_RECORD_NO_DATA for a legacy json (no log) without data; otherwise the
+ * lifecycle record. `stamp`: the record stamp taken just before. */
+export function readSweepRecord(id, dir, stamp) {
   syncSweepRecordCache();
   const cached = sweepRecordCache.get(id);
-  if (cached && cached.mtimeMs === probe.mtimeMs && cached.ctimeMs === probe.ctimeMs && cached.size === probe.size)
-    return cached.record;
-  let raw = null;
+  if (cached && cached.stamp === stamp) return cached.record;
+  let outcome;
   try {
-    raw = readFileSync(jsonPath, 'utf-8');
+    outcome = readSessionRecordSync(dir, id, { loadLegacy: loadSweepLegacy });
   } catch {
     return null;
   }
-  if (holdsNoData(raw)) return SWEEP_RECORD_NO_DATA;
+  // Only a json that is the whole record is no record at all: one beside a
+  // log never takes the log with it.
+  if (outcome.session === NO_DATA_DOC) return outcome.kind === 'legacy' ? SWEEP_RECORD_NO_DATA : null;
   sweepRecordParses++;
-  const full = readTopLevelLifecycleRecord(raw);
-  if (isLifecycleUnreadable(full)) return full;
+  const full = recordLifecycle(outcome, id);
+  if (!full) return null;
   const doc = {};
   for (const field of SWEEP_DOC_FIELDS) {
     if (Object.hasOwn(full.doc, field)) doc[field] = full.doc[field];
@@ -145,7 +148,7 @@ export function readSweepRecord(id, jsonPath, probe) {
     doc,
     conversationCount: conversationCountOf(full.doc),
   };
-  sweepRecordCache.set(id, { mtimeMs: probe.mtimeMs, ctimeMs: probe.ctimeMs, size: probe.size, record });
+  sweepRecordCache.set(id, { stamp, record });
   sweepRecordCacheDirty = true;
   return record;
 }

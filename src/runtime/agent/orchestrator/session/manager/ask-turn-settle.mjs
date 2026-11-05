@@ -3,7 +3,7 @@
 // committed transcript with usage and acknowledgements (commitAskTurn), then
 // the terminal relay, the durable save and the terminal runtime stage
 // (publishAskTurn).
-import { saveSessionAsync, saveSessionAsyncDeferred } from '../store.mjs';
+import { saveSessionAsync } from '../store.mjs';
 import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
 import { persistedAssistantTranscriptMetadata } from '../../../../shared/transcript-metadata.mjs';
 import { acknowledgePendingDeferredToolDelta } from '../../runtime-core/deferred-tool-delta.mjs';
@@ -192,9 +192,7 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
       turnStartedAt
     );
   }
-  let terminalRelayed = false;
   if (drained.length === 0 && typeof askOpts?.onTerminalResult === 'function') {
-    terminalRelayed = true;
     try {
       askOpts.onTerminalResult(terminalResultPreview, {
         sessionId,
@@ -216,13 +214,10 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
   session.turnCoverage = turnToken;
   checkpoint.seal();
   // Terminal save. The result is already produced and (for agent surfaces)
-  // relayed via onTerminalResult above. When completion was relayed to the
-  // UI, yield before postMessage structured-clones the full session. Queued
-  // follow-up turns retain the original immediate-save ordering. Its landed
-  // acknowledgement is this session's next-turn gate (turn-durability.mjs),
-  // which alone deletes the checkpoint.
-  const saveTerminalSession = terminalRelayed ? saveSessionAsyncDeferred : saveSessionAsync;
-  const terminalSave = saveTerminalSession(session, { expectedGeneration: askGeneration });
+  // relayed via onTerminalResult above; the save records only what the turn
+  // added. Its landed acknowledgement is this session's next-turn gate
+  // (turn-durability.mjs), which alone deletes the checkpoint.
+  const terminalSave = saveSessionAsync(session, { expectedGeneration: askGeneration });
   holdTurnUntilDurable({ sessionId, session, turnToken, generation: askGeneration, save: terminalSave });
   terminalSave.then(
     () => ingestSessionTurn(session),

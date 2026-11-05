@@ -98,8 +98,8 @@ export function createTurnCheckpointScheduler({
   // A value marked sensitive while the turn runs (sensitive-values.mjs) —
   // before the call that carries it executes: every stored copy that may hold
   // it is written again with it replaced. The checkpoint is rewritten in full
-  // now (the recorder sees the new version); the session file gets a full
-  // save (store/save-delta.mjs resyncs on the version) and the search rows a
+  // now (the recorder sees the new version); the session's files are
+  // rewritten redacted (store.mjs, on the version) and the search rows get a
   // transactional replacement (session-search-ingest.mjs).
   const stopMarks = onSensitiveValuesMarked(sessionId, () => {
     if (stopped) return;

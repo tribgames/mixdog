@@ -146,8 +146,12 @@ test('an id-less prompt that several user messages repeat is refused, not guesse
   const kept = loadSession('sess_rewind_ambiguous');
   assert.equal(kept.messages.length, 4);
   // The same prompts addressed by id stay rewindable.
-  kept.messages[0].meta = { transcript: { messageId: 'msg_first' } };
-  kept.messages[2].meta = { transcript: { messageId: 'msg_second' } };
+  // Recorded messages are replaced, never edited in place.
+  kept.messages = kept.messages.map((message, index) =>
+    index === 0 || index === 2
+      ? { ...message, meta: { transcript: { messageId: index === 0 ? 'msg_first' : 'msg_second' } } }
+      : message
+  );
   await saveSessionAsync(kept, { expectedGeneration: kept.generation });
   assert.equal((await rewindSessionMessagesTo('sess_rewind_ambiguous', { messageId: 'msg_first' })).removed, 4);
 });

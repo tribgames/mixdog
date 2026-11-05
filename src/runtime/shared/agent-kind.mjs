@@ -13,9 +13,15 @@
 //   T2  its agent.json has an `avatar` (the bot dialog always sent one) AND
 //       its AGENT.md body is the bot dialog's default (agentBodyFromBrief).
 // Anything else is a workflow agent, as in v1.2.6.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentHomeSessionId } from '../agent/orchestrator/session/agent-home.mjs';
+import {
+  ABSENT_RECORD_STAMP,
+  readSessionRecordSync,
+  recordSession,
+  sessionRecordStampOfSync,
+} from '../agent/orchestrator/session/store/session-record.mjs';
 import { readMarkdownDocument } from './markdown-frontmatter.mjs';
 import { BOT_AGENT_KIND } from './agent-route-config.mjs';
 import { botStoreActive, isStoreBot } from './agent-store.mjs';
@@ -39,32 +45,34 @@ function messageText(content) {
 }
 
 const NO_HOME = Object.freeze({ exists: false, greeted: false, chatted: false });
-// Per session file, keyed by its size and mtime: a home thread is read once
-// until it changes.
+// Per session, keyed by its record stamp: a home thread is read once until it
+// changes.
 const homeEvidenceCache = new Map();
 
-/** What `agentId`'s home thread (sessions/sess_home_<id>.json) holds:
- *  whether it exists, whether it has the creation greeting, and whether the
- *  user talked in it: a message the user wrote (a user message that is not a
- *  runtime turn or the greeting). The agent's own messages never count: Mixy's
- *  heartbeat posts its reports there unasked. A missing or unreadable file
- *  holds nothing. */
+/** What `agentId`'s home thread (session sess_home_<id>) holds: whether it
+ *  exists, whether it has the creation greeting, and whether the user talked
+ *  in it: a message the user wrote (a user message that is not a runtime turn
+ *  or the greeting). The agent's own messages never count: Mixy's heartbeat
+ *  posts its reports there unasked. A missing or unreadable record holds
+ *  nothing. */
 export function homeThreadEvidence(dataDir, agentId) {
   const sessionId = agentHomeSessionId(agentId);
   if (!dataDir || !sessionId) return NO_HOME;
-  const file = join(dataDir, 'sessions', `${sessionId}.json`);
-  let stat;
+  const dir = join(dataDir, 'sessions');
+  let stamp;
   try {
-    stat = statSync(file);
+    stamp = sessionRecordStampOfSync(dir, sessionId);
   } catch {
     return NO_HOME;
   }
-  const cached = homeEvidenceCache.get(file);
-  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached.value;
+  if (stamp === ABSENT_RECORD_STAMP) return NO_HOME;
+  const key = join(dir, sessionId);
+  const cached = homeEvidenceCache.get(key);
+  if (cached && cached.stamp === stamp) return cached.value;
   let messages = [];
   try {
-    const doc = JSON.parse(readFileSync(file, 'utf8'));
-    if (Array.isArray(doc?.messages)) messages = doc.messages;
+    const session = recordSession(readSessionRecordSync(dir, sessionId, { loadLegacy: parseJsonObject }), sessionId);
+    if (Array.isArray(session?.messages)) messages = session.messages;
   } catch {
     // unreadable: it proves nothing
   }
@@ -77,8 +85,18 @@ export function homeThreadEvidence(dataDir, agentId) {
     else if (text.trim() && !text.trimStart().startsWith(RUNTIME_MARKER)) chatted = true;
   }
   const value = Object.freeze({ exists: true, greeted, chatted });
-  homeEvidenceCache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, value });
+  homeEvidenceCache.set(key, { stamp, value });
   return value;
+}
+
+/** A session record's legacy json as plain JSON: whatever object it holds. */
+export function parseJsonObject(text) {
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function isDialogDefaultBody(body) {

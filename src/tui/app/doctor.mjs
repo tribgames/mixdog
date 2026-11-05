@@ -17,6 +17,7 @@ import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { providerRowUsable } from './provider-usable.mjs';
+import { readSessionLogMigration, reportSessionLogMigration } from './doctor-session-log.mjs';
 import { constants as fsConstants, readFileSync } from 'node:fs';
 import { access, readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -409,6 +410,7 @@ export async function runDoctorChecks(runtime = {}, getState = () => ({}), optio
     ['data', 'data folder', () => readDataFolder(dataDir), reportDataFolder],
     ['config', 'config', () => readConfigFile(dataDir), reportConfigFile],
     ['logs', 'logs', () => readLogFiles(dataDir), reportLogFiles],
+    ['sessionLog', 'session log', () => readSessionLogMigration(dataDir), reportSessionLogMigration],
   ];
   const rows = await Promise.all(
     checks.map(([id, label, readStatus, report]) => doctorCheck({ id, label, readStatus, report, timeoutMs }))

@@ -96,8 +96,8 @@ export function onSensitiveValuesMarked(sessionId, listener) {
 }
 
 /** Changes whenever `sessionId` gains a value, so a stored copy made before
- *  is written again in full (store/save-delta.mjs, the turn checkpoint, the
- *  search rows). */
+ *  is written again in full (the session's files via store.mjs, the turn
+ *  checkpoint, the search rows). */
 export function sensitiveValuesVersion(sessionId) {
   return bySession.get(sessionId)?.version || 0;
 }

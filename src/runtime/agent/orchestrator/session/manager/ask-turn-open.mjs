@@ -12,7 +12,6 @@ import { durableTranscriptBase } from '../store/transcript-durability.mjs';
 import {
   claimSessionWriterOrThrow,
   releaseSessionWriter,
-  sessionWriterReopened,
 } from '../store/session-writer-claim.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
@@ -50,7 +49,6 @@ export async function settleTurnBase(sessionId, { recoverCheckpoint }) {
     // is still there (a conflict, an unreadable header, a crashed turn this
     // ask did not recover) is set aside first, never overwritten.
     setAsideUnrecoveredCheckpoint(session, sessionId);
-    sessionWriterReopened(sessionId);
     opened = true;
     return claim;
   } finally {

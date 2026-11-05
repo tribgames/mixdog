@@ -11,8 +11,8 @@
  * bring the value back. A write also redacts with the values known when it
  * runs, not when it was issued.
  */
-import { readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { sessionIdsOfNames, sessionRecordStampOfSync } from '../agent/orchestrator/session/store/session-record.mjs';
 import { isAgentOnlySession } from '../agent/orchestrator/session/store-summary-visibility.mjs';
 import { redactSensitiveText, sensitiveValuesVersion } from '../agent/orchestrator/session/sensitive-values.mjs';
 import { redactSensitiveMessages } from '../agent/orchestrator/session/sensitive-projection.mjs';
@@ -144,15 +144,19 @@ export async function forgetSessionSearch(sessionId) {
   }).catch(reportUnlessClosed(`delete ${sessionId}`));
 }
 
+// `readSession(dir, file)` names the session by its legacy record name
+// `<id>.json`, which a log-only session has too (stored-session.mjs reads
+// either through the record seam).
 async function loadStoreDeps() {
-  const [{ getStoreDir }, { _storedSessionFromFile, STORED_SESSION_UNREADABLE }] = await Promise.all([
+  const [{ getStoreDir }, { STORED_SESSION_UNREADABLE }, { storedSessionSync }] = await Promise.all([
     import('../agent/orchestrator/session/store/session-paths.mjs'),
     import('../agent/orchestrator/session/store/serialize.mjs'),
+    import('../agent/orchestrator/session/store/stored-session.mjs'),
   ]);
   return {
     dir: getStoreDir(),
     readSession: (dir, file) => {
-      const session = _storedSessionFromFile(dir, file, false);
+      const session = storedSessionSync(dir, file.slice(0, -'.json'.length), false);
       return session && session !== STORED_SESSION_UNREADABLE ? session : null;
     },
   };
@@ -160,22 +164,21 @@ async function loadStoreDeps() {
 
 const yieldToEventLoop = () => new Promise((resolve) => setTimeout(resolve, 25));
 
-/** Ingest stored ordinary sessions whose file stamp (mtime+size) changed since
- *  the last recorded backfill, then drop the rows of sessions whose file is
- *  gone (removed by any path, not only the delete command). Sequential,
- *  yields between sessions. */
+/** Ingest stored ordinary sessions whose record stamp (log and json, see
+ *  session-log-reader.mjs sessionRecordStamp) changed since the last recorded
+ *  backfill, then drop the rows of sessions whose record is gone (removed by
+ *  any path, not only the delete command). Sequential, yields between
+ *  sessions. */
 export async function backfillSessionSearch({ deps } = {}) {
   const { dir, readSession } = deps || (await loadStoreDeps());
   const stamps = await readSessionSearchBackfillStamps();
-  const files = readdirSync(dir).filter((file) => file.endsWith('.json'));
+  const sessionIds = sessionIdsOfNames(readdirSync(dir));
   let ingested = 0;
-  for (const file of files) {
-    const sessionId = file.slice(0, -5);
+  for (const sessionId of sessionIds) {
     try {
-      const st = statSync(join(dir, file));
-      const stamp = `${Math.floor(st.mtimeMs)}:${st.size}`;
+      const stamp = sessionRecordStampOfSync(dir, sessionId);
       if (stamps.get(sessionId) === stamp) continue;
-      const session = readSession(dir, file);
+      const session = readSession(dir, `${sessionId}.json`);
       if (session?.id && !isAgentOnlySession(session)) {
         await serialized(session.id, async () => {
           await appendSessionSearchMessages(session.id, redactSensitiveMessages(session.id, session.messages));
@@ -188,7 +191,7 @@ export async function backfillSessionSearch({ deps } = {}) {
     }
     await yieldToEventLoop();
   }
-  const stored = new Set(files.map((file) => file.slice(0, -5)));
+  const stored = new Set(sessionIds);
   for (const sessionId of await readSessionSearchSessionIds()) {
     if (!stored.has(sessionId)) await forgetSessionSearch(sessionId);
   }

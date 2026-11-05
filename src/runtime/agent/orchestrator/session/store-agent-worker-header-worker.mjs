@@ -12,14 +12,17 @@
  *   { unreadable }                read or parse failed
  *   { header, stamp, settled }    read at `stamp`; `settled` = may be cached
  */
-import { readFileSync } from 'node:fs';
-import { isSettledSessionStamp, sameSessionStamp, statSessionStamp } from './store/canonical-reader.mjs';
-import { readTopLevelFields } from './store-agent-worker-header.mjs';
+import { readWorkerRecordHeader } from './store-agent-worker-header.mjs';
+import { ABSENT_RECORD_STAMP, isSettledRecordStamp, sessionRecordFilesOf } from './store/session-record.mjs';
+import { sessionRecordStampSync } from './store/session-log-reader.mjs';
 import { serveWorkerRequests } from '../../../shared/worker-requests.mjs';
 
+// `path` names the session by its legacy record path; its stamp is the
+// record stamp (log and json).
 function stampOrNull(path) {
   try {
-    return statSessionStamp(path);
+    const stamp = sessionRecordStampSync(sessionRecordFilesOf(path));
+    return stamp === ABSENT_RECORD_STAMP ? null : stamp;
   } catch {
     return null;
   }
@@ -28,10 +31,10 @@ function stampOrNull(path) {
 function probe(path, known, fields) {
   const before = stampOrNull(path);
   if (!before) return { absent: true };
-  if (sameSessionStamp(known, before)) return { same: true };
+  if (known === before) return { same: true };
   let header = null;
   try {
-    header = readTopLevelFields(readFileSync(path), fields);
+    header = readWorkerRecordHeader(path, fields);
   } catch {
     return { unreadable: true };
   }
@@ -39,7 +42,7 @@ function probe(path, known, fields) {
   return {
     header,
     stamp: before,
-    settled: isSettledSessionStamp(before) && sameSessionStamp(before, stampOrNull(path)),
+    settled: isSettledRecordStamp(before) && before === stampOrNull(path),
   };
 }
 

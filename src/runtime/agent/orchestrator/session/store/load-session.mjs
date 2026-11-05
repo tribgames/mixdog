@@ -1,23 +1,24 @@
 /**
  * Public session read: decides which copy of a session speaks for its id —
- * the validated disk record, a queued/in-flight write payload, the live
- * snapshot, or the evidence-backed failed-save snapshot. Nothing here writes;
- * the precedence rules are the whole responsibility.
+ * the record (its log, or its legacy json), a debounced copy not yet
+ * recorded, or the live snapshot. Nothing here writes; the precedence rules
+ * are the whole responsibility.
  */
-import { sessionPath } from './session-paths.mjs';
-import { _savePending } from './pending-saves.mjs';
-import { _liveSessions, _droppedSaveIds, getFailedSaveSnapshot } from './live-state.mjs';
+import { _liveSessions, _droppedSaveIds, hasSessionSaveFailure } from './live-state.mjs';
 import { _readStoredSessionCached } from './load-cache.mjs';
 import { _ensureLifecycleFields } from './serialize.mjs';
-import { isSettledSessionStamp, sameSessionStamp, statSessionStamp } from './canonical-reader.mjs';
+import { pendingSessionCopy } from './pending-writes.mjs';
+import { sessionRecordStampSync } from './session-log-reader.mjs';
+import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
+import { isSettledRecordStamp } from './session-record.mjs';
 
 /** This process's in-memory copies of `id`, as resolveSessionCopy weighs them. */
 export function sessionMemoryCopies(id) {
   return {
-    pending: _savePending.get(id),
+    pending: pendingSessionCopy(id),
     live: _liveSessions.get(id),
     droppedSave: _droppedSaveIds.has(id),
-    failedSave: () => getFailedSaveSnapshot(id),
+    failedSave: hasSessionSaveFailure(id),
   };
 }
 
@@ -25,12 +26,11 @@ export function sessionMemoryCopies(id) {
  *  (a document or just its `{ id, generation }` header; null when there is no
  *  record), or null when the record does. */
 export function inMemorySessionCopy(id, memory, stored) {
-  // Read-your-writes: queued state is newer than the payload being written.
-  const inMemory = (memory.pending?.queued || memory.pending?.payload)?.session;
-  if (inMemory?.id === id) return inMemory;
+  // Read-your-writes: a debounced copy is newer than the record.
+  if (memory.pending?.id === id) return memory.pending;
   const live = memory.live;
   if (live?.id !== id) return null;
-  // A higher disk generation means another process took ownership. A
+  // A higher record generation means another process took ownership. A
   // dropped save is the exception: the live copy still contains unsaved
   // content, so a generation bump must not discard the only complete copy.
   const liveGen = typeof live.generation === 'number' ? live.generation : 0;
@@ -44,29 +44,18 @@ export function inMemorySessionCopy(id, memory, stored) {
  * `memory` from sessionMemoryCopies, `record` the disk read's `{ exists,
  * session }` (`session` null for an existing record that cannot be read).
  * Returns `{ session, from }`, `from` one of 'memory', 'failed-save',
- * 'unreadable', 'record' or 'absent'. Lifecycle fields and dropping a live
- * copy the record outranks are the caller's.
+ * 'unreadable', 'record' or 'absent'.
  */
 export function resolveSessionCopy(id, memory, record) {
   if (record.exists && !record.session) {
-    // An existing-but-unreadable file OWNS the identity: an externally
-    // corrupted, foreign, ambiguous or half-written file from another
-    // writer is REPORTED (null), never masked by whatever this process
-    // happens to hold in memory.
-    //
-    // Exactly ONE exception, and it is evidence-based rather than
-    // state-based: the snapshot whose OWN write to this path failed in
-    // this process (getFailedSaveSnapshot). That failure proves the bytes
-    // never landed, so this copy is strictly newer than the file and is
-    // the only good same-process copy — hiding it would turn a surfaced
-    // save failure into silent session loss for every public reader.
-    // A generic pending payload / _liveSessions entry proves nothing about
-    // disk and may NOT stand in: unrelated corruption stays visible.
-    // Lifecycle and pending-ownership authorities do not come through
-    // here at all (they read the durable record directly), so they keep
-    // seeing 'unreadable' and failing closed.
-    const recovered = memory.failedSave();
-    return recovered?.id === id ? { session: recovered, from: 'failed-save' } : { session: null, from: 'unreadable' };
+    // An existing-but-unreadable record OWNS the identity: it is REPORTED
+    // (null), never masked by whatever this process holds in memory — except
+    // the live copy of a session whose own save failed here: its records are
+    // still queued (they land with the next write), so it is the newest copy.
+    const live = memory.live;
+    return memory.failedSave && live?.id === id
+      ? { session: live, from: 'failed-save' }
+      : { session: null, from: 'unreadable' };
   }
   const inMemory = inMemorySessionCopy(id, memory, record.session);
   if (inMemory) return { session: inMemory, from: 'memory' };
@@ -74,13 +63,11 @@ export function resolveSessionCopy(id, memory, record) {
 }
 
 export function loadSession(id) {
-  const path = sessionPath(id);
   const memory = sessionMemoryCopies(id);
-  // An existing file owns this identity. Its contents must validate before
-  // fresher in-memory state is allowed to shadow it. The cache retains a
-  // validated disk header, rather than a second transcript, when that header
-  // proves the live/pending snapshot will be served.
-  const disk = _readStoredSessionCached(id, path, {
+  // An existing record owns this identity. It must read as this session's
+  // before fresher in-memory state is allowed to shadow it; the cache keeps
+  // only its header when that header proves the in-memory copy is served.
+  const disk = _readStoredSessionCached(id, {
     preferInMemory: (stored) => inMemorySessionCopy(id, memory, stored),
   });
   const { session, from } = resolveSessionCopy(id, memory, disk);
@@ -90,40 +77,30 @@ export function loadSession(id) {
 }
 
 // `status` of loadSession(id), for the agent-status pulse: it reads every
-// worker's status every two seconds, and an idle worker's whole transcript
-// (released from the load cache's small document budget) was re-read and
-// strictly re-parsed on every beat. The answer loadSession gave is reused only
-// while the file keeps the exact settled full stamp it was read under and no
-// in-memory copy (pending save, live snapshot, failed-save evidence) can speak
-// for the id instead; anything else asks loadSession again.
+// worker's status every two seconds. The answer is reused only while the
+// record keeps the exact settled stamp it was read under and no in-memory
+// copy can speak for the id instead; anything else asks loadSession again.
 const STATUS_CACHE_LIMIT = 4096;
-const _statusByPath = new Map(); // path -> { stamp, status }
+const _statusById = new Map(); // id -> { stamp, status }
 
-function _observeStamp(path) {
+function _observeStamp(id) {
   try {
-    return statSessionStamp(path);
+    return sessionRecordStampSync({ jsonPath: sessionRecordPath(id), logPath: sessionLogRecordPath(id) });
   } catch {
     return null;
   }
 }
 
 export function loadSessionStatus(id) {
-  const path = sessionPath(id);
-  const inMemory = _savePending.has(id) || _liveSessions.has(id) || getFailedSaveSnapshot(id);
-  const before = inMemory ? null : _observeStamp(path);
-  const cached = before ? _statusByPath.get(path) : null;
-  if (cached && sameSessionStamp(cached.stamp, before)) return cached.status;
-  _statusByPath.delete(path);
+  const inMemory = () => pendingSessionCopy(id) !== null || _liveSessions.has(id);
+  const before = inMemory() ? null : _observeStamp(id);
+  const cached = before ? _statusById.get(id) : null;
+  if (cached && cached.stamp === before) return cached.status;
+  _statusById.delete(id);
   const status = loadSession(id)?.status ?? null;
-  if (
-    before &&
-    isSettledSessionStamp(before) &&
-    !_savePending.has(id) &&
-    !_liveSessions.has(id) &&
-    sameSessionStamp(before, _observeStamp(path))
-  ) {
-    if (_statusByPath.size >= STATUS_CACHE_LIMIT) _statusByPath.delete(_statusByPath.keys().next().value);
-    _statusByPath.set(path, { stamp: before, status });
+  if (before && isSettledRecordStamp(before) && !inMemory() && before === _observeStamp(id)) {
+    if (_statusById.size >= STATUS_CACHE_LIMIT) _statusById.delete(_statusById.keys().next().value);
+    _statusById.set(id, { stamp: before, status });
   }
   return status;
 }

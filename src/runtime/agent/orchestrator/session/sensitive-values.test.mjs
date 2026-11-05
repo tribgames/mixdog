@@ -2,7 +2,7 @@
 // its value, and no stored copy of the transcript holds it: not the call, the
 // provider's echo of it, the mail result before it, or a result after it.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -10,7 +10,9 @@ import test from 'node:test';
 const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-sensitive-values-'));
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = dataRoot;
-test.after(() => {
+test.after(async () => {
+  // The writer locks this process holds go before their folder does.
+  (await import('./store.mjs')).drainSessionStore();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   rmSync(dataRoot, { recursive: true, force: true });
@@ -19,7 +21,9 @@ test.after(() => {
 const { agentLoop } = await import('./agent-loop.mjs');
 const { setInternalToolsProvider } = await import('../internal-tools.mjs');
 const { _sessionForDisk } = await import('./store/serialize.mjs');
-const { _buildWirePayload } = await import('./store/save-delta.mjs');
+const { loadSession, saveSessionAsync } = await import('./store.mjs');
+const { resolveSessionRecordSync } = await import('./store/session-log-reader.mjs');
+const { loadLegacySession } = await import('./store/legacy-session.mjs');
 const {
   onSensitiveValuesMarked,
   redactSensitiveText: redactSensitive,
@@ -181,17 +185,37 @@ test('only text is redacted: argument JSON stays valid, ids, timestamps and medi
   assert.deepEqual(redactSensitiveMessage(id, replayOnly), { role: 'assistant', content: 'Done.' });
 });
 
-test('a transcript saved before the code was marked is written again in full', () => {
+test('a transcript saved before the code was marked is written again redacted', async () => {
   const id = 'sensitive-delta';
+  const logPath = join(dataRoot, 'sessions', `${id}.log.jsonl`);
   const session = { id, messages: [{ role: 'tool', toolCallId: 'M', content: 'Your code is 482913.' }] };
-  assert.ok(_buildWirePayload(id, session).session, 'the first save is a full one');
+  await saveSessionAsync(session);
   session.messages = [...session.messages, { role: 'assistant', content: 'Entering it.' }];
-  assert.ok(_buildWirePayload(id, session).delta, 'an append ships only the tail');
+  await saveSessionAsync(session);
+  assert.match(readFileSync(logPath, 'utf8'), /482913/, 'unmarked, the value is stored as it was');
   markFill(id, '482913');
   session.messages = [...session.messages, { role: 'tool', toolCallId: 'F', content: 'Filled.' }];
-  const payload = _buildWirePayload(id, session);
-  assert.ok(payload.session, 'the worker’s copy of the earlier messages is replaced');
-  assert.doesNotMatch(JSON.stringify(payload.session), /482913/);
+  await saveSessionAsync(session);
+  const log = readFileSync(logPath, 'utf8');
+  assert.doesNotMatch(log, /482913/, 'the records written before the mark are replaced');
+  assert.match(log, /Filled\./);
+});
+
+test('a legacy session’s json is redacted with its log, and the log still reads as its own', async () => {
+  const id = 'sensitive-legacy';
+  const dir = join(dataRoot, 'sessions');
+  mkdirSync(dir, { recursive: true });
+  const jsonPath = join(dir, `${id}.json`);
+  const logPath = join(dir, `${id}.log.jsonl`);
+  writeFileSync(jsonPath, JSON.stringify({ id, messages: [{ role: 'tool', toolCallId: 'M', content: 'Code 917364.' }] }));
+  const session = loadSession(id);
+  markFill(id, '917364');
+  session.messages = [...session.messages, { role: 'assistant', content: 'Entered.' }];
+  await saveSessionAsync(session);
+  assert.doesNotMatch(readFileSync(jsonPath, 'utf8'), /917364/, 'the json is rewritten redacted');
+  assert.doesNotMatch(readFileSync(logPath, 'utf8'), /917364/);
+  const outcome = resolveSessionRecordSync({ jsonPath, logPath, loadLegacy: loadLegacySession });
+  assert.equal(outcome.kind, 'log', 'the redacted json is the log’s own legacy identity, no divergence');
 });
 
 test('every value stays known for the session; none is evicted', () => {

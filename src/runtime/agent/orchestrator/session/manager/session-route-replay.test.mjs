@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -11,6 +11,7 @@ mkdirSync(join(root, 'sessions'));
 const { drainSessionStore, saveSessionAsync, loadSession } = await import('../store.mjs');
 const { updateSessionRoute } = await import('./session-lifecycle.mjs');
 const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
+const { readDurableSessionRecord } = await import('../store/transcript-durability.mjs');
 
 test.after(async () => {
   drainSessionStore();
@@ -34,14 +35,9 @@ const replayAssistant = () => ({
 
 // The route save is fire-and-forget; wait until it has landed on disk.
 async function persisted(id) {
-  const file = join(root, 'sessions', `${id}.json`);
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      const stored = JSON.parse(readFileSync(file, 'utf8'));
-      if (stored.model === 'gpt-x') return stored;
-    } catch {
-      // Not written yet (or mid-write): poll again.
-    }
+    const stored = readDurableSessionRecord(id);
+    if (stored?.model === 'gpt-x') return stored;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error('route update was never persisted');

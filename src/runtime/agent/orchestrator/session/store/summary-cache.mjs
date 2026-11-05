@@ -1,9 +1,16 @@
 import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { getStoreDir, storeRecordDir } from './session-paths.mjs';
-import { probePath, probePathAsync, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
-import { STORED_SESSION_UNREADABLE, _storedSessionFromFileAsync } from './serialize.mjs';
+import { probePathAsync, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
+import { STORED_SESSION_UNREADABLE } from './serialize.mjs';
+import {
+  ABSENT_RECORD_STAMP,
+  recordStampFingerprint,
+  sessionIdsOfNames,
+  sessionRecordStampOf,
+  sessionRecordStampOfSync,
+} from './session-record.mjs';
+import { storedSessionAsync } from './stored-session.mjs';
 import {
   _sessionSummary,
   _normalizeSummaryIndex,
@@ -133,11 +140,15 @@ export function _queueSessionSummaryUpsert(session, version = null) {
  */
 export function _queueSessionSummaryUpsertRow(row, version = null) {
   if (!row) return;
-  const fileProbe = probePath(join(getStoreDir(), `${row.id}.json`));
-  const durableRow =
-    fileProbe.state === PROBE_PRESENT
-      ? { ...row, storageMtimeMs: fileProbe.mtimeMs, storageSize: fileProbe.size }
-      : row;
+  let fingerprint = null;
+  try {
+    fingerprint = recordStampFingerprint(sessionRecordStampOfSync(getStoreDir(), row.id));
+  } catch {
+    /* unreadable stat: the row carries no fingerprint, as before */
+  }
+  const durableRow = fingerprint
+    ? { ...row, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size }
+    : row;
   _setCachedBaseSummary(durableRow);
   if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
     _summaryCacheUpserts.delete(row.id);
@@ -166,16 +177,17 @@ export function _queueSummaryIndexPrune(ids) {
 // ── Incremental storage scan ────────────────────────────────────────────────
 // A refreshFromStorage that re-parsed EVERY session JSON (full transcripts,
 // multi-MB files) on each desktop sidebar refresh would be far too costly. A
-// summary only changes when its file changes, so key a per-file row cache on (mtimeMs, size): unchanged
-// files reuse the cached row, changed/new files re-parse, vanished files drop
-// out. Storage stays the truth source — the sidecar index is never trusted.
+// summary only changes when its record changes, so key a per-session row
+// cache on the record stamp (session-log-reader.mjs sessionRecordStamp: log
+// and json): unchanged records reuse the cached row, changed/new ones are
+// read again, vanished ones drop out. Storage stays the truth source — the sidecar index is never trusted.
 // Every stat, listing and read is awaited, so the scan hands the event loop
 // back after each file; only one scan runs at a time (store/listing.mjs).
 // The cache belongs to one data dir and is replaced, never cleared, when the
 // dir switches: a scan writes only into the cache of the dir it started in,
 // so rows it reads after a switch can never serve a file of another dir that
 // happens to have the same name, size and mtime.
-let _summaryScanCache = { dataDir: null, files: new Map() }; // files: filename → { mtimeMs, size, row|null }
+let _summaryScanCache = { dataDir: null, files: new Map() }; // files: session id → { stamp, row|null }
 
 function _summaryScanCacheFor(dataDir) {
   if (_summaryScanCache.dataDir !== dataDir) _summaryScanCache = { dataDir, files: new Map() };
@@ -247,8 +259,8 @@ export async function _scanStoredSessionSummaryRowsAsync() {
     err.code = dirProbe.code;
     throw err;
   }
-  const files = (await readdir(dir)).filter((f) => f.endsWith('.json'));
-  const present = new Set(files);
+  const storageIds = sessionIdsOfNames(await readdir(dir));
+  const present = new Set(storageIds);
   let changed = false;
   for (const key of [...scanCache.keys()]) {
     if (!present.has(key)) {
@@ -258,51 +270,50 @@ export async function _scanStoredSessionSummaryRowsAsync() {
   }
   const rows = [];
   const invalidStorageIds = new Set();
-  // A file without a usable row is marked invalid, so no pending/live overlay
-  // may stand in for it.
-  const keepRow = (filename, row) => {
-    if (row) {
-      rows.push(row);
-      return;
-    }
-    const storageId = filename.slice(0, -5);
-    if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
+  // A session without a usable row is marked invalid, so no pending/live
+  // overlay may stand in for it.
+  const keepRow = (storageId, row) => {
+    if (row) rows.push(row);
+    else invalidStorageIds.add(storageId);
   };
-  for (const f of files) {
-    const fileProbe = await probePathAsync(join(dir, f));
-    // Proven absence only: the file was deleted mid-scan, so its cached
-    // row legitimately retires.
-    if (fileProbe.state === PROBE_ABSENT) {
-      if (scanCache.delete(f)) changed = true;
-      continue;
-    }
-    if (fileProbe.state !== PROBE_PRESENT) {
-      // Unreadable probe (EACCES/EIO/EBUSY): NOT a deletion. Keep the
+  for (const storageId of storageIds) {
+    let stamp;
+    try {
+      stamp = await sessionRecordStampOf(dir, storageId);
+    } catch {
+      // Unreadable stat (EACCES/EIO/EBUSY): NOT a deletion. Keep the
       // cache entry exactly as it is — `changed` stays untouched so no
       // sidecar rewrite can drop this row — and keep serving the last
       // known row. With no cached row the id is marked invalid instead.
-      keepRow(f, scanCache.get(f)?.row);
+      keepRow(storageId, scanCache.get(storageId)?.row);
       continue;
     }
-    const cached = scanCache.get(f);
-    if (cached && cached.mtimeMs === fileProbe.mtimeMs && cached.size === fileProbe.size) {
-      keepRow(f, cached.row);
+    // Proven absence only: the record was deleted mid-scan, so its cached
+    // row legitimately retires.
+    if (stamp === ABSENT_RECORD_STAMP) {
+      if (scanCache.delete(storageId)) changed = true;
       continue;
     }
-    const session = await _storedSessionFromFileAsync(dir, f);
+    const cached = scanCache.get(storageId);
+    if (cached && cached.stamp === stamp) {
+      keepRow(storageId, cached.row);
+      continue;
+    }
+    const session = await storedSessionAsync(dir, storageId);
     if (session === STORED_SESSION_UNREADABLE) {
       // Stat said PRESENT, the READ failed: identical contract to an
-      // unreadable probe. Retain the last known row, leave `changed`
+      // unreadable stat. Retain the last known row, leave `changed`
       // untouched (no sidecar rewrite may drop it) and never cache a
-      // null row for a file we could not read.
-      keepRow(f, scanCache.get(f)?.row);
+      // null row for a record we could not read.
+      keepRow(storageId, scanCache.get(storageId)?.row);
       continue;
     }
     const summary = session ? _sessionSummary(session) : null;
-    const row = summary ? { ...summary, storageMtimeMs: fileProbe.mtimeMs, storageSize: fileProbe.size } : null;
-    scanCache.set(f, { mtimeMs: fileProbe.mtimeMs, size: fileProbe.size, row });
+    const fingerprint = recordStampFingerprint(stamp);
+    const row = summary ? { ...summary, storageMtimeMs: fingerprint.mtimeMs, storageSize: fingerprint.size } : null;
+    scanCache.set(storageId, { stamp, row });
     changed = true;
-    keepRow(f, row);
+    keepRow(storageId, row);
   }
   rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   return { rows, invalidStorageIds, changed };

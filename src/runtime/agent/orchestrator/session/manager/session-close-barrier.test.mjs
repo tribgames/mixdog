@@ -48,37 +48,6 @@ const session = (id) => ({
   messages: [{ role: 'user', content: 'hello' }],
 });
 
-test('a close that waited on another thread tears down the turn that registered meanwhile', async () => {
-  const { runtimeState } = await import('./runtime-state.mjs');
-  const { underHeldCommit } = await import('../store/commit-lock-holder.fixture.mjs');
-  const id = 'sess_close_turn_registered_while_waiting';
-  await saveSessionAsync(session(id));
-  const controller = new AbortController();
-  let snapshots = 0;
-  const entry = {
-    stage: 'streaming',
-    controller,
-    prepareCloseSnapshot: {
-      tentative: () => {
-        snapshots++;
-        return { commit() {}, rollback() {} };
-      },
-    },
-  };
-  const closed = await underHeldCommit(id, () => {
-    // The first attempt finds no runtime and the lock held; the turn
-    // registers while the close waits for that commit.
-    const closing = closeSession(id, 'test-close');
-    runtimeState.set(id, entry);
-    return closing;
-  });
-  assert.equal(closed, true);
-  assert.equal(JSON.parse(readFileSync(join(root, 'sessions', `${id}.json`), 'utf8')).closed, true);
-  assert.equal(controller.signal.aborted, true, 'the registered turn is aborted');
-  assert.equal(entry.closed, true, 'its runtime is closed');
-  assert.equal(snapshots, 1, "the turn's close snapshot was staged");
-});
-
 test('the barriers report an absent record through options.outcome', async () => {
   const closeOutcome = { absent: false };
   assert.equal(await markSessionClosed('sess_barrier_absent_mark', 'test', { outcome: closeOutcome }), null);

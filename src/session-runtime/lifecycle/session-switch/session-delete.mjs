@@ -7,10 +7,8 @@ import { clean } from '../../../runtime/agent/orchestrator/runtime-core/session-
 import { forgetSessionSearch } from '../../../runtime/session-search/session-search-ingest.mjs';
 import { leadSessionRow } from '../session-catalog.mjs';
 import { getStoreDir } from '../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
-import {
-  STORED_SESSION_UNREADABLE,
-  _storedSessionFromFile,
-} from '../../../runtime/agent/orchestrator/session/store/serialize.mjs';
+import { STORED_SESSION_UNREADABLE } from '../../../runtime/agent/orchestrator/session/store/serialize.mjs';
+import { storedSessionSync } from '../../../runtime/agent/orchestrator/session/store/stored-session.mjs';
 import { SESSION_ID_PATTERN } from '../shared.mjs';
 import { replacementSessionCwd } from '../../workspace/workspace-state.mjs';
 import { isHistoricalAutomaticClosure } from '../../../runtime/agent/orchestrator/session/historical-session-closure.mjs';
@@ -36,11 +34,11 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     statusRoutes?.clearGatewaySessionRoute?.(sessionId);
   }
 
-  // Availability is one strict read of the session's own file, filtered like
+  // Availability is one strict read of the session's own record, filtered like
   // the session catalog (an unreadable, foreign, closed or non-catalogued
   // record is not deletable). No catalog rebuild, no folder scan.
   function availableRecord(sessionId) {
-    const stored = _storedSessionFromFile(getStoreDir(), `${sessionId}.json`);
+    const stored = storedSessionSync(getStoreDir(), sessionId);
     if (!stored || stored === STORED_SESSION_UNREADABLE) return null;
     if (stored.closed === true && !isHistoricalAutomaticClosure(stored)) return null;
     return leadSessionRow(stored) !== null ? stored : null;

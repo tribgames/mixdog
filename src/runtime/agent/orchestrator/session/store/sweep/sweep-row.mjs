@@ -4,11 +4,12 @@
 // it cannot read authoritatively (read fault, malformed JSON, duplicate
 // top-level id/closed/generation, foreign id) is left EXACTLY as it is — not
 // deleted, not closed, not repaired.
-import { readFileSync } from 'node:fs';
 import { isHistoricalAutomaticClosure } from '../../historical-session-closure.mjs';
-import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../../lifecycle-scan.mjs';
+import { dirname } from 'node:path';
 import { sessionPath } from '../session-paths.mjs';
-import { probePath, PROBE_PRESENT, PROBE_ABSENT } from '../fs-probe.mjs';
+import { STORED_SESSION_UNREADABLE } from '../serialize.mjs';
+import { ABSENT_RECORD_STAMP, recordStampFingerprint, sessionRecordStampOfSync } from '../session-record.mjs';
+import { storedSessionSync } from '../stored-session.mjs';
 import { _queueSessionSummaryUpsert, _queueSessionSummaryRemoval } from '../summary-cache.mjs';
 import { deleteSession } from '../session-delete.mjs';
 import { markSessionClosed } from '../lifecycle-barriers.mjs';
@@ -39,7 +40,7 @@ function noteSubAgent(ctx, id, doc) {
 
 /** A closed record: a mature tombstone is deleted; otherwise a stale summary
  *  row that still claims the session open is repaired and the row is kept. */
-async function sweepClosedRecord(ctx, row, actual, jsonPath) {
+async function sweepClosedRecord(ctx, row, actual, dir) {
   const { plan, now, tally } = ctx;
   // A shared store can be tombstoned by another process while this process
   // still owns an in-flight controller for the same id. Exclude it before
@@ -77,12 +78,8 @@ async function sweepClosedRecord(ctx, row, actual, jsonPath) {
     // The summary projection needs the transcript, which the cached
     // lifecycle record does not carry: re-read this one file for the (rare)
     // repair.
-    try {
-      const full = readTopLevelLifecycleRecord(readFileSync(jsonPath, 'utf-8'));
-      if (!isLifecycleUnreadable(full) && full.id === row.id) _queueSessionSummaryUpsert(full.doc);
-    } catch {
-      /* best-effort */
-    }
+    const full = storedSessionSync(dir, row.id, false);
+    if (full && full !== STORED_SESSION_UNREADABLE) _queueSessionSummaryUpsert(full);
   }
   tally.remaining++;
 }
@@ -159,7 +156,7 @@ async function closeIdleRecord(ctx, row, eff, { lastActive }) {
 
 /** An open record: the freshness gate, then user permanence, the running
  *  backstop, the idle close, or a retention-cap candidacy. */
-async function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
+async function sweepOpenRecord(ctx, row, record, { recordMtime }) {
   const { plan, now, tally } = ctx;
   // An agent's home thread is permanent, blank or not: no idle close, no
   // blank-scratch prune, no retention cap. So are a group room's sessions.
@@ -174,7 +171,7 @@ async function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   let freshnessGateMs = 0;
   if (plan.sweepIdle) freshnessGateMs = plan.maxAge;
   else if (plan.sweepTombstones) freshnessGateMs = plan.tombstoneMaxAgeMs;
-  const newestKnown = Math.max(row.updatedAt || 0, row.lastHeartbeatAt || 0, row.createdAt || 0, jsonMtime);
+  const newestKnown = Math.max(row.updatedAt || 0, row.lastHeartbeatAt || 0, row.createdAt || 0, recordMtime);
   if (freshnessGateMs > 0 && newestKnown > 0 && now - newestKnown <= freshnessGateMs) {
     // Fresh agent/legacy sessions survive idle close but still participate
     // in the resumable-open retention cap. The cap performs its own
@@ -258,17 +255,20 @@ async function sweepNoDataRecord(ctx, row) {
 export async function sweepRow(ctx, row) {
   if (!row?.id) return;
   const { tally } = ctx;
-  const jsonPath = sessionPath(row.id);
-  const jsonProbe = probePath(jsonPath);
-  // ONLY a proven-absent record may retire its summary row. An EACCES/EIO
-  // probe means the file is very likely still there: queueing a removal
-  // would delete the row of a live session.
-  if (jsonProbe.state === PROBE_ABSENT) {
-    _queueSessionSummaryRemoval(row.id);
+  // sessionPath asserts the id's shape before it names a file.
+  const dir = dirname(sessionPath(row.id));
+  let stamp;
+  try {
+    stamp = sessionRecordStampOfSync(dir, row.id);
+  } catch {
+    // ONLY a proven-absent record may retire its summary row. An EACCES/EIO
+    // stat means the file is very likely still there: queueing a removal
+    // would delete the row of a live session.
+    tally.remaining++;
     return;
   }
-  if (jsonProbe.state !== PROBE_PRESENT) {
-    tally.remaining++;
+  if (stamp === ABSENT_RECORD_STAMP) {
+    _queueSessionSummaryRemoval(row.id);
     return;
   }
   // Truth source: the summary index is a deferred/best-effort sidecar, so a
@@ -280,12 +280,12 @@ export async function sweepRow(ctx, row) {
   // immortality loop). A racing unlink / transient read failure, an
   // unreadable record, or a record naming another id (including a foreign
   // TOMBSTONE that would look perfectly mature) is preserved untouched.
-  const record = readSweepRecord(row.id, jsonPath, jsonProbe);
+  const record = readSweepRecord(row.id, dir, stamp);
   if (record === SWEEP_RECORD_NO_DATA) {
     await sweepNoDataRecord(ctx, row);
     return;
   }
-  if (record === null || isLifecycleUnreadable(record) || record.id !== row.id) {
+  if (record === null || record.id !== row.id) {
     tally.remaining++;
     return;
   }
@@ -298,10 +298,10 @@ export async function sweepRow(ctx, row) {
   }
   if (record.closed === true || actual.status === 'closed') {
     const cleanedBefore = ctx.tally.tombstonesCleaned;
-    await sweepClosedRecord(ctx, row, actual, jsonPath);
+    await sweepClosedRecord(ctx, row, actual, dir);
     // A tombstone this sweep just deleted is gone, not a member.
     if (ctx.tally.tombstonesCleaned === cleanedBefore) noteSubAgent(ctx, row.id, actual);
     return;
   }
-  await sweepOpenRecord(ctx, row, record, { jsonMtime: jsonProbe.mtimeMs || 0 });
+  await sweepOpenRecord(ctx, row, record, { recordMtime: recordStampFingerprint(stamp).mtimeMs || 0 });
 }
