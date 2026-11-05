@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-test('quota windows are two lines: label, reset and percent over a full-width 3px track', async (t) => {
+/** SidebarUsage inside the rail popup in a real Chrome, with the app's
+    stylesheets; `rows` is the dashboard rows' source (has `quota` and `hour`). */
+async function openUsagePopup(t, rows) {
   const bundle = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -21,17 +23,7 @@ test('quota windows are two lines: label, reset and percent over a full-width 3p
           label, usedPct,
           resetAt: hours === null ? null : Date.now() + hours * hour + 30000,
         });
-        const dashboard = { rows: [
-          { id: "openai-oauth", group: "oauth", authenticated: true,
-            windows: [quota("7D", 95, 149)] },
-          { id: "anthropic-oauth", group: "oauth", authenticated: true,
-            windows: [quota("5H", 0, null), quota("7D", 23, 108),
-              quota("7D FABLE", 37, 108), quota("7D SONNET", 37, 108)] },
-          { id: "cursor-oauth", group: "oauth", authenticated: true,
-            windows: [quota("BASIC", 0, 709), quota("API", 100, 13)] },
-          { id: "antigravity-oauth", group: "oauth", authenticated: true,
-            windows: [quota("FLASH", 0, 4.5), quota("PRO", 0, 4.5)] },
-        ] };
+        const dashboard = { rows: ${rows} };
         const api = { async invokeCapability({ capability }) {
           return { value: capability === "getUsageDashboard" ? dashboard : {
             selectedId: "test", auto: true, accounts: [],
@@ -83,6 +75,24 @@ test('quota windows are two lines: label, reset and percent over a full-width 3p
   await page.addStyleTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.css')).text });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   await Promise.race([page.waitForSelector('.sidebar-usage-meter > em'), renderError]);
+  return page;
+}
+
+test('quota windows are two lines: label, reset and percent over a full-width 3px track', async (t) => {
+  const page = await openUsagePopup(
+    t,
+    `[
+      { id: "openai-oauth", group: "oauth", authenticated: true,
+        windows: [quota("7D", 95, 149)] },
+      { id: "anthropic-oauth", group: "oauth", authenticated: true,
+        windows: [quota("5H", 0, null), quota("7D", 23, 108),
+          quota("7D FABLE", 37, 108), quota("7D SONNET", 37, 108)] },
+      { id: "cursor-oauth", group: "oauth", authenticated: true,
+        windows: [quota("BASIC", 0, 709), quota("API", 100, 13)] },
+      { id: "antigravity-oauth", group: "oauth", authenticated: true,
+        windows: [quota("FLASH", 0, 4.5), quota("PRO", 0, 4.5)] },
+    ]`
+  );
 
   for (const width of [1363, 400]) {
     await page.setViewport({ width, height: 787 });
@@ -154,4 +164,51 @@ test('quota windows are two lines: label, reset and percent over a full-width 3p
       assert.equal(row.resetClipped, false, `full reset time: ${context}`);
     }
   }
+});
+
+test('reset credit details expand in the popup flow, so every ticket scrolls into view', async (t) => {
+  const page = await openUsagePopup(
+    t,
+    // Codex alone, so its reset row is the popup's last line.
+    `[
+      { id: "openai-oauth", group: "oauth", authenticated: true,
+        windows: [quota("5H", 40, 3), quota("7D", 95, 149)],
+        resetCredits: { availableCount: 3, offerRevision: "o", availableCredits: [
+          { id: "r1", expiresAt: Date.now() + 36 * hour },
+          { id: "r2", expiresAt: Date.now() + 100 * hour },
+          { id: "r3", expiresAt: Date.now() + 300 * hour },
+        ] } },
+    ]`
+  );
+  // A short window: the popup's max-height makes it scroll.
+  await page.setViewport({ width: 1363, height: 260 });
+  await page.click('.sidebar-usage-reset-info');
+  const layout = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const popup = document.querySelector('.rail-usage-popup');
+    const reset = document.querySelector('.sidebar-usage-reset-credit');
+    const details = document.querySelector('.sidebar-usage-reset-popover');
+    popup.scrollTop = popup.scrollHeight;
+    const view = popup.getBoundingClientRect();
+    const usage = document.querySelector('.sidebar-usage').getBoundingClientRect();
+    const box = details.getBoundingClientRect();
+    return {
+      resetIsLast: reset.closest('.sidebar-usage-row') === [...document.querySelectorAll('.sidebar-usage-row')].at(-1),
+      position: getComputedStyle(details).position,
+      insideUsage: box.top >= usage.top && box.bottom <= usage.bottom + 0.5,
+      insideView: box.top >= view.top && box.bottom <= view.top + popup.clientHeight + 0.5,
+      expiries: [...details.querySelectorAll('li small')].map((small) => [small.textContent, small.className]),
+    };
+  });
+  assert.equal(layout.resetIsLast, true, 'the reset row ends the popup');
+  assert.notEqual(layout.position, 'absolute', 'details are not an absolutely positioned overflow');
+  assert.equal(layout.insideUsage, true, 'details sit inside the usage list, not past its clipped edge');
+  assert.equal(layout.insideView, true, 'scrolled to the end, the popup shows the whole details list');
+  assert.equal(layout.expiries.length, 3);
+  assert.equal(new Set(layout.expiries.map(([text]) => text)).size, 3, 'each ticket shows its own expiry');
+  for (const [text] of layout.expiries) assert.match(text, /^Expires in /);
+  assert.deepEqual(
+    layout.expiries.map(([, className]) => className),
+    ['is-soon', 'is-soon', '']
+  );
 });
