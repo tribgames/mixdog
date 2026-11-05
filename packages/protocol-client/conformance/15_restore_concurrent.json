@@ -1,0 +1,26 @@
+{
+  "name": "the connection is usable as soon as initialize succeeds: a slow thread/resume delays only its own feed, not unrelated calls",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "call", "as": "r", "fn": "resumeThread", "threadId": "t1", "window": { "lastItems": 50} },
+    { "do": "expectSend", "frame": { "id": "$cap:r", "method": "thread/resume", "params": { "threadId": "t1", "window": { "lastItems": 50}}} },
+    { "do": "serverSend", "frame": { "id": "$cap:r", "result": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": { }, "projectPath": null }, "subscription": { "id": "sub", "mode": "snapshot", "epoch": "e1", "startSeq": 11}}} },
+    { "do": "serverSend", "frame": { "method": "thread/snapshot", "params": { "items": ["a"] }, "feed": { "id": "t1", "epoch": "e1", "seq": 10}} },
+    { "do": "result", "as": "r", "ok": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": { }, "projectPath": null }, "subscription": { "id": "sub", "mode": "snapshot", "epoch": "e1", "startSeq": 11}} },
+    { "do": "settle" },
+    { "do": "serverClose", "code": 1006 },
+    { "do": "handshake", "instance": "s2" },
+    { "do": "expectSend", "frame": { "id": "$cap:r2", "method": "thread/resume", "params": { "threadId": "t1", "window": { "lastItems": 50 }, "resumeFrom": { "epoch": "e1", "seq": 10, "window": { "lastItems": 50}}}} },
+    { "do": "call", "as": "l", "method": "thread/list", "params": {} },
+    { "do": "expectSend", "frame": { "id": "$cap:l", "method": "thread/list", "params": {}} },
+    { "do": "serverSend", "frame": { "id": "$cap:l", "result": { "threads": []}} },
+    { "do": "result", "as": "l", "ok": { "threads": []} },
+    { "do": "serverSend", "frame": { "id": "$cap:r2", "result": { "thread": { "id": "t1", "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": { }, "projectPath": null }, "subscription": { "id": "sub", "mode": "replay", "epoch": "e1", "startSeq": 11}}} },
+    { "do": "serverSend", "frame": { "method": "item/completed", "params": { "n": 1 }, "feed": { "id": "t1", "epoch": "e1", "seq": 11}} },
+    { "do": "settle" },
+    { "do": "expectFeed", "id": "t1", "epoch": "e1", "seq": 11 },
+    { "do": "expectStatus", "states": ["ready", "reconnecting:0", "ready"] }
+  ]
+}

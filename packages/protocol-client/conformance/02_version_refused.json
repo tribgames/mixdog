@@ -1,0 +1,9 @@
+{
+  "name": "version gate at first connect rejects with versionRefused and opens no ladder",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "refuse": "clientOutdated" },
+    { "do": "connected", "error": "versionRefused" },
+    { "do": "expectSleeps", "ms": [] }
+  ]
+}
