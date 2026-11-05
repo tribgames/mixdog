@@ -507,7 +507,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
             },
           },
           description:
-            'set_network_proxy: only the given fields change; takes effect on the next connection. A manual proxy that fails fails the request; it never falls back to a direct connection.',
+            'set_network_proxy: only the given fields change; takes effect on the next request: pooled connections opened under the old route are closed, and a request already in flight finishes on its connection. A manual proxy that fails fails the request; it never falls back to a direct connection.',
         },
         sessionId: {
           type: 'string',

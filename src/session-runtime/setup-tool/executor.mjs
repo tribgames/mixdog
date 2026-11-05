@@ -101,7 +101,7 @@ const ACTION_APPLIES_TO = {
   install_builtin: 'every conversation, this one included, from its next turn',
   set_output_style: 'every conversation, this one included, from its next turn',
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
-  set_network_proxy: 'the next connection of every provider path; open connections keep their route',
+  set_network_proxy: 'the next request of every provider path; pooled connections opened under the old route are closed, and a request already in flight finishes on its connection',
   set_system_shell: 'subsequent shell calls',
   save_automation: 'the automation worker; scheduled runs follow the saved timing',
   delete_automation: 'future automation runs',

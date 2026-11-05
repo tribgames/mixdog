@@ -30,6 +30,7 @@ import {
 } from './openai-ws-headers.mjs';
 import { clearAllCodexTurnStates, clearCodexTurnStateScope, retireCodexTurnStateOwner } from './openai-turn-state.mjs';
 import { runInRootAsyncContext } from '../../../shared/root-async-context.mjs';
+import { onProxyRouteChange, proxyRouteEpoch } from '../../../shared/llm/proxy-policy.mjs';
 
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
@@ -201,9 +202,19 @@ function _poolCompatibility(auth, cacheKey) {
   };
 }
 
+// The socket was connected under the network proxy setting in force now. A
+// setting change moves the epoch (proxy-policy.mjs), so a socket opened before
+// it may sit in the old route's tunnel (or bypass the new proxy) and must not
+// carry another request.
+function _routeCurrent(entry) {
+  return entry?.routeEpoch === proxyRouteEpoch();
+}
+
 function _entryCompatible(entry, compatibility) {
   return (
-    entry?.authIdentity === compatibility.authIdentity && entry?.cacheKeyIdentity === compatibility.cacheKeyIdentity
+    entry?.authIdentity === compatibility.authIdentity &&
+    entry?.cacheKeyIdentity === compatibility.cacheKeyIdentity &&
+    _routeCurrent(entry)
   );
 }
 
@@ -717,6 +728,16 @@ async function _takeIdleEntry(poolKey, arr, compatibility, acqStart) {
         continue;
       }
     }
+    // The probe yields: the proxy setting may have changed while it ran.
+    if (!_routeCurrent(idle)) {
+      _acquireTrace(`acquire-evict-stale poolKey=${poolKey} reason=proxy_route_changed`);
+      try {
+        idle.socket.close(1000, 'proxy_route_changed');
+      } catch {}
+      _scheduleForcedTerminate(idle.socket);
+      _removeFromPool(poolKey, idle);
+      continue;
+    }
     idle.lastAliveAt = Date.now();
     // Defensive: pre-existing pooled entries created before the
     // prefix-hash field was introduced may not have it set. Normalize
@@ -741,6 +762,9 @@ async function _openPoolEntry({ auth, cacheKey, codexHeaders, externalSignal, co
     const tokenHash = createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8);
     _acquireTrace(`acquire-new tokenHash=${tokenHash} elapsed=${Date.now() - acqStart}ms`);
   }
+  // Read before connecting: the route is decided during the handshake, so a
+  // setting change meanwhile leaves this socket on the old epoch (not reusable).
+  const routeEpoch = proxyRouteEpoch();
   // The socket (its TCP/TLS handle and handshake timers) is reused by later
   // requests: open it in the root context, never this one's.
   const { socket } = await runInRootAsyncContext(() =>
@@ -764,6 +788,7 @@ async function _openPoolEntry({ auth, cacheKey, codexHeaders, externalSignal, co
     lastInputPrefixHash: null,
     releaseSequence: 0,
     ...compatibility,
+    routeEpoch,
     turnState: null,
     turnStateTurnId: null,
     closing: false,
@@ -904,9 +929,12 @@ export function releaseWebSocket({ entry, poolKey: callerPoolKey, keep }) {
   if (!entry) return;
   const poolKey = callerPoolKey || entry.sharedPoolKey || null;
   entry.busy = false;
-  if (!keep || !_isOpen(entry) || !poolKey || entry.ephemeral) {
+  // A request in flight when the proxy setting changed finishes on its socket;
+  // the socket is then closed instead of kept.
+  const routeChanged = !_routeCurrent(entry);
+  if (!keep || routeChanged || !_isOpen(entry) || !poolKey || entry.ephemeral) {
     try {
-      entry.socket.close(1000, keep ? 'no_session' : 'release_no_keep');
+      entry.socket.close(1000, routeChanged ? 'proxy_route_changed' : keep ? 'no_session' : 'release_no_keep');
     } catch {}
     // Ownership is NOT dropped here. close() only requests a close, so a
     // socket that ignores it would become unreachable by session close and
@@ -1010,8 +1038,28 @@ function _scheduleForcedTerminate(socket, { immediate = false } = {}) {
 export function hasPooledWebSocket(poolKey) {
   const entries = poolKey ? _wsPool.get(poolKey) : null;
   if (!entries) return false;
-  return entries.some((entry) => _isOpen(entry) && !entry.closing);
+  return entries.some((entry) => _isOpen(entry) && !entry.closing && _routeCurrent(entry));
 }
+
+// The network proxy setting changed: idle sockets opened under the old one are
+// closed now (busy ones finish their request and are closed at release, and
+// acquire never selects a stale one meanwhile).
+onProxyRouteChange(() => {
+  const idleStale = [];
+  for (const [poolKey, arr] of _wsPool) {
+    for (const entry of arr) if (!entry.busy && !_routeCurrent(entry)) idleStale.push([poolKey, entry]);
+  }
+  for (const entry of _unpooledSockets) {
+    if (!entry.busy && !_routeCurrent(entry)) idleStale.push([entry.poolKey, entry]);
+  }
+  for (const [poolKey, entry] of idleStale) {
+    try {
+      entry.socket.close(1000, 'proxy_route_changed');
+    } catch {}
+    _scheduleForcedTerminate(entry.socket);
+    _removeFromPool(poolKey, entry);
+  }
+});
 
 export function _clearWebSocketPoolForTest() {
   _clearAllPoolOwners();

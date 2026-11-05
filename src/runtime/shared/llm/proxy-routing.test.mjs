@@ -17,7 +17,13 @@ import { createWsConnection } from '../../agent/orchestrator/providers/openai-ws
 import { openCursorStream } from '../../agent/orchestrator/providers/cursor-wire-transport.mjs';
 import { eventually } from '../watched-file-cache.test-helpers.mjs';
 import { _resetProxySettingForTest, currentProxySetting, normalizeNetworkProxy } from './proxy-policy.mjs';
-import { adoptEnvProxy, adoptPrivateProxy, createProxyDispatcher, getLlmDispatcher } from './http-agent.mjs';
+import {
+  adoptEnvProxy,
+  adoptPrivateProxy,
+  createProxyDispatcher,
+  createRoutedProxyDispatcher,
+  getLlmDispatcher,
+} from './http-agent.mjs';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-proxy-routing-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
@@ -225,6 +231,78 @@ test('a change of the setting applies to the next connection, without a restart'
     proxy.close();
     service.close();
   }
+});
+
+test('a change of the setting retires the proxy legs: their tunnels close and the next proxied request builds a new leg', async () => {
+  const legs = [];
+  const direct = { dispatch: () => true, close: async () => {}, destroy: async () => {} };
+  const proxied = (uri) => {
+    const leg = { uri, closed: false, dispatch: () => true, close: async () => (leg.closed = true), destroy: async () => {} };
+    legs.push(leg);
+    return leg;
+  };
+  await isolated({}, async () => {
+    const router = createProxyDispatcher({ direct, proxied });
+    const send = () => router.dispatch({ origin: `http://${REMOTE}:8080`, path: '/', method: 'GET' }, {});
+    try {
+      await configure({ mode: 'manual', url: 'socks5://127.0.0.1:1080' });
+      send();
+      send();
+      assert.equal(legs.length, 1, 'one leg serves the proxy while the setting holds');
+      assert.equal(legs[0].closed, false);
+
+      await configure({ mode: 'off' });
+      assert.equal(legs[0].closed, true, 'Off closes the tunnels opened through the proxy');
+
+      await configure({ mode: 'manual', url: 'socks5://127.0.0.1:1080' });
+      send();
+      assert.equal(legs.length, 2, 'the next proxied request builds a new leg');
+      await configure({ mode: 'manual', url: 'socks5://127.0.0.1:1081' });
+      assert.equal(legs[1].closed, true, 'a changed address retires the leg of the old one');
+    } finally {
+      await router.close();
+    }
+  });
+});
+
+test('a proxy decision that resolves after a change serves its request on a leg that is not kept', async () => {
+  const legs = [];
+  const direct = { dispatch: () => true, close: async () => {}, destroy: async () => {} };
+  const proxied = (uri) => {
+    const leg = { uri, closed: false, dispatched: 0, dispatch: () => ((leg.dispatched += 1), true), close: async () => (leg.closed = true), destroy: async () => {} };
+    legs.push(leg);
+    return leg;
+  };
+  await isolated({}, async () => {
+    // The decision is a lookup still pending when the setting changes (the OS proxy route is asked asynchronously).
+    let answer;
+    const router = createRoutedProxyDispatcher({
+      route: () => new Promise((resolve) => (answer = resolve)),
+      direct: () => direct,
+      proxied,
+      bypassLocal: false,
+    });
+    const send = () => router.dispatch({ origin: `http://${REMOTE}:8080`, path: '/', method: 'GET' }, {});
+    try {
+      await configure({ mode: 'system' });
+      send();
+      await configure({ mode: 'off' });
+      answer({ proxy: 'http://127.0.0.1:3128' });
+      await eventually(() => legs.length === 1);
+      assert.equal(legs[0].dispatched, 1, 'the request issued before the change still goes out');
+      assert.equal(legs[0].closed, true, 'its leg drains and closes after that request');
+
+      send();
+      answer({ proxy: 'http://127.0.0.1:3128' });
+      await eventually(() => legs.length === 2);
+      assert.equal(legs[1].dispatched, 1);
+      assert.equal(legs[1].closed, false, 'a decision made under the current setting is cached');
+      assert.equal(legs[0].closed, true);
+      assert.notEqual(legs[1], legs[0], 'the old decision left no cached leg for the next request');
+    } finally {
+      await router.close();
+    }
+  });
 });
 
 test('manual mode tunnels the OpenAI WebSocket through the proxy and connects excepted hosts directly', async () => {

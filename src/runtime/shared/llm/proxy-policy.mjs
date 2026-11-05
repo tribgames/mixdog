@@ -4,8 +4,10 @@
  *
  * The setting lives in the agent config as `networkProxy`
  * `{ mode, url, exceptions }` and is read from the config file on every
- * decision (a stat-validated cache), so a change made in any process applies
- * to the next connection of every other one.
+ * decision (a watched in-memory cache), so a change made in any process applies
+ * to the next request of every other one: a new connection follows it, and a
+ * pooled connection opened under the old setting is retired, not reused
+ * (proxyRouteEpoch, onProxyRouteChange).
  *
  *   system  the user's proxy variables (HTTPS_PROXY / HTTP_PROXY / ALL_PROXY,
  *           NO_PROXY; `NO_PROXY=*` forces direct), otherwise the OS proxy
@@ -21,6 +23,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { BlockList, isIP } from 'node:net';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { isPlainObject } from '../object.mjs';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { createWatchedFileCache } from '../watched-file-cache.mjs';
@@ -258,24 +261,60 @@ function settingOf(text) {
 // touches no file. A file that cannot be read or parsed keeps the last
 // valid setting; one that vanished after a value was read is such a failure
 // too, since only a config without the key means `system`.
-const settings = createWatchedFileCache({
-  load(path) {
-    try {
-      return { value: settingOf(readFileSync(path, 'utf8')) };
-    } catch (error) {
-      if (error?.code === 'ENOENT' && settings.peek(path) === undefined) return { value: DEFAULT_SETTING };
-      throw error;
-    }
+const settings = createWatchedFileCache(
+  {
+    load(path) {
+      try {
+        return { value: settingOf(readFileSync(path, 'utf8')) };
+      } catch (error) {
+        if (error?.code === 'ENOENT' && settings.peek(path) === undefined) return { value: DEFAULT_SETTING };
+        throw error;
+      }
+    },
+    async loadAsync(path) {
+      try {
+        return { value: settingOf(await readFile(path, 'utf8')) };
+      } catch (error) {
+        if (error?.code === 'ENOENT' && settings.peek(path) === undefined) return { value: DEFAULT_SETTING };
+        throw error;
+      }
+    },
   },
-  async loadAsync(path) {
+  // A change another process wrote reaches here from the file's watch event.
+  { onChange: () => routeChanged() }
+);
+
+// The route epoch: it moves whenever the held setting changes, whoever wrote
+// it. A connection opened under an older epoch may have been routed by the
+// old setting, so a pool must not hand it to a new request (it records the
+// epoch before it connects and compares at reuse), and `onProxyRouteChange`
+// listeners close what they hold idle. Any change of the setting counts: the
+// route of a destination can depend on the OS or the environment, which
+// cannot be compared without a lookup.
+let routeEpoch = 0;
+const routeListeners = new Set();
+
+function routeChanged() {
+  routeEpoch += 1;
+  for (const listener of [...routeListeners]) {
     try {
-      return { value: settingOf(await readFile(path, 'utf8')) };
-    } catch (error) {
-      if (error?.code === 'ENOENT' && settings.peek(path) === undefined) return { value: DEFAULT_SETTING };
-      throw error;
+      listener(routeEpoch);
+    } catch {
+      /* one pool failing to retire its connections never blocks the others */
     }
-  },
-});
+  }
+}
+
+/** The current route epoch; record it before connecting, and compare before reusing a connection. */
+export function proxyRouteEpoch() {
+  return routeEpoch;
+}
+
+/** `listener(epoch)` hears every change of the setting, synchronously. Returns the unsubscribe function. */
+export function onProxyRouteChange(listener) {
+  routeListeners.add(listener);
+  return () => routeListeners.delete(listener);
+}
 
 const configPath = () => join(resolvePluginData(), CONFIG_FILE);
 
@@ -294,7 +333,12 @@ export function currentProxySetting() {
 
 /** This process stored `setting` in the config file: later decisions use it now, without waiting for the watch event. */
 export function adoptProxySetting(setting) {
-  settings.set(configPath(), Object.freeze(normalizeNetworkProxy(setting)));
+  const path = configPath();
+  const next = Object.freeze(normalizeNetworkProxy(setting));
+  const previous = settings.peek(path);
+  settings.set(path, next);
+  // The read-back of our own write is equal, so the cache does not announce it.
+  if (!isDeepStrictEqual(previous, next)) routeChanged();
 }
 
 /** Test seam: forget every held setting and close the watches. */
