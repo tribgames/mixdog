@@ -116,11 +116,11 @@ test('adding a second Anthropic account writes its own credential file and leave
     expires_in: 3600,
     scope: 'user:inference user:profile',
   });
-  // Both the loopback listener and the browser opener are side effects the
-  // test must not trigger; the manual-code path exercises the same exchange.
+  // The browser opener is a side effect the test must not trigger; the
+  // manual-code path exercises the same exchange.
   process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI ||= 'https://platform.claude.com/oauth/code/callback';
   const cfg = { loadConfig: () => ({ providers: {} }), saveConfig() {} };
-  const login = await beginOAuthProviderLogin(cfg, provider, { addAccount: true });
+  const login = await beginOAuthProviderLogin(cfg, provider, { addAccount: true, openBrowser: false });
   t.after(() => login.cancel?.());
   const state = new URL(login.url).searchParams.get('state');
   const result = await login.completeCode(`code-second#${state}`);
@@ -167,7 +167,7 @@ test('an account login that ends unauthenticated leaves the provider enabled', a
     },
   };
   const before = readProviderAccountPool(provider).accounts.map((row) => row.id);
-  const login = await beginOAuthProviderLogin(cfg, provider, { addAccount: true });
+  const login = await beginOAuthProviderLogin(cfg, provider, { addAccount: true, openBrowser: false });
   t.after(() => login.cancel?.());
   const state = new URL(login.url).searchParams.get('state');
   const result = await login.completeCode(`code-scopeless#${state}`);
