@@ -12,7 +12,7 @@
 //   reconnect      — bounded retry with a lifecycle generation
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
-import { DAEMON_KEEP_ALIVE_MS } from '../../runtime/shared/daemon-keep-alive.mjs';
+import { DAEMON_CLIENT_IDLE_MS } from '../../runtime/shared/daemon-keep-alive.mjs';
 import { isPidAlive, parsePid } from '../../runtime/shared/pid-liveness.mjs';
 import { createChannelCall, probeChannelHealth } from './channel-client/daemon-request.mjs';
 import { createNotifyStream } from './channel-client/notify-stream.mjs';
@@ -64,7 +64,7 @@ export async function attachChannel({
   // Idle sockets close before the daemon's keep-alive does (see
   // daemon-keep-alive.mjs), so a request never lands on a socket the server is
   // closing (ECONNRESET).
-  const idle = { keepAlive: true, keepAliveMsecs: 5_000, timeout: DAEMON_KEEP_ALIVE_MS };
+  const idle = { keepAlive: true, keepAliveMsecs: 5_000, timeout: DAEMON_CLIENT_IDLE_MS };
   const callAgent = new http.Agent({ ...idle, maxSockets: 16, maxFreeSockets: 4 });
   const controlAgent = new http.Agent({ ...idle, maxSockets: 4, maxFreeSockets: 2 });
   const registry = createRegistrationClient({
