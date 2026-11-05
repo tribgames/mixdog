@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import type { ClientErrorDetail, ClientEvent, Json, ProtocolClient, ThreadReducer } from '../src/api.ts';
-import { ClientFailure, connect, ladderDelay, uuidv7 } from '../src/engine.ts';
+import { ClientFailure, connect, ladderDelay, uuidv7 } from '../src/client.ts';
 import { MockConn, MockNetwork } from '../src/mock.ts';
 
 const dir = new URL('../conformance/', import.meta.url);

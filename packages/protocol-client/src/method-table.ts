@@ -36,6 +36,14 @@ const sectionMethods = new Set<string>(
   methodTable.serverNotifications.filter((n) => n.delivery === 'app' && n.params === 'SectionUpdate').map((n) => n.method),
 );
 
+const scopedMethods = new Set<string>(
+  methodTable.serverNotifications
+    .filter((n) => n.delivery === 'anyScoped' || (typeof n.delivery === 'object' && 'scoped' in n.delivery))
+    .map((n) => n.method),
+);
+/** Notifications delivered on a scoped feed (`fs:<watchId>`, `ports`, ...). */
+export const isScopedMethod = (method: string): boolean => scopedMethods.has(method);
+
 export const methodInfo: MethodLookup = (method) => methods.get(method);
 /** App-feed notifications whose params are a `SectionUpdate`. */
 export const isSectionMethod = (method: string): boolean => sectionMethods.has(method);
