@@ -52,7 +52,16 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
       // The kill's own re-observation is what `task cancel` reports.
       cancel: () => {
         cancelled = true;
-        task.cancelOutcome = killShellDescendants(handle);
+        // A kill that re-observed every survivor gone ends the folder
+        // reservation now, not at the watch's next recheck: `stopped` must
+        // not leave the folder busy for a full recheck period.
+        task.cancelOutcome = killShellDescendants(handle).then(async (outcome) => {
+          // The release consumes the job's lease before it settles, so the
+          // watch's later release is a no-op; persistence failures are retried
+          // and logged by the admission worker, not surfaced on `stopped`.
+          if (outcome.terminated) await Promise.resolve(releaseShellJobWorkspace(handle.taskId)).catch(() => {});
+          return outcome;
+        });
       },
     });
     // The command already returned its result; these processes are a side
