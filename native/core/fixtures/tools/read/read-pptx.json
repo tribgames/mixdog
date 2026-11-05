@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "a.pptx"
+  },
+  "isError": true,
+  "text": "Error: no ppt/slides/*.xml parts — not a PPTX presentation (or an encrypted one)",
+  "tool": "read"
+}

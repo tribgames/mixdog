@@ -1,0 +1,31 @@
+{
+  "name": "output_limit_exhausted",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "a",
+      "toolCalls": [],
+      "stopReason": "length"
+    },
+    {
+      "content": "b",
+      "toolCalls": [],
+      "stopReason": "length"
+    },
+    {
+      "content": "c",
+      "toolCalls": [],
+      "stopReason": "length"
+    },
+    {
+      "content": "d",
+      "toolCalls": [],
+      "stopReason": "length"
+    }
+  ]
+}

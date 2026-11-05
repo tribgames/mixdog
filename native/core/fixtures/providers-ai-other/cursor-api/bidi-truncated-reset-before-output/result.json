@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "incomplete_stream",
+    "connectCode": null,
+    "cursorCode": "incomplete_stream",
+    "liveTextEmitted": null,
+    "message": "Cursor stream closed before its end frame",
+    "name": "Error",
+    "providerRecoveryExhausted": true,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": null,
+    "status": null,
+    "truncatedStream": null,
+    "unsafeToRetry": null
+  }
+}

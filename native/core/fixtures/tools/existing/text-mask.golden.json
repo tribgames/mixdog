@@ -1,0 +1,47 @@
+[
+  {
+    "lang": "javascript",
+    "src": "const a = \"str // no\" + 'x\\'y' + `tpl ${call(1)} $x`; // line\n/* block\n */ const r = /re[/]x/gi.test(s); const d = a / b / c;\nfoo(/x/)\nreturn /y/\n",
+    "masked": "const a =             +        +      ${call(1)}    ;        \n        \n    const r =           .test(s); const d = a / b / c;\nfoo(   )\nreturn    \n"
+  },
+  {
+    "lang": "typescript",
+    "src": "x = y /2/ z\nif (a) /re/.test(b)\nconst s = \"abc\nnext()\nconst t = \"abc\\",
+    "masked": "x = y /2/ z\nif (a) /re/.test(b)\nconst s =     \nnext()\nconst t =      "
+  },
+  {
+    "lang": "python",
+    "src": "s = f\"val {fn(a)} {{lit}} 'q'\" # comment\nt = '''tri ${x} {y}'''\nu = f'''f {g()}'''\nv = r\"raw\\n\"\nw = xf\"{n}\"\n",
+    "masked": "s = f     {fn(a)}                       \nt =                   \nu = f     {g()}   \nv = r       \nw = xf     \n"
+  },
+  {
+    "lang": "bash",
+    "src": "echo \"hi $(cmd arg) ${var#pat} $name\" # c\necho '\\' # x\nfoo=${bar##*/}\n#!/bin/sh\nbar=\"multi\nline $(x)\"\n",
+    "masked": "echo     $(cmd arg) ${var#pat}  name     \necho        \nfoo=${bar##*/}\n         \nbar=      \n     $(x) \n"
+  },
+  {
+    "lang": "csharp",
+    "src": "var s = $\"a {b} {{c}}\" + @\"verb\" + \"n\"; // c\nvar t = $\"\"\"x {y}\"\"\";\n",
+    "masked": "var s = $   {b}        + @       +    ;     \nvar t = $           ;\n"
+  },
+  {
+    "lang": "kotlin",
+    "src": "val s = \"hi $name ${call(x)}\" // c\nval t = \"\"\"raw $x ${y}\"\"\"\n",
+    "masked": "val s =      name ${call(x)}      \nval t =         x ${y}   \n"
+  },
+  {
+    "lang": "lua",
+    "src": "--[==[ block ]] still ]==] code() -- line\nlocal s = \"str\" --[[ b ]] t()\n",
+    "masked": "                           code()        \nlocal s =                 t()\n"
+  },
+  {
+    "lang": "ruby",
+    "src": "x = \"a #{b}\" # c\n'lit' ; y = 1\n",
+    "masked": "x =             \n      ; y = 1\n"
+  },
+  {
+    "lang": "go",
+    "src": "a := `raw ${x}` // c\nb := \"s\" /* blk */ c()\n",
+    "masked": "a :=                \nb :=               c()\n"
+  }
+]

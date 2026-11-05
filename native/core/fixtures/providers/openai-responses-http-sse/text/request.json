@@ -1,0 +1,66 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "87e9b45bdcc91dec36c5d2c3f8f335c0",
+          "kind": "randomBytes",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs#_buildOpenAIHttpFallbackHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/lib/first-output-window.mjs#Object.arm",
+      "src/runtime/agent/orchestrator/providers/openai-http-sse-watchdogs.mjs#Object.armFirstServerEvent",
+      "src/runtime/agent/orchestrator/providers/openai-http-sse-watchdogs.mjs#armSemanticIdle",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "openai-responses-http-sse/text",
+      "seed": 1520973257,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "requests": [
+    {
+      "bodyText": "{\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "698",
+        "content-type": "application/json",
+        "host": "api.openai.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "method": "POST",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "x-client-request-id",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ]
+    }
+  ]
+}

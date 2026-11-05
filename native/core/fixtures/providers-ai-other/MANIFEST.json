@@ -1,0 +1,286 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-providers-ai-other.mjs --tree <tree>",
+  "fileCount": 47,
+  "files": [
+    {
+      "bytes": 5002,
+      "path": "cursor-api/bidi-end-stream-after-text/exchange.json",
+      "sha256": "562978b958143b2be527687ac35fff039e4d788a4bf7370db57125d95240f624"
+    },
+    {
+      "bytes": 426,
+      "path": "cursor-api/bidi-end-stream-after-text/result.json",
+      "sha256": "66a858e6fbe40ebb8a3039810ba915e813bf6a2978fe9af612b4c46e1bb49367"
+    },
+    {
+      "bytes": 20307,
+      "path": "cursor-api/bidi-end-stream-invalid-argument/exchange.json",
+      "sha256": "9bf63b15deb49e9b18f865023e8b9011977c176d1c03bc78618eadd4a2c47d2f"
+    },
+    {
+      "bytes": 426,
+      "path": "cursor-api/bidi-end-stream-invalid-argument/result.json",
+      "sha256": "8005023b7eca52ce018e337b0aec21ac805cba5f219768e7f20162add0ae37e9"
+    },
+    {
+      "bytes": 20553,
+      "path": "cursor-api/bidi-end-stream-resource-exhausted/exchange.json",
+      "sha256": "566c2efa329a4dcec0fd0c01991d8d70f02495afbb60fd5846f64911e23c0dd1"
+    },
+    {
+      "bytes": 426,
+      "path": "cursor-api/bidi-end-stream-resource-exhausted/result.json",
+      "sha256": "8005023b7eca52ce018e337b0aec21ac805cba5f219768e7f20162add0ae37e9"
+    },
+    {
+      "bytes": 20285,
+      "path": "cursor-api/bidi-end-stream-unauthenticated/exchange.json",
+      "sha256": "652b13f50268326ea1952eee236b9000fe7c53f5d53a5db74b4949268ed9eac7"
+    },
+    {
+      "bytes": 426,
+      "path": "cursor-api/bidi-end-stream-unauthenticated/result.json",
+      "sha256": "8005023b7eca52ce018e337b0aec21ac805cba5f219768e7f20162add0ae37e9"
+    },
+    {
+      "bytes": 20209,
+      "path": "cursor-api/bidi-end-stream-unavailable/exchange.json",
+      "sha256": "39b2419362ee1db2bc9f42908761954f4d98a887c1b109af881f7ba5836c4ebe"
+    },
+    {
+      "bytes": 426,
+      "path": "cursor-api/bidi-end-stream-unavailable/result.json",
+      "sha256": "8005023b7eca52ce018e337b0aec21ac805cba5f219768e7f20162add0ae37e9"
+    },
+    {
+      "bytes": 4838,
+      "path": "cursor-api/bidi-eof-after-turn-ended/exchange.json",
+      "sha256": "1e959ebb7ab9ee7058c4528363de30655fa95c49bdf33aba976c3b06f3c90477"
+    },
+    {
+      "bytes": 292,
+      "path": "cursor-api/bidi-eof-after-turn-ended/result.json",
+      "sha256": "932d9c2e255738c20b8f192325378d4c7c471dbc46294aacc134b439144b35b4"
+    },
+    {
+      "bytes": 19192,
+      "path": "cursor-api/bidi-http-500/exchange.json",
+      "sha256": "4b80dd57db0834bde4f8a168215149396fc01d8e9db789786b77d0e4ee1292a9"
+    },
+    {
+      "bytes": 415,
+      "path": "cursor-api/bidi-http-500/result.json",
+      "sha256": "ac70715ae0b367ab8ae317ed333a508cccd282dc1858c512c3ae71f37a98d48d"
+    },
+    {
+      "bytes": 4825,
+      "path": "cursor-api/bidi-truncated-eof-no-turn-end/exchange.json",
+      "sha256": "828739aab954196064b2c7690ed0742ea23c6f537e3c866ea504d038f7c4f355"
+    },
+    {
+      "bytes": 448,
+      "path": "cursor-api/bidi-truncated-eof-no-turn-end/result.json",
+      "sha256": "8174bd81e91157dcb1cb3b49884dd98973cd6de5426aef10823bffc9d8a9c890"
+    },
+    {
+      "bytes": 19715,
+      "path": "cursor-api/bidi-truncated-mid-frame/exchange.json",
+      "sha256": "e9de7f74fa9e68e59599c5614bdd91cfc6855f4dbaae679846572afa63c5504e"
+    },
+    {
+      "bytes": 449,
+      "path": "cursor-api/bidi-truncated-mid-frame/result.json",
+      "sha256": "235f8f7c0f7ed3053d4d969b8607ab669d88b3d67cc65bcdc78ae397cf556248"
+    },
+    {
+      "bytes": 4826,
+      "path": "cursor-api/bidi-truncated-reset-after-text/exchange.json",
+      "sha256": "d66f524e081962760833e106f914800382d5162ad81adf4ebbea37cff05b75e9"
+    },
+    {
+      "bytes": 448,
+      "path": "cursor-api/bidi-truncated-reset-after-text/result.json",
+      "sha256": "8174bd81e91157dcb1cb3b49884dd98973cd6de5426aef10823bffc9d8a9c890"
+    },
+    {
+      "bytes": 19080,
+      "path": "cursor-api/bidi-truncated-reset-before-output/exchange.json",
+      "sha256": "191985a0d5c3de1bc42b2419bf0dfa8bf2bda903ea033941859685e1e1a75a56"
+    },
+    {
+      "bytes": 448,
+      "path": "cursor-api/bidi-truncated-reset-before-output/result.json",
+      "sha256": "525598506af69e638fd67803d5ca444a10e1d50a7eac061193009a8b33b145d0"
+    },
+    {
+      "bytes": 7671,
+      "path": "cursor-api/text/exchange.json",
+      "sha256": "72aaba15859ae17fcad5a665fd2ba1e6b69e586d331574a1c52ad9bdaccacde5"
+    },
+    {
+      "bytes": 292,
+      "path": "cursor-api/text/result.json",
+      "sha256": "932d9c2e255738c20b8f192325378d4c7c471dbc46294aacc134b439144b35b4"
+    },
+    {
+      "bytes": 4973,
+      "path": "cursor-api/tool-call/exchange.json",
+      "sha256": "9a062a8083959061d0fef0c51dd0c1c22cfb5404ffcea2d0d36c0df16973e1b3"
+    },
+    {
+      "bytes": 529,
+      "path": "cursor-api/tool-call/result.json",
+      "sha256": "cd6ca57483518787b83620843f8fd1d80e3501fa1d86c67c1dc4ddd4c6ef6d39"
+    },
+    {
+      "bytes": 4554,
+      "path": "devin-oauth/error-http-400/exchange.json",
+      "sha256": "c8730c8f7fa999d5b388422f5d68b3a9aaf0fd427eb5e5878148a1e9c636bdd8"
+    },
+    {
+      "bytes": 471,
+      "path": "devin-oauth/error-http-400/result.json",
+      "sha256": "c5921476e441ade37554995faca4deeb94b3b16e7a7a801fe6c8cfdf16c33f12"
+    },
+    {
+      "bytes": 4550,
+      "path": "devin-oauth/error-http-401/exchange.json",
+      "sha256": "9b89d63b3dc67f812081318c02ec7aa4a351df5040baf4a00d297d7a789ca57c"
+    },
+    {
+      "bytes": 542,
+      "path": "devin-oauth/error-http-401/result.json",
+      "sha256": "11fb0ff6edaf1ed9ae82119c4291855c5113b035dc91847212beeeea5dd47d03"
+    },
+    {
+      "bytes": 4735,
+      "path": "devin-oauth/error-trailer-after-text/exchange.json",
+      "sha256": "c73348bcc61485ef30454de6b155e8f59fa57fb8530aa099ab97ba72c690b251"
+    },
+    {
+      "bytes": 449,
+      "path": "devin-oauth/error-trailer-after-text/result.json",
+      "sha256": "2462dc6d44cd105aa47fef648724b5c8ad6624db1d9a126f60ad90947b4377d8"
+    },
+    {
+      "bytes": 4613,
+      "path": "devin-oauth/error-trailer-resource-exhausted/exchange.json",
+      "sha256": "7d1026221373edf38115c25e44e4e1b2456993f416fef4dcf6c3e23159621ddc"
+    },
+    {
+      "bytes": 471,
+      "path": "devin-oauth/error-trailer-resource-exhausted/result.json",
+      "sha256": "b58de76c6e4afd35b93140c3dd44337b1429bc996561b68ebd77c6eeb86f08c3"
+    },
+    {
+      "bytes": 4840,
+      "path": "devin-oauth/text-thinking/exchange.json",
+      "sha256": "57843cfb49178137e98e8d85eb6991f605f4f918a27aabf66299896e856c9b46"
+    },
+    {
+      "bytes": 300,
+      "path": "devin-oauth/text-thinking/result.json",
+      "sha256": "439e2d0faefad4b557f7fa065b587a1e4432a820e67e0aa9b9c75946a093f9c1"
+    },
+    {
+      "bytes": 5321,
+      "path": "devin-oauth/text/exchange.json",
+      "sha256": "6b98d73295888e550b3d3a37e5c520323dd9418e2919100b1a733ff93778ac28"
+    },
+    {
+      "bytes": 284,
+      "path": "devin-oauth/text/result.json",
+      "sha256": "461a00a8fb7ce51584a04bdc81590369dedcb95dc92642b2bbf6c1a0f7f6b8a0"
+    },
+    {
+      "bytes": 4792,
+      "path": "devin-oauth/tool-call/exchange.json",
+      "sha256": "b0f7b0c32031e655117eb741b458dd559323034ab83b3a5643b4c86ed382e26d"
+    },
+    {
+      "bytes": 521,
+      "path": "devin-oauth/tool-call/result.json",
+      "sha256": "eee54c58cb78bed10353a1cc6e5977f41571f11e84d07cb5d5d15b43d6a77cdc"
+    },
+    {
+      "bytes": 4657,
+      "path": "devin-oauth/truncated-mid-frame/exchange.json",
+      "sha256": "45ebe48ca91433998fc391a7ca22d0837725bbf744f62cf5e7c23fc9723cb633"
+    },
+    {
+      "bytes": 457,
+      "path": "devin-oauth/truncated-mid-frame/result.json",
+      "sha256": "ce0f2a8b96bafba46dfc1d6aa27ab9a1df44945d73009cae58ab38ada1cc5894"
+    },
+    {
+      "bytes": 4647,
+      "path": "devin-oauth/truncated-no-trailer/exchange.json",
+      "sha256": "100730b931c167c094d1a83da42e0050d11257434c8527a6f03eb96e3762df2c"
+    },
+    {
+      "bytes": 456,
+      "path": "devin-oauth/truncated-no-trailer/result.json",
+      "sha256": "e7097a6ed7b9b43a407ca65020a6a11bcd7d66215c30d7161217ee728c4eb319"
+    },
+    {
+      "bytes": 4642,
+      "path": "devin-oauth/truncated-reset/exchange.json",
+      "sha256": "c0b6c1bcfd33d0fc5dc64319c617db4d25d5736dc3eda5cfbf11eb2783ff7446"
+    },
+    {
+      "bytes": 427,
+      "path": "devin-oauth/truncated-reset/result.json",
+      "sha256": "e6ba429cbd012cf902803c167e8f07dfa050bbd7547ab345728e9ccba15ad1fd"
+    },
+    {
+      "bytes": 97,
+      "path": "unrecorded.json",
+      "sha256": "a9ed23997ad79e306d63fcc462dd5b65a613112b29dc6454fa8ba165d83abe92"
+    }
+  ],
+  "product": {
+    "appsSha256": "58cc104d88aab1ffdf91a5d8b137f4e0b3a4d1e7d4b1da74e4c97899514b8d62",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43480,
+    "refComparison": {
+      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34396
+    },
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-providers-ai-other.mjs",
+  "scenarios": [
+    "cursor-api/bidi-end-stream-after-text",
+    "cursor-api/bidi-end-stream-invalid-argument",
+    "cursor-api/bidi-end-stream-resource-exhausted",
+    "cursor-api/bidi-end-stream-unauthenticated",
+    "cursor-api/bidi-end-stream-unavailable",
+    "cursor-api/bidi-eof-after-turn-ended",
+    "cursor-api/bidi-http-500",
+    "cursor-api/bidi-truncated-eof-no-turn-end",
+    "cursor-api/bidi-truncated-mid-frame",
+    "cursor-api/bidi-truncated-reset-after-text",
+    "cursor-api/bidi-truncated-reset-before-output",
+    "cursor-api/text",
+    "cursor-api/tool-call",
+    "devin-oauth/error-http-400",
+    "devin-oauth/error-http-401",
+    "devin-oauth/error-trailer-after-text",
+    "devin-oauth/error-trailer-resource-exhausted",
+    "devin-oauth/text",
+    "devin-oauth/text-thinking",
+    "devin-oauth/tool-call",
+    "devin-oauth/truncated-mid-frame",
+    "devin-oauth/truncated-no-trailer",
+    "devin-oauth/truncated-reset"
+  ],
+  "set": "providers-ai-other",
+  "totalBytes": 228753,
+  "unrecordedCount": 0
+}

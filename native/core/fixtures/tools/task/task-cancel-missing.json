@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "cancel",
+    "task_id": "task-missing"
+  },
+  "isError": true,
+  "text": "Error: task not found: task-missing",
+  "tool": "task"
+}

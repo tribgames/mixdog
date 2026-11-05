@@ -1,0 +1,640 @@
+{
+  "domain": "notification-store-twin",
+  "entries": [
+    {
+      "input": {
+        "devices": {
+          "pc": {}
+        },
+        "migratedAt": 5,
+        "overrides": []
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "scope": "off"
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": null
+            },
+            "target": {
+              "id": "a:1",
+              "kind": "agent"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "off",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": null
+            },
+            "target": {
+              "id": "a:1",
+              "kind": "agent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "extra": 1,
+            "scope": "bots"
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "extra": 1,
+            "setting": {
+              "mode": "muted",
+              "until": 1750000000000
+            },
+            "target": {
+              "id": "r.1-x_y",
+              "kind": "room"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "bots",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1750000000000
+            },
+            "target": {
+              "id": "r.1-x_y",
+              "kind": "room"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "events": {
+              "error": true
+            }
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "extra": 2,
+              "mode": "always"
+            },
+            "target": {
+              "extra": 1,
+              "id": "s",
+              "kind": "session"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": true,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s",
+              "kind": "session"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "events": {
+              "bogus": true,
+              "finished": false
+            }
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s1",
+              "kind": "session"
+            }
+          },
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1
+            },
+            "target": {
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "kind": "agent"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": false,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s1",
+              "kind": "session"
+            }
+          },
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1
+            },
+            "target": {
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "kind": "agent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "automaticRuns": false,
+            "taskbarFlash": false
+          }
+        },
+        "migratedAt": 5,
+        "overrides": []
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": false,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "quietHours": {
+              "enabled": true
+            }
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": null
+            },
+            "target": {
+              "id": "a:1",
+              "kind": "agent"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": true,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": null
+            },
+            "target": {
+              "id": "a:1",
+              "kind": "agent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "quietHours": {
+              "allowWaiting": true,
+              "days": "weekends",
+              "enabled": true,
+              "end": "23:59",
+              "more": 0,
+              "start": "00:00"
+            }
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "extra": 1,
+            "setting": {
+              "mode": "muted",
+              "until": 1750000000000
+            },
+            "target": {
+              "id": "r.1-x_y",
+              "kind": "room"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": true,
+              "days": "weekends",
+              "enabled": true,
+              "end": "23:59",
+              "start": "00:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1750000000000
+            },
+            "target": {
+              "id": "r.1-x_y",
+              "kind": "room"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "quietHours": {
+              "start": "07:30"
+            }
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "extra": 2,
+              "mode": "always"
+            },
+            "target": {
+              "extra": 1,
+              "id": "s",
+              "kind": "session"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "07:30"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s",
+              "kind": "session"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "holdWhileDesktopActive": false,
+            "unknown": {
+              "nested": true
+            }
+          }
+        },
+        "migratedAt": 5,
+        "overrides": [
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s1",
+              "kind": "session"
+            }
+          },
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1
+            },
+            "target": {
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "kind": "agent"
+            }
+          }
+        ]
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": false,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": [
+          {
+            "setting": {
+              "mode": "always"
+            },
+            "target": {
+              "id": "s1",
+              "kind": "session"
+            }
+          },
+          {
+            "setting": {
+              "mode": "muted",
+              "until": 1
+            },
+            "target": {
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "kind": "agent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": true,
+              "finished": true,
+              "question": false
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "migratedAt": 5,
+        "overrides": []
+      },
+      "stored": {
+        "devices": {
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": true,
+              "finished": true,
+              "question": false
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-notification-store.mjs"
+}

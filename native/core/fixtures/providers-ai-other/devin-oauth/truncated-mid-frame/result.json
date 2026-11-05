@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "protocol",
+    "connectCode": null,
+    "cursorCode": null,
+    "liveTextEmitted": true,
+    "message": "Devin protocol error: stream ended inside a frame (9 bytes buffered)",
+    "name": "DevinWireError",
+    "providerRecoveryExhausted": null,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": true,
+    "status": 0,
+    "truncatedStream": true,
+    "unsafeToRetry": true
+  }
+}

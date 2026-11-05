@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "poke",
+    "task_id": "x"
+  },
+  "isError": true,
+  "text": "Error: task action must be one of list|read|wait|cancel (got \"poke\")",
+  "tool": "task"
+}

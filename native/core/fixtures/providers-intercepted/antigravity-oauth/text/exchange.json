@@ -1,0 +1,97 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "2f68465b7d8a48781fb55b3d8bf7d065",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs#buildAntigravityRequest"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#Object.resetIdle",
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#createRestStreamWatchdogs",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "antigravity-oauth/text",
+      "seed": 317144287,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "cache-control": "no-cache",
+        "connection": "keep-alive",
+        "host": "antigravity-hub-auto-updater-974169037036.us-central1.run.app",
+        "sec-fetch-mode": "cors",
+        "user-agent": "electron-builder"
+      },
+      "method": "GET",
+      "origin": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app",
+      "path": "/manifest/latest-arm64-mac.yml",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "cache-control",
+        "user-agent",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding"
+      ],
+      "served": "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-fixture\",\"object\":\"model\"},{\"id\":\"claude-sonnet-4-6\",\"object\":\"model\"},{\"id\":\"gemini-2.5-pro\",\"object\":\"model\"},{\"id\":\"grok-4\",\"object\":\"model\"},{\"id\":\"muse-fixture\",\"object\":\"model\"},{\"id\":\"cc-fixture\",\"object\":\"model\"},{\"id\":\"mimo-fixture\",\"object\":\"model\"},{\"id\":\"go-fixture\",\"object\":\"model\"},{\"id\":\"cursor-fixture\",\"object\":\"model\"},{\"id\":\"devin-fixture\",\"object\":\"model\"},{\"id\":\"gemini-3-pro\",\"object\":\"model\"}],\"models\":[{\"name\":\"gpt-fixture\",\"id\":\"gpt-fixture\"},{\"name\":\"claude-sonnet-4-6\",\"id\":\"claude-sonnet-4-6\"},{\"name\":\"gemini-2.5-pro\",\"id\":\"gemini-2.5-pro\"},{\"name\":\"grok-4\",\"id\":\"grok-4\"},{\"name\":\"muse-fixture\",\"id\":\"muse-fixture\"},{\"name\":\"cc-fixture\",\"id\":\"cc-fixture\"},{\"name\":\"mimo-fixture\",\"id\":\"mimo-fixture\"},{\"name\":\"go-fixture\",\"id\":\"go-fixture\"},{\"name\":\"cursor-fixture\",\"id\":\"cursor-fixture\"},{\"name\":\"devin-fixture\",\"id\":\"devin-fixture\"},{\"name\":\"gemini-3-pro\",\"id\":\"gemini-3-pro\"}]}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"VALIDATED\"}},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-2752545474617639412\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-2f68465b-7d8a-4878-9fb5-5b3d8bf7d065\"}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "656",
+        "content-type": "application/json",
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "method": "POST",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

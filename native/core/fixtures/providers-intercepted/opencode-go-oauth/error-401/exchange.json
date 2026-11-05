@@ -1,0 +1,343 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "04980e042e4fa59118df320a8f2844d8",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/opencode-go.mjs#OpenCodeGoOAuthEngine.send"
+        },
+        {
+          "bytes": 16,
+          "hex": "05269e9dbe5d7fa4cf5b42eefe1686bb",
+          "kind": "randomUUID",
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/opencode-go.mjs#OpenCodeGoOAuthEngine.send"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal",
+      "src/runtime/shared/file-permissions.mjs#<anonymous>"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.698310911655426
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.9281980842351913
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.4491767240688205
+        },
+        {
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.4456197468098253
+        }
+      ],
+      "scenarioId": "opencode-go-oauth/error-401",
+      "seed": 2327280444,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog"
+      },
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "path": "/console/api/v2/config",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "authorization",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding"
+      ],
+      "served": "{\"providers\":{\"opencode-go\":{\"settings\":{\"baseURL\":\"https://opencode.ai/inference/go/openai/v1\"},\"models\":{\"go-fixture\":{\"name\":\"Go Fixture\",\"limit\":{\"context\":128000,\"output\":8192}}}}}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "04980e04-2e4f-4591-98df-320a8f2844d8",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "04980e04-2e4f-4591-98df-320a8f2844d8",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"fixture-refresh-token\",\"client_id\":\"opencode-cli\"}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "97",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/console/auth/device/token",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"access_token\":\"fixture-access-token\",\"refresh_token\":\"fixture-refresh-token\",\"expires_in\":3600,\"token_type\":\"Bearer\"}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog"
+      },
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "path": "/console/api/v2/config",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "authorization",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding"
+      ],
+      "served": "{\"providers\":{\"opencode-go\":{\"settings\":{\"baseURL\":\"https://opencode.ai/inference/go/openai/v1\"},\"models\":{\"go-fixture\":{\"name\":\"Go Fixture\",\"limit\":{\"context\":128000,\"output\":8192}}}}}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "05269e9d-be5d-4fa4-8f5b-42eefe1686bb",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "05269e9d-be5d-4fa4-8f5b-42eefe1686bb",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

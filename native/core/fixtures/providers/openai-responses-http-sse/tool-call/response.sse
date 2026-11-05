@@ -1,0 +1,18 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_fx2","model":"gpt-fixture"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_fx","call_id":"call_fx1","name":"lookup","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_fx","delta":"{\"key\":\"answer\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_fx","arguments":"{\"key\":\"answer\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_fx","call_id":"call_fx1","name":"lookup","arguments":"{\"key\":\"answer\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_fx2","model":"gpt-fixture","status":"completed","usage":{"input_tokens":20,"output_tokens":12,"total_tokens":32},"output":[{"type":"function_call","id":"fc_fx","call_id":"call_fx1","name":"lookup","arguments":"{\"key\":\"answer\"}"}]}}
+

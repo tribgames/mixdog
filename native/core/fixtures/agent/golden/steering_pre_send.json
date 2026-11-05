@@ -1,0 +1,96 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {}
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null
+    },
+    {
+      "role": "tool",
+      "content": "echo:{}",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c1",
+      "toolKind": "normal"
+    },
+    {
+      "role": "user",
+      "content": "also check b",
+      "source": "steering",
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null
+    }
+  ],
+  "result": {
+    "content": "ok",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": null,
+    "iterations": 2,
+    "toolCallsTotal": 1,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "echo:{}",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "user",
+          "content": "also check b",
+          "toolCallId": null
+        }
+      ]
+    }
+  ]
+}

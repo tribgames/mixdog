@@ -1,0 +1,19 @@
+{
+  "dispatchedToolCalls": [],
+  "ok": {
+    "content": "The result is 42.",
+    "stopReason": "end_turn",
+    "toolCalls": [],
+    "usage": {
+      "cacheWriteTokens": 0,
+      "cachedTokens": 0,
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "promptTokens": 20,
+      "raw": {
+        "input_tokens": 20,
+        "output_tokens": 8
+      }
+    }
+  }
+}

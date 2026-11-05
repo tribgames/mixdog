@@ -1,0 +1,10 @@
+{
+  "input": {
+    "new_string": "x",
+    "old_string": "does not exist",
+    "path": "README.md"
+  },
+  "isError": true,
+  "text": "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-5 (use exact current text for retry):\n# Fixture\n\nALPHA BETA\ngamma\n",
+  "tool": "edit"
+}

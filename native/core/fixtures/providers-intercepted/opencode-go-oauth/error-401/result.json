@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (inference 401) — open /providers in mixdog to sign in again",
+    "name": "Error",
+    "status": 401
+  }
+}

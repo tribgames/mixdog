@@ -1,0 +1,21 @@
+{
+  "location": "scratch/rust-core/migration-corpus (outside the repo; CI restores it as an artifact)",
+  "manifestSha256": "0c2bb73968aa68e8b8ea553fb8b5cd518dd5956134fc451dc530e960509ce3ac",
+  "note": "The 1.4.5 migration corpus is referenced, not duplicated. Reproduce it with the corpus generator that produced it; check by manifest digest.",
+  "trees": [
+    "dev146",
+    "electron-profile",
+    "fixture-busy-seed",
+    "home",
+    "manifest.json",
+    "other-files.json",
+    "selection.json",
+    "tools",
+    "v145"
+  ],
+  "usedBy": [
+    "SM §11.8 migration gate (v145, dev146, fixture-busy-seed)",
+    "electron-profile migration",
+    "LR §11 tests 5, 7, 11 (1.4.5 data dir state)"
+  ]
+}

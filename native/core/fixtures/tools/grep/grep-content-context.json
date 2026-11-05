@@ -1,0 +1,10 @@
+{
+  "input": {
+    "context": 1,
+    "output_mode": "content",
+    "pattern": "TODO"
+  },
+  "isError": false,
+  "text": "# ./src/lib/notes.txt:1 [lines 1-3]\nTODO: first\nplain\nTODO: second",
+  "tool": "grep"
+}

@@ -1,0 +1,9 @@
+{
+  "input": {
+    "output_mode": "count",
+    "pattern": "function"
+  },
+  "isError": false,
+  "text": "./src/lib/math.mjs:2\n./src/main.mjs:1\n[total 3 matches across 2 files]",
+  "tool": "grep"
+}

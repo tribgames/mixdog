@@ -1,0 +1,11 @@
+{
+  "input": {
+    "files": [
+      "src/lib/math.mjs"
+    ],
+    "mode": "dependents"
+  },
+  "isError": false,
+  "text": "src/lib/util.mjs:1\nsrc/main.mjs:1",
+  "tool": "code_graph"
+}

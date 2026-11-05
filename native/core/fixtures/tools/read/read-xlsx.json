@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "a.xlsx"
+  },
+  "isError": false,
+  "text": "--- sheet Sheet1 ---\n(empty sheet)",
+  "tool": "read"
+}

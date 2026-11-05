@@ -1,0 +1,307 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>",
+  "fileCount": 53,
+  "files": [
+    {
+      "bytes": 292491,
+      "path": "anthropic-effort/cases.json",
+      "sha256": "5c3040d20e7ba38423268f4d738408c45530202f923c2e2a6a50fed03685cae2"
+    },
+    {
+      "bytes": 3290,
+      "path": "anthropic/error-400/request.json",
+      "sha256": "33f2a208d97a21dae7e39fc9902a22e5566ccd92881f7fa60db0bacb3a4fd5f3"
+    },
+    {
+      "bytes": 89,
+      "path": "anthropic/error-400/response.sse",
+      "sha256": "90030acf46092e0d55098676f15c59963d87eadb3fe34c22c2d12edabece1b6c"
+    },
+    {
+      "bytes": 215,
+      "path": "anthropic/error-400/result.json",
+      "sha256": "6b0475503e2242029bdd73caeb0e6eae911fb5ea7dff33ef3c6fce15aba06887"
+    },
+    {
+      "bytes": 3490,
+      "path": "anthropic/text/request.json",
+      "sha256": "73dc63d73a0163783afce8d968e882187a12ec3770574cffd68075dac1aeb939"
+    },
+    {
+      "bytes": 806,
+      "path": "anthropic/text/response.sse",
+      "sha256": "beee47911a0d6636f97d8f9baabb8749536bd7339ddfcc379183f9539dae580f"
+    },
+    {
+      "bytes": 363,
+      "path": "anthropic/text/result.json",
+      "sha256": "10f52d4d8204fdc8d8ef0e5c88f3aa5fbb2fb0b5a4bcb095a14a14568b2eb70b"
+    },
+    {
+      "bytes": 3494,
+      "path": "anthropic/tool-call/request.json",
+      "sha256": "9fa884490e7bc8b8bf744152503db16534a990ba39c4d439d627e55392b7a3a1"
+    },
+    {
+      "bytes": 877,
+      "path": "anthropic/tool-call/response.sse",
+      "sha256": "a0be8c972270ff6bec90f5396c30ef8df5cb5ff50b3cb0b827899a1b35079996"
+    },
+    {
+      "bytes": 598,
+      "path": "anthropic/tool-call/result.json",
+      "sha256": "d974380d0d3c9d2c1c736cd822e207f0d3a9dd439ba40b8ddde1c522cf6b8a74"
+    },
+    {
+      "bytes": 3718,
+      "path": "anthropic/tool-result-followup/request.json",
+      "sha256": "c5b01ddfee829be19effad1f78bd4aa797adf7c1fe1875207bdc3649dc9affa5"
+    },
+    {
+      "bytes": 806,
+      "path": "anthropic/tool-result-followup/response.sse",
+      "sha256": "beee47911a0d6636f97d8f9baabb8749536bd7339ddfcc379183f9539dae580f"
+    },
+    {
+      "bytes": 363,
+      "path": "anthropic/tool-result-followup/result.json",
+      "sha256": "10f52d4d8204fdc8d8ef0e5c88f3aa5fbb2fb0b5a4bcb095a14a14568b2eb70b"
+    },
+    {
+      "bytes": 12435,
+      "path": "anthropic/truncated-no-terminal/request.json",
+      "sha256": "86917604a2147b80ed593a2497fa9f83d66d70e9b370998979ae00e301bcfbab"
+    },
+    {
+      "bytes": 639,
+      "path": "anthropic/truncated-no-terminal/response.sse",
+      "sha256": "8e30a34ebf05fe299e8836ca7a10db7678a5b82444120dee23190eeef410085d"
+    },
+    {
+      "bytes": 190,
+      "path": "anthropic/truncated-no-terminal/result.json",
+      "sha256": "182ca0d9cd4db663d4164edc3b6ced2a3f30187451e40ed93482b1be840583b8"
+    },
+    {
+      "bytes": 3162,
+      "path": "mixdog-local/tool-call/request.json",
+      "sha256": "6dfc46c99aa35d511c372d30aa9cfdd0ffe769580bfee39854474ccb68f243ac"
+    },
+    {
+      "bytes": 852,
+      "path": "mixdog-local/tool-call/response.sse",
+      "sha256": "6ffdfdb98d1fc3aa851d2339ff296baf5f37b2f2bdd3b3f9d618d63e5b330f20"
+    },
+    {
+      "bytes": 385,
+      "path": "mixdog-local/tool-call/result.json",
+      "sha256": "f2fb5caa41a53dc9741ef34105928bafddd60df01c32b2544165fddb43ba558b"
+    },
+    {
+      "bytes": 4902,
+      "path": "openai-compat-chat/error-401/request.json",
+      "sha256": "6450d91158651d848be228b9f56d4e82ae1b207e0b1e251bc440e8b558a27303"
+    },
+    {
+      "bytes": 75,
+      "path": "openai-compat-chat/error-401/response.sse",
+      "sha256": "978dee16e77ad3b7431437f14fee42295c4b6921bcb2dc5f23597aa8089a367d"
+    },
+    {
+      "bytes": 132,
+      "path": "openai-compat-chat/error-401/result.json",
+      "sha256": "a5b585b618531cd88f3ac9c461a9a9d26d8b4f8867ca2c4b48fb781f6cfec756"
+    },
+    {
+      "bytes": 3159,
+      "path": "openai-compat-chat/text/request.json",
+      "sha256": "9d573b6396e5fcb97490e96ef69be8f22045211b39f30562b65a718dbb8b49d2"
+    },
+    {
+      "bytes": 819,
+      "path": "openai-compat-chat/text/response.sse",
+      "sha256": "2271dd170d71e442600b099a286441eeb92825de966a35c7b488b1a977a1de36"
+    },
+    {
+      "bytes": 392,
+      "path": "openai-compat-chat/text/result.json",
+      "sha256": "2a4cc47a795fdb09826c4f55e4c6943a07c649fd27431a0b02ca34f9aaf41f94"
+    },
+    {
+      "bytes": 3104,
+      "path": "openai-compat-chat/tool-call/request.json",
+      "sha256": "cc214637ec977a395531013ba17c55ce8f49291fb7d297d721958d0ed8684822"
+    },
+    {
+      "bytes": 852,
+      "path": "openai-compat-chat/tool-call/response.sse",
+      "sha256": "6ffdfdb98d1fc3aa851d2339ff296baf5f37b2f2bdd3b3f9d618d63e5b330f20"
+    },
+    {
+      "bytes": 385,
+      "path": "openai-compat-chat/tool-call/result.json",
+      "sha256": "f2fb5caa41a53dc9741ef34105928bafddd60df01c32b2544165fddb43ba558b"
+    },
+    {
+      "bytes": 3369,
+      "path": "openai-compat-chat/tool-result-followup/request.json",
+      "sha256": "3fb1a60160f796e006ca0db17cf01c563ab0bdb8bfc90fcb79a057e6d8f8069b"
+    },
+    {
+      "bytes": 819,
+      "path": "openai-compat-chat/tool-result-followup/response.sse",
+      "sha256": "2271dd170d71e442600b099a286441eeb92825de966a35c7b488b1a977a1de36"
+    },
+    {
+      "bytes": 392,
+      "path": "openai-compat-chat/tool-result-followup/result.json",
+      "sha256": "2a4cc47a795fdb09826c4f55e4c6943a07c649fd27431a0b02ca34f9aaf41f94"
+    },
+    {
+      "bytes": 3112,
+      "path": "openai-compat-chat/truncated-no-done/request.json",
+      "sha256": "e4994e39a3d9f64c262fc7ec28f7a9675bb4adafb5b4a091f8e2d85152eea773"
+    },
+    {
+      "bytes": 721,
+      "path": "openai-compat-chat/truncated-no-done/response.sse",
+      "sha256": "13ca7c060e14efaa518bcec194a20333d0e34973a48a69287e4f23a9cb31805a"
+    },
+    {
+      "bytes": 148,
+      "path": "openai-compat-chat/truncated-no-done/result.json",
+      "sha256": "f839cac8ac9b4402cba179f136b73b196d5e748682b6d54413c6f6c9e76d7c1e"
+    },
+    {
+      "bytes": 3245,
+      "path": "openai-responses-http-sse/text/request.json",
+      "sha256": "bdb12d392332cdd4d0c58c0ac31b10bbeb8483308a3efb7f62013d588fce1e08"
+    },
+    {
+      "bytes": 1084,
+      "path": "openai-responses-http-sse/text/response.sse",
+      "sha256": "7f3ca6ed113aeb1caa42878043009a2b04557a67f4779e23588c68b09d8e4389"
+    },
+    {
+      "bytes": 385,
+      "path": "openai-responses-http-sse/text/result.json",
+      "sha256": "860cb7fe998545306717308f5d5e8338ebd6f975380a012f98d52e4f73bd469b"
+    },
+    {
+      "bytes": 3249,
+      "path": "openai-responses-http-sse/tool-call/request.json",
+      "sha256": "8475ee3ee225a4f7773b2ee53d4624f4305b00e1b001137b8aaf3edd26be5f3d"
+    },
+    {
+      "bytes": 1175,
+      "path": "openai-responses-http-sse/tool-call/response.sse",
+      "sha256": "7c5c19747a5b99cfb7eeb651b46922c12c457fb8eec222d1b5c5a1513f12f82d"
+    },
+    {
+      "bytes": 618,
+      "path": "openai-responses-http-sse/tool-call/result.json",
+      "sha256": "b1ec5f5714654ad91560237b48f16b57d2fca44d7a3e45c94b6138b003a43b32"
+    },
+    {
+      "bytes": 3460,
+      "path": "openai-responses-http-sse/tool-result-followup/request.json",
+      "sha256": "9381267a3491cd2cff92d65a804afda8cfca2f3a8bdd510503441e48f53742d5"
+    },
+    {
+      "bytes": 1084,
+      "path": "openai-responses-http-sse/tool-result-followup/response.sse",
+      "sha256": "7f3ca6ed113aeb1caa42878043009a2b04557a67f4779e23588c68b09d8e4389"
+    },
+    {
+      "bytes": 385,
+      "path": "openai-responses-http-sse/tool-result-followup/result.json",
+      "sha256": "860cb7fe998545306717308f5d5e8338ebd6f975380a012f98d52e4f73bd469b"
+    },
+    {
+      "bytes": 3262,
+      "path": "openai-responses-http-sse/truncated-no-completed/request.json",
+      "sha256": "da655013136dc671668512e2c1bfbd32979cf2cd5b188efa7b7fcfc4a23d9110"
+    },
+    {
+      "bytes": 761,
+      "path": "openai-responses-http-sse/truncated-no-completed/response.sse",
+      "sha256": "b8c1720fe51df1a39386dce1a8a6165dbe3da0279fb59870b2745b60f12f6210"
+    },
+    {
+      "bytes": 190,
+      "path": "openai-responses-http-sse/truncated-no-completed/result.json",
+      "sha256": "c77daff59ba782ee1e7c51f2b0e39a58542612cd4809eacfaaa57314b1f60066"
+    },
+    {
+      "bytes": 264455,
+      "path": "oracles/native-request-bytes.head.json",
+      "sha256": "72398a2d04bb93ea1a4c848cf3dde476ebaa874dfe28f70f3badc371807110e2"
+    },
+    {
+      "bytes": 59045,
+      "path": "oracles/openai-compat-responses-head-parity.json",
+      "sha256": "d05d0561408cd2300bbadb5638ef5dc1dcb402747eac8dea6fa7eaa9d319f485"
+    },
+    {
+      "bytes": 6529,
+      "path": "oracles/openai-responses-payload-parity.fixture.json",
+      "sha256": "7461a562bcc4cd0af15406312ac18dc3a3127959b6b9fea97bbf99461b0d1fd2"
+    },
+    {
+      "bytes": 24344,
+      "path": "oracles/xai-tool-search-head-parity.json",
+      "sha256": "4b5306678c3685a09a92f08493fd808c8cc9e63996145397518426faec00f5c2"
+    },
+    {
+      "bytes": 3748,
+      "path": "request-builders/anthropic-oauth.json",
+      "sha256": "71532bcea9ce9dc10131dfcfa960f015b50b0dae579a6410ae03bb5798f386a8"
+    },
+    {
+      "bytes": 2591,
+      "path": "request-builders/openai-responses.json",
+      "sha256": "b4f37a5b5b9ec14145ce2a73169e35b2545f261f748f61ab5fa4b66899b52592"
+    },
+    {
+      "bytes": 1559,
+      "path": "request-builders/openai-ws-response-create.json",
+      "sha256": "dc163f811f6317e529f2c5adb02fdaae6e00366d955acf5dc15e9f163e7469ee"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
+  "scenarios": [
+    "anthropic/error-400",
+    "anthropic/text",
+    "anthropic/tool-call",
+    "anthropic/tool-result-followup",
+    "anthropic/truncated-no-terminal",
+    "mixdog-local/tool-call",
+    "openai-compat-chat/error-401",
+    "openai-compat-chat/text",
+    "openai-compat-chat/tool-call",
+    "openai-compat-chat/tool-result-followup",
+    "openai-compat-chat/truncated-no-done",
+    "openai-responses-http-sse/text",
+    "openai-responses-http-sse/tool-call",
+    "openai-responses-http-sse/tool-result-followup",
+    "openai-responses-http-sse/truncated-no-completed"
+  ],
+  "set": "providers",
+  "totalBytes": 731813
+}

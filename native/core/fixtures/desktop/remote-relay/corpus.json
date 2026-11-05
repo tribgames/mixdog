@@ -1,0 +1,106 @@
+{
+  "domain": "remote-relay",
+  "entries": [
+    {
+      "args": [
+        "ws://127.0.0.1:<port>"
+      ],
+      "op": "startRemoteRelay",
+      "result": {
+        "clientCount": 0,
+        "clientUrlShape": "http://127.0.0.1:<port>/d/<deviceId>/",
+        "pairingKeys": [
+          "pairingSecret",
+          "serverPublicKey",
+          "version"
+        ],
+        "tokenLength": 48
+      }
+    },
+    {
+      "args": [],
+      "op": "device-leg handshake",
+      "result": {
+        "authScheme": "Basic",
+        "headerNames": [
+          "authorization",
+          "connection",
+          "host",
+          "sec-websocket-key",
+          "sec-websocket-version",
+          "upgrade"
+        ],
+        "path": "/desktop"
+      }
+    },
+    {
+      "args": [],
+      "op": "frames sent on open",
+      "result": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"desktop-lanes\",\"media\":true,\"e2ee\":1,\"maxPayloadBytes\":71303168,\"textFrames\":1,\"pairV2\":1}"
+        },
+        {
+          "dir": "in",
+          "text": "{\"type\":\"desktop-name\",\"name\":\"FIXTURE-PC\"}"
+        },
+        {
+          "dir": "in",
+          "text": "{\"type\":\"desktop-version\",\"appVersion\":\"0.0.0-fixture\"}"
+        },
+        {
+          "dir": "in",
+          "text": "{\"type\":\"set-client-token\",\"token\":\"<HEX>\"}"
+        }
+      ]
+    },
+    {
+      "args": [],
+      "error": {
+        "message": "Relay device request timed out.",
+        "name": "Error"
+      },
+      "op": "listClients"
+    },
+    {
+      "args": [],
+      "op": "pairCode(ensure)",
+      "result": null
+    },
+    {
+      "args": [],
+      "op": "pairCode(release)",
+      "result": null
+    },
+    {
+      "args": [],
+      "op": "pushRegistrations",
+      "result": []
+    },
+    {
+      "args": [
+        "nope"
+      ],
+      "op": "sendTestNotification(unknown)",
+      "result": {
+        "message": "This device has not allowed notifications from this PC yet.",
+        "ok": false
+      }
+    },
+    {
+      "args": [
+        "s",
+        "lane"
+      ],
+      "op": "viewsSessionLane",
+      "result": false
+    },
+    {
+      "args": [],
+      "op": "close",
+      "result": "closed"
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

@@ -1,0 +1,381 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs#Completions.wrapped [as create]",
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 1940,
+        "precedesAttempt": 2,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 4307,
+        "precedesAttempt": 3,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 7723,
+        "precedesAttempt": 4,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 14965,
+        "precedesAttempt": 5,
+        "seq": 4,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 27428,
+        "precedesAttempt": 6,
+        "seq": 5,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs#Completions.wrapped [as create]",
+          "value": 0.4303636245895177
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.35083974804729223
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs#Completions.wrapped [as create]",
+          "value": 0.5691076300572604
+        },
+        {
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.8840992534533143
+        },
+        {
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs#Completions.wrapped [as create]",
+          "value": 0.5437229126691818
+        },
+        {
+          "n": 6,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.3266542174387723
+        },
+        {
+          "n": 7,
+          "site": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs#Completions.wrapped [as create]",
+          "value": 0.08543614414520562
+        },
+        {
+          "n": 8,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.17657606955617666
+        },
+        {
+          "n": 9,
+          "site": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs#Completions.wrapped [as create]",
+          "value": 0.934171233093366
+        },
+        {
+          "n": 10,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.07134126545861363
+        }
+      ],
+      "scenarioId": "mimo-oauth/truncated-reset",
+      "seed": 4141748790,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"mimo-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "422",
+        "content-type": "application/json",
+        "host": "api.xiaomimimo.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mimocode/1.4.5",
+        "x-mimo-source": "mimocode-cli",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://api.xiaomimimo.com",
+      "path": "/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-mimo-source",
+        "accept",
+        "content-type",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"mimo-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "422",
+        "content-type": "application/json",
+        "host": "api.xiaomimimo.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mimocode/1.4.5",
+        "x-mimo-source": "mimocode-cli",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://api.xiaomimimo.com",
+      "path": "/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-mimo-source",
+        "accept",
+        "content-type",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"mimo-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "422",
+        "content-type": "application/json",
+        "host": "api.xiaomimimo.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mimocode/1.4.5",
+        "x-mimo-source": "mimocode-cli",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://api.xiaomimimo.com",
+      "path": "/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-mimo-source",
+        "accept",
+        "content-type",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"mimo-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "422",
+        "content-type": "application/json",
+        "host": "api.xiaomimimo.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mimocode/1.4.5",
+        "x-mimo-source": "mimocode-cli",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://api.xiaomimimo.com",
+      "path": "/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-mimo-source",
+        "accept",
+        "content-type",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"mimo-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "422",
+        "content-type": "application/json",
+        "host": "api.xiaomimimo.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mimocode/1.4.5",
+        "x-mimo-source": "mimocode-cli",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://api.xiaomimimo.com",
+      "path": "/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-mimo-source",
+        "accept",
+        "content-type",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

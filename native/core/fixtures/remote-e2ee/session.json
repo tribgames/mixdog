@@ -1,0 +1,1056 @@
+{
+  "claimCallbacks": [
+    {
+      "browser": "Chrome",
+      "claimId": "claim-approve-1",
+      "clientId": "c-claim-approve-1",
+      "desktop": false,
+      "method": "code",
+      "name": "Phone A",
+      "platform": "Android"
+    },
+    {
+      "browser": "Chrome",
+      "claimId": "claim-deny-1",
+      "clientId": "c-claim-deny-1",
+      "desktop": false,
+      "method": "code",
+      "name": "DENIED",
+      "platform": "Android"
+    }
+  ],
+  "claims": [
+    {
+      "answer": {
+        "claimId": "claim-approve-1",
+        "sealed": {
+          "ciphertext": "zjlAbNDnUJSqEjhuQYcU8bgicoO5CJCYNlVpry7va6DN3vGe5WrGTMgz2a7tHT0lVWBXaOf5AK7lYMQVRrSmrNHGHrNAp8afA3caskjR5QoB6NOcT9uGGVG2cMAbmBeY3_qHYVqpFVpxBAtFHp1EXOXqrkcWFKGT-l4C24ATQ4YbfxlBC0MeJc78SVw8U_gFzXbahV0REHLh0er5PXZ8gXgSYPM74n5SXfm-0FM5AwckocIZOnLQVi0rxkwepoCY9Zr-XX8ZMA",
+          "ephemeralPublicKey": "BFSnT6b97E0VS4rnI7Ie4hUYxLPIo_qj9vgdFc75Z-ZQbiWgz9q22XKwpRB6xWwk3oEUH9N647TUDmze2onD0Iw",
+          "nonce": "eXoCnW6UL6lpM6Oc",
+          "version": 1
+        },
+        "type": "claim-approve"
+      },
+      "claimId": "claim-approve-1",
+      "claimKey": {
+        "privateKeyJwk": {
+          "crv": "P-256",
+          "d": "QBLlMPkybGCZrHQ3qdq0UlRHtrGcQ8d2KSXVOtVxDuo",
+          "ext": true,
+          "key_ops": [
+            "deriveBits"
+          ],
+          "kty": "EC",
+          "x": "VRRp-vl-IOUxQhyalTw8wCHUaW8NZDNLTgGymHwAC84",
+          "y": "kxvnWQl16Uweda4cnVaBSLKEpOaEMiSepPC3mcBw6kk"
+        },
+        "publicKey": "BFUUafr5fiDlMUIcmpU8PMAh1GlvDWQzS04Bsph8AAvOkxvnWQl16Uweda4cnVaBSLKEpOaEMiSepPC3mcBw6kk"
+      },
+      "name": "Phone A",
+      "opened": {
+        "pairingSecret": "ZQSFy6srC6a_lzw0elrjFkwpidY_biHYPxjNEMW7Ek4",
+        "serverPublicKey": "BMWeYjVVgN8QUwNqA7wPN8lXs2gZXumiCrIMxV6fmk0FF9Kzw1fsYIgSRW-qgPNlTI08kcDLMpnGtGwjxXkHTtE",
+        "version": 1
+      }
+    },
+    {
+      "answer": {
+        "claimId": "claim-deny-1",
+        "type": "claim-deny"
+      },
+      "claimId": "claim-deny-1",
+      "claimKey": {
+        "privateKeyJwk": {
+          "crv": "P-256",
+          "d": "TJ1CWwYtTP8kzVq-bPWmYwnNkPvgwNdKgi3aZfzOqYI",
+          "ext": true,
+          "key_ops": [
+            "deriveBits"
+          ],
+          "kty": "EC",
+          "x": "x7Dmvmqq63eVUX6VZ7M9Uz9PvmNt4lSsBMaFpAzuSwY",
+          "y": "mWikkxPlRZRH8bdarnE2aYtvo6EvvWnH8UW8o5xmfDU"
+        },
+        "publicKey": "BMew5r5qqut3lVF-lWezPVM_T75jbeJUrATGhaQM7ksGmWikkxPlRZRH8bdarnE2aYtvo6EvvWnH8UW8o5xmfDU"
+      },
+      "name": "DENIED",
+      "opened": null
+    }
+  ],
+  "control": {
+    "ice": {
+      "request": {
+        "requestId": "f5b410c2-b2bc-4694-9af2-ac161a920fc3",
+        "type": "ice-servers-request"
+      },
+      "result": [
+        {
+          "urls": [
+            "stun:stun.example.invalid:3478"
+          ]
+        },
+        {
+          "credential": "c",
+          "urls": [
+            "turn:turn.example.invalid:3478"
+          ],
+          "username": "u"
+        }
+      ]
+    },
+    "listClients": {
+      "request": {
+        "requestId": "10c9d722-1eb2-495c-8d61-96008125b83a",
+        "type": "list-clients"
+      },
+      "result": [
+        {
+          "browser": "Chrome",
+          "createdAt": 1,
+          "id": "cred-a",
+          "lastSeenAt": 2,
+          "name": "Phone A",
+          "online": true,
+          "platform": "Android"
+        }
+      ]
+    },
+    "mediaPlain": {
+      "head": {
+        "headers": {},
+        "id": "m2",
+        "status": 404,
+        "type": "media-head"
+      }
+    },
+    "mediaUnknownAsset": {
+      "end": {
+        "id": "m1",
+        "type": "media-end"
+      },
+      "head": {
+        "headers": {},
+        "id": "m1",
+        "status": 404,
+        "type": "media-head"
+      }
+    },
+    "pairCode": {
+      "afterIssue": {
+        "code": "123456",
+        "expiresAt": 1793897732663
+      },
+      "initial": null,
+      "request": {
+        "lease": "27d61b6f3c07726d71188435343ff81c",
+        "name": "FIXTURE-PC",
+        "type": "pair-code-request"
+      }
+    },
+    "pairCodeClear": {
+      "type": "pair-code-clear"
+    },
+    "revokeClient": {
+      "request": {
+        "clientId": "0123456789abcdef",
+        "requestId": "c6a86d7e-365f-4180-b5c9-a9e77816a8cf",
+        "type": "revoke-client"
+      }
+    }
+  },
+  "device": {
+    "deviceId": "86462272-aee8-4230-98f8-c733ff9b4f46",
+    "secretLength": 48
+  },
+  "identity": {
+    "pairingSecret": "ZQSFy6srC6a_lzw0elrjFkwpidY_biHYPxjNEMW7Ek4",
+    "privateKeyJwk": {
+      "crv": "P-256",
+      "d": "57OcwA_WJByLQJo_9kGoiFgt_gTMbpbDVitGEIKJ7Cw",
+      "ext": true,
+      "key_ops": [
+        "deriveBits"
+      ],
+      "kty": "EC",
+      "x": "xZ5iNVWA3xBTA2oDvA83yVezaBle6aIKsgzFXp-aTQU",
+      "y": "F9Kzw1fsYIgSRW-qgPNlTI08kcDLMpnGtGwjxXkHTtE"
+    },
+    "publicKeyJwk": {
+      "crv": "P-256",
+      "ext": true,
+      "key_ops": [],
+      "kty": "EC",
+      "x": "xZ5iNVWA3xBTA2oDvA83yVezaBle6aIKsgzFXp-aTQU",
+      "y": "F9Kzw1fsYIgSRW-qgPNlTI08kcDLMpnGtGwjxXkHTtE"
+    },
+    "serverPublicKey": "BMWeYjVVgN8QUwNqA7wPN8lXs2gZXumiCrIMxV6fmk0FF9Kzw1fsYIgSRW-qgPNlTI08kcDLMpnGtGwjxXkHTtE",
+    "version": 1
+  },
+  "note": "Throwaway key material from a temp userData; replayed as known-answer vectors by mixdog-remote.",
+  "recorder": "record-remote-e2ee-session.mjs",
+  "sessions": [
+    {
+      "binary": true,
+      "browserClientId": "7c22c2e264924c3bb4ee704e6d40eadd",
+      "challenge": {
+        "binaryFrames": 1,
+        "browserDrive": 1,
+        "browserFit": 1,
+        "browserParity": 1,
+        "browserSessionTabs": 1,
+        "browserWebrtc": 1,
+        "challenge": "pvY1SYNlQvzgSNM0sYCFqQSF32TkcGpiRB76u4LAKP4",
+        "compactWire": 1,
+        "deflate": 1,
+        "fileDownloads": 1,
+        "hostDirectories": 1,
+        "listDelta": 1,
+        "mediaE2ee": 1,
+        "nativePush": 1,
+        "projectRecovery": 1,
+        "remoteParity": 1,
+        "routeAutoEffort": 1,
+        "secretInput": 1,
+        "termSizeOwner": 1,
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "type": "e2ee-challenge",
+        "usageRequests": 1,
+        "version": 1,
+        "visualize": 1
+      },
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "clientKey": {
+        "privateKeyJwk": {
+          "crv": "P-256",
+          "d": "xgjHlfow53xEe9teZ8DJSULiwZHbLqA3w1Se5CdwBQo",
+          "ext": true,
+          "key_ops": [
+            "deriveBits"
+          ],
+          "kty": "EC",
+          "x": "L3eBRGsV35HU0R_ek19ix3S-SXtEcm0rik-Zdtwi1oE",
+          "y": "fQr8ZwvDEOMFvejGnHjh70g8k3u7C5maQJ-mVCK6b_0"
+        },
+        "publicKey": "BC93gURrFd-R1NEf3pNfYsd0vkl7RHJtK4pPmXbcItaBfQr8ZwvDEOMFvejGnHjh70g8k3u7C5maQJ-mVCK6b_0"
+      },
+      "frames": [
+        {
+          "carrier": "binary",
+          "dir": "pc->phone",
+          "droppable": false,
+          "plaintext": {
+            "hostName": "FIXTURE-PC",
+            "maxFrameBytes": 67108864,
+            "maxRoutedBytes": 8388608,
+            "remoteOpenAccess": 1,
+            "textFrames": 1,
+            "type": "e2ee-ready",
+            "uplinkBinaryCeilingBytes": 8388566,
+            "uplinkCapacityBytes": 8388608,
+            "uplinkTextCeilingBytes": 8388566,
+            "version": 1
+          },
+          "wire": "TVhFAQAAAAAAAAABPKjIDpJUGPs9Ofz7FBYA7UKGQJkXnxtGY52hv97aTSiXfnCPLq/Tf2Yw6YChdfyRNE3GUrTqDyWdxZVoMt9zdpurlELuuAn3MCxdNFWYfrxrUA4bP6houkPTKFktzfzgbUVTxAekXqNw6nT3Itw82BG11JOYX9VSiytJ1WT4+dLKZWKAFyZAEWR51qGpwZ6nlIE8fMoV/TyVLq4WfrEOnlKeDCQGOxF/BNhQTHtzAtkx3GCdSOwoacPCte4kZO8pzjrDql1YJ9auPuWavguR9KULreTZ6CqUTic9/IQxu08ft62P126aaT5R8Ju8I/dpdGzGoXGkGmF4PdYl227ccM9Y8CWG9Vwz7DQ/4zI="
+        },
+        {
+          "carrier": "binary",
+          "dir": "phone->pc",
+          "plaintext": {
+            "args": [],
+            "id": 1,
+            "method": "recorder-ping"
+          },
+          "wire": "TVhFAQAAAAAAAAABVbX/YoMVQNtjgkEXLHGBCD6eYa6uRgEK4V59O5mNBsJYEshcEwRHZnaIvXMlRlxFSFNbdFvSrA8Ptv7mumPI7tWAQ07CkCw="
+        },
+        {
+          "carrier": "binary",
+          "dir": "pc->phone",
+          "droppable": false,
+          "plaintext": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          },
+          "wire": "TVhFAQAAAAAAAAACTPavmqtKZNSQV22MlMa2WgoGYUHfjSQVG1POc+T20R3lulSY6eMEOPcVgNXj+IuMPb8CGyHPes52p/3aZ+jG4U2Xbzbj9DR4dPD5Gg=="
+        },
+        {
+          "carrier": "binary",
+          "dir": "pc->phone",
+          "droppable": false,
+          "plaintext": {
+            "error": "unknown method: recorder-ping",
+            "id": 1,
+            "ok": false
+          },
+          "wire": "TVhFAQAAAAAAAAADquP/odIcH7rL8lO6JvbOAjJQiNArYGeqScsEDe8dsnHcaV9pSrB6GeYJ1rnaLCG0ABYhTDP9E1QevnCu8+Mk/75sGFe1oNv3H5oNJBfCr9zN++k0ICE9"
+        }
+      ],
+      "hello": {
+        "binaryFrames": 1,
+        "challenge": "pvY1SYNlQvzgSNM0sYCFqQSF32TkcGpiRB76u4LAKP4",
+        "clientPublicKey": "BC93gURrFd-R1NEf3pNfYsd0vkl7RHJtK4pPmXbcItaBfQr8ZwvDEOMFvejGnHjh70g8k3u7C5maQJ-mVCK6b_0",
+        "compactWire": 1,
+        "deflate": 1,
+        "listDelta": 1,
+        "proof": "xUB5aYEK3TJXXgg4fEJdzjHtNKWZ7sjO9UXzanto_94",
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "type": "e2ee-hello",
+        "version": 1
+      },
+      "name": "binary",
+      "ready": {
+        "hostName": "FIXTURE-PC",
+        "maxFrameBytes": 67108864,
+        "maxRoutedBytes": 8388608,
+        "remoteOpenAccess": 1,
+        "textFrames": 1,
+        "type": "e2ee-ready",
+        "uplinkBinaryCeilingBytes": 8388566,
+        "uplinkCapacityBytes": 8388608,
+        "uplinkTextCeilingBytes": 8388566,
+        "version": 1
+      }
+    },
+    {
+      "binary": false,
+      "browserClientId": "0c95f89a0ed9427bb51ec68a1a2232b0",
+      "challenge": {
+        "browserDrive": 1,
+        "browserFit": 1,
+        "browserParity": 1,
+        "browserSessionTabs": 1,
+        "browserWebrtc": 1,
+        "challenge": "DvmLssVYnrn5qCxEwEO0ucVGCULbuHg_gcIht4wDIDA",
+        "compactWire": 1,
+        "deflate": 1,
+        "fileDownloads": 1,
+        "hostDirectories": 1,
+        "listDelta": 1,
+        "mediaE2ee": 1,
+        "projectRecovery": 1,
+        "remoteParity": 1,
+        "routeAutoEffort": 1,
+        "secretInput": 1,
+        "termSizeOwner": 1,
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "type": "e2ee-challenge",
+        "usageRequests": 1,
+        "version": 1,
+        "visualize": 1
+      },
+      "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+      "clientKey": {
+        "privateKeyJwk": {
+          "crv": "P-256",
+          "d": "FhRbEWaXw4AMV3upvOdHPPpdRptFZq10WRy_Y75xzsM",
+          "ext": true,
+          "key_ops": [
+            "deriveBits"
+          ],
+          "kty": "EC",
+          "x": "BF2JTFTWEIJ7P9JkyZTZ0BpLra_bEPd4f_jmGt5XKCg",
+          "y": "mgOS8DG2gzD5ubnBJFg9Hjq7Z-GsbjlYKpAxkDtQKmM"
+        },
+        "publicKey": "BARdiUxU1hCCez_SZMmU2dAaS62v2xD3eH_45hreVygomgOS8DG2gzD5ubnBJFg9Hjq7Z-GsbjlYKpAxkDtQKmM"
+      },
+      "frames": [
+        {
+          "carrier": "text",
+          "dir": "pc->phone",
+          "droppable": false,
+          "plaintext": {
+            "hostName": "FIXTURE-PC",
+            "maxFrameBytes": 67108864,
+            "maxRoutedBytes": 8388608,
+            "remoteOpenAccess": 1,
+            "textFrames": 1,
+            "type": "e2ee-ready",
+            "uplinkBinaryCeilingBytes": 1000,
+            "uplinkCapacityBytes": 8388608,
+            "uplinkTextCeilingBytes": 1000,
+            "version": 1
+          },
+          "wire": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":1,\"nonce\":\"Vbi8m9q7WmkIFHHN\",\"ciphertext\":\"yygrJXtzMRjIGANOomrxRpmtg5mt1CZ37CwU00bj8Ea2rBnw95mPiXEzRVq9m85WeRB1kF4rmDNeB8maXdfwY8uWvOpV9ThGP4DYP3t3CQNSvkmEIvyeD6sjXQGHxzxEqAu6dFVFAzy-49mOj-S92CXHA_ZUDb2ylaFCCSKenHFFQI46bzl3wyBQvTgaBaq1aQBnYysc34XNClO6uZkNamW7cyl-FWIAwyEwSOlOOKrmVhZQum6HBeDZMaKY8DDxzTEj30Sg35lXnU6Q_ACH0ugmwLS6WmYOxkIq8KP8SjRXS5YsYMwmAV3_c7FXZzmsXgMR_xLIMU3cXE8\"}"
+        },
+        {
+          "carrier": "text",
+          "dir": "phone->pc",
+          "plaintext": {
+            "args": [],
+            "id": 1,
+            "method": "recorder-ping"
+          },
+          "wire": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":1,\"nonce\":\"JYBrH8sX53xP8PTZ\",\"ciphertext\":\"zVG3YDwsXiws2dNWmxqepvy8QuGkyop1jUFTdxV_eI8KMTiZK1-hVNJR3GXdKeDv-lNgVARGiHYIfZ0\"}"
+        },
+        {
+          "carrier": "text",
+          "dir": "pc->phone",
+          "droppable": false,
+          "plaintext": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          },
+          "wire": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":2,\"nonce\":\"Rm5be42P5zTfCTFU\",\"ciphertext\":\"umn3SZ4blvked6TksLC9Q2WOe4UUdH6pjzh2dxH-dEeT-zX7zVHhSvUCHDUd-hjPWXzKME-OCLPmVD3SxvD_SA\"}"
+        },
+        {
+          "carrier": "text",
+          "dir": "pc->phone",
+          "droppable": false,
+          "plaintext": {
+            "error": "unknown method: recorder-ping",
+            "id": 1,
+            "ok": false
+          },
+          "wire": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":3,\"nonce\":\"CHibgAM0f520p3H5\",\"ciphertext\":\"bed_7us6In-cR0RVTmI0AnjbIBTqqCbSGNuBefC7LTdW2GH0cJ0kRBdsui_ZP1cfMnfiBfAU71v9BSOvUd_4hlemT7xsMsPeRnOe\"}"
+        }
+      ],
+      "hello": {
+        "challenge": "DvmLssVYnrn5qCxEwEO0ucVGCULbuHg_gcIht4wDIDA",
+        "clientPublicKey": "BARdiUxU1hCCez_SZMmU2dAaS62v2xD3eH_45hreVygomgOS8DG2gzD5ubnBJFg9Hjq7Z-GsbjlYKpAxkDtQKmM",
+        "compactWire": 1,
+        "deflate": 1,
+        "listDelta": 1,
+        "proof": "DXX1Aa3qhUCucX0Kuq-ZB297LoEb2vTxnjGF6_EDg4w",
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "type": "e2ee-hello",
+        "version": 1
+      },
+      "name": "text",
+      "ready": {
+        "hostName": "FIXTURE-PC",
+        "maxFrameBytes": 67108864,
+        "maxRoutedBytes": 8388608,
+        "remoteOpenAccess": 1,
+        "textFrames": 1,
+        "type": "e2ee-ready",
+        "uplinkBinaryCeilingBytes": 1000,
+        "uplinkCapacityBytes": 8388608,
+        "uplinkTextCeilingBytes": 1000,
+        "version": 1
+      }
+    },
+    {
+      "challenge": {
+        "binaryFrames": 1,
+        "browserDrive": 1,
+        "browserFit": 1,
+        "browserParity": 1,
+        "browserSessionTabs": 1,
+        "browserWebrtc": 1,
+        "challenge": "Zu554aIYDt4Y6YG-0DmMoBs-Ro4lXvF4BtYLut-WVxg",
+        "compactWire": 1,
+        "deflate": 1,
+        "fileDownloads": 1,
+        "hostDirectories": 1,
+        "listDelta": 1,
+        "mediaE2ee": 1,
+        "projectRecovery": 1,
+        "remoteParity": 1,
+        "routeAutoEffort": 1,
+        "secretInput": 1,
+        "termSizeOwner": 1,
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "type": "e2ee-challenge",
+        "usageRequests": 1,
+        "version": 1,
+        "visualize": 1
+      },
+      "clientId": "0a7fc21c-b638-41e5-81ce-43bcf6b83539",
+      "closed": {
+        "clientId": "0a7fc21c-b638-41e5-81ce-43bcf6b83539",
+        "reason": "relay encryption authentication failed",
+        "type": "close-client"
+      },
+      "hello": {
+        "binaryFrames": 1,
+        "challenge": "Zu554aIYDt4Y6YG-0DmMoBs-Ro4lXvF4BtYLut-WVxg",
+        "clientPublicKey": "BEk_sD15uaAx92zR0wevASRLZFJgfrM_1nd-1G9MMlttY089HBR3wHx_uUOlk_RZJJY5XpDSxvWCdIjz0ataydI",
+        "compactWire": 1,
+        "deflate": 1,
+        "listDelta": 1,
+        "proof": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "type": "e2ee-hello",
+        "version": 1
+      },
+      "name": "bad-proof"
+    }
+  ],
+  "transcript": [
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "e2ee": 1,
+        "maxPayloadBytes": 71303168,
+        "media": true,
+        "pairV2": 1,
+        "textFrames": 1,
+        "type": "desktop-lanes"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "name": "FIXTURE-PC",
+        "type": "desktop-name"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "appVersion": "0.0.0-fixture",
+        "type": "desktop-version"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "token": "be3b38583f116096f8ebc451ba76a1a6507274c73a5cbe3d",
+        "type": "set-client-token"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "binaryFrames": 1,
+        "ice": 1,
+        "maxFrameBytes": 67108864,
+        "nativePush": 1,
+        "nativePushPlatforms": [
+          "fcm"
+        ],
+        "textFrames": 1,
+        "type": "relay-capabilities",
+        "uplinkBinaryCeilingBytes": 8388566,
+        "uplinkCapacityBytes": 8388608,
+        "uplinkTextCeilingBytes": 8388566,
+        "webPush": 1
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "binaryFrames": 1,
+        "ice": 1,
+        "maxFrameBytes": 67108864,
+        "nativePush": 1,
+        "nativePushPlatforms": [
+          "fcm"
+        ],
+        "textFrames": 1,
+        "type": "relay-capabilities",
+        "uplinkBinaryCeilingBytes": 8388566,
+        "uplinkCapacityBytes": 8388608,
+        "uplinkTextCeilingBytes": 8388566,
+        "webPush": 1
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "browserClientId": "7c22c2e264924c3bb4ee704e6d40eadd",
+        "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+        "type": "client-open"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+        "data": "{\"type\":\"e2ee-challenge\",\"version\":1,\"challenge\":\"pvY1SYNlQvzgSNM0sYCFqQSF32TkcGpiRB76u4LAKP4\",\"binaryFrames\":1,\"listDelta\":1,\"deflate\":1,\"compactWire\":1,\"transcriptPaging\":1,\"transcriptPrepend\":1,\"remoteParity\":1,\"browserParity\":1,\"browserDrive\":1,\"browserSessionTabs\":1,\"termSizeOwner\":1,\"hostDirectories\":1,\"usageRequests\":1,\"projectRecovery\":1,\"mediaE2ee\":1,\"routeAutoEffort\":1,\"visualize\":1,\"fileDownloads\":1,\"secretInput\":1,\"browserWebrtc\":1,\"browserFit\":1,\"nativePush\":1}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+        "data": "{\"type\":\"e2ee-hello\",\"version\":1,\"challenge\":\"pvY1SYNlQvzgSNM0sYCFqQSF32TkcGpiRB76u4LAKP4\",\"clientPublicKey\":\"BC93gURrFd-R1NEf3pNfYsd0vkl7RHJtK4pPmXbcItaBfQr8ZwvDEOMFvejGnHjh70g8k3u7C5maQJ-mVCK6b_0\",\"proof\":\"xUB5aYEK3TJXXgg4fEJdzjHtNKWZ7sjO9UXzanto_94\",\"binaryFrames\":1,\"listDelta\":1,\"deflate\":1,\"compactWire\":1,\"transcriptPaging\":1,\"transcriptPrepend\":1}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "binary",
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "data": "TVhFAQAAAAAAAAABPKjIDpJUGPs9Ofz7FBYA7UKGQJkXnxtGY52hv97aTSiXfnCPLq/Tf2Yw6YChdfyRNE3GUrTqDyWdxZVoMt9zdpurlELuuAn3MCxdNFWYfrxrUA4bP6houkPTKFktzfzgbUVTxAekXqNw6nT3Itw82BG11JOYX9VSiytJ1WT4+dLKZWKAFyZAEWR51qGpwZ6nlIE8fMoV/TyVLq4WfrEOnlKeDCQGOxF/BNhQTHtzAtkx3GCdSOwoacPCte4kZO8pzjrDql1YJ9auPuWavguR9KULreTZ6CqUTic9/IQxu08ft62P126aaT5R8Ju8I/dpdGzGoXGkGmF4PdYl227ccM9Y8CWG9Vwz7DQ/4zI=",
+      "dir": "pc->relay",
+      "droppable": false,
+      "text": false
+    },
+    {
+      "carrier": "binary",
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "data": "TVhFAQAAAAAAAAACTPavmqtKZNSQV22MlMa2WgoGYUHfjSQVG1POc+T20R3lulSY6eMEOPcVgNXj+IuMPb8CGyHPes52p/3aZ+jG4U2Xbzbj9DR4dPD5Gg==",
+      "dir": "pc->relay",
+      "droppable": false,
+      "text": false
+    },
+    {
+      "carrier": "binary",
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "data": "TVhFAQAAAAAAAAABVbX/YoMVQNtjgkEXLHGBCD6eYa6uRgEK4V59O5mNBsJYEshcEwRHZnaIvXMlRlxFSFNbdFvSrA8Ptv7mumPI7tWAQ07CkCw=",
+      "dir": "relay->pc",
+      "text": false
+    },
+    {
+      "carrier": "binary",
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "data": "TVhFAQAAAAAAAAADquP/odIcH7rL8lO6JvbOAjJQiNArYGeqScsEDe8dsnHcaV9pSrB6GeYJ1rnaLCG0ABYhTDP9E1QevnCu8+Mk/75sGFe1oNv3H5oNJBfCr9zN++k0ICE9",
+      "dir": "pc->relay",
+      "droppable": false,
+      "text": false
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "maxFrameBytes": 67108864,
+        "textFrames": 1,
+        "type": "relay-capabilities",
+        "uplinkBinaryCeilingBytes": 1000,
+        "uplinkCapacityBytes": 8388608,
+        "uplinkTextCeilingBytes": 1000
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+        "data": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":4,\"nonce\":\"J-_Yj5V38oIjkt5B\",\"ciphertext\":\"bQi787o3G_RyAjZW7GPw-Gu9zwuw7p7F0Xly5qBQiPqC4Z5tf7uDDr95jYjVw03sxHVlOvCl0xoC7C-QIw_ni_MItXWWEMHJbnabwg3odTtNdHV-ucPPtnU5YJfMASoc1ITZyq-iAmzNJOJ8Fddj4x3hxDdcHnwPDj3SvJaGE94_yrXgPDSTUzArZtloBQE3dGnfkRNyYGVUrKDGYrpI_gjbMP7aNIkAZoAqbzCVbPAFOaynZq-bj2pu9Wcx66QiwFK64cRVK9tyAupjw21By9q4aILT\"}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "browserClientId": "0c95f89a0ed9427bb51ec68a1a2232b0",
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "type": "client-open"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-challenge\",\"version\":1,\"challenge\":\"DvmLssVYnrn5qCxEwEO0ucVGCULbuHg_gcIht4wDIDA\",\"listDelta\":1,\"deflate\":1,\"compactWire\":1,\"transcriptPaging\":1,\"transcriptPrepend\":1,\"remoteParity\":1,\"browserParity\":1,\"browserDrive\":1,\"browserSessionTabs\":1,\"termSizeOwner\":1,\"hostDirectories\":1,\"usageRequests\":1,\"projectRecovery\":1,\"mediaE2ee\":1,\"routeAutoEffort\":1,\"visualize\":1,\"fileDownloads\":1,\"secretInput\":1,\"browserWebrtc\":1,\"browserFit\":1}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-hello\",\"version\":1,\"challenge\":\"DvmLssVYnrn5qCxEwEO0ucVGCULbuHg_gcIht4wDIDA\",\"clientPublicKey\":\"BARdiUxU1hCCez_SZMmU2dAaS62v2xD3eH_45hreVygomgOS8DG2gzD5ubnBJFg9Hjq7Z-GsbjlYKpAxkDtQKmM\",\"proof\":\"DXX1Aa3qhUCucX0Kuq-ZB297LoEb2vTxnjGF6_EDg4w\",\"listDelta\":1,\"deflate\":1,\"compactWire\":1,\"transcriptPaging\":1,\"transcriptPrepend\":1}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":1,\"nonce\":\"Vbi8m9q7WmkIFHHN\",\"ciphertext\":\"yygrJXtzMRjIGANOomrxRpmtg5mt1CZ37CwU00bj8Ea2rBnw95mPiXEzRVq9m85WeRB1kF4rmDNeB8maXdfwY8uWvOpV9ThGP4DYP3t3CQNSvkmEIvyeD6sjXQGHxzxEqAu6dFVFAzy-49mOj-S92CXHA_ZUDb2ylaFCCSKenHFFQI46bzl3wyBQvTgaBaq1aQBnYysc34XNClO6uZkNamW7cyl-FWIAwyEwSOlOOKrmVhZQum6HBeDZMaKY8DDxzTEj30Sg35lXnU6Q_ACH0ugmwLS6WmYOxkIq8KP8SjRXS5YsYMwmAV3_c7FXZzmsXgMR_xLIMU3cXE8\"}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":2,\"nonce\":\"Rm5be42P5zTfCTFU\",\"ciphertext\":\"umn3SZ4blvked6TksLC9Q2WOe4UUdH6pjzh2dxH-dEeT-zX7zVHhSvUCHDUd-hjPWXzKME-OCLPmVD3SxvD_SA\"}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":1,\"nonce\":\"JYBrH8sX53xP8PTZ\",\"ciphertext\":\"zVG3YDwsXiws2dNWmxqepvy8QuGkyop1jUFTdxV_eI8KMTiZK1-hVNJR3GXdKeDv-lNgVARGiHYIfZ0\"}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":3,\"nonce\":\"CHibgAM0f520p3H5\",\"ciphertext\":\"bed_7us6In-cR0RVTmI0AnjbIBTqqCbSGNuBefC7LTdW2GH0cJ0kRBdsui_ZP1cfMnfiBfAU71v9BSOvUd_4hlemT7xsMsPeRnOe\"}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "binaryFrames": 1,
+        "ice": 1,
+        "maxFrameBytes": 67108864,
+        "textFrames": 1,
+        "type": "relay-capabilities",
+        "uplinkBinaryCeilingBytes": 8388566,
+        "uplinkCapacityBytes": 8388608,
+        "uplinkTextCeilingBytes": 8388566,
+        "webPush": 1
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "browserClientId": "cb15eeb4c10543f4934771235cf98b7f",
+        "clientId": "0a7fc21c-b638-41e5-81ce-43bcf6b83539",
+        "type": "client-open"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "0a7fc21c-b638-41e5-81ce-43bcf6b83539",
+        "data": "{\"type\":\"e2ee-challenge\",\"version\":1,\"challenge\":\"Zu554aIYDt4Y6YG-0DmMoBs-Ro4lXvF4BtYLut-WVxg\",\"binaryFrames\":1,\"listDelta\":1,\"deflate\":1,\"compactWire\":1,\"transcriptPaging\":1,\"transcriptPrepend\":1,\"remoteParity\":1,\"browserParity\":1,\"browserDrive\":1,\"browserSessionTabs\":1,\"termSizeOwner\":1,\"hostDirectories\":1,\"usageRequests\":1,\"projectRecovery\":1,\"mediaE2ee\":1,\"routeAutoEffort\":1,\"visualize\":1,\"fileDownloads\":1,\"secretInput\":1,\"browserWebrtc\":1,\"browserFit\":1}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "binary",
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "data": "TVhFAQAAAAAAAAAFQY4F+KZBxtHSUfJ+O/LeIVbhkC1MkOWf0f66BpL79eD7ZHMmJhfrvtVYhjXS2W3zTFqrsXJDBPVtPVwP2JPXd8mCQbcm9AWCAKXIJJWr4O3aw0MYh7w/6ilQbTxXKJVrQckP2WI5VQ8H5oOT0McYXMeKR+YJr9wV14gQUkNmwjLsqBAfAX8FM4oM83f7Rx1SKxNJDfH6Nk1Pg+v9r/LlJ9eR5NKZM9loorqthWA2ItpPnLteb7F/npsRX3TgKU839ddVOkCMhqVLHf2oELnrY3Gwqm1zlawL9k7Fp/IAzJUwNCvhRBIm",
+      "dir": "pc->relay",
+      "droppable": false,
+      "text": false
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "e4e38712-4dc8-4a46-98d9-207dce4d5968",
+        "data": "{\"type\":\"e2ee-box\",\"version\":1,\"sequence\":4,\"nonce\":\"cgD2IMYUp3zGCEjc\",\"ciphertext\":\"M3RDyLSykUajWEDeks6Z7ADkZbEkd-ynV_LqfO5CGVUf_2WSrvEMB0p9dLRJdn-UCxhE6tWAgE5ycVhc-nm0VEHe9c3uOqnghKAZqNVIKKN2qDM4E4vWFTCEYi0wPeGPYmdsHmBgku_5huWCgfkkC49S2q05DQ5USIzVNBPrTs3oLyTwXSh09lWoiL3DbGxfW6tzJpfRJJAkx6R8k5crlzHpiPYz0ziUVr8GXEggM5rq6xjiTS2yplTszd03ZGp3UFRvpicx4TSLvEAQldkDafAlGbfun5r8Tpa7\"}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "clientId": "0a7fc21c-b638-41e5-81ce-43bcf6b83539",
+        "data": "{\"type\":\"e2ee-hello\",\"version\":1,\"challenge\":\"Zu554aIYDt4Y6YG-0DmMoBs-Ro4lXvF4BtYLut-WVxg\",\"clientPublicKey\":\"BEk_sD15uaAx92zR0wevASRLZFJgfrM_1nd-1G9MMlttY089HBR3wHx_uUOlk_RZJJY5XpDSxvWCdIjz0ataydI\",\"proof\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"binaryFrames\":1,\"listDelta\":1,\"deflate\":1,\"compactWire\":1,\"transcriptPaging\":1,\"transcriptPrepend\":1}",
+        "type": "frame"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "0a7fc21c-b638-41e5-81ce-43bcf6b83539",
+        "reason": "relay encryption authentication failed",
+        "type": "close-client"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "browser": "Chrome",
+        "claimId": "claim-approve-1",
+        "clientId": "c-claim-approve-1",
+        "expiresAt": 1793897552635,
+        "method": "code",
+        "name": "Phone A",
+        "platform": "Android",
+        "publicKey": "BFUUafr5fiDlMUIcmpU8PMAh1GlvDWQzS04Bsph8AAvOkxvnWQl16Uweda4cnVaBSLKEpOaEMiSepPC3mcBw6kk",
+        "type": "client-claim"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "claimId": "claim-approve-1",
+        "sealed": {
+          "ciphertext": "zjlAbNDnUJSqEjhuQYcU8bgicoO5CJCYNlVpry7va6DN3vGe5WrGTMgz2a7tHT0lVWBXaOf5AK7lYMQVRrSmrNHGHrNAp8afA3caskjR5QoB6NOcT9uGGVG2cMAbmBeY3_qHYVqpFVpxBAtFHp1EXOXqrkcWFKGT-l4C24ATQ4YbfxlBC0MeJc78SVw8U_gFzXbahV0REHLh0er5PXZ8gXgSYPM74n5SXfm-0FM5AwckocIZOnLQVi0rxkwepoCY9Zr-XX8ZMA",
+          "ephemeralPublicKey": "BFSnT6b97E0VS4rnI7Ie4hUYxLPIo_qj9vgdFc75Z-ZQbiWgz9q22XKwpRB6xWwk3oEUH9N647TUDmze2onD0Iw",
+          "nonce": "eXoCnW6UL6lpM6Oc",
+          "version": 1
+        },
+        "type": "claim-approve"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "browser": "Chrome",
+        "claimId": "claim-deny-1",
+        "clientId": "c-claim-deny-1",
+        "expiresAt": 1793897552651,
+        "method": "code",
+        "name": "DENIED",
+        "platform": "Android",
+        "publicKey": "BMew5r5qqut3lVF-lWezPVM_T75jbeJUrATGhaQM7ksGmWikkxPlRZRH8bdarnE2aYtvo6EvvWnH8UW8o5xmfDU",
+        "type": "client-claim"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "claimId": "claim-deny-1",
+        "type": "claim-deny"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "subscriptions": [
+          {
+            "clientId": "cred-web-1",
+            "endpoint": "https://push.example.invalid/send/fixture-endpoint",
+            "sealed": {
+              "ciphertext": "Z3ih2Xt_K_pB_g6gnTFnSSUeLAK-mLc9r_jEz3soxGN0OoFmFMgZrnKptZBW8g4u96NC5u4yGU-FVgQMK8AHjO0X4r2RWIrmwKHwS30iukatKZ0LJHSDOK-C-_ry7Zz-MCLcqT_0rTIGfvml3obgf6dZfVsiVhy_hTMBj4PVBFP7rz8QJ_UG5id59DSkCOf4mdVLfw",
+              "ephemeralPublicKey": "BM2Y2fB10enDT1LvfgRjIZbEuxeNPBd0rgjhHRx2cCdgzg4rwjjP_aofbdCbUbhgET0W9I6iQO9vzXte6s7Y_j4",
+              "nonce": "tMqM8T7tcgTTynGo",
+              "version": 1
+            }
+          }
+        ],
+        "type": "webpush-subscriptions"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "type": "webpush-ready",
+        "version": 1
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "requestId": "10c9d722-1eb2-495c-8d61-96008125b83a",
+        "type": "list-clients"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "clients": [
+          {
+            "browser": "Chrome",
+            "createdAt": 1,
+            "id": "cred-a",
+            "lastSeenAt": 2,
+            "name": "Phone A",
+            "online": true,
+            "platform": "Android"
+          }
+        ],
+        "requestId": "10c9d722-1eb2-495c-8d61-96008125b83a",
+        "type": "clients-list"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "clientId": "0123456789abcdef",
+        "requestId": "c6a86d7e-365f-4180-b5c9-a9e77816a8cf",
+        "type": "revoke-client"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "ok": true,
+        "requestId": "c6a86d7e-365f-4180-b5c9-a9e77816a8cf",
+        "type": "client-revoked"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "lease": "27d61b6f3c07726d71188435343ff81c",
+        "name": "FIXTURE-PC",
+        "type": "pair-code-request"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "code": "123456",
+        "expiresInMs": 300000,
+        "lease": "27d61b6f3c07726d71188435343ff81c",
+        "ok": true,
+        "type": "pair-code-issued"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "type": "pair-code-clear"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "requestId": "f5b410c2-b2bc-4694-9af2-ac161a920fc3",
+        "type": "ice-servers-request"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "ok": true,
+        "remainingMs": 3600000,
+        "requestId": "f5b410c2-b2bc-4694-9af2-ac161a920fc3",
+        "servers": [
+          {
+            "urls": [
+              "stun:stun.example.invalid:3478"
+            ]
+          },
+          {
+            "credential": "c",
+            "urls": [
+              "turn:turn.example.invalid:3478"
+            ],
+            "username": "u"
+          }
+        ],
+        "ttlSeconds": 3600,
+        "type": "ice-servers"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "assetId": "no-such-asset-0001",
+        "enc": "e2ee1",
+        "id": "m1",
+        "method": "GET",
+        "range": "",
+        "sid": "pvY1SYNlQvzgSNM0sYCFqQSF32TkcGpiRB76u4LAKP4",
+        "type": "media-request",
+        "variant": "original"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "headers": {},
+        "id": "m1",
+        "status": 404,
+        "type": "media-head"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "id": "m1",
+        "type": "media-end"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "assetId": "no-such-asset-0001",
+        "enc": "",
+        "id": "m2",
+        "method": "GET",
+        "range": "",
+        "sid": "pvY1SYNlQvzgSNM0sYCFqQSF32TkcGpiRB76u4LAKP4",
+        "type": "media-request",
+        "variant": "original"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "headers": {},
+        "id": "m2",
+        "status": 404,
+        "type": "media-head"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "pc->relay",
+      "envelope": {
+        "id": "m2",
+        "type": "media-end"
+      }
+    },
+    {
+      "carrier": "text",
+      "dir": "relay->pc",
+      "envelope": {
+        "bytes": 99999999,
+        "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+        "limit": 1000,
+        "type": "frame-too-large"
+      }
+    },
+    {
+      "carrier": "binary",
+      "clientId": "15188c7f-0fa7-4fa9-b14e-919444bb266b",
+      "data": "TVhFAQAAAAAAAAAGUkEXC+1B1ApZXEAhZmQZDZaWB7bR/6ZbJVp59QZwxPXLidXIl43IDEQgv3psF3rpLuzvdQloUDvNpD4B5iqCmuH38DwbYM0QQnmtvctVCAawBvBDNU8vPFVuE+dcpPBPx0673EBZ",
+      "dir": "pc->relay",
+      "droppable": false,
+      "text": false
+    }
+  ],
+  "webPush": {
+    "endpoint": "https://push.example.invalid/send/fixture-endpoint",
+    "keys": {
+      "auth": "MDEyMzQ1Njc4OWFiY2RlZg",
+      "p256dh": "BPJ8Yd03Kw7eyR6Er0kNSY-dF6teUljmwxM8F4_ibl7dpgK3cDxVZXSls8-n2tMorieKQ94VCeTCxnS8vFnhPgk"
+    },
+    "ready": {
+      "type": "webpush-ready",
+      "version": 1
+    },
+    "registrations": [
+      "cred-web-1"
+    ],
+    "sealed": {
+      "ciphertext": "Z3ih2Xt_K_pB_g6gnTFnSSUeLAK-mLc9r_jEz3soxGN0OoFmFMgZrnKptZBW8g4u96NC5u4yGU-FVgQMK8AHjO0X4r2RWIrmwKHwS30iukatKZ0LJHSDOK-C-_ry7Zz-MCLcqT_0rTIGfvml3obgf6dZfVsiVhy_hTMBj4PVBFP7rz8QJ_UG5id59DSkCOf4mdVLfw",
+      "ephemeralPublicKey": "BM2Y2fB10enDT1LvfgRjIZbEuxeNPBd0rgjhHRx2cCdgzg4rwjjP_aofbdCbUbhgET0W9I6iQO9vzXte6s7Y_j4",
+      "nonce": "tMqM8T7tcgTTynGo",
+      "version": 1
+    }
+  }
+}

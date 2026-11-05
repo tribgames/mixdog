@@ -1,0 +1,175 @@
+{
+  "domain": "transfer",
+  "entries": [
+    {
+      "args": [
+        {
+          "purpose": "save",
+          "source": {
+            "kind": "project",
+            "relPath": "report.bin",
+            "sessionId": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"
+          }
+        }
+      ],
+      "op": "requiredFileDownloadRequest",
+      "result": {
+        "purpose": "save",
+        "source": {
+          "kind": "project",
+          "relPath": "report.bin",
+          "sessionId": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"
+        }
+      }
+    },
+    {
+      "args": [
+        {
+          "purpose": "save",
+          "source": {
+            "kind": "project",
+            "relPath": "/abs",
+            "sessionId": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"
+          }
+        }
+      ],
+      "error": {
+        "message": "relPath must be project-relative.",
+        "name": "TypeError"
+      },
+      "op": "requiredFileDownloadRequest"
+    },
+    {
+      "args": [
+        "project report.bin"
+      ],
+      "op": "authorize",
+      "result": {
+        "expiresAt": 0,
+        "grantId": "<grant>",
+        "mime": "application/octet-stream",
+        "name": "report.bin",
+        "size": 128,
+        "version": "VOOmU_LhJVZENa341a_TN2kgN3uMAGNM9XGcHWBUvKA"
+      }
+    },
+    {
+      "args": [
+        "../x"
+      ],
+      "error": {
+        "message": "The file is outside the conversation's project.",
+        "name": "FileDownloadError"
+      },
+      "op": "authorize(outside)"
+    },
+    {
+      "args": [
+        "<grant>"
+      ],
+      "op": "begin",
+      "result": {
+        "expiresAt": 0,
+        "mime": "application/octet-stream",
+        "name": "report.bin",
+        "rangeMaxBytes": 4194304,
+        "size": 128,
+        "transferId": "<transfer>",
+        "version": "VOOmU_LhJVZENa341a_TN2kgN3uMAGNM9XGcHWBUvKA"
+      }
+    },
+    {
+      "args": [
+        "<grant>"
+      ],
+      "error": {
+        "message": "This download is no longer available.",
+        "name": "FileDownloadError"
+      },
+      "op": "begin(replay grant)"
+    },
+    {
+      "args": [
+        0,
+        64
+      ],
+      "op": "readRange",
+      "result": {
+        "data": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg==",
+        "dataSha": 88,
+        "eof": false,
+        "length": 64,
+        "offset": 0,
+        "transferId": "<UUID>",
+        "version": "VOOmU_LhJVZENa341a_TN2kgN3uMAGNM9XGcHWBUvKA"
+      }
+    },
+    {
+      "args": [
+        0,
+        8
+      ],
+      "error": {
+        "message": "This download is no longer available.",
+        "name": "FileDownloadError"
+      },
+      "op": "readRange(other device)"
+    },
+    {
+      "args": [
+        1000,
+        8
+      ],
+      "error": {
+        "message": "offset is past the end of the file.",
+        "name": "TypeError"
+      },
+      "op": "readRange(past end)"
+    },
+    {
+      "args": [
+        0,
+        8
+      ],
+      "error": {
+        "message": "The file changed on the host.",
+        "name": "FileDownloadError"
+      },
+      "op": "readRange(bad version)"
+    },
+    {
+      "args": [
+        "<transfer>"
+      ],
+      "op": "finish",
+      "result": {
+        "size": 128,
+        "transferId": "<UUID>",
+        "version": "VOOmU_LhJVZENa341a_TN2kgN3uMAGNM9XGcHWBUvKA"
+      }
+    },
+    {
+      "args": [
+        "nope"
+      ],
+      "op": "abort(unknown)",
+      "result": false
+    },
+    {
+      "args": [],
+      "error": {
+        "message": "This download is no longer available.",
+        "name": "FileDownloadError"
+      },
+      "op": "begin(after expiry)"
+    },
+    {
+      "args": [
+        "device-a"
+      ],
+      "op": "revokeDevice",
+      "result": true
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

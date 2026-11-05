@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "unavailable",
+    "connectCode": "unavailable",
+    "cursorCode": null,
+    "liveTextEmitted": true,
+    "message": "Devin GetChatMessage unavailable: fixture down",
+    "name": "DevinWireError",
+    "providerRecoveryExhausted": null,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": true,
+    "status": 503,
+    "truncatedStream": null,
+    "unsafeToRetry": true
+  }
+}

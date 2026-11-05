@@ -1,0 +1,61 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#Object.resetIdle",
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#createRestStreamWatchdogs",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "gemini/text",
+      "seed": 3490670260,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"role\":\"system\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "395",
+        "content-type": "application/json",
+        "host": "generativelanguage.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-goog-api-key": "<redacted>"
+      },
+      "method": "POST",
+      "origin": "https://generativelanguage.googleapis.com",
+      "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

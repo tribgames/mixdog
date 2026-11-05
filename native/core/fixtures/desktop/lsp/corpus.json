@@ -1,0 +1,197 @@
+{
+  "domain": "lsp",
+  "entries": [
+    {
+      "args": [
+        "<WORK>\\project",
+        "<WORK>\\project",
+        {
+          "languageId": "plaintext",
+          "relPath": "a.xyz",
+          "text": "x",
+          "version": 1
+        }
+      ],
+      "op": "lspDocument",
+      "result": {
+        "available": false,
+        "server": "",
+        "status": "unsupported"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project",
+        "<WORK>\\project",
+        {
+          "languageId": "rust",
+          "relPath": "a.rs",
+          "text": "fn main(){}",
+          "version": 1
+        }
+      ],
+      "op": "lspDocument",
+      "result": {
+        "available": false,
+        "detail": "rust-analyzer did not finish initializing. error: Unknown binary 'rust-analyzer.exe' in official toolchain 'stable-x86_64-pc-windows-msvc'. Retrying after 1s.",
+        "server": "rust-analyzer",
+        "status": "error"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project",
+        "<WORK>\\project",
+        "a.xyz",
+        "plaintext",
+        "textDocument/hover",
+        {
+          "position": {
+            "character": 0,
+            "line": 0
+          }
+        }
+      ],
+      "op": "lspRequest",
+      "result": {
+        "available": false,
+        "server": "",
+        "status": "unsupported"
+      }
+    },
+    {
+      "args": [
+        "<WORK>\\project"
+      ],
+      "op": "lspDisposeUnder",
+      "result": []
+    },
+    {
+      "args": [
+        "a.tsx",
+        "typescriptreact"
+      ],
+      "op": "lspDocumentLanguageId",
+      "result": "typescriptreact"
+    },
+    {
+      "args": [
+        "Dockerfile",
+        "plaintext"
+      ],
+      "op": "lspDocumentLanguageId",
+      "result": "plaintext"
+    },
+    {
+      "args": [],
+      "op": "SERVER_BY_LANGUAGE",
+      "result": {
+        "c": {
+          "args": [
+            "--background-index"
+          ],
+          "command": "clangd",
+          "id": "clangd"
+        },
+        "cpp": {
+          "args": [
+            "--background-index"
+          ],
+          "command": "clangd",
+          "id": "clangd"
+        },
+        "go": {
+          "args": [],
+          "command": "gopls",
+          "id": "gopls"
+        },
+        "javascript": {
+          "args": [
+            "--stdio"
+          ],
+          "command": "typescript-language-server",
+          "id": "typescript-language-server"
+        },
+        "objective-c": {
+          "args": [
+            "--background-index"
+          ],
+          "command": "clangd",
+          "id": "clangd"
+        },
+        "python": {
+          "args": [
+            "--stdio"
+          ],
+          "command": "pyright-langserver",
+          "id": "pyright"
+        },
+        "ruby": {
+          "args": [],
+          "command": "ruby-lsp",
+          "id": "ruby-lsp"
+        },
+        "rust": {
+          "args": [],
+          "command": "rust-analyzer",
+          "id": "rust-analyzer"
+        },
+        "typescript": {
+          "args": [
+            "--stdio"
+          ],
+          "command": "typescript-language-server",
+          "id": "typescript-language-server"
+        }
+      }
+    },
+    {
+      "events": [
+        {
+          "name": "lsp-status",
+          "value": {
+            "available": false,
+            "languageId": "rust",
+            "projectPath": "<WORK>\\project",
+            "server": "rust-analyzer",
+            "status": "starting"
+          }
+        },
+        {
+          "name": "terminal-data",
+          "value": {
+            "data": "\u001b[?25l\u001b[8;30;100t\u001b[HPS <WORK>\\project> \u001b[93mecho \u001b[37mMIXDOG_FIXTURE_MARKER\u001b[K\u001b[m\r\nMIXDOG_FIXTURE_MARKER\u001b[K\r\nPS <WORK>\\project>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[4;89H\u001b[?25h",
+            "id": "term_12300_1"
+          }
+        },
+        {
+          "name": "terminal-data",
+          "value": {
+            "data": "\u001b[?9001l\u001b[?1004l",
+            "id": "term_12300_1"
+          }
+        },
+        {
+          "name": "terminal-data",
+          "value": {
+            "data": "\r\n[process exited with code -1073741510]\r\n",
+            "id": "term_12300_1"
+          }
+        },
+        {
+          "name": "lsp-status",
+          "value": {
+            "available": false,
+            "detail": "rust-analyzer did not finish initializing. error: Unknown binary 'rust-analyzer.exe' in official toolchain 'stable-x86_64-pc-windows-msvc'. Retrying after 1s.",
+            "languageId": "rust",
+            "projectPath": "<WORK>\\project",
+            "server": "rust-analyzer",
+            "status": "error"
+          }
+        }
+      ],
+      "op": "<emitted events>"
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

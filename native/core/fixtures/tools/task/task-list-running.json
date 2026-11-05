@@ -1,0 +1,8 @@
+{
+  "input": {
+    "action": "list"
+  },
+  "isError": false,
+  "text": "background tasks: 1\n- task-gold shell/shell running label=sleep 100",
+  "tool": "task"
+}

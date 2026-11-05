@@ -1,0 +1,10 @@
+{
+  "input": {
+    "new_string": "ALPHA BETA",
+    "old_string": "alpha beta",
+    "path": "README.md"
+  },
+  "isError": false,
+  "text": "Updated README.md (1 replacement)",
+  "tool": "edit"
+}

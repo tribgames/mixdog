@@ -1,0 +1,10 @@
+{
+  "input": {
+    "action": "describe",
+    "format": "xlsx",
+    "operation": "set_range"
+  },
+  "isError": false,
+  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"format\\\":\\\"xlsx\\\",\\\"backend\\\":\\\"\\\",\\\"paths\\\":[\\\"/sheet[NAME]\\\",\\\"/sheet[NAME]/cell[A1]\\\",\\\"/sheet[NAME]/range[A1:C10]\\\"],\\\"operation\\\":{\\\"name\\\":\\\"set_range\\\",\\\"supported\\\":true,\\\"supportedBackends\\\":[\\\"microsoft-office-com\\\",\\\"mixdog-ooxml\\\"],\\\"input\\\":{\\\"required\\\":[\\\"op\\\",\\\"range\\\",\\\"values\\\"],\\\"optional\\\":[\\\"sheet\\\",\\\"allowNoChange\\\"]}}}\"}]}",
+  "tool": "office"
+}

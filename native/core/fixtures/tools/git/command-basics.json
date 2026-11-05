@@ -1,0 +1,205 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nB\nc\nd\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\nY\n"
+      ]
+    },
+    {
+      "write": [
+        "u.txt",
+        "new\n"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "command": "git status --short"
+      },
+      "text": "## main\n M f.txt\n M g.txt\n?? u.txt\n"
+    },
+    {
+      "input": {
+        "command": "status -s"
+      },
+      "text": "## main\n M f.txt\n M g.txt\n?? u.txt\n"
+    },
+    {
+      "input": {
+        "command": [
+          "git log --format=%s",
+          "git branch --list"
+        ]
+      },
+      "text": "## 1: git log\ninit\n\n## 2: git branch\n* main\n"
+    },
+    {
+      "input": {
+        "command": "git add f.txt && git status --short"
+      },
+      "text": "## 1: git add\n\n## 2: git status\n## main\nM  f.txt\n M g.txt\n?? u.txt\n"
+    },
+    {
+      "input": {
+        "command": "[\"git log --format=%s\",\"git diff --cached --name-only\"]"
+      },
+      "text": "## 1: git log\ninit\n\n## 2: git diff\nf.txt\n"
+    },
+    {
+      "input": {
+        "command": [
+          "git status --short",
+          "git not-a-command",
+          "git log"
+        ]
+      },
+      "text": "## 1: git status\n## main\nM  f.txt\n M g.txt\n?? u.txt\n\n## 2: git not-a-command\nexit 1\ngit: 'not-a-command' is not a git command. See 'git --help'.\nerror: command failed: 2: git not-a-command"
+    },
+    {
+      "input": {
+        "command": "git diff --exit-code"
+      },
+      "text": "exit 1\n[outcome: no-match]\ndiff --git a/g.txt b/g.txt\n--- a/g.txt\n+++ b/g.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\n"
+    },
+    {
+      "input": {
+        "command": "git grep nomatch"
+      },
+      "text": "exit 1\n[outcome: no-match]"
+    },
+    {
+      "input": {
+        "command": "git config user.name"
+      },
+      "text": "exit 1"
+    },
+    {
+      "input": {
+        "command": "git config --global user.name x"
+      },
+      "text": "error: git config --global is outside the local repository scope"
+    },
+    {
+      "input": {
+        "command": "git log | head"
+      },
+      "text": "error: git command must not contain shell operators or substitution; multiple commands belong in the command array. For | head/tail use output_limit, for | grep use the grep tool"
+    },
+    {
+      "input": {
+        "command": "git log --format=%h|%s -n 1"
+      },
+      "text": "8d89199|init\n"
+    },
+    {
+      "input": {
+        "command": "npm test"
+      },
+      "text": "exit 1\ngit: 'npm' is not a git command. See 'git --help'.\n\nThe most similar commands are\n\tam\n\tinit\n\tp4\n\trm\n"
+    },
+    {
+      "input": {
+        "command": "git gui"
+      },
+      "text": "error: git gui opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)"
+    },
+    {
+      "input": {
+        "command": "git archive HEAD"
+      },
+      "text": "error: git archive requires -o/--output; binary stdout is not returned"
+    },
+    {
+      "input": {
+        "command": "git -C"
+      },
+      "text": "error: git -C requires a path"
+    },
+    {
+      "input": {
+        "command": "git --version"
+      },
+      "text": "git version 2.51.0.windows.1\n"
+    },
+    {
+      "input": {
+        "command": []
+      },
+      "text": "error: git command array requires 1 to 10 commands"
+    },
+    {
+      "input": {},
+      "text": "error: git requires command: a full command starting with git, e.g. command:\"git status\""
+    },
+    {
+      "input": {
+        "command": "git status",
+        "output_limit": 1
+      },
+      "text": "## main\n[output capped at 1 lines; 3 more lines omitted; narrow: raise output_limit (max 1000) or narrow the command (-- <path>, -n/--skip)]"
+    },
+    {
+      "input": {
+        "command": "git log --format=%s",
+        "output_limit": "x"
+      },
+      "text": "init\n"
+    },
+    {
+      "input": {
+        "command": "git show HEAD --stat"
+      },
+      "text": "commit <SHA>\nAuthor: Golden <golden@example.com>\nDate:   Fri Jan 2 03:04:05 2026 +0000\n\n    init\n\n f.txt | 3 +++\n g.txt | 2 ++\n 2 files changed, 5 insertions(+)\n"
+    }
+  ],
+  "tool": "git"
+}

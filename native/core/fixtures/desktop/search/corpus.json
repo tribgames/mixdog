@@ -1,0 +1,415 @@
+{
+  "cases": [
+    {
+      "args": {
+        "query": "hello"
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "Hello World"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "hello world"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 3,
+                "matchText": "HELLO",
+                "preview": "HELLO"
+              }
+            ],
+            "relPath": "a.txt"
+          },
+          {
+            "matches": [
+              {
+                "column": 7,
+                "endColumn": 12,
+                "line": 1,
+                "matchText": "hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 16,
+                "endColumn": 21,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 10,
+                "endColumn": 15,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "function helloWorld() {}"
+              }
+            ],
+            "relPath": "src/x.mjs"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 6
+      }
+    },
+    {
+      "args": {
+        "matchCase": true,
+        "query": "hello"
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "hello world"
+              }
+            ],
+            "relPath": "a.txt"
+          },
+          {
+            "matches": [
+              {
+                "column": 7,
+                "endColumn": 12,
+                "line": 1,
+                "matchText": "hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 10,
+                "endColumn": 15,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "function helloWorld() {}"
+              }
+            ],
+            "relPath": "src/x.mjs"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 3
+      }
+    },
+    {
+      "args": {
+        "query": "hello",
+        "wholeWord": true
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "Hello World"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "hello world"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 3,
+                "matchText": "HELLO",
+                "preview": "HELLO"
+              }
+            ],
+            "relPath": "a.txt"
+          },
+          {
+            "matches": [
+              {
+                "column": 7,
+                "endColumn": 12,
+                "line": 1,
+                "matchText": "hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 16,
+                "endColumn": 21,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "const hello = \"Hello\";"
+              }
+            ],
+            "relPath": "src/x.mjs"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 5
+      }
+    },
+    {
+      "args": {
+        "query": "hel+o\\w*",
+        "regex": true
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "Hello World"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "hello world"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 3,
+                "matchText": "HELLO",
+                "preview": "HELLO"
+              }
+            ],
+            "relPath": "a.txt"
+          },
+          {
+            "matches": [
+              {
+                "column": 7,
+                "endColumn": 12,
+                "line": 1,
+                "matchText": "hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 16,
+                "endColumn": 21,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 10,
+                "endColumn": 20,
+                "line": 2,
+                "matchText": "helloWorld",
+                "preview": "function helloWorld() {}"
+              }
+            ],
+            "relPath": "src/x.mjs"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 6
+      }
+    },
+    {
+      "args": {
+        "include": "*.mjs",
+        "query": "hello"
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 7,
+                "endColumn": 12,
+                "line": 1,
+                "matchText": "hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 16,
+                "endColumn": 21,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "const hello = \"Hello\";"
+              },
+              {
+                "column": 10,
+                "endColumn": 15,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "function helloWorld() {}"
+              }
+            ],
+            "relPath": "src/x.mjs"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 3
+      }
+    },
+    {
+      "args": {
+        "exclude": "src/**",
+        "query": "hello"
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "Hello World"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "hello world"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 3,
+                "matchText": "HELLO",
+                "preview": "HELLO"
+              }
+            ],
+            "relPath": "a.txt"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 3
+      }
+    },
+    {
+      "args": {
+        "maxResults": 2,
+        "query": "hello"
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 1,
+                "matchText": "Hello",
+                "preview": "Hello World"
+              },
+              {
+                "column": 1,
+                "endColumn": 6,
+                "line": 2,
+                "matchText": "hello",
+                "preview": "hello world"
+              }
+            ],
+            "relPath": "a.txt"
+          }
+        ],
+        "limitHit": true,
+        "matchCount": 2
+      }
+    },
+    {
+      "args": {
+        "query": "(",
+        "regex": true
+      },
+      "error": "Invalid search pattern: Invalid regular expression: /(/giu: Unterminated group",
+      "op": "searchWorkspaceTextIn"
+    },
+    {
+      "args": [
+        {
+          "matchCase": true,
+          "query": "hello"
+        },
+        "bye"
+      ],
+      "op": "replaceWorkspaceTextIn",
+      "result": {
+        "filesChanged": 2,
+        "paths": [
+          "a.txt",
+          "src/x.mjs"
+        ],
+        "replacements": 3
+      }
+    },
+    {
+      "args": {
+        "query": "bye"
+      },
+      "op": "searchWorkspaceTextIn",
+      "result": {
+        "files": [
+          {
+            "matches": [
+              {
+                "column": 1,
+                "endColumn": 4,
+                "line": 2,
+                "matchText": "bye",
+                "preview": "bye world"
+              }
+            ],
+            "relPath": "a.txt"
+          },
+          {
+            "matches": [
+              {
+                "column": 7,
+                "endColumn": 10,
+                "line": 1,
+                "matchText": "bye",
+                "preview": "const bye = \"Hello\";"
+              },
+              {
+                "column": 10,
+                "endColumn": 13,
+                "line": 2,
+                "matchText": "bye",
+                "preview": "function byeWorld() {}"
+              }
+            ],
+            "relPath": "src/x.mjs"
+          }
+        ],
+        "limitHit": false,
+        "matchCount": 3
+      }
+    }
+  ],
+  "domain": "search"
+}

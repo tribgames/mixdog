@@ -1,0 +1,8 @@
+{
+  "input": {
+    "pattern": "**/*.mjs"
+  },
+  "isError": false,
+  "text": "src/lib/math.mjs\nsrc/main.mjs",
+  "tool": "glob"
+}

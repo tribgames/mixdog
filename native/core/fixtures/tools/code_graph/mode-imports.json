@@ -1,0 +1,11 @@
+{
+  "input": {
+    "files": [
+      "src/main.mjs"
+    ],
+    "mode": "imports"
+  },
+  "isError": false,
+  "text": "src/lib/math.mjs\n\n# raw\n./lib/math.mjs",
+  "tool": "code_graph"
+}

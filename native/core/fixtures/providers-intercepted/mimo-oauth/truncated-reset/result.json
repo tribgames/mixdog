@@ -1,0 +1,9 @@
+{
+  "abortedByRecorder": true,
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "recorder: no terminal after 45s",
+    "name": "Error",
+    "status": null
+  }
+}

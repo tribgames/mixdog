@@ -1,0 +1,10 @@
+{
+  "input": {
+    "files": [
+      "src/missing.mjs"
+    ],
+    "mode": "symbols"
+  },
+  "thrown": "code_graph: cwd '<ROOT>' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree.",
+  "tool": "code_graph"
+}

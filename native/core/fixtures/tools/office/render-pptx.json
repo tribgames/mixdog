@@ -1,0 +1,11 @@
+{
+  "method": "office.run",
+  "input": {
+    "action": "render",
+    "session": "office_<ID>",
+    "output": "r-pptx.pdf"
+  },
+  "isError": false,
+  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"session\\\":\\\"office_<ID>\\\",\\\"backend\\\":\\\"mixdog-ooxml\\\",\\\"output\\\":\\\"<ROOT>\\\\\\\\r-pptx.pdf\\\",\\\"format\\\":\\\"pdf\\\",\\\"renderer\\\":\\\"LibreOffice\\\",\\\"pageCount\\\":0,\\\"visualCoverage\\\":{\\\"mode\\\":\\\"pages\\\",\\\"total\\\":0,\\\"reviewed\\\":0,\\\"reviewedPages\\\":[],\\\"remainingPages\\\":[],\\\"complete\\\":true},\\\"images\\\":[],\\\"reviewToken\\\":\\\"office_<ID>:0:<HASH>\\\",\\\"exportAvailable\\\":true,\\\"changedPages\\\":[],\\\"reusedPages\\\":[],\\\"pageIdentities\\\":[],\\\"metrics\\\":{\\\"durationMs\\\":0},\\\"artifacts\\\":[{\\\"type\\\":\\\"presentation\\\",\\\"format\\\":\\\"pptx\\\",\\\"fileKind\\\":\\\"pptx\\\",\\\"operation\\\":\\\"render\\\",\\\"path\\\":\\\"<ROOT>\\\\\\\\r-pptx.pdf\\\"}],\\\"outputCount\\\":1,\\\"expectedOutputCount\\\":1}\"}]}",
+  "chunkCount": 1
+}

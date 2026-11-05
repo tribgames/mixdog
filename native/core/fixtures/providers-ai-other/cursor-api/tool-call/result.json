@@ -1,0 +1,31 @@
+{
+  "dispatchedToolCalls": [
+    {
+      "arguments": {
+        "key": "answer"
+      },
+      "id": "call_fx1",
+      "name": "lookup"
+    }
+  ],
+  "ok": {
+    "content": "",
+    "reasoningContent": null,
+    "stopReason": "tool_calls",
+    "toolCalls": [
+      {
+        "arguments": {
+          "key": "answer"
+        },
+        "id": "call_fx1",
+        "name": "lookup"
+      }
+    ],
+    "usage": {
+      "cacheWriteTokens": null,
+      "cachedTokens": null,
+      "inputTokens": null,
+      "outputTokens": 0
+    }
+  }
+}

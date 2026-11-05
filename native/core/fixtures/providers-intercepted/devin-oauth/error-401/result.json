@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Devin GetCliModelConfigs unauthenticated (HTTP 401): fixture upstream error",
+    "name": "DevinWireError",
+    "status": 401
+  }
+}

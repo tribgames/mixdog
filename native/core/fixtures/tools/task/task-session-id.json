@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "read",
+    "task_id": "sess_abc"
+  },
+  "isError": true,
+  "text": "Error: \"sess_abc\" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery.",
+  "tool": "task"
+}

@@ -1,0 +1,12 @@
+{
+  "input": {
+    "depth": 2,
+    "files": [
+      "src/main.mjs"
+    ],
+    "mode": "overview"
+  },
+  "isError": false,
+  "text": "file: src/main.mjs\nlanguage: javascript\noutline:\nexport function main (L3-5)  function main()\nexport function other (L7-9)  function other()\nimports: src/lib/math.mjs",
+  "tool": "code_graph"
+}

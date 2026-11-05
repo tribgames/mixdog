@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "broken.docx"
+  },
+  "isError": true,
+  "text": "Error: office extraction failed — not a ZIP container (no end-of-central-directory record)",
+  "tool": "read"
+}

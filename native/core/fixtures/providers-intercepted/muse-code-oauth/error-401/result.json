@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "[muse-code-oauth] Model API key rejected (401 fixture upstream error) — open /providers in mixdog to sign in again",
+    "name": "Error",
+    "status": 401
+  }
+}

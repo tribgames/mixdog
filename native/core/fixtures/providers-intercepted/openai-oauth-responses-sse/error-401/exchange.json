@@ -1,0 +1,174 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "5da6b4fc4abe9e0dc0f3b39f03a1022a",
+          "kind": "randomBytes",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs#_buildOpenAIHttpFallbackHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "24b64d0be4839a4c5ce062f6fa828966",
+          "kind": "randomBytes",
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs#_buildOpenAIHttpFallbackHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs#exchangeRefreshToken",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal",
+      "src/runtime/shared/file-permissions.mjs#<anonymous>"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "openai-oauth-responses-sse/error-401",
+      "seed": 1946586171,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\"},\"store\":false,\"stream\":true,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "keep-alive",
+        "content-length": "613",
+        "content-type": "application/json",
+        "host": "chatgpt.com",
+        "openai-beta": "responses=experimental",
+        "originator": "codex_cli_rs",
+        "sec-fetch-mode": "cors",
+        "session-id": "mixdog-codex",
+        "session_id": "mixdog-codex",
+        "thread-id": "mixdog-codex",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:hex32>",
+        "x-codex-beta-features": "remote_compaction_v2"
+      },
+      "method": "POST",
+      "origin": "https://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "openai-beta",
+        "originator",
+        "chatgpt-account-id",
+        "x-client-request-id",
+        "user-agent",
+        "version",
+        "x-codex-beta-features",
+        "session_id",
+        "session-id",
+        "thread-id",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "grant_type=refresh_token&refresh_token=fixture-refresh-token&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "99",
+        "content-type": "application/x-www-form-urlencoded",
+        "host": "auth.openai.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://auth.openai.com",
+      "path": "/oauth/token",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"access_token\":\"fixture-access-token\",\"refresh_token\":\"fixture-refresh-token\",\"expires_in\":3600,\"token_type\":\"Bearer\"}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\"},\"store\":false,\"stream\":true,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "",
+        "connection": "keep-alive",
+        "content-length": "613",
+        "content-type": "application/json",
+        "host": "chatgpt.com",
+        "openai-beta": "responses=experimental",
+        "originator": "codex_cli_rs",
+        "sec-fetch-mode": "cors",
+        "session-id": "mixdog-codex",
+        "session_id": "mixdog-codex",
+        "thread-id": "mixdog-codex",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:hex32>",
+        "x-codex-beta-features": "remote_compaction_v2"
+      },
+      "method": "POST",
+      "origin": "https://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "openai-beta",
+        "originator",
+        "chatgpt-account-id",
+        "x-client-request-id",
+        "user-agent",
+        "version",
+        "x-codex-beta-features",
+        "session_id",
+        "session-id",
+        "thread-id",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

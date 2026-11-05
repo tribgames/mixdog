@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "internal",
+    "connectCode": null,
+    "cursorCode": "internal",
+    "liveTextEmitted": null,
+    "message": "Cursor request failed (500)",
+    "name": "Error",
+    "providerRecoveryExhausted": true,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": null,
+    "status": 500,
+    "truncatedStream": null,
+    "unsafeToRetry": null
+  }
+}

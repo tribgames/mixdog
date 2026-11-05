@@ -1,0 +1,200 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "action": "worktree"
+      },
+      "text": "error: git action:worktree requires worktree_action: enter, return, merge, remove, list, prune"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "nope"
+      },
+      "text": "error: git action:worktree requires worktree_action: enter, return, merge, remove, list, prune"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "command": "git status",
+        "worktree_action": "list"
+      },
+      "text": "error: git action:worktree does not take command"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "output_limit": 5,
+        "worktree_action": "list"
+      },
+      "text": "error: git action:worktree does not take output_limit"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "force": true,
+        "worktree_action": "merge"
+      },
+      "text": "error: force applies to worktree_action remove, not merge"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "x",
+        "worktree_action": "merge"
+      },
+      "text": "error: branch applies to worktree_action enter, remove, not merge"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "name": "n",
+        "worktree_action": "return"
+      },
+      "text": "error: name applies to worktree_action enter, not return"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "create": true,
+        "worktree_action": "remove"
+      },
+      "text": "error: create applies to worktree_action enter, not remove"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "create": true,
+        "worktree_action": "enter"
+      },
+      "text": "error: create needs branch"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "  ",
+        "worktree_action": "enter"
+      },
+      "text": "error: branch must be a branch name"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "b",
+        "name": "n",
+        "worktree_action": "enter"
+      },
+      "text": "error: branch excludes name and carry (the branch names the worktree; changes stay in the project folder)"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "carry": "maybe",
+        "worktree_action": "enter"
+      },
+      "text": "error: carry must be leave or carry"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "session_id": " ",
+        "worktree_action": "enter"
+      },
+      "text": "error: session_id must be a session id"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "b",
+        "session_id": "s",
+        "worktree_action": "remove"
+      },
+      "text": "error: branch names one of this session's own worktrees; it excludes session_id"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "confirm_large": true,
+        "worktree_action": "list"
+      },
+      "text": "error: confirm_large applies to worktree_action enter, not list"
+    },
+    {
+      "input": {
+        "command": "git status",
+        "worktree_action": "list"
+      },
+      "text": "error: git worktree_action requires action:worktree"
+    },
+    {
+      "input": {
+        "command": "git status",
+        "force": true
+      },
+      "text": "error: git force requires action:worktree"
+    },
+    {
+      "input": {
+        "action": "command",
+        "command": "git status",
+        "confirm_large": true
+      },
+      "text": "## main\n"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ],
+        "confirm_large": true,
+        "diff_id": "d"
+      },
+      "text": "error: git confirm_large applies to action:worktree or a git worktree add command"
+    }
+  ],
+  "tool": "git"
+}

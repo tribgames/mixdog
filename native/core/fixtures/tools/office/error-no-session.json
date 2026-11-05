@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "snapshot",
+    "session": "no-such-session"
+  },
+  "isError": false,
+  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"Error: Unknown or closed Office Use session: no-such-session\"}],\"isError\":true}",
+  "tool": "office"
+}

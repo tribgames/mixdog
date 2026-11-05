@@ -1,0 +1,453 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "711344f94b4ba881d78640a74e9689a7",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/opencode-go.mjs#OpenCodeGoOAuthEngine.send"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 810,
+        "precedesAttempt": 3,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 1723,
+        "precedesAttempt": 4,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 4191,
+        "precedesAttempt": 5,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 7070,
+        "precedesAttempt": 6,
+        "seq": 4,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.051276182755827904
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.024774786550551653
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.8478186284191906
+        },
+        {
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.1531892055645585
+        },
+        {
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.15234101470559835
+        },
+        {
+          "n": 6,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.6196572140324861
+        },
+        {
+          "n": 7,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.8921333285979927
+        },
+        {
+          "n": 8,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.20930572249926627
+        },
+        {
+          "n": 9,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.13763204053975642
+        },
+        {
+          "n": 10,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.4973689550533891
+        }
+      ],
+      "scenarioId": "opencode-go-oauth/truncated-reset",
+      "seed": 1050921432,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog"
+      },
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "path": "/console/api/v2/config",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "authorization",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding"
+      ],
+      "served": "{\"providers\":{\"opencode-go\":{\"settings\":{\"baseURL\":\"https://opencode.ai/inference/go/openai/v1\"},\"models\":{\"go-fixture\":{\"name\":\"Go Fixture\",\"limit\":{\"context\":128000,\"output\":8192}}}}}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "711344f9-4b4b-4881-9786-40a74e9689a7",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "711344f9-4b4b-4881-9786-40a74e9689a7",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "711344f9-4b4b-4881-9786-40a74e9689a7",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "711344f9-4b4b-4881-9786-40a74e9689a7",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "373",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "711344f9-4b4b-4881-9786-40a74e9689a7",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"go-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":false}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "334",
+        "content-type": "application/json",
+        "host": "opencode.ai",
+        "sec-fetch-mode": "cors",
+        "user-agent": "mixdog",
+        "x-opencode-session": "711344f9-4b4b-4881-9786-40a74e9689a7",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://opencode.ai",
+      "path": "/inference/go/openai/v1/chat/completions",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "user-agent",
+        "content-type",
+        "x-opencode-session",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

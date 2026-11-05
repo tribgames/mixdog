@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login.",
+    "name": "Error",
+    "status": null
+  }
+}

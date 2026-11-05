@@ -1,0 +1,542 @@
+[
+ {
+  "name": "query-staging-common",
+  "tool": "recall",
+  "args": {
+   "query": "staging cluster"
+  },
+  "text": "[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27",
+  "isError": false
+ },
+ {
+  "name": "query-staging-all",
+  "tool": "recall",
+  "args": {
+   "query": "staging cluster",
+   "projectScope": "all"
+  },
+  "text": "[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16",
+  "isError": false
+ },
+ {
+  "name": "query-korean-proj-a",
+  "tool": "recall",
+  "args": {
+   "query": "배포 파이프라인",
+   "projectScope": "proj-a"
+  },
+  "text": "[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28",
+  "isError": false
+ },
+ {
+  "name": "query-login-date",
+  "tool": "recall",
+  "args": {
+   "query": "login bug",
+   "sort": "date",
+   "projectScope": "all"
+  },
+  "text": "[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16",
+  "isError": false
+ },
+ {
+  "name": "query-latest-migration",
+  "tool": "recall",
+  "args": {
+   "query": "latest database migration plan",
+   "projectScope": "proj-b"
+  },
+  "text": "note: latest stored evidence; no newer stored completion is implied\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28",
+  "isError": false
+ },
+ {
+  "name": "query-migration-all-members",
+  "tool": "recall",
+  "args": {
+   "query": "database migration",
+   "projectScope": "all",
+   "includeMembers": true
+  },
+  "text": "[2026-03-01 14:00 +09:00] a: Database migration plan: move billing tables first, then analytics. [event: database migration plan — Database migration plan: move billing tables first, then analytics.] #13\n[2026-03-01 14:00 +09:00] u: Plan the database migration #14\n[2026-03-01 14:01 +09:00] a: Migrate billing tables first, then analytics. #15\n[2026-03-12 14:00 +09:00] a: Database migration plan v2: analytics first because billing is frozen until audit completes. [event: database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes.] #16\n[2026-03-12 14:00 +09:00] u: Update the database migration plan #17\n[2026-03-12 14:01 +09:00] a: Analytics first; billing waits for the audit. #18\n[2026-03-13 14:00 +09:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-14 10:00 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. [event: staging deploy — Deployed the staging cluster; rollout verified and traffic shifted.] #1\n[2026-03-14 10:00 +09:00] u: Deploy the staging cluster tonight #2\n[2026-03-14 10:01 +09:00] a: The staging cluster is deploying now; rollout finishes in ten minutes. #3\n[2026-03-14 11:30 +09:00] a: Fixed the login bug caused by a stale token refresh path. [event: login bug — Fixed the login bug caused by a stale token refresh path.] #4\n[2026-03-14 11:30 +09:00] u: Fix the login bug where the token refresh loops #5\n[2026-03-14 11:31 +09:00] a: Patched login: the refresh token is now rotated once. #6\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-02-20 14:00 +09:00] a: Cache entries expire after sixty minutes; superseded by the sliding window policy. [event: old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy.] #10\n[2026-02-20 14:00 +09:00] u: What is the cache expiry policy #11\n[2026-02-20 14:01 +09:00] a: Cache entries expire after sixty minutes. #12\n[2026-03-12 14:00 +09:00] u: ```js\nconst skipped = 1;\n``` build output ✓ and **bold** text with https://example.com/x link [pending] #29\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25",
+  "isError": false
+ },
+ {
+  "name": "query-raw-included",
+  "tool": "recall",
+  "args": {
+   "query": "staging cluster status",
+   "projectScope": "all",
+   "includeRaw": true
+  },
+  "text": "[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24",
+  "isError": false
+ },
+ {
+  "name": "query-raw-date",
+  "tool": "recall",
+  "args": {
+   "query": "staging",
+   "projectScope": "all",
+   "includeRaw": true,
+   "sort": "date"
+  },
+  "text": "[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-12 14:00 +09:00] u: ```js\nconst skipped = 1;\n``` build output ✓ and **bold** text with https://example.com/x link [pending] #29\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16",
+  "isError": false
+ },
+ {
+  "name": "query-category-decision",
+  "tool": "recall",
+  "args": {
+   "query": "staging deploy pipeline",
+   "projectScope": "all",
+   "category": [
+    "decision"
+   ]
+  },
+  "text": "[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7",
+  "isError": false
+ },
+ {
+  "name": "query-archived-excluded",
+  "tool": "recall",
+  "args": {
+   "query": "cache policy",
+   "projectScope": "all",
+   "includeArchived": false,
+   "period": "all"
+  },
+  "text": "note: semantic-only candidates; no lexical corroboration was found, so treat them as possible rather than confirmed evidence\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7",
+  "isError": false
+ },
+ {
+  "name": "query-archived-included",
+  "tool": "recall",
+  "args": {
+   "query": "cache policy",
+   "projectScope": "all",
+   "period": "all"
+  },
+  "text": "[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28",
+  "isError": false
+ },
+ {
+  "name": "query-historical-bounded",
+  "tool": "recall",
+  "args": {
+   "query": "cache policy",
+   "projectScope": "all",
+   "period": "2026-02-01~2026-02-28"
+  },
+  "text": "[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. [event: old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy.] #10",
+  "isError": false
+ },
+ {
+  "name": "query-historical-deep",
+  "tool": "recall",
+  "args": {
+   "query": "old cache expiry",
+   "projectScope": "all",
+   "period": "2025-10-01~2025-12-31"
+  },
+  "text": "note: semantic-only candidates; no lexical corroboration was found, so treat them as possible rather than confirmed evidence\n[2025-11-02 14:00 +09:00] u: Plan the quarterly roadmap review meeting agenda [pending] #26",
+  "isError": false
+ },
+ {
+  "name": "query-semantic-only",
+  "tool": "recall",
+  "args": {
+   "query": "rolling out servers to the test environment",
+   "projectScope": "all"
+  },
+  "text": "[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22",
+  "isError": false
+ },
+ {
+  "name": "query-timeline",
+  "tool": "recall",
+  "args": {
+   "query": "history of the staging deployment",
+   "projectScope": "all"
+  },
+  "text": "[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10",
+  "isError": false
+ },
+ {
+  "name": "query-latest-entity",
+  "tool": "recall",
+  "args": {
+   "query": "latest staging cluster status",
+   "projectScope": "all"
+  },
+  "text": "note: latest stored evidence; no newer stored completion is implied\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20",
+  "isError": false
+ },
+ {
+  "name": "query-today-vague",
+  "tool": "recall",
+  "args": {
+   "query": "방금 작업 결과",
+   "projectScope": "all"
+  },
+  "text": "note: latest stored evidence; no newer stored completion is implied\n(no results)",
+  "isError": false
+ },
+ {
+  "name": "query-yesterday",
+  "tool": "recall",
+  "args": {
+   "query": "login yesterday",
+   "projectScope": "all"
+  },
+  "text": "[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. [event: login bug — Fixed the login bug caused by a stale token refresh path.] #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. [event: staging deploy — Deployed the staging cluster; rollout verified and traffic shifted.] #1\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28",
+  "isError": false
+ },
+ {
+  "name": "query-near-duplicate",
+  "tool": "recall",
+  "args": {
+   "query": "reviewed twice release checklist",
+   "projectScope": "all",
+   "period": "all"
+  },
+  "text": "[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2025-11-02 14:00 +09:00] u: Plan the quarterly roadmap review meeting agenda [pending] #26\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10",
+  "isError": false
+ },
+ {
+  "name": "query-numeric-only",
+  "tool": "recall",
+  "args": {
+   "query": "123",
+   "projectScope": "all"
+  },
+  "text": "(no results)",
+  "isError": false
+ },
+ {
+  "name": "query-no-match",
+  "tool": "recall",
+  "args": {
+   "query": "zzzqqq nonexistent topic",
+   "projectScope": "all"
+  },
+  "text": "note: semantic-only candidates; no lexical corroboration was found, so treat them as possible rather than confirmed evidence\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27",
+  "isError": false
+ },
+ {
+  "name": "query-core-agent",
+  "tool": "recall",
+  "args": {
+   "query": "staging summaries",
+   "projectScope": "all",
+   "memory_caller": {
+    "kind": "agent",
+    "agentId": "helper"
+   }
+  },
+  "text": "[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29",
+  "isError": false
+ },
+ {
+  "name": "query-limit-cap",
+  "tool": "recall",
+  "args": {
+   "query": "staging",
+   "projectScope": "all",
+   "limit": 500,
+   "offset": 9999
+  },
+  "text": "limit capped to 100 (requested 500); offset capped to 500 (requested 9999)\n(no results)",
+  "isError": false
+ },
+ {
+  "name": "query-paged",
+  "tool": "recall",
+  "args": {
+   "query": "staging cluster",
+   "projectScope": "all",
+   "limit": 2,
+   "offset": 1
+  },
+  "text": "[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23",
+  "isError": false
+ },
+ {
+  "name": "query-array",
+  "tool": "recall",
+  "args": {
+   "query": [
+    "staging cluster",
+    "login bug",
+    "staging cluster"
+   ],
+   "projectScope": "all"
+  },
+  "text": "[staging cluster]\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n\n[login bug]\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-12 14:00 +09:00] u: build output and bold text with link [pending] #29\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7",
+  "isError": false
+ },
+ {
+  "name": "query-marker",
+  "tool": "recall",
+  "args": {
+   "query": "MARKER_0042",
+   "projectScope": "all",
+   "includeRaw": true,
+   "period": "all"
+  },
+  "text": "[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10\n[2025-11-02 14:00 +09:00] u: Plan the quarterly roadmap review meeting agenda [pending] #26\n[2026-03-12 14:00 +09:00] u: ```js\nconst skipped = 1;\n``` build output ✓ and **bold** text with https://example.com/x link [pending] #29\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27",
+  "isError": false
+ },
+ {
+  "name": "browse-default",
+  "tool": "recall",
+  "args": {
+   "projectScope": "all",
+   "limit": 6
+  },
+  "text": "## session sess-alpha-0001\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n## session sess-gamma-0003\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n## session sess-beta-0002\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7",
+  "isError": false
+ },
+ {
+  "name": "browse-today",
+  "tool": "recall",
+  "args": {
+   "period": "today",
+   "projectScope": "all"
+  },
+  "text": "(no results)",
+  "isError": false
+ },
+ {
+  "name": "browse-yesterday-members",
+  "tool": "recall",
+  "args": {
+   "period": "yesterday",
+   "projectScope": "all",
+   "includeMembers": true
+  },
+  "text": "[2026-03-14 11:31 +09:00] a: Patched login: the refresh token is now rotated once. #6\n[2026-03-14 11:30 +09:00] u: Fix the login bug where the token refresh loops #5\n[2026-03-14 11:30 +09:00] a: Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:01 +09:00] a: The staging cluster is deploying now; rollout finishes in ten minutes. #3\n[2026-03-14 10:00 +09:00] u: Deploy the staging cluster tonight #2\n[2026-03-14 10:00 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. #1",
+  "isError": false
+ },
+ {
+  "name": "browse-2d-raw",
+  "tool": "recall",
+  "args": {
+   "period": "2d",
+   "projectScope": "all",
+   "includeRaw": true
+  },
+  "text": "## session sess-alpha-0001\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n## session sess-gamma-0003\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n## session sess-delta-0005\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27",
+  "isError": false
+ },
+ {
+  "name": "browse-this-week",
+  "tool": "recall",
+  "args": {
+   "period": "this_week",
+   "projectScope": "all",
+   "sort": "importance"
+  },
+  "text": "## session sess-alpha-0001\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n## session sess-beta-0002\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n## session sess-gamma-0003\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16",
+  "isError": false
+ },
+ {
+  "name": "browse-range",
+  "tool": "recall",
+  "args": {
+   "period": "2026-03-01~2026-03-12",
+   "projectScope": "all"
+  },
+  "text": "## session sess-gamma-0003\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n## session sess-beta-0002\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7",
+  "isError": false
+ },
+ {
+  "name": "browse-time-of-day",
+  "tool": "recall",
+  "args": {
+   "period": "2026-03-14 09:00~12:00",
+   "projectScope": "all",
+   "includeRaw": true
+  },
+  "text": "[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1",
+  "isError": false
+ },
+ {
+  "name": "browse-category-task",
+  "tool": "recall",
+  "args": {
+   "projectScope": "all",
+   "category": "task",
+   "period": "all"
+  },
+  "text": "[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13",
+  "isError": false
+ },
+ {
+  "name": "browse-common-scope",
+  "tool": "recall",
+  "args": {
+   "period": "all"
+  },
+  "text": "[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20",
+  "isError": false
+ },
+ {
+  "name": "last-page-1",
+  "tool": "recall",
+  "args": {
+   "period": "last",
+   "projectScope": "all",
+   "limit": 2
+  },
+  "text": "[nextCursor: r1.eyJ2IjoxLCJ0IjoxNzczMjkxNjAwMDAwLCJzIjoic2Vzcy1nYW1tYS0wMDAzIiwiayI6IkFrNDdWUVM2a2plUUpwSUEifQ]\n## session sess-alpha-0001 (03-13 14:00 ~ 03-14 11:30, 4 entries)\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n## session sess-gamma-0003 (03-01 14:00 ~ 03-12 14:00, 2 entries)\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13",
+  "isError": false
+ },
+ {
+  "name": "last-page-2",
+  "tool": "recall",
+  "args": {
+   "period": "last",
+   "projectScope": "all",
+   "limit": 2,
+   "cursor": "r1.eyJ2IjoxLCJ0IjoxNzczMjkxNjAwMDAwLCJzIjoic2Vzcy1nYW1tYS0wMDAzIiwiayI6IkFrNDdWUVM2a2plUUpwSUEifQ"
+  },
+  "text": "## session sess-beta-0002 (02-20 14:00 ~ 03-10 14:00, 2 entries)\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10",
+  "isError": false
+ },
+ {
+  "name": "last-members-raw",
+  "tool": "recall",
+  "args": {
+   "period": "last",
+   "projectScope": "all",
+   "limit": 3,
+   "includeMembers": true,
+   "includeRaw": true,
+   "currentSessionId": "sess-alpha-0001"
+  },
+  "text": "[nextCursor: r1.eyJ2IjoxLCJ0IjoxNzczNDk3MTAwMDAwLCJzIjoic2Vzcy1kZWx0YS0wMDA1IiwiayI6IjNJWEUydEdfTDdqa0lKZWcifQ]\n## session sess-alpha-0001 (current) (03-13 14:00 ~ 03-15 11:10, 6 entries)\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 11:31 +09:00] a: Patched login: the refresh token is now rotated once. #6\n[2026-03-14 11:30 +09:00] u: Fix the login bug where the token refresh loops #5\n[2026-03-14 11:30 +09:00] a: Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:01 +09:00] a: The staging cluster is deploying now; rollout finishes in ten minutes. #3\n[2026-03-14 10:00 +09:00] u: Deploy the staging cluster tonight #2\n[2026-03-14 10:00 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n## session sess-gamma-0003 (03-01 14:00 ~ 03-15 10:30, 3 entries)\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-03-12 14:01 +09:00] a: Analytics first; billing waits for the audit. #18\n[2026-03-12 14:00 +09:00] u: Update the database migration plan #17\n[2026-03-12 14:00 +09:00] a: Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-01 14:01 +09:00] a: Migrate billing tables first, then analytics. #15\n[2026-03-01 14:00 +09:00] u: Plan the database migration #14\n[2026-03-01 14:00 +09:00] a: Database migration plan: move billing tables first, then analytics. #13\n## session sess-delta-0005 (03-12 14:00 ~ 03-14 23:05, 3 entries)\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-12 14:00 +09:00] u: ```js\nconst skipped = 1;\n``` build output ✓ and **bold** text with https://example.com/x link [pending] #29",
+  "isError": false
+ },
+ {
+  "name": "last-query",
+  "tool": "recall",
+  "args": {
+   "period": "last",
+   "projectScope": "all",
+   "query": "login",
+   "limit": 3,
+   "includeRaw": true
+  },
+  "text": "[nextCursor: r1.eyJ2IjoxLCJ0IjoxNzczNDk3MTAwMDAwLCJzIjoic2Vzcy1kZWx0YS0wMDA1IiwiayI6ImNfc0prWnZXcU5WLXpSQU4ifQ]\n## session sess-alpha-0001 (03-13 14:00 ~ 03-15 11:10, 3 entries) · query-filtered 3/6 rows\n[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n## session sess-gamma-0003 (03-01 14:00 ~ 03-15 10:30, 3 entries)\n[2026-03-15 10:30 +09:00] a: The analytics export job finished without errors. [pending] #25\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n## session sess-delta-0005 (03-12 14:00 ~ 03-14 23:05, 3 entries)\n[2026-03-14 23:05 +09:00] a: Noted, standups will be capped at ten minutes. [pending] #28\n[2026-03-14 23:00 +09:00] u: Sprint retro: the team wants shorter standups [pending] #27\n[2026-03-12 14:00 +09:00] u: ```js\nconst skipped = 1;\n``` build output ✓ and **bold** text with https://example.com/x link [pending] #29",
+  "isError": false
+ },
+ {
+  "name": "id-roots",
+  "tool": "recall",
+  "args": {
+   "id": [
+    1,
+    4,
+    9999
+   ],
+   "projectScope": "all"
+  },
+  "text": "[2026-03-14 10:00 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 10:00 +09:00] u: Deploy the staging cluster tonight #2\n[2026-03-14 10:01 +09:00] a: The staging cluster is deploying now; rollout finishes in ten minutes. #3\n[2026-03-14 11:30 +09:00] a: Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 11:30 +09:00] u: Fix the login bug where the token refresh loops #5\n[2026-03-14 11:31 +09:00] a: Patched login: the refresh token is now rotated once. #6",
+  "isError": false
+ },
+ {
+  "name": "id-member-and-root",
+  "tool": "recall",
+  "args": {
+   "id": [
+    2,
+    1
+   ],
+   "projectScope": "all"
+  },
+  "text": "[2026-03-14 10:00 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 10:00 +09:00] u: Deploy the staging cluster tonight #2\n[2026-03-14 10:01 +09:00] a: The staging cluster is deploying now; rollout finishes in ten minutes. #3",
+  "isError": false
+ },
+ {
+  "name": "id-archived-excluded",
+  "tool": "recall",
+  "args": {
+   "id": [
+    10
+   ],
+   "projectScope": "all",
+   "includeArchived": false
+  },
+  "text": "(no results)",
+  "isError": false
+ },
+ {
+  "name": "id-none",
+  "tool": "recall",
+  "args": {
+   "id": [
+    0,
+    -1
+   ],
+   "projectScope": "all"
+  },
+  "text": "## session sess-alpha-0001\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n## session sess-gamma-0003\n[2026-03-12 14:00 +09:00] database migration plan v2 — Database migration plan v2: analytics first because billing is frozen until audit completes. #16\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13\n## session sess-beta-0002\n[2026-03-10 14:00 +09:00] 배포 파이프라인 — 배포 파이프라인은 스테이징 검증 후 프로덕션으로 승격하기로 결정했다. #7\n[2026-02-20 14:00 +09:00] old cache policy — Cache entries expire after sixty minutes; superseded by the sliding window policy. #10",
+  "isError": false
+ },
+ {
+  "name": "session-browse",
+  "tool": "recall",
+  "args": {
+   "currentSession": true,
+   "sessionId": "sess-alpha-0001",
+   "projectScope": "all"
+  },
+  "text": "[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:05 +09:00] staging deploy copy — Deployed the staging cluster; rollout verified and traffic shifted. #19\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] release checklist — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20",
+  "isError": false
+ },
+ {
+  "name": "session-query",
+  "tool": "recall",
+  "args": {
+   "sessionId": "sess-alpha-0001",
+   "query": "staging",
+   "includeMembers": true
+  },
+  "text": "[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. [pending] #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now [pending] #22\n[2026-03-14 10:05 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. #19\n[2026-03-14 10:00 +09:00] u: Deploy the staging cluster tonight #2\n[2026-03-14 10:01 +09:00] a: The staging cluster is deploying now; rollout finishes in ten minutes. #3\n[2026-03-14 10:00 +09:00] a: Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-14 11:30 +09:00] u: Fix the login bug where the token refresh loops #5\n[2026-03-14 11:31 +09:00] a: Patched login: the refresh token is now rotated once. #6\n[2026-03-14 11:30 +09:00] a: Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-13 15:00 +09:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\n[2026-03-13 14:00 +09:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20",
+  "isError": false
+ },
+ {
+  "name": "session-digest",
+  "tool": "search_memories",
+  "args": {
+   "sessionId": "sess-alpha-0001",
+   "compactDigest": true,
+   "limit": 10
+  },
+  "text": "[2026-03-15 11:10 +09:00] a: The staging cluster rollout finished and is serving traffic. #23\n[2026-03-15 11:00 +09:00] u: what is the staging cluster status right now #22\n[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-14 10:05 +09:00] staging deploy copy — Deployed the staging cluster; rollout verified and traffic shifted. #19\n[2026-03-14 10:00 +09:00] staging deploy — Deployed the staging cluster; rollout verified and traffic shifted. #1\n[2026-03-13 15:00 +09:00] release checklist notes — The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21",
+  "isError": false
+ },
+ {
+  "name": "session-handoff",
+  "tool": "search_memories",
+  "args": {
+   "sessionId": "sess-alpha-0001",
+   "compactHandoff": true,
+   "preserveLatestUserTurns": 1,
+   "includeMembers": true
+  },
+  "text": "[2026-03-13 14:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. #20\n[2026-03-13 15:00] a: The release checklist covers database backups, schema diffs, feature flag review, canary percentage, rollback window, on-call handoff and customer notice before every production rollout. Reviewed twice. #21\nDeployed the staging cluster; rollout verified and traffic shifted.\n[2026-03-14 10:05] a: Deployed the staging cluster; rollout verified and traffic shifted. #19\nFixed the login bug caused by a stale token refresh path.",
+  "isError": false
+ },
+ {
+  "name": "search-memories-plain",
+  "tool": "search_memories",
+  "args": {
+   "query": "login",
+   "projectScope": "all",
+   "limit": 3
+  },
+  "text": "[2026-03-14 11:30 +09:00] login bug — Fixed the login bug caused by a stale token refresh path. #4\n[2026-03-09 14:00 +09:00] u: rotate the api_key before the release MARKER_0042 [pending] #24\n[2026-03-01 14:00 +09:00] database migration plan — Database migration plan: move billing tables first, then analytics. #13",
+  "isError": false
+ }
+]

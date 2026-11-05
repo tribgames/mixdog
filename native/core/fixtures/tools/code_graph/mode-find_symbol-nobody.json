@@ -1,0 +1,12 @@
+{
+  "input": {
+    "body": false,
+    "mode": "find_symbol",
+    "symbols": [
+      "add"
+    ]
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\n# best declaration candidate\nsrc/lib/math.mjs:1-3:17 (javascript, export function, matches=1)\nsignature: function add(a, b)",
+  "tool": "code_graph"
+}

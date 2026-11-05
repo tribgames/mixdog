@@ -1,0 +1,8 @@
+{
+  "input": {
+    "op": "list"
+  },
+  "isError": false,
+  "text": "{\"text\":\"id=1 source=curated project=COMMON status=active injection=enabled index_revision=<UUID> golden memory entry — golden memory entry\",\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"golden memory entry\",\"summary\":\"golden memory entry\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":1,\"index_revision\":\"<UUID>\"}],\"nextOffset\":null,\"content\":[{\"type\":\"text\",\"text\":\"id=1 source=curated project=COMMON status=active injection=enabled index_revision=<UUID> golden memory entry — golden memory entry\"}],\"isError\":false}",
+  "tool": "memory"
+}

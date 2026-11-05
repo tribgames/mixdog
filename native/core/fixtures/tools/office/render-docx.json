@@ -1,0 +1,11 @@
+{
+  "method": "office.run",
+  "input": {
+    "action": "render",
+    "session": "office_<ID>",
+    "output": "r-docx.pdf"
+  },
+  "isError": false,
+  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"session\\\":\\\"office_<ID>\\\",\\\"backend\\\":\\\"mixdog-ooxml\\\",\\\"output\\\":\\\"<ROOT>\\\\\\\\r-docx.pdf\\\",\\\"format\\\":\\\"pdf\\\",\\\"renderer\\\":\\\"LibreOffice\\\",\\\"pageCount\\\":1,\\\"visualCoverage\\\":{\\\"reviewedPages\\\":[1],\\\"reviewed\\\":1,\\\"total\\\":1,\\\"complete\\\":true,\\\"remainingPages\\\":[]},\\\"images\\\":[{\\\"page\\\":1,\\\"path\\\":\\\"<ROOT>\\\\\\\\r-docx-page-1.png\\\",\\\"width\\\":1191,\\\"height\\\":1684,\\\"mimeType\\\":\\\"image/png\\\"}],\\\"reviewToken\\\":\\\"office_<ID>:1:<HASH>\\\",\\\"exportAvailable\\\":true,\\\"metrics\\\":{\\\"durationMs\\\":0},\\\"artifacts\\\":[{\\\"type\\\":\\\"document\\\",\\\"format\\\":\\\"docx\\\",\\\"fileKind\\\":\\\"docx\\\",\\\"operation\\\":\\\"render\\\",\\\"path\\\":\\\"<ROOT>\\\\\\\\r-docx.pdf\\\"}],\\\"outputCount\\\":1,\\\"expectedOutputCount\\\":1}\"},{\"type\":\"image\",\"mimeType\":\"image/png\"}]}",
+  "chunkCount": 2
+}

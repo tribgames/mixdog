@@ -1,0 +1,8 @@
+{
+  "input": {
+    "command": "echo golden-out"
+  },
+  "isError": false,
+  "text": "[exit code: 0]\n\ngolden-out\n",
+  "tool": "shell"
+}

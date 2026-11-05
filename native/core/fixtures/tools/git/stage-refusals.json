@@ -1,0 +1,230 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nB\nc\nd\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\nY\n"
+      ]
+    },
+    {
+      "write": [
+        "u.txt",
+        "new\n"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ],
+        "diff_id": "diff_nope"
+      },
+      "text": "{\"ok\":true,\"staged\":false,\"reason\":\"expired_diff\",\"hint\":\"Run git diff with include_stage_ids:true again and use its new diff_id/change_ids.\"}"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ]
+      },
+      "text": "error: git stage requires diff_id from a prior git diff"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "diff_id": "diff_x"
+      },
+      "text": "error: git stage requires at least one change_id"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5",
+          "c6",
+          "c7",
+          "c8",
+          "c9",
+          "c10",
+          "c11",
+          "c12",
+          "c13",
+          "c14",
+          "c15",
+          "c16",
+          "c17",
+          "c18",
+          "c19",
+          "c20",
+          "c21",
+          "c22",
+          "c23",
+          "c24",
+          "c25",
+          "c26",
+          "c27",
+          "c28",
+          "c29",
+          "c30",
+          "c31",
+          "c32",
+          "c33",
+          "c34",
+          "c35",
+          "c36",
+          "c37",
+          "c38",
+          "c39",
+          "c40",
+          "c41",
+          "c42",
+          "c43",
+          "c44",
+          "c45",
+          "c46",
+          "c47",
+          "c48",
+          "c49",
+          "c50",
+          "c51"
+        ],
+        "diff_id": "diff_x"
+      },
+      "text": "error: git stage accepts at most 50 change_ids"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ],
+        "command": "git status",
+        "diff_id": "diff_x"
+      },
+      "text": "error: git action:stage accepts diff_id/change_ids, not command/include_stage_ids"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ],
+        "diff_id": "diff_x",
+        "include_stage_ids": true
+      },
+      "text": "error: git action:stage accepts diff_id/change_ids, not command/include_stage_ids"
+    },
+    {
+      "input": {
+        "command": "git status",
+        "diff_id": "diff_x"
+      },
+      "text": "error: git diff_id/change_ids require action:stage"
+    },
+    {
+      "input": {
+        "change_ids": [
+          "c1"
+        ],
+        "command": "git status"
+      },
+      "text": "error: git diff_id/change_ids require action:stage"
+    },
+    {
+      "input": {
+        "command": "git diff",
+        "include_stage_ids": true
+      },
+      "text": "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,4 @@\n a\n-b\n+B\n c\n+d\ndiff --git a/g.txt b/g.txt\n--- a/g.txt\n+++ b/g.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff --git a/u.txt b/u.txt\nnew file mode 100644\n--- /dev/null\n+++ b/u.txt\n@@ -0,0 +1 @@\n+new\ndiff_id: <DIFF_ID> (ids number the +/- runs in diff order; [whole file] ids stage the entire file)\nf.txt: c1-c2\ng.txt: c3\nu.txt: c4 [whole file]"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c99"
+        ],
+        "diff_id": "<DIFF_ID>"
+      },
+      "text": "error: git stage change_ids are not present in the diff: c99"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1",
+          "c98"
+        ],
+        "diff_id": "<DIFF_ID>"
+      },
+      "text": "error: git stage change_ids are not present in the diff: c98"
+    },
+    {
+      "input": {
+        "action": "sideways"
+      },
+      "text": "error: git action must be command, stage or worktree"
+    },
+    {
+      "input": {
+        "include_stage_ids": true
+      },
+      "text": "error: git requires command; staging IDs come from command:\"git diff\" (or \"git diff -- <paths>\") with include_stage_ids:true"
+    }
+  ],
+  "tool": "git"
+}

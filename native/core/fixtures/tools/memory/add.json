@@ -1,0 +1,9 @@
+{
+  "input": {
+    "content": "golden memory entry",
+    "op": "add"
+  },
+  "isError": false,
+  "text": "{\"text\":\"core added (project=COMMON id=1 index_revision=<UUID>): golden memory entry — golden memory entry\",\"content\":[{\"type\":\"text\",\"text\":\"core added (project=COMMON id=1 index_revision=<UUID>): golden memory entry — golden memory entry\"}],\"isError\":false}",
+  "tool": "memory"
+}

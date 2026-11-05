@@ -1,0 +1,17 @@
+{
+  "name": "refusal_twice",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [],
+      "stopReason": "refusal"
+    }
+  ],
+  "repeatLast": true
+}

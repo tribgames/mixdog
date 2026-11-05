@@ -1,0 +1,218 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "0c2ab4d435e6b951087bc1da9250b997",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs#buildAntigravityRequest"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#Object.resetIdle",
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#createRestStreamWatchdogs",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 1043,
+        "precedesAttempt": 2,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 2157,
+        "precedesAttempt": 3,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 3799,
+        "precedesAttempt": 4,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.714787777280435
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.8933395312633365
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.24869170086458325
+        }
+      ],
+      "scenarioId": "antigravity-oauth/truncated-reset",
+      "seed": 125699528,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"VALIDATED\"}},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-2752545474617639412\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-0c2ab4d4-35e6-4951-887b-c1da9250b997\"}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "656",
+        "content-type": "application/json",
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "method": "POST",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"VALIDATED\"}},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-2752545474617639412\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-0c2ab4d4-35e6-4951-887b-c1da9250b997\"}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "656",
+        "content-type": "application/json",
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "method": "POST",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"VALIDATED\"}},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-2752545474617639412\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-0c2ab4d4-35e6-4951-887b-c1da9250b997\"}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "656",
+        "content-type": "application/json",
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "method": "POST",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"VALIDATED\"}},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-2752545474617639412\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-0c2ab4d4-35e6-4951-887b-c1da9250b997\"}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "656",
+        "content-type": "application/json",
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "method": "POST",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Devin GetCliModelConfigs invalid_argument (HTTP 400): fixture upstream error",
+    "name": "DevinWireError",
+    "status": 400
+  }
+}

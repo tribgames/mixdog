@@ -1,0 +1,81 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/anthropic-sse-watchdogs.mjs#Object.armFirstMessageTimer",
+      "src/runtime/agent/orchestrator/providers/anthropic-sse-watchdogs.mjs#Object.resetIdleTimer",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt",
+          "value": 0.5811372434254736
+        }
+      ],
+      "scenarioId": "anthropic/text",
+      "seed": 3496376067,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "requests": [
+    {
+      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "anthropic-version": "2023-06-01",
+        "connection": "keep-alive",
+        "content-length": "477",
+        "content-type": "application/json",
+        "host": "api.anthropic.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "Anthropic/JS 0.137.0",
+        "x-api-key": "<redacted>",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "0.137.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "x-stainless-timeout": "600"
+      },
+      "method": "POST",
+      "path": "/v1/messages",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-timeout",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "anthropic-version",
+        "x-api-key",
+        "content-type",
+        "anthropic-beta",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ]
+    }
+  ]
+}

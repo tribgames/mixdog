@@ -1,0 +1,15 @@
+{
+  "dispatchedToolCalls": [],
+  "ok": {
+    "content": "The result is 42.",
+    "reasoningContent": "Considering. Done.",
+    "stopReason": "stop",
+    "toolCalls": [],
+    "usage": {
+      "cacheWriteTokens": 2,
+      "cachedTokens": 4,
+      "inputTokens": 20,
+      "outputTokens": 8
+    }
+  }
+}

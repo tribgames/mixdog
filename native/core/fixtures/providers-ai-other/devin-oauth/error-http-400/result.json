@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "invalid_argument",
+    "connectCode": "invalid_argument",
+    "cursorCode": null,
+    "liveTextEmitted": null,
+    "message": "Devin GetChatMessage invalid_argument (HTTP 400): fixture",
+    "name": "DevinWireError",
+    "providerRecoveryExhausted": null,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": false,
+    "status": 400,
+    "truncatedStream": null,
+    "unsafeToRetry": null
+  }
+}

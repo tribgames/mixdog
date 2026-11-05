@@ -1,0 +1,80 @@
+{
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-session-state.mjs --tree <tree>",
+  "fieldsCovered": [
+    "activeTools",
+    "agentJobs",
+    "agentWorkers",
+    "autoEffort",
+    "busy",
+    "commandBusy",
+    "commandStatus",
+    "contextDefaultPercent",
+    "contextPercent",
+    "contextTokens",
+    "desktopSessionTitle",
+    "fast",
+    "fastCapable",
+    "goal",
+    "handoffQuestions",
+    "hostShellJobs",
+    "items",
+    "modelParameters",
+    "orchestrationMode",
+    "pendingOrchestrationModeSwitch",
+    "pendingWorkflowSwitch",
+    "progressHint",
+    "promptRestore",
+    "providerAccountChange",
+    "queued",
+    "quotaResume",
+    "remoteEnabled",
+    "selectedContextWindow",
+    "sessionModel",
+    "sessionProvider",
+    "shellJobs",
+    "spinner",
+    "streamingPartial",
+    "streamingTail",
+    "thinking",
+    "todo",
+    "toolApproval",
+    "toolApprovalResult",
+    "toolApprovalsWaiting",
+    "transcriptHasOlder",
+    "workflow",
+    "workspace"
+  ],
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 15944,
+      "path": "steps.json",
+      "sha256": "6c41640ac5ae662dae239f938402997201d7164775324cf267aaa54700828c40"
+    },
+    {
+      "bytes": 40989,
+      "path": "stream.json",
+      "sha256": "03dedd29095a909b2f27cd7b7ddcefc5fbc14b932c1b740ad27a8c8b14b7fb7e"
+    }
+  ],
+  "frames": 16,
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-state.mjs",
+  "set": "session-state",
+  "totalBytes": 56933
+}

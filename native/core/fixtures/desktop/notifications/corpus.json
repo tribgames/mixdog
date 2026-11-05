@@ -1,0 +1,387 @@
+{
+  "domain": "notifications",
+  "entries": [
+    {
+      "args": [
+        "client-phone",
+        "client-web",
+        "client-gone"
+      ],
+      "op": "notificationDeviceName",
+      "result": [
+        "Galaxy S24",
+        "Office laptop",
+        "Old"
+      ]
+    },
+    {
+      "args": [
+        "client-phone",
+        "client-web",
+        "client-gone"
+      ],
+      "op": "pairedDeviceInfo",
+      "result": [
+        {
+          "kind": "phone-app",
+          "pairedAt": 0
+        },
+        {
+          "kind": "browser",
+          "pairedAt": 0
+        },
+        {
+          "kind": "browser",
+          "pairedAt": 1
+        }
+      ]
+    },
+    {
+      "args": [
+        "pc",
+        true
+      ],
+      "op": "notificationPreferencesState",
+      "result": {
+        "currentDeviceId": "pc",
+        "devices": [
+          {
+            "canNotify": true,
+            "id": "pc",
+            "kind": "pc",
+            "name": "FIXTURE-PC",
+            "online": true
+          },
+          {
+            "canNotify": true,
+            "id": "client-phone",
+            "kind": "phone-app",
+            "name": "Galaxy S24",
+            "online": true
+          },
+          {
+            "canNotify": false,
+            "id": "client-web",
+            "kind": "browser",
+            "name": "Office laptop",
+            "online": false
+          }
+        ],
+        "preferences": {
+          "client-phone": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "bots",
+            "taskbarFlash": true
+          },
+          "client-web": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          },
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "off",
+            "taskbarFlash": true
+          }
+        }
+      }
+    },
+    {
+      "args": [
+        "pc",
+        true,
+        "client-phone",
+        {
+          "enabled": false
+        }
+      ],
+      "op": "setNotificationPreferences",
+      "result": {
+        "currentDeviceId": "pc",
+        "devices": [
+          {
+            "canNotify": true,
+            "id": "pc",
+            "kind": "pc",
+            "name": "FIXTURE-PC",
+            "online": true
+          },
+          {
+            "canNotify": true,
+            "id": "client-phone",
+            "kind": "phone-app",
+            "name": "Galaxy S24",
+            "online": true
+          },
+          {
+            "canNotify": false,
+            "id": "client-web",
+            "kind": "browser",
+            "name": "Office laptop",
+            "online": false
+          }
+        ],
+        "preferences": {
+          "client-phone": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "bots",
+            "taskbarFlash": true
+          },
+          "client-web": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          },
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "off",
+            "taskbarFlash": true
+          }
+        }
+      }
+    },
+    {
+      "args": [
+        "pc",
+        true,
+        "client-unknown",
+        {
+          "enabled": false
+        }
+      ],
+      "error": {
+        "message": "That device is not paired with this PC.",
+        "name": "TypeError"
+      },
+      "op": "setNotificationPreferences"
+    },
+    {
+      "args": [
+        "pc",
+        true
+      ],
+      "op": "notificationPreferencesState",
+      "result": {
+        "currentDeviceId": "pc",
+        "devices": [
+          {
+            "canNotify": true,
+            "id": "pc",
+            "kind": "pc",
+            "name": "FIXTURE-PC",
+            "online": true
+          },
+          {
+            "canNotify": true,
+            "id": "client-phone",
+            "kind": "phone-app",
+            "name": "Galaxy S24",
+            "online": true
+          },
+          {
+            "canNotify": false,
+            "id": "client-web",
+            "kind": "browser",
+            "name": "Office laptop",
+            "online": false
+          }
+        ],
+        "preferences": {
+          "client-phone": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "bots",
+            "taskbarFlash": true
+          },
+          "client-web": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "all",
+            "taskbarFlash": true
+          },
+          "pc": {
+            "automaticRuns": true,
+            "events": {
+              "approval": true,
+              "error": false,
+              "finished": true,
+              "question": true
+            },
+            "holdWhileDesktopActive": true,
+            "quietHours": {
+              "allowWaiting": false,
+              "days": "every",
+              "enabled": false,
+              "end": "08:00",
+              "start": "23:00"
+            },
+            "scope": "off",
+            "taskbarFlash": true
+          }
+        }
+      }
+    },
+    {
+      "args": [],
+      "op": "listConversationNotifications",
+      "result": []
+    },
+    {
+      "args": [
+        "pc"
+      ],
+      "op": "sendTestNotification",
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "args": [
+        "client-phone"
+      ],
+      "op": "sendTestNotification",
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "args": [
+        "client-web"
+      ],
+      "op": "sendTestNotification",
+      "result": {
+        "message": "no push registration",
+        "ok": false
+      }
+    },
+    {
+      "args": [
+        "client-gone"
+      ],
+      "op": "sendTestNotification",
+      "result": {
+        "message": "That device is not paired with this PC.",
+        "ok": false
+      }
+    },
+    {
+      "op": "<sends>",
+      "sent": [
+        "pc",
+        "client-phone",
+        "client-web"
+      ]
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

@@ -1,0 +1,102 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nB\nc\nd\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\nY\n"
+      ]
+    },
+    {
+      "write": [
+        "u.txt",
+        "new\n"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "command": "git add -A"
+      },
+      "text": ""
+    },
+    {
+      "input": {
+        "command": "git commit -q -m second"
+      },
+      "text": ""
+    },
+    {
+      "input": {
+        "command": "git log --format=%s"
+      },
+      "text": "second\ninit\n"
+    },
+    {
+      "input": {
+        "command": "git branch topic"
+      },
+      "text": ""
+    },
+    {
+      "input": {
+        "command": "git branch --list"
+      },
+      "text": "* main\n  topic\n"
+    },
+    {
+      "input": {
+        "command": "git tag -a v1 -m x"
+      },
+      "text": ""
+    }
+  ],
+  "tool": "git"
+}

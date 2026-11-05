@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Vertex AI Gemini streamGenerateContent 400: {\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"400\"}}",
+    "name": "Error",
+    "status": 400
+  }
+}

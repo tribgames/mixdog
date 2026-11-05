@@ -1,0 +1,216 @@
+{
+  "cases": [
+    {
+      "args": [
+        "."
+      ],
+      "op": "listProjectDirIn",
+      "result": [
+        {
+          "dir": true,
+          "name": "dir"
+        },
+        {
+          "dir": false,
+          "name": "bin.dat"
+        },
+        {
+          "dir": false,
+          "name": "bom8.txt"
+        },
+        {
+          "dir": false,
+          "name": "crlf.txt"
+        },
+        {
+          "dir": false,
+          "name": "utf16le.txt"
+        },
+        {
+          "dir": false,
+          "name": "utf8.txt"
+        }
+      ]
+    },
+    {
+      "args": [
+        "dir"
+      ],
+      "op": "listProjectDirIn",
+      "result": [
+        {
+          "dir": false,
+          "name": "inner.txt"
+        }
+      ]
+    },
+    {
+      "args": [
+        "utf8.txt"
+      ],
+      "op": "readProjectTextFileIn",
+      "result": {
+        "binary": false,
+        "content": "héllo\nworld\n",
+        "encoding": "utf8",
+        "tooLarge": false
+      }
+    },
+    {
+      "args": [
+        "crlf.txt"
+      ],
+      "op": "readProjectTextFileIn",
+      "result": {
+        "binary": false,
+        "content": "a\r\nb\r\n",
+        "encoding": "utf8",
+        "tooLarge": false
+      }
+    },
+    {
+      "args": [
+        "bom8.txt"
+      ],
+      "op": "readProjectTextFileIn",
+      "result": {
+        "binary": false,
+        "content": "bom\n",
+        "encoding": "utf8bom",
+        "tooLarge": false
+      }
+    },
+    {
+      "args": [
+        "utf16le.txt"
+      ],
+      "op": "readProjectTextFileIn",
+      "result": {
+        "binary": false,
+        "content": "hi\n",
+        "encoding": "utf16le",
+        "tooLarge": false
+      }
+    },
+    {
+      "args": [
+        "bin.dat"
+      ],
+      "op": "readProjectTextFileIn",
+      "result": {
+        "binary": true,
+        "content": "",
+        "encoding": "utf8",
+        "tooLarge": false
+      }
+    },
+    {
+      "args": [
+        "missing.txt"
+      ],
+      "error": "ENOENT: no such file or directory, stat '<ROOT>\\missing.txt'",
+      "op": "readProjectTextFileIn"
+    },
+    {
+      "args": [
+        "../escape.txt"
+      ],
+      "error": "Path is outside the project.",
+      "op": "readProjectTextFileIn"
+    },
+    {
+      "args": [
+        "utf8.txt"
+      ],
+      "op": "statProjectFileIn",
+      "result": {
+        "directory": false,
+        "size": 13
+      }
+    },
+    {
+      "args": [
+        "utf8.txt"
+      ],
+      "error": "File changed on disk. Reload or keep your edits before saving.",
+      "op": "writeProjectTextFileIn(expected mismatch)"
+    },
+    {
+      "args": [
+        "utf8.txt"
+      ],
+      "op": "writeProjectTextFileIn",
+      "result": {}
+    },
+    {
+      "args": [
+        "utf8.txt"
+      ],
+      "op": "readProjectTextFileIn(after write)",
+      "result": {
+        "binary": false,
+        "content": "rewritten\n",
+        "encoding": "utf8",
+        "tooLarge": false
+      }
+    },
+    {
+      "args": [
+        "dir",
+        "sub",
+        true
+      ],
+      "op": "createProjectEntryIn"
+    },
+    {
+      "args": [
+        "dir",
+        "a/../b",
+        false
+      ],
+      "error": "Entry name is invalid.",
+      "op": "createProjectEntryIn(invalid)"
+    },
+    {
+      "args": [
+        "dir/inner.txt",
+        "renamed.txt"
+      ],
+      "op": "renameProjectEntryIn"
+    },
+    {
+      "args": [
+        "dir/renamed.txt",
+        "dir/sub"
+      ],
+      "op": "moveProjectEntryIn"
+    },
+    {
+      "args": [
+        "crlf.txt",
+        "dir"
+      ],
+      "op": "copyProjectEntryIn",
+      "result": {
+        "name": "crlf.txt"
+      }
+    },
+    {
+      "args": [
+        "dir"
+      ],
+      "op": "listProjectDirIn(after)",
+      "result": [
+        {
+          "dir": true,
+          "name": "sub"
+        },
+        {
+          "dir": false,
+          "name": "crlf.txt"
+        }
+      ]
+    }
+  ],
+  "domain": "files"
+}

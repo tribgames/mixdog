@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "broken.pdf"
+  },
+  "isError": true,
+  "text": "Error: broken.pdf is not a valid PDF (Invalid PDF structure.).",
+  "tool": "read"
+}

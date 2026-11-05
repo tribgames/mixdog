@@ -1,0 +1,39 @@
+{
+  "expectedFromSpec": {
+    "claim": "owned:false",
+    "handoff": "owned:false",
+    "kill": "ERR_INVALID_ARG_TYPE",
+    "refresh": "status busy",
+    "release": false
+  },
+  "node": "v22.20.0",
+  "observed": {
+    "barrierLockUnchanged": true,
+    "claimIsStaleTrue": {
+      "owned": false,
+      "owner": "<record>"
+    },
+    "claimWithRecordDeleted": {
+      "owned": false,
+      "owner": "<record>"
+    },
+    "handoff": {
+      "owned": false,
+      "owner": "<record>"
+    },
+    "killPidBeyond32bit": "ERR_INVALID_ARG_TYPE",
+    "readAlive": false,
+    "recordByteIdentical": true,
+    "recordWrittenWhenDeleted": false,
+    "refresh": {
+      "owner": "<record>",
+      "status": "busy"
+    },
+    "refreshAsync": {
+      "owner": "<record>",
+      "status": "busy"
+    },
+    "release": false
+  },
+  "platform": "win32"
+}

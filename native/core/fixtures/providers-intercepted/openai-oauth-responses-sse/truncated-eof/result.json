@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "OpenAI OAuth HTTP fallback ended before response.completed (text=17 chars, toolCalls=0)",
+    "name": "Error",
+    "status": null
+  }
+}

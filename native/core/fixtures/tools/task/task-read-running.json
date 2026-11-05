@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "read",
+    "task_id": "task-gold"
+  },
+  "isError": false,
+  "text": "background task\ntask_id: task-gold\nsurface: shell\nstatus: running\nstarted: 2026-01-02T03:04:05.678Z\nlogs: /l/task-gold.{stdout,stderr}.log",
+  "tool": "task"
+}

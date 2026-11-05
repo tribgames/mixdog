@@ -1,0 +1,356 @@
+{
+  "host": {
+    "script": {
+      "add": {
+        "branch": "feat",
+        "created": true,
+        "id": "wt2",
+        "path": "<ROOT>/.mixdog-wt/feat"
+      },
+      "list": [
+        {
+          "branch": "feat",
+          "id": "wt1",
+          "kind": "worktree",
+          "mergeTarget": "main",
+          "ownerLive": true,
+          "ownerSessionId": "lead",
+          "path": "<ROOT>/.mixdog-wt/feat",
+          "removable": false,
+          "repoCommonDir": "<ROOT>/.git",
+          "state": "ready"
+        },
+        {
+          "baseCommit": "abc",
+          "branch": null,
+          "holderSessionId": "lead",
+          "id": "snap1",
+          "kind": "snapshot",
+          "path": "<ROOT>/.mixdog-wt/snap",
+          "removable": true,
+          "repoCommonDir": "<ROOT>/.git",
+          "state": "ready"
+        }
+      ],
+      "prune": {
+        "removed": []
+      },
+      "remove-path": {
+        "removed": true,
+        "revision": 3,
+        "workspace": {
+          "branch": "feat",
+          "cwd": "<ROOT>/wt",
+          "mergeTarget": "main",
+          "revision": 7,
+          "worktreeId": "wt1"
+        }
+      },
+      "snapshot": {
+        "baseCommit": "abc123",
+        "id": "snap2",
+        "path": "<ROOT>/.mixdog-wt/snap2"
+      }
+    },
+    "sessionId": "lead",
+    "toolCallId": "call1"
+  },
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    },
+    {
+      "git": [
+        "branch",
+        "existing"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "command": "git worktree add -b feat ../w feature-base"
+      },
+      "requests": [],
+      "text": "error: git worktree add: feature-base is not a commit"
+    },
+    {
+      "input": {
+        "command": "git worktree add -b feat ../w"
+      },
+      "requests": [
+        {
+          "branch": "feat",
+          "confirmLarge": false,
+          "create": true,
+          "op": "add",
+          "repoCommonDir": "<ROOT>/.git",
+          "startPoint": "<SHA>",
+          "txId": "call1:git worktree add -b feat ../w"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree add -b feat ../w\",\"requestedPath\":\"<WORK>/w\",\"branch\":\"feat\",\"created\":true,\"id\":\"wt2\",\"path\":\"<ROOT>/.mixdog-wt/feat\",\"note\":\"Managed worktree at the path above (not the one requested), retained by this session. The session did not move; worktree_action:\\\"enter\\\" with branch:\\\"feat\\\" moves it there.\"}"
+    },
+    {
+      "input": {
+        "command": "git worktree add -b main ../w"
+      },
+      "requests": [],
+      "text": "error: git worktree add: a branch named 'main' already exists (omit -b to check it out)"
+    },
+    {
+      "input": {
+        "command": "git worktree add -B main ../w"
+      },
+      "requests": [],
+      "text": "error: git worktree add: -B would reset the existing branch main; managed worktrees never reset a branch (omit -B to check it out as it is)"
+    },
+    {
+      "input": {
+        "command": "git worktree add -b"
+      },
+      "requests": [],
+      "text": "error: git worktree add: -b requires a branch name"
+    },
+    {
+      "input": {
+        "command": "git worktree add --detach -b x ../w"
+      },
+      "requests": [],
+      "text": "error: git worktree add: --detach excludes -b/-B"
+    },
+    {
+      "input": {
+        "command": "git worktree add --orphan ../w"
+      },
+      "requests": [],
+      "text": "error: git worktree add: --orphan is not supported for managed worktrees"
+    },
+    {
+      "input": {
+        "command": "git worktree add --bogus ../w"
+      },
+      "requests": [],
+      "text": "error: git worktree add: option --bogus is not supported for managed worktrees"
+    },
+    {
+      "input": {
+        "command": "git worktree add"
+      },
+      "requests": [],
+      "text": "error: git worktree add requires <path> [<commit-ish>]"
+    },
+    {
+      "input": {
+        "command": "git worktree add a b c"
+      },
+      "requests": [],
+      "text": "error: git worktree add requires <path> [<commit-ish>]"
+    },
+    {
+      "input": {
+        "command": "git worktree add ../newbranch"
+      },
+      "requests": [
+        {
+          "branch": "newbranch",
+          "confirmLarge": false,
+          "create": true,
+          "op": "add",
+          "repoCommonDir": "<ROOT>/.git",
+          "startPoint": "<SHA>",
+          "txId": "call1:git worktree add ../newbranch"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree add ../newbranch\",\"requestedPath\":\"<WORK>/newbranch\",\"branch\":\"feat\",\"created\":true,\"id\":\"wt2\",\"path\":\"<ROOT>/.mixdog-wt/feat\",\"note\":\"Managed worktree at the path above (not the one requested), retained by this session. The session did not move; worktree_action:\\\"enter\\\" with branch:\\\"newbranch\\\" moves it there.\"}"
+    },
+    {
+      "input": {
+        "command": "git worktree add ../w existing"
+      },
+      "requests": [
+        {
+          "branch": "existing",
+          "confirmLarge": false,
+          "create": false,
+          "op": "add",
+          "repoCommonDir": "<ROOT>/.git",
+          "startPoint": null,
+          "txId": "call1:git worktree add ../w existing"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree add ../w existing\",\"requestedPath\":\"<WORK>/w\",\"branch\":\"feat\",\"created\":true,\"id\":\"wt2\",\"path\":\"<ROOT>/.mixdog-wt/feat\",\"note\":\"Managed worktree at the path above (not the one requested), retained by this session. The session did not move; worktree_action:\\\"enter\\\" with branch:\\\"existing\\\" moves it there.\"}"
+    },
+    {
+      "input": {
+        "command": "git worktree add ../w HEAD"
+      },
+      "requests": [
+        {
+          "commit": "<SHA>",
+          "confirmLarge": false,
+          "op": "snapshot",
+          "repoCommonDir": "<ROOT>/.git",
+          "txId": "call1:git worktree add ../w HEAD"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree add ../w HEAD\",\"requestedPath\":\"<WORK>/w\",\"snapshot\":true,\"path\":\"<ROOT>/.mixdog-wt/snap2\",\"commit\":\"abc123\",\"worktreeId\":\"snap2\",\"note\":\"Managed read-only snapshot at the path above (not the one requested); it is removed when this turn ends, and changes made in it are discarded. The session did not move.\"}"
+    },
+    {
+      "input": {
+        "command": "git worktree add --detach ../w HEAD"
+      },
+      "requests": [
+        {
+          "commit": "<SHA>",
+          "confirmLarge": false,
+          "op": "snapshot",
+          "repoCommonDir": "<ROOT>/.git",
+          "txId": "call1:git worktree add --detach ../w HEAD"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree add --detach ../w HEAD\",\"requestedPath\":\"<WORK>/w\",\"snapshot\":true,\"path\":\"<ROOT>/.mixdog-wt/snap2\",\"commit\":\"abc123\",\"worktreeId\":\"snap2\",\"note\":\"Managed read-only snapshot at the path above (not the one requested); it is removed when this turn ends, and changes made in it are discarded. The session did not move.\"}"
+    },
+    {
+      "input": {
+        "command": "git worktree add ../w nonsense-ref"
+      },
+      "requests": [],
+      "text": "error: git worktree add: nonsense-ref is not a commit"
+    },
+    {
+      "input": {
+        "command": "git worktree remove ../w"
+      },
+      "requests": [
+        {
+          "force": false,
+          "op": "remove-path",
+          "path": "<WORK>/w"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree remove ../w\",\"path\":\"<WORK>/w\",\"removed\":true,\"workspace\":{\"cwd\":\"<ROOT>/wt\",\"branch\":\"feat\",\"mergeTarget\":\"main\",\"revision\":7,\"worktreeId\":\"wt1\"}}"
+    },
+    {
+      "input": {
+        "command": "git worktree remove -f ../w"
+      },
+      "requests": [
+        {
+          "force": true,
+          "op": "remove-path",
+          "path": "<WORK>/w"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree remove -f ../w\",\"path\":\"<WORK>/w\",\"removed\":true,\"workspace\":{\"cwd\":\"<ROOT>/wt\",\"branch\":\"feat\",\"mergeTarget\":\"main\",\"revision\":7,\"worktreeId\":\"wt1\"}}"
+    },
+    {
+      "input": {
+        "command": "git worktree remove"
+      },
+      "requests": [],
+      "text": "error: git worktree remove requires exactly one <path>"
+    },
+    {
+      "input": {
+        "command": "git worktree remove --weird ../w"
+      },
+      "requests": [],
+      "text": "error: git worktree remove: option --weird is not supported"
+    },
+    {
+      "input": {
+        "command": "git worktree prune"
+      },
+      "requests": [
+        {
+          "op": "prune",
+          "repoCommonDir": "<ROOT>/.git"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree prune\",\"removed\":[]}"
+    },
+    {
+      "input": {
+        "command": "git worktree prune -n"
+      },
+      "requests": [
+        {
+          "op": "list"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree prune -n\",\"dryRun\":true,\"wouldRemove\":[{\"id\":\"snap1\",\"path\":\"<ROOT>/.mixdog-wt/snap\",\"branch\":null,\"snapshot\":true,\"commit\":\"abc\",\"holderSessionId\":\"lead\",\"state\":\"ready\",\"removable\":true}]}"
+    },
+    {
+      "input": {
+        "command": "git worktree prune --expire=now"
+      },
+      "requests": [],
+      "text": "error: git worktree prune: option --expire=now is not supported (managed prune takes -n/--dry-run and -v/--verbose)"
+    },
+    {
+      "input": {
+        "command": "git worktree prune extra"
+      },
+      "requests": [],
+      "text": "error: git worktree prune: unexpected argument extra"
+    },
+    {
+      "input": {
+        "command": "git worktree list"
+      },
+      "requests": [
+        {
+          "op": "list"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree list\",\"worktrees\":[{\"path\":\"<ROOT>\",\"branch\":\"main\",\"main\":true},{\"id\":\"wt1\",\"path\":\"<ROOT>/.mixdog-wt/feat\",\"branch\":\"feat\",\"ownerSessionId\":\"lead\",\"mergeTarget\":\"main\",\"state\":\"ready\",\"ownerLive\":true,\"removable\":false},{\"id\":\"snap1\",\"path\":\"<ROOT>/.mixdog-wt/snap\",\"branch\":null,\"snapshot\":true,\"commit\":\"abc\",\"holderSessionId\":\"lead\",\"state\":\"ready\",\"removable\":true}]}"
+    },
+    {
+      "input": {
+        "command": "git worktree move a b"
+      },
+      "requests": [],
+      "text": "error: git worktree move is refused: Mixdog-managed worktrees stay at their fixed, locked locations. Use git worktree list/remove/prune or action:\"worktree\""
+    }
+  ],
+  "tool": "git"
+}

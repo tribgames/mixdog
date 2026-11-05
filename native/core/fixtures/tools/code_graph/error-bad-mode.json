@@ -1,0 +1,7 @@
+{
+  "input": {
+    "mode": "nope"
+  },
+  "thrown": "code_graph: unknown mode \"nope\"",
+  "tool": "code_graph"
+}

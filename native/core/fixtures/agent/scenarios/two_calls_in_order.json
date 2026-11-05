@@ -1,0 +1,36 @@
+{
+  "name": "two_calls_in_order",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {
+            "n": 1
+          }
+        },
+        {
+          "id": "c2",
+          "name": "echo",
+          "arguments": {
+            "n": 2
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "k",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

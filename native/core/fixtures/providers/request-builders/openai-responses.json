@@ -1,0 +1,121 @@
+{
+  "text": {
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "input": [
+      {
+        "content": [
+          {
+            "text": "Look up the answer.",
+            "type": "input_text"
+          }
+        ],
+        "internal_chat_message_metadata_passthrough": {},
+        "role": "user",
+        "type": "message"
+      }
+    ],
+    "instructions": "You are a fixture assistant.",
+    "model": "gpt-fixture",
+    "parallel_tool_calls": true,
+    "prompt_cache_key": "mixdog-codex",
+    "reasoning": {
+      "effort": "medium",
+      "summary": "auto"
+    },
+    "store": false,
+    "stream": true,
+    "stream_options": {
+      "reasoning_summary_delivery": "sequential_cutoff"
+    },
+    "text": {
+      "verbosity": "low"
+    },
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "description": "Read a value",
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "type": "object"
+        },
+        "strict": false,
+        "type": "function"
+      }
+    ]
+  },
+  "toolResult": {
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "input": [
+      {
+        "content": [
+          {
+            "text": "Look up the answer.",
+            "type": "input_text"
+          }
+        ],
+        "internal_chat_message_metadata_passthrough": {},
+        "role": "user",
+        "type": "message"
+      },
+      {
+        "arguments": "{\"key\":\"answer\"}",
+        "call_id": "call_fx1",
+        "name": "lookup",
+        "type": "function_call"
+      },
+      {
+        "call_id": "call_fx1",
+        "output": "42",
+        "type": "function_call_output"
+      }
+    ],
+    "instructions": "You are a fixture assistant.",
+    "model": "gpt-fixture",
+    "parallel_tool_calls": true,
+    "prompt_cache_key": "mixdog-codex",
+    "reasoning": {
+      "effort": "medium",
+      "summary": "auto"
+    },
+    "store": false,
+    "stream": true,
+    "stream_options": {
+      "reasoning_summary_delivery": "sequential_cutoff"
+    },
+    "text": {
+      "verbosity": "low"
+    },
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "description": "Read a value",
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "type": "object"
+        },
+        "strict": false,
+        "type": "function"
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "opencode-go SSE stream truncated: no finish_reason",
+    "name": "TruncatedStreamError",
+    "status": null
+  }
+}

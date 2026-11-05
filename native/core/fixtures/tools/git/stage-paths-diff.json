@@ -1,0 +1,89 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nB\nc\nd\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\nY\n"
+      ]
+    },
+    {
+      "write": [
+        "u.txt",
+        "new\n"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "command": "git diff -- g.txt",
+        "include_stage_ids": true
+      },
+      "text": "diff --git a/g.txt b/g.txt\n--- a/g.txt\n+++ b/g.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff_id: <DIFF_ID> (ids number the +/- runs in diff order; [whole file] ids stage the entire file)\ng.txt: c1"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ],
+        "diff_id": "<DIFF_ID>"
+      },
+      "text": "{\"ok\":true,\"staged\":true,\"changes\":1,\"additions\":1,\"deletions\":1,\"files\":[\"g.txt: 1 change +1 -1\"]}"
+    },
+    {
+      "input": {
+        "command": "git diff --cached"
+      },
+      "text": "diff --git a/g.txt b/g.txt\n--- a/g.txt\n+++ b/g.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\n"
+    }
+  ],
+  "tool": "git"
+}

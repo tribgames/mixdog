@@ -1,0 +1,419 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "23faaaa4298371d22e335096613e2092",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs#proxyHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 2275,
+        "precedesAttempt": 2,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 4432,
+        "precedesAttempt": 3,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 8030,
+        "precedesAttempt": 4,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 17985,
+        "precedesAttempt": 5,
+        "seq": 4,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 28690,
+        "precedesAttempt": 6,
+        "seq": 5,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.5907999037299305
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.8437847776804119
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.2332424360793084
+        },
+        {
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.7697469133418053
+        },
+        {
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.3406084373127669
+        },
+        {
+          "n": 6,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.509317264193669
+        },
+        {
+          "n": 7,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.178291646996513
+        },
+        {
+          "n": 8,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.8102049212902784
+        },
+        {
+          "n": 9,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.09524559765122831
+        },
+        {
+          "n": 10,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.39082687930203974
+        }
+      ],
+      "scenarioId": "grok-oauth/truncated-eof",
+      "seed": 1336313670,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "23faaaa4-2983-41d2-ae33-5096613e2092",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "23faaaa4-2983-41d2-ae33-5096613e2092",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "23faaaa4-2983-41d2-ae33-5096613e2092",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "23faaaa4-2983-41d2-ae33-5096613e2092",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\n",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "23faaaa4-2983-41d2-ae33-5096613e2092",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

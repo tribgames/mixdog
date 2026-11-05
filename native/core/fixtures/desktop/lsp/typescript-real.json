@@ -1,0 +1,1011 @@
+{
+  "domain": "lsp",
+  "entries": [
+    {
+      "args": [
+        {
+          "content": "import { twice } from \"./util\";\nconst x: number = twice(\"2\");\n",
+          "kind": "open",
+          "languageId": "typescript",
+          "relPath": "src/a.ts",
+          "version": 1
+        }
+      ],
+      "op": "document(open)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "src/a.ts"
+      ],
+      "op": "diagnostics(after open)",
+      "result": [
+        {
+          "code": 6133,
+          "message": "'x' is declared but its value is never read.",
+          "range": {
+            "end": {
+              "character": 7,
+              "line": 1
+            },
+            "start": {
+              "character": 6,
+              "line": 1
+            }
+          },
+          "severity": 4,
+          "source": "typescript"
+        },
+        {
+          "code": 2345,
+          "message": "Argument of type 'string' is not assignable to parameter of type 'number'.",
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 1
+            },
+            "start": {
+              "character": 24,
+              "line": 1
+            }
+          },
+          "severity": 1,
+          "source": "typescript"
+        }
+      ]
+    },
+    {
+      "args": [
+        "src/a.ts",
+        "textDocument/hover",
+        {
+          "position": {
+            "character": 6,
+            "line": 1
+          }
+        }
+      ],
+      "op": "request(hover)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "result": {
+          "contents": {
+            "kind": "markdown",
+            "value": "\n```typescript\nconst x: number\n```\n"
+          },
+          "range": {
+            "end": {
+              "character": 7,
+              "line": 1
+            },
+            "start": {
+              "character": 6,
+              "line": 1
+            }
+          }
+        },
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "src/a.ts",
+        "textDocument/definition",
+        {
+          "position": {
+            "character": 21,
+            "line": 1
+          }
+        }
+      ],
+      "op": "request(definition)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "result": [
+          {
+            "originSelectionRange": {
+              "end": {
+                "character": 23,
+                "line": 1
+              },
+              "start": {
+                "character": 18,
+                "line": 1
+              }
+            },
+            "targetRange": {
+              "end": {
+                "character": 1,
+                "line": 2
+              },
+              "start": {
+                "character": 0,
+                "line": 0
+              }
+            },
+            "targetSelectionRange": {
+              "end": {
+                "character": 21,
+                "line": 0
+              },
+              "start": {
+                "character": 16,
+                "line": 0
+              }
+            },
+            "targetUri": "file:///c%3A/Users/tempe/.mixdog/data/scratch/s.c348b0210a94389d/mixdog-lsp-real-r3FRKr/project/src/util.ts"
+          }
+        ],
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "src/a.ts",
+        "textDocument/notAMethod",
+        {}
+      ],
+      "op": "request(unsupported method)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "detail": "TypeScript Language Server does not support textDocument/notAMethod.",
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        {
+          "content": "import { twice } from \"./util\";\nconst x: number = twice(2);\nconst y: string = x;\n",
+          "kind": "change",
+          "languageId": "typescript",
+          "relPath": "src/a.ts",
+          "version": 2
+        }
+      ],
+      "op": "document(change: fix first error, add second)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "src/a.ts"
+      ],
+      "error": {
+        "message": "diagnostics for src/a.ts did not settle",
+        "name": "Error"
+      },
+      "op": "diagnostics(after change)"
+    },
+    {
+      "args": [
+        {
+          "content": "import { twice } from \"./util\";\nconst x: number = twice(2);\nconst y: string = x;\n",
+          "kind": "save",
+          "languageId": "typescript",
+          "relPath": "src/a.ts",
+          "version": 2
+        }
+      ],
+      "op": "document(save)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        {
+          "content": "",
+          "kind": "close",
+          "languageId": "typescript",
+          "relPath": "src/a.ts",
+          "version": 2
+        }
+      ],
+      "op": "document(close)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "src/a.ts"
+      ],
+      "op": "diagnostics(after close)",
+      "result": []
+    },
+    {
+      "args": [],
+      "op": "crash(kill server)",
+      "result": [
+        {
+          "detail": "Retrying after Ns.",
+          "status": "stopped"
+        }
+      ]
+    },
+    {
+      "args": [
+        {
+          "content": "import { twice } from \"./util\";\nconst x: number = twice(\"2\");\n",
+          "kind": "open",
+          "languageId": "typescript",
+          "relPath": "src/a.ts",
+          "version": 3
+        }
+      ],
+      "op": "document(open after crash)",
+      "result": {
+        "available": true,
+        "capabilities": {
+          "callHierarchy": true,
+          "codeAction": true,
+          "codeActionKinds": [
+            "source.fixAll.ts",
+            "source.removeUnused.ts",
+            "source.addMissingImports.ts",
+            "quickfix",
+            "source.organizeImports.ts",
+            "source.removeUnusedImports.ts",
+            "source.sortImports.ts",
+            "refactor"
+          ],
+          "codeActionResolve": true,
+          "codeLens": true,
+          "codeLensResolve": true,
+          "completion": true,
+          "completionResolve": true,
+          "completionTriggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "/",
+            "@",
+            "<"
+          ],
+          "declaration": false,
+          "definition": true,
+          "documentColor": false,
+          "documentHighlight": true,
+          "documentLink": false,
+          "documentLinkResolve": false,
+          "documentSymbol": true,
+          "executeCommand": true,
+          "foldingRange": true,
+          "formatting": true,
+          "hover": true,
+          "implementation": true,
+          "inlayHint": true,
+          "inlayHintResolve": false,
+          "linkedEditingRange": true,
+          "onTypeFormatting": false,
+          "onTypeFormattingTriggerCharacters": [],
+          "prepareRename": true,
+          "rangeFormatting": true,
+          "references": true,
+          "rename": true,
+          "selectionRange": true,
+          "semanticTokens": true,
+          "semanticTokensDelta": false,
+          "semanticTokensLegend": {
+            "tokenModifiers": [
+              "declaration",
+              "static",
+              "async",
+              "readonly",
+              "defaultLibrary",
+              "local"
+            ],
+            "tokenTypes": [
+              "class",
+              "enum",
+              "interface",
+              "namespace",
+              "typeParameter",
+              "type",
+              "parameter",
+              "variable",
+              "enumMember",
+              "property",
+              "function",
+              "member"
+            ]
+          },
+          "semanticTokensRange": true,
+          "signatureHelp": true,
+          "signatureHelpRetriggerCharacters": [
+            ")"
+          ],
+          "signatureHelpTriggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "typeDefinition": true,
+          "workspaceSymbol": true
+        },
+        "server": "TypeScript Language Server",
+        "status": "ready"
+      }
+    },
+    {
+      "args": [
+        "src/a.ts"
+      ],
+      "op": "diagnostics(after restart)",
+      "result": [
+        {
+          "code": 6133,
+          "message": "'x' is declared but its value is never read.",
+          "range": {
+            "end": {
+              "character": 7,
+              "line": 1
+            },
+            "start": {
+              "character": 6,
+              "line": 1
+            }
+          },
+          "severity": 4,
+          "source": "typescript"
+        },
+        {
+          "code": 2345,
+          "message": "Argument of type 'string' is not assignable to parameter of type 'number'.",
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 1
+            },
+            "start": {
+              "character": 24,
+              "line": 1
+            }
+          },
+          "severity": 1,
+          "source": "typescript"
+        }
+      ]
+    },
+    {
+      "args": [],
+      "op": "disposeUnder",
+      "result": [
+        "project"
+      ]
+    }
+  ],
+  "project": {
+    "src/a.ts": "imports twice",
+    "src/util.ts": "twice(n: number): number",
+    "tsconfig.json": "strict es2022"
+  },
+  "recorder": "record-lsp-real.mjs",
+  "server": {
+    "id": "typescript-language-server",
+    "version": "5.1.3"
+  }
+}

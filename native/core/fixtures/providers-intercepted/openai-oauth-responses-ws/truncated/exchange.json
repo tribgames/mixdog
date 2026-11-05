@@ -1,0 +1,381 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/lib/first-output-window.mjs#Object.arm",
+      "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs#scheduleHedge",
+      "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_scheduleForcedTerminate",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#Object.armFirstMeaningful",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#Object.armPreStream",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#resetInterChunk",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#resetSemanticIdle"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 215,
+        "precedesAttempt": 2,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 406,
+        "precedesAttempt": 3,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 853,
+        "precedesAttempt": 4,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 1581,
+        "precedesAttempt": 5,
+        "seq": 4,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 3167,
+        "precedesAttempt": 6,
+        "seq": 5,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.8737933803349733
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.577896544476971
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.8317659930326045
+        },
+        {
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.44091398804448545
+        },
+        {
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.4488514964468777
+        }
+      ],
+      "scenarioId": "openai-oauth-responses-ws/truncated",
+      "seed": 4145477812,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"},\"client_metadata\":{\"x-codex-installation-id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"turn_id\":\"2040aff2-d995-76e5-af30-71d2f3cca513\",\"x-codex-window-id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\\\",\\\"session_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"thread_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"2040aff2-d995-76e5-af30-71d2f3cca513\\\",\\\"window_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":\"<wallclock-ms>\"}\",\"x-codex-ws-stream-request-start-ms\":\"<wallclock-ms>\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"},\"client_metadata\":{\"x-codex-installation-id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"turn_id\":\"2040aff2-d995-76e5-af30-71d2f3cca513\",\"x-codex-window-id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\\\",\\\"session_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"thread_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"2040aff2-d995-76e5-af30-71d2f3cca513\\\",\\\"window_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":\"<wallclock-ms>\"}\",\"x-codex-ws-stream-request-start-ms\":\"<wallclock-ms>\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"},\"client_metadata\":{\"x-codex-installation-id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"turn_id\":\"2040aff2-d995-76e5-af30-71d2f3cca513\",\"x-codex-window-id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\\\",\\\"session_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"thread_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"2040aff2-d995-76e5-af30-71d2f3cca513\\\",\\\"window_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":\"<wallclock-ms>\"}\",\"x-codex-ws-stream-request-start-ms\":\"<wallclock-ms>\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"},\"client_metadata\":{\"x-codex-installation-id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"turn_id\":\"2040aff2-d995-76e5-af30-71d2f3cca513\",\"x-codex-window-id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\\\",\\\"session_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"thread_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"2040aff2-d995-76e5-af30-71d2f3cca513\\\",\\\"window_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":\"<wallclock-ms>\"}\",\"x-codex-ws-stream-request-start-ms\":\"<wallclock-ms>\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"},\"client_metadata\":{\"x-codex-installation-id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"turn_id\":\"2040aff2-d995-76e5-af30-71d2f3cca513\",\"x-codex-window-id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\\\",\\\"session_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"thread_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"2040aff2-d995-76e5-af30-71d2f3cca513\\\",\\\"window_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":\"<wallclock-ms>\"}\",\"x-codex-ws-stream-request-start-ms\":\"<wallclock-ms>\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"},\"client_metadata\":{\"x-codex-installation-id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"turn_id\":\"2040aff2-d995-76e5-af30-71d2f3cca513\",\"x-codex-window-id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\\\",\\\"session_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"thread_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"2040aff2-d995-76e5-af30-71d2f3cca513\\\",\\\"window_id\\\":\\\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":\"<wallclock-ms>\"}\",\"x-codex-ws-stream-request-start-ms\":\"<wallclock-ms>\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    }
+  ],
+  "transports": [
+    "ws"
+  ]
+}

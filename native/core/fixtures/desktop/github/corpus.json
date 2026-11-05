@@ -1,0 +1,401 @@
+{
+  "domain": "github",
+  "entries": [
+    {
+      "args": [
+        "<WORK>\\project",
+        {
+          "action": "pr.list",
+          "repo": "owner/name",
+          "state": "open"
+        }
+      ],
+      "error": {
+        "message": "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.",
+        "name": "Error"
+      },
+      "op": "githubRequest"
+    },
+    {
+      "args": [
+        {
+          "action": "pr.list",
+          "limit": 5,
+          "repo": "owner/name",
+          "state": "open"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "pr.list",
+          "data": [
+            {
+              "number": 1,
+              "state": "open",
+              "title": "fixture"
+            }
+          ],
+          "hasMore": false,
+          "hostname": "github.com",
+          "page": 1,
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "api",
+                "repos/owner/name/pulls?per_page=5&page=1&state=open",
+                "--hostname",
+                "github.com",
+                "--method",
+                "GET"
+              ],
+              "input": null,
+              "json": true,
+              "list": true,
+              "mutation": false
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "pr.view",
+          "number": 1,
+          "repo": "owner/name"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "pr.view",
+          "data": {
+            "number": 1,
+            "title": "fixture"
+          },
+          "hostname": "github.com",
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "api",
+                "repos/owner/name/pulls/1",
+                "--hostname",
+                "github.com",
+                "--method",
+                "GET"
+              ],
+              "input": null,
+              "json": true,
+              "list": false,
+              "mutation": false
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "issue.list",
+          "repo": "owner/name"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "issue.list",
+          "data": [
+            {
+              "number": 1,
+              "state": "open",
+              "title": "fixture"
+            }
+          ],
+          "hasMore": false,
+          "hostname": "github.com",
+          "page": 1,
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "api",
+                "repos/owner/name/issues?per_page=30&page=1&state=open",
+                "--hostname",
+                "github.com",
+                "--method",
+                "GET"
+              ],
+              "input": null,
+              "json": true,
+              "list": true,
+              "mutation": false
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "issue.comment",
+          "body": "fixture comment",
+          "number": 3,
+          "repo": "owner/name"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "issue.comment",
+          "data": {
+            "number": 1,
+            "title": "fixture"
+          },
+          "hostname": "github.com",
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "api",
+                "repos/owner/name/issues/3/comments",
+                "--hostname",
+                "github.com",
+                "--method",
+                "POST",
+                "--input",
+                "-"
+              ],
+              "input": "{\"body\":\"fixture comment\"}",
+              "json": true,
+              "list": false,
+              "mutation": true
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "pr.merge",
+          "number": 3,
+          "repo": "owner/name",
+          "sha": "<HEX>"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "pr.merge",
+          "data": {
+            "number": 1,
+            "title": "fixture"
+          },
+          "hostname": "github.com",
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "api",
+                "repos/owner/name/pulls/3/merge",
+                "--hostname",
+                "github.com",
+                "--method",
+                "PUT",
+                "--input",
+                "-"
+              ],
+              "input": "{\"merge_method\":\"merge\",\"sha\":\"<HEX>\"}",
+              "json": true,
+              "list": false,
+              "mutation": true
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "repo.list",
+          "owner": "owner"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "repo.list",
+          "data": [
+            {
+              "number": 1,
+              "state": "open",
+              "title": "fixture"
+            }
+          ],
+          "hasMore": false,
+          "hostname": "github.com",
+          "page": 1,
+          "repo": ""
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "api",
+                "users/owner/repos?per_page=30&page=1&sort=updated",
+                "--hostname",
+                "github.com",
+                "--method",
+                "GET"
+              ],
+              "input": null,
+              "json": true,
+              "list": true,
+              "mutation": false
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "pr.list"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "pr.list",
+          "data": [
+            {
+              "number": 1,
+              "state": "open",
+              "title": "fixture"
+            }
+          ],
+          "hasMore": false,
+          "hostname": "github.com",
+          "page": 1,
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "repo",
+                "view",
+                "--json",
+                "nameWithOwner"
+              ],
+              "hostname": "github.com",
+              "input": null,
+              "json": true,
+              "list": false,
+              "mutation": false
+            },
+            "cwd": "<WORK>\\project"
+          },
+          {
+            "command": {
+              "args": [
+                "api",
+                "repos/owner/name/pulls?per_page=30&page=1&state=open",
+                "--hostname",
+                "github.com",
+                "--method",
+                "GET"
+              ],
+              "input": null,
+              "json": true,
+              "list": true,
+              "mutation": false
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "bogus.action"
+        }
+      ],
+      "error": {
+        "message": "A supported GitHub action is required.",
+        "name": "TypeError"
+      },
+      "op": "createGithubService(gate=on)"
+    },
+    {
+      "args": [
+        {
+          "action": "repo.clone",
+          "destination": "<WORK>\\clone-dest",
+          "repo": "owner/name"
+        }
+      ],
+      "op": "createGithubService(gate=on)",
+      "result": {
+        "response": {
+          "action": "repo.clone",
+          "data": "{\"nameWithOwner\":\"owner/name\"}",
+          "hostname": "github.com",
+          "repo": "owner/name"
+        },
+        "spawned": [
+          {
+            "command": {
+              "args": [
+                "repo",
+                "clone",
+                "owner/name",
+                "<WORK>\\clone-dest"
+              ],
+              "hostname": "github.com",
+              "input": null,
+              "json": false,
+              "list": false,
+              "mutation": true
+            },
+            "cwd": "<WORK>\\project"
+          }
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "action": "pr.list",
+          "repo": "owner/name"
+        }
+      ],
+      "error": {
+        "message": "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.",
+        "name": "Error"
+      },
+      "op": "createGithubService(gate=off)"
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

@@ -1,0 +1,42 @@
+{
+  "name": "stale_ids_renamed",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "call_0",
+          "name": "echo",
+          "arguments": {
+            "i": 1
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "call_0",
+          "name": "echo",
+          "arguments": {
+            "i": 2
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "k",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

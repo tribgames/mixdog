@@ -1,0 +1,28 @@
+{
+  "dispatchedToolCalls": [
+    {
+      "arguments": {
+        "key": "answer"
+      },
+      "id": "toolu_fx1",
+      "name": "lookup"
+    }
+  ],
+  "ok": {
+    "content": "",
+    "stopReason": "tool_use",
+    "toolCalls": [
+      {
+        "arguments": {
+          "key": "answer"
+        },
+        "id": "toolu_fx1",
+        "name": "lookup"
+      }
+    ],
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 12
+    }
+  }
+}

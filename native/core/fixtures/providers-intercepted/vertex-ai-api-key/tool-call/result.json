@@ -1,0 +1,9 @@
+{
+  "dispatchedToolCalls": [],
+  "ok": {
+    "content": "",
+    "stopReason": null,
+    "toolCalls": [],
+    "usage": null
+  }
+}

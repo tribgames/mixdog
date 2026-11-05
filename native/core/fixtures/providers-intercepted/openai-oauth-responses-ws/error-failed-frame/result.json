@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "OpenAI OAuth WS response.failed: fixture upstream failure",
+    "name": "Error",
+    "status": null
+  }
+}

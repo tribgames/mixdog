@@ -1,0 +1,44 @@
+{
+  "commit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+  "extract": "git archive --format=tar -o tag.tar 69fe41b05; tar -xf tag.tar -C <dir>; (cd <dir> && git show 69fe41b05:package-lock.json > package-lock.json && npm ci --omit=dev --ignore-scripts)",
+  "files": [
+    {
+      "blob": "6ef440a66cac3fd9fb303cb57264a7ce9e0dbd4c",
+      "path": "src/runtime/shared/singleton-owner.mjs"
+    },
+    {
+      "blob": "c40a9c49a3bc2ef6abe27fee35a7de4bf581dee1",
+      "path": "src/runtime/shared/file-lock.mjs"
+    },
+    {
+      "blob": "591a5279a4f33a629c7b59c67d8a8521f3d64b9f",
+      "path": "src/runtime/shared/pid-liveness.mjs"
+    },
+    {
+      "blob": "e52070eb6f01880d9f00bc91ceb92f449c9c7700",
+      "path": "src/standalone/daemon-owner.mjs"
+    },
+    {
+      "blob": "f42b7bedf41cad1812e851cf37b2c4a7cfe70949",
+      "path": "src/standalone/daemon.mjs"
+    },
+    {
+      "blob": "378a94c405ac9cf2b65be78f1bef7ddc5cf5adeb",
+      "path": "src/standalone/session-client.mjs"
+    },
+    {
+      "blob": "f39bf073a9590e0d4a16cce9c1c51dcf27de8f35",
+      "path": "apps/desktop/src/main/ssh/remote-install-daemon.ts"
+    },
+    {
+      "blob": "d39f2d63a81e701290fa6e875ee51a8ae7702663",
+      "path": "apps/desktop/src/main/ssh/remote-install-program.ts"
+    },
+    {
+      "blob": "fad7ec8c6b37bacc67113187197ac25c1bffc2d7",
+      "path": "apps/desktop/src/main/session-transport.ts"
+    }
+  ],
+  "nodeModulesFrom": "HEAD tree node_modules (dev-PC shortcut; CI must use the tag lockfile)",
+  "tag": "v1.4.5"
+}

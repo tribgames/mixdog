@@ -1,0 +1,11 @@
+{
+  "input": {
+    "files": [
+      "src/lib/math.mjs"
+    ],
+    "mode": "related"
+  },
+  "isError": false,
+  "text": "file\tsrc/lib/math.mjs\nlanguage\tjavascript\nimports\t0\ndependents\t2\nrelated\t2\n\n# imports\n(none)\n\n# dependents\nsrc/lib/util.mjs\nsrc/main.mjs\n\n# related\nsrc/lib/util.mjs\nsrc/main.mjs",
+  "tool": "code_graph"
+}

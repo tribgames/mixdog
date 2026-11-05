@@ -1,0 +1,225 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#Object.resetIdle",
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#createRestStreamWatchdogs"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 1000,
+        "precedesAttempt": 2,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 2000,
+        "precedesAttempt": 3,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ],
+        "delayMs": 4000,
+        "precedesAttempt": 4,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "vertex-ai-api-key/text",
+      "seed": 423831923,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}]}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "379",
+        "content-type": "application/json",
+        "host": "aiplatform.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-goog-api-key": "<redacted>"
+      },
+      "method": "POST",
+      "origin": "https://aiplatform.googleapis.com",
+      "path": "/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "[{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"},{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}]",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}]}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "379",
+        "content-type": "application/json",
+        "host": "aiplatform.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-goog-api-key": "<redacted>"
+      },
+      "method": "POST",
+      "origin": "https://aiplatform.googleapis.com",
+      "path": "/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "[{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"},{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}]",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}]}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "379",
+        "content-type": "application/json",
+        "host": "aiplatform.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-goog-api-key": "<redacted>"
+      },
+      "method": "POST",
+      "origin": "https://aiplatform.googleapis.com",
+      "path": "/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "[{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"},{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}]",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}]}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "379",
+        "content-type": "application/json",
+        "host": "aiplatform.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-goog-api-key": "<redacted>"
+      },
+      "method": "POST",
+      "origin": "https://aiplatform.googleapis.com",
+      "path": "/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "[{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"},{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}]",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"tools\":[{\"functionDeclarations\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}]}]}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "379",
+        "content-type": "application/json",
+        "host": "aiplatform.googleapis.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-goog-api-key": "<redacted>"
+      },
+      "method": "POST",
+      "origin": "https://aiplatform.googleapis.com",
+      "path": "/v1/publishers/google/models/gemini-2.5-pro:generateContent",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "[{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"},{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}]",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

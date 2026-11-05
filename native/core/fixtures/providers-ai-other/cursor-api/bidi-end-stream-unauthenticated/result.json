@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "stream_aborted",
+    "connectCode": null,
+    "cursorCode": "stream_aborted",
+    "liveTextEmitted": null,
+    "message": "Cursor stream was aborted",
+    "name": "Error",
+    "providerRecoveryExhausted": true,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": null,
+    "status": null,
+    "truncatedStream": null,
+    "unsafeToRetry": null
+  }
+}

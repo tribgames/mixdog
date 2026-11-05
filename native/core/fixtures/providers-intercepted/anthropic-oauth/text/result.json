@@ -1,0 +1,12 @@
+{
+  "dispatchedToolCalls": [],
+  "ok": {
+    "content": "The result is 42.",
+    "stopReason": "end_turn",
+    "toolCalls": [],
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8
+    }
+  }
+}
