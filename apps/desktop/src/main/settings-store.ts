@@ -95,7 +95,8 @@ export interface BrowserCookieAutoImportSetting {
 function cookieAutoImportFromConfig(value: unknown): BrowserCookieAutoImportSetting {
   const stored = record(record(record(value).desktop).browserCookieAutoImport);
   const profileId = typeof stored.profileId === 'string' ? stored.profileId : '';
-  return { enabled: stored.enabled === true && profileId !== '', profileId };
+  // On unless the user saved "off"; an empty profile means none is bound yet, so no run happens.
+  return { enabled: stored.enabled !== false, profileId };
 }
 
 export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
@@ -289,7 +290,7 @@ export class DesktopSettingsStore {
     return state;
   }
 
-  /** 설정 › 인증 관리: re-import cookies from this Chrome profile whenever Chrome is closed. Off by default. */
+  /** 설정 › 인증 관리: re-import cookies from this Chrome profile whenever Chrome is closed. On by default. */
   async readBrowserCookieAutoImport(): Promise<BrowserCookieAutoImportSetting> {
     const config = await this.loadConfig();
     return cookieAutoImportFromConfig(config.readConfig());
@@ -306,10 +307,8 @@ export class DesktopSettingsStore {
     }
     const config = await this.loadConfig();
     const saved = await config.updateConfigAsync((current) => {
-      const desktop = { ...record(current.desktop) };
-      // Off with no profile is the default: nothing is stored.
-      if (!enabled && !profileId) delete desktop.browserCookieAutoImport;
-      else desktop.browserCookieAutoImport = { enabled, profileId };
+      // Always stored: an explicit "off" must not fall back to the on default.
+      const desktop = { ...record(current.desktop), browserCookieAutoImport: { enabled, profileId } };
       return { ...current, desktop };
     });
     return cookieAutoImportFromConfig(saved);

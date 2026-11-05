@@ -219,7 +219,7 @@ test('browser permissions persist only what differs and read back after a restar
   assert.equal(Object.hasOwn(value.desktop, 'browserPermissions'), false);
 });
 
-test('automatic cookie import is off by default, keeps its profile, and rejects an unusable request', async () => {
+test('automatic cookie import is on when never saved, and a saved "off" stays off', async () => {
   let value = { desktop: { keepAwake: false } };
   const store = new DesktopSettingsStore({
     loadConfig: async () => ({
@@ -230,7 +230,29 @@ test('automatic cookie import is off by default, keeps its profile, and rejects 
       },
     }),
   });
+  // Never saved: on, with no profile chosen yet (no run happens until the first manual import binds one).
+  assert.deepEqual(await store.readBrowserCookieAutoImport(), { enabled: true, profileId: '' });
+  assert.deepEqual(await store.updateBrowserCookieAutoImport({ enabled: false, profileId: '' }), {
+    enabled: false,
+    profileId: '',
+  });
+  assert.deepEqual(value.desktop, { keepAwake: false, browserCookieAutoImport: { enabled: false, profileId: '' } });
   assert.deepEqual(await store.readBrowserCookieAutoImport(), { enabled: false, profileId: '' });
+  value = { desktop: { browserCookieAutoImport: { enabled: false, profileId: 'Profile 1' } } };
+  assert.deepEqual(await store.readBrowserCookieAutoImport(), { enabled: false, profileId: 'Profile 1' });
+});
+
+test('automatic cookie import keeps its profile and rejects an unusable request', async () => {
+  let value = { desktop: { keepAwake: false } };
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => value,
+      updateConfigAsync: async (updater) => {
+        value = updater(value);
+        return value;
+      },
+    }),
+  });
   assert.deepEqual(await store.updateBrowserCookieAutoImport({ enabled: true, profileId: 'Profile 1' }), {
     enabled: true,
     profileId: 'Profile 1',
@@ -239,13 +261,11 @@ test('automatic cookie import is off by default, keeps its profile, and rejects 
     keepAwake: false,
     browserCookieAutoImport: { enabled: true, profileId: 'Profile 1' },
   });
-  // Turning it off keeps the chosen profile; turning off with no profile stores nothing.
+  // Turning it off keeps the chosen profile.
   assert.deepEqual(await store.updateBrowserCookieAutoImport({ enabled: false, profileId: 'Profile 1' }), {
     enabled: false,
     profileId: 'Profile 1',
   });
-  await store.updateBrowserCookieAutoImport({ enabled: false, profileId: '' });
-  assert.deepEqual(value.desktop, { keepAwake: false });
   for (const bad of [
     { enabled: true, profileId: '' },
     { enabled: true, profileId: '../Default' },
@@ -254,9 +274,6 @@ test('automatic cookie import is off by default, keeps its profile, and rejects 
   ]) {
     await assert.rejects(store.updateBrowserCookieAutoImport(bad), /Automatic cookie import/);
   }
-  // A stored "enabled" without a profile cannot run.
-  value = { desktop: { browserCookieAutoImport: { enabled: true } } };
-  assert.deepEqual(await store.readBrowserCookieAutoImport(), { enabled: false, profileId: '' });
 });
 
 test('session retention defaults to 7-day archive and 90-day delete, stores only other choices, and an invalid value disables the pass', async () => {

@@ -40,7 +40,7 @@ export interface DesktopBrowserImportResult {
   errors: Partial<Record<DesktopBrowserImportItem, string>>;
 }
 
-/** The opt-in automatic cookie import from Chrome (설정 › 인증 관리): whether it
+/** The automatic cookie import from Chrome, on by default (설정 › 인증 관리): whether it
  *  is on, for which profile, the saved Chrome key it reuses so no prompt
  *  appears, and how the last run went. */
 export interface DesktopCookieAutoImportStatus {

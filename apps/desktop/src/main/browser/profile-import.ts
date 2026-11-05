@@ -282,14 +282,6 @@ $processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPOR
   throw new Error('Google Chrome이 정상 종료되지 않아 가져오기를 중단했습니다. 열린 작업을 확인한 뒤 다시 시도하세요.');
 }
 
-/** Whether any Chrome process is alive (while one is, it holds the Cookies
- *  database). One short `tasklist` call, cheap enough to poll every few minutes. */
-export async function isChromeRunning(imageName = 'chrome.exe'): Promise<boolean> {
-  if (process.platform !== 'win32') return false;
-  const tasklist = join(String(process.env.SystemRoot || 'C:\\Windows'), 'System32', 'tasklist.exe');
-  return (await browserProcessIds(tasklist, imageName)).length > 0;
-}
-
 async function sha256File(path: string): Promise<string> {
   return createHash('sha256')
     .update(await readFile(path))
@@ -488,6 +480,11 @@ export class BrowserProfileImportService {
       this.keyStore.forget(),
       this.autoState.clear(),
     ]);
+  }
+
+  /** Chrome's lock file in the user-data folder this importer reads: it exists exactly while Chrome runs. */
+  chromeLockFile(): string {
+    return join(this.chromeUserData(), 'lockfile');
   }
 
   private chromeUserData(): string {
@@ -759,7 +756,8 @@ export class BrowserProfileImportService {
     this.activeJobId = AUTOMATIC_JOB_ID;
     try {
       const source = (await this.sources()).find((candidate) => candidate.id === CHROME_SOURCE_ID);
-      if (!source?.profiles.some((profile) => profile.id === profileId) || !source.supports.cookies) {
+      // The bound profile only; there is no "first profile" fallback, which could change with a rename.
+      if (!profileId || !source?.profiles.some((profile) => profile.id === profileId) || !source.supports.cookies) {
         throw new Error('The selected Chrome profile is no longer available for cookie import.');
       }
       return { state: 'imported', count: await this.importCookies(profileId, true) };
@@ -824,6 +822,10 @@ export class BrowserProfileImportService {
     await this.autoState
       .update({ lastImportAt: Date.now(), lastCount: imported, lastError: undefined, needsManualImport: false })
       .catch(() => undefined);
+    // Only a key that is saved now proves the next run can read this profile without a prompt.
+    if ((await this.savedKeyStatus().catch(() => undefined))?.saved) {
+      await this.autoState.markReady(profileId).catch(() => undefined);
+    }
     return imported;
   }
 
