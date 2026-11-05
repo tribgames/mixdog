@@ -4309,7 +4309,6 @@
   "Reset conversation": "Réinitialiser la conversation",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "La réinitialisation n’a pas pu être confirmée ({{reason}}). Réessayer est sans risque.",
   "Reset could not be confirmed. Retrying is safe.": "La réinitialisation n’a pas pu être confirmée. Réessayer est sans risque.",
-  "Reset credit {{index}}": "Crédit de réinitialisation {{index}}",
   "Reset credit details": "Détails du crédit de réinitialisation",
   "Reset credits": "Crédits de réinitialisation",
   "Reset due": "Réinitialisation due",

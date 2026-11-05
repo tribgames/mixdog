@@ -4368,7 +4368,6 @@
   "Reset conversation": "Сбросить разговор",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "Не удалось подтвердить сброс ({{reason}}). Повтор безопасен.",
   "Reset could not be confirmed. Retrying is safe.": "Не удалось подтвердить сброс. Повтор безопасен.",
-  "Reset credit {{index}}": "Кредит сброса {{index}}",
   "Reset credit details": "Сведения о кредите сброса",
   "Reset credits": "Кредиты сброса",
   "Reset due": "Ожидается сброс",

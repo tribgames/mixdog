@@ -4308,7 +4308,6 @@
   "Reset conversation": "Reimposta conversazione",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "Impossibile confermare il reset ({{reason}}). Riprovare è sicuro.",
   "Reset could not be confirmed. Retrying is safe.": "Impossibile confermare il reset. Riprovare è sicuro.",
-  "Reset credit {{index}}": "Credito di reset {{index}}",
   "Reset credit details": "Dettagli del credito di reset",
   "Reset credits": "Crediti di reset",
   "Reset due": "Reset previsto",

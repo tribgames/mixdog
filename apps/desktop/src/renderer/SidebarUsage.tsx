@@ -254,7 +254,6 @@ function ResetCreditPanel({
             const soon = expiresAt !== null && expiresAt - Date.now() <= 7 * 24 * 3_600_000;
             return (
               <li key={keys[index]}>
-                <span>{t('Reset credit {{index}}', { index: index + 1 })}</span>
                 <small className={soon ? 'is-soon' : undefined}>
                   {resetExpiryText(credit.expiresAt) || t('Expiry unavailable')}
                 </small>

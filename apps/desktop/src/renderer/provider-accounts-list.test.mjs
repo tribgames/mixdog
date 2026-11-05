@@ -835,7 +835,7 @@ test('credit line renders only with credits, formats Codex count vs Claude USD, 
   await act(async () => document.querySelector('.sidebar-usage-reset-info').click());
   const items = [...document.querySelectorAll('.sidebar-usage-reset-popover li')];
   assert.equal(items.length, 1);
-  assert.match(items[0].textContent, /Reset credit 1/);
+  assert.match(items[0].textContent, /^Expires in /);
   assert.ok(items[0].querySelector('small.is-soon'));
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(document.querySelector('.sidebar-usage-reset-popover'), null);

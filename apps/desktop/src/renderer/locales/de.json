@@ -4250,7 +4250,6 @@
   "Reset conversation": "Unterhaltung zurücksetzen",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "Reset konnte nicht bestätigt werden ({{reason}}). Erneut versuchen ist sicher.",
   "Reset could not be confirmed. Retrying is safe.": "Das Zurücksetzen konnte nicht bestätigt werden. Ein erneuter Versuch ist unbedenklich.",
-  "Reset credit {{index}}": "Reset-Guthaben {{index}}",
   "Reset credit details": "Details zum Reset-Guthaben",
   "Reset credits": "Reset-Guthaben",
   "Reset due": "Reset fällig",

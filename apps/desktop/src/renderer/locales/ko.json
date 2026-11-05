@@ -4191,7 +4191,6 @@
   "Reset conversation": "대화 초기화",
   "Reset could not be confirmed ({{reason}}). Retrying is safe.": "리셋을 확인하지 못했습니다({{reason}}). 다시 시도해도 안전합니다.",
   "Reset could not be confirmed. Retrying is safe.": "리셋을 확인하지 못했습니다. 다시 시도해도 안전합니다.",
-  "Reset credit {{index}}": "리셋 티켓 {{index}}",
   "Reset credit details": "리셋 티켓 상세",
   "Reset credits": "리셋 티켓",
   "Reset due": "리셋 예정",
