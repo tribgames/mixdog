@@ -131,7 +131,10 @@ test('with nothing running there is nothing to stop', async () => {
   assert.deepEqual(await stopBackgroundShellJobs(ctx(owner)), { stopped: 0, stopping: 0 });
 });
 
-test('two background jobs and a survivors task are listed, then all stopped; other sessions and the foreground command are untouched', async () => {
+test('two background jobs and a survivors task are listed, then all stopped; other sessions and the foreground command are untouched', async (t) => {
+  // The survivors watch's recheck never fires: the folder must be freed by the
+  // confirmed kill itself, not by the next poll.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const owner = 'sess_stopall_owner';
   const other = 'sess_stopall_other';
   const a = registerJob('job_stopall_a', owner, 'npm run dev');
@@ -175,7 +178,7 @@ test('two background jobs and a survivors task are listed, then all stopped; oth
   assert.equal(tasks.get('job_stopall_foreground').status, 'running');
   assert.ok(!nativeCancels.includes('job_stopall_foreground'), 'the foreground command is never cancelled');
   assert.deepEqual(listStoppableShellJobs(ctx(owner)), []);
-  await until(async () => !(await isHeld(repo)));
+  assert.equal(await isHeld(repo), false, 'a confirmed stop frees the folder without waiting for a recheck');
 });
 
 test('a survivor that ignores the kill ends as still stopping and keeps being swept', async (t) => {
