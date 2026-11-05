@@ -1,0 +1,2176 @@
+{
+ "cases": [
+  {
+   "name": "send, plain",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {
+    "to": "a@b.c"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {
+     "to": "a@b.c"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "to": "a@b.c"
+    }
+   }
+  },
+  {
+   "name": "send, account trimmed",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {
+    "account": "  b-account  "
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"b@example.com\",\"emails\":[]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "b-account",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [],
+      "account": "b-account"
+     }
+    }
+   ],
+   "card": {
+    "account": "b@example.com",
+    "details": {}
+   }
+  },
+  {
+   "name": "send, account blank",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {
+    "account": "   "
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {}
+   }
+  },
+  {
+   "name": "send, account not a string",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {
+    "account": 5
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "5",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {}
+   }
+  },
+  {
+   "name": "send, account with no-break spaces",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {
+    "account": " b "
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"b@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "b",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [],
+      "account": "b"
+     }
+    }
+   ],
+   "card": {
+    "account": "b@example.com",
+    "details": {}
+   }
+  },
+  {
+   "name": "send, ids are ignored",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {
+    "ids": [
+     "1",
+     "2"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "trash, two messages",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"S1\",\"date\":\"2026-01-02\"},{\"from\":\"Lee\",\"subject\":\"S2\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "2"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "2",
+     "messages": "Kim <kim@example.com> · S1 · 2026-01-02\nLee · S2 · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "trash, five ids show three",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "5"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "5",
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · Hello · 2026-01-02",
+     "more": "2"
+    }
+   }
+  },
+  {
+   "name": "trash, exactly three ids",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "3"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "3",
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "trash, ids of other types become strings",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     1,
+     null,
+     {
+      "a": 1
+     },
+     [
+      "x",
+      null
+     ],
+     true,
+     "z"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "6"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "null",
+       "[object Object]"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "6",
+     "more": "3"
+    }
+   }
+  },
+  {
+   "name": "trash, ids not an array",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": "1"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1",
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "trash, empty ids",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": []
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "0"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "0"
+    }
+   }
+  },
+  {
+   "name": "trash, account and ids",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "9"
+    ],
+    "account": "b-account"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"b@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "9"
+      ],
+      "account": "b-account"
+     }
+    }
+   ],
+   "card": {
+    "account": "b@example.com",
+    "details": {
+     "count": "1",
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "mail fields: missing, empty, falsy",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{},{\"from\":\"\",\"subject\":0,\"date\":false},{\"from\":null,\"subject\":\"only\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "3"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "3",
+     "messages": "\n\nonly"
+    }
+   }
+  },
+  {
+   "name": "mail fields: odd types",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":5,\"subject\":{\"x\":1},\"date\":20260102},{\"from\":[\"a\",null,\"b\"],\"subject\":true,\"date\":[1,2]},{\"from\":1.5,\"subject\":[],\"date\":{\"y\":1}}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "3"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "3",
+     "messages": "5 · [object Object] · 20260102\na,,b · true · 1,2\n1.5 ·  · [object Ob"
+    }
+   }
+  },
+  {
+   "name": "mail fields: long date and astral text",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02T10:00:00Z\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"😀\",\"date\":\"😀😀😀😀😀😀\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "2"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "2",
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · 😀 · 😀😀😀😀😀"
+    }
+   }
+  },
+  {
+   "name": "mail fields: non-breaking text is kept",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"  padded  \",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1",
+     "messages": "Kim <kim@example.com> ·   padded   · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "emails list with a null entry",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},null]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "2"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "2"
+    }
+   }
+  },
+  {
+   "name": "emails list with primitive entries",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[5,\"str\",[1]]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "3"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "3",
+     "messages": "\n\n"
+    }
+   }
+  },
+  {
+   "name": "more emails than ids are all listed",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"},{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1",
+     "messages": "Kim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · Hello · 2026-01-02\nKim <kim@example.com> · Hello · 2026-01-02"
+    }
+   }
+  },
+  {
+   "name": "emails null",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":null}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "emails a string",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":\"x\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "emails an object",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\",\"emails\":{\"0\":{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}}}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "account 0",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":0,\"emails\":[]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {}
+   }
+  },
+  {
+   "name": "account false",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":false}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {}
+   }
+  },
+  {
+   "name": "account null",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":null}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {}
+   }
+  },
+  {
+   "name": "account a number",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":12}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "12",
+    "details": {}
+   }
+  },
+  {
+   "name": "account true",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":true}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "true",
+    "details": {}
+   }
+  },
+  {
+   "name": "account an object",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":{\"a\":1}}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "[object Object]",
+    "details": {}
+   }
+  },
+  {
+   "name": "account an array",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":[\"q\",null,\"r\"]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "q,,r",
+    "details": {}
+   }
+  },
+  {
+   "name": "account empty string",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gmail-acct",
+    "details": {}
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": []
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {}
+   }
+  },
+  {
+   "name": "reply is JSON null",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "null"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   }
+  },
+  {
+   "name": "reply is a JSON number",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "5"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "4",
+     "more": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is a JSON string",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "\"abc\""
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "4",
+     "more": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is a JSON array",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "[]"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "4",
+     "more": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is JSON true",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "true"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "4",
+     "more": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is an empty object",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "4"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1",
+       "2",
+       "3"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "4",
+     "more": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is not JSON",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "nope"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is empty text",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": ""
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply has surrounding space",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "\n  {\"account\":\"a@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}\n"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply has a byte order mark",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "﻿{\"account\":\"a@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is an error result with JSON",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "isError": true,
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"x@example.com\",\"emails\":[{\"from\":\"Kim <kim@example.com>\",\"subject\":\"Hello\",\"date\":\"2026-01-02\"}]}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply is an error result with text",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "isError": true,
+    "content": [
+     {
+      "type": "text",
+      "text": "boom"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply in two text parts",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":"
+     },
+     {
+      "type": "text",
+      "text": "\"a@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "a@example.com",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply with an image part",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"a@example.com\"}"
+     },
+     {
+      "type": "image",
+      "data": "AAAA",
+      "mimeType": "image/png"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply with structured content only",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "structuredContent": {
+     "account": "a@example.com",
+     "emails": [
+      {
+       "from": "Kim <kim@example.com>",
+       "subject": "Hello",
+       "date": "2026-01-02"
+      }
+     ]
+    }
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply with empty content",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {
+    "content": []
+   },
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "reply with no content",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": {},
+   "throws": null,
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "the lookup fails",
+   "server": "gmail-acct",
+   "connector": "gmail",
+   "tool": "trash_emails",
+   "args": {
+    "ids": [
+     "1"
+    ]
+   },
+   "result": null,
+   "throws": "down",
+   "baseline": {
+    "category": "trash",
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   },
+   "asked": [
+    {
+     "name": "describe_emails",
+     "args": {
+      "ids": [
+       "1"
+      ]
+     }
+    }
+   ],
+   "card": {
+    "account": "gmail-acct",
+    "details": {
+     "count": "1"
+    }
+   }
+  },
+  {
+   "name": "a server with another connector",
+   "server": "other",
+   "connector": "notion",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"x@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "other",
+    "details": {}
+   },
+   "asked": [],
+   "card": {
+    "account": "other",
+    "details": {}
+   }
+  },
+  {
+   "name": "a server with no connector",
+   "server": "plain",
+   "connector": null,
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"x@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "plain",
+    "details": {}
+   },
+   "asked": [],
+   "card": {
+    "account": "plain",
+    "details": {}
+   }
+  },
+  {
+   "name": "a server name holding a double underscore",
+   "server": "gm__ail",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"x@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "gm",
+    "details": {}
+   },
+   "asked": [],
+   "card": {
+    "account": "gm",
+    "details": {}
+   }
+  },
+  {
+   "name": "a server that is not connected",
+   "server": "ghost",
+   "connector": "gmail",
+   "tool": "send_email",
+   "args": {},
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"account\":\"x@example.com\"}"
+     }
+    ]
+   },
+   "throws": null,
+   "baseline": {
+    "category": "email",
+    "account": "ghost",
+    "details": {}
+   },
+   "asked": [],
+   "card": {
+    "account": "ghost",
+    "details": {}
+   }
+  }
+ ]
+}

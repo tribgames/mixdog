@@ -8,8 +8,10 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use mixdog_rt::DurabilityIo;
 use serde_json::{Map, Value, json};
 
+use super::assets::{AssetError, probe};
 use super::context::{ContextLimits, local_context_settings};
 use super::hardware::{Hardware, HardwareProbe, host_platform_key};
 use super::model_state::ModelState;
@@ -90,20 +92,27 @@ pub fn partial_asset_bytes(destination: &Path, size: i64) -> i64 {
 pub struct Catalog {
     pub data_dir: PathBuf,
     manifest: Value,
-    pub registry: RegisteredModels,
+    pub registry: Arc<RegisteredModels>,
     pub hardware: Arc<HardwareProbe>,
     pub state: Arc<ModelState>,
+    lane: DurabilityIo,
 }
 
 impl Catalog {
-    pub fn new(data_dir: &Path, hardware: Arc<HardwareProbe>, state: Arc<ModelState>) -> Self {
+    /// `lane` is the durability lane every file-system query of the catalog runs on.
+    pub fn new(data_dir: &Path, hardware: Arc<HardwareProbe>, state: Arc<ModelState>, lane: DurabilityIo) -> Self {
         Self {
             data_dir: data_dir.to_owned(),
             manifest: serde_json::from_str(MANIFEST).expect("the bundled manifest is valid JSON"),
-            registry: RegisteredModels::new(data_dir),
+            registry: Arc::new(RegisteredModels::new(data_dir, lane)),
             hardware,
             state,
+            lane,
         }
+    }
+
+    pub fn lane(&self) -> DurabilityIo {
+        self.lane
     }
 
     pub fn runtime_root(&self) -> PathBuf {
@@ -204,7 +213,14 @@ impl Catalog {
         Value::Object(row)
     }
 
-    pub fn status(&self, platform_key: Option<&str>) -> Value {
+    /// The settings view of the catalog. It reads the weights, partial files, runtime executable,
+    /// context settings and free disk space, so it runs as one job on the durability lane.
+    pub async fn status(self: &Arc<Self>, platform_key: Option<&str>) -> Result<Value, AssetError> {
+        let (this, key) = (self.clone(), platform_key.map(str::to_owned));
+        probe(self.lane, move || this.status_blocking(key.as_deref())).await
+    }
+
+    fn status_blocking(&self, platform_key: Option<&str>) -> Value {
         let key = platform_key.unwrap_or_else(|| host_platform_key());
         let hardware = self.hardware.status();
         let platform = self.runtime_platform_entry(key);
@@ -229,8 +245,9 @@ impl Catalog {
     }
 
     /// The installed models in the shape the model picker lists.
-    pub fn installed_models(&self) -> Vec<Value> {
-        self.status(None)["models"]
+    pub async fn installed_models(self: &Arc<Self>) -> Result<Vec<Value>, AssetError> {
+        let status = self.status(None).await?;
+        Ok(status["models"]
             .as_array()
             .into_iter()
             .flatten()
@@ -247,7 +264,7 @@ impl Catalog {
                     "supportsImages": false, "supportsReasoningSettings": false, "latest": true,
                 })
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -259,8 +276,8 @@ fn local_local_context(entry: &Value, data_dir: &Path) -> Result<Value, super::c
 pub(crate) mod tests {
     use super::*;
 
-    pub(crate) fn catalog(dir: &Path) -> Catalog {
-        Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None), Arc::new(ModelState::default()))
+    pub(crate) fn catalog(dir: &Path) -> Arc<Catalog> {
+        Arc::new(Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None), Arc::new(ModelState::default()), mixdog_rt::testing::tokens().durability_io))
     }
 
     #[test]
@@ -276,11 +293,11 @@ pub(crate) mod tests {
         assert!(c.model_entry("nope").is_none());
     }
 
-    #[test]
-    fn status_reports_partial_downloads_and_install_state() {
+    #[tokio::test]
+    async fn status_reports_partial_downloads_and_install_state() {
         let dir = tempfile::tempdir().unwrap();
         let c = catalog(dir.path());
-        let status = c.status(Some("win32-x64-nvidia"));
+        let status = c.status(Some("win32-x64-nvidia")).await.unwrap();
         assert_eq!(status["platformSupported"], true);
         assert_eq!(status["runtime"]["installed"], false);
         assert_eq!(status["runtime"]["backend"], "CUDA 12.4");
@@ -292,7 +309,7 @@ pub(crate) mod tests {
         let weights = c.model_path(&c.model_entry("qwen3.8-27b-q4-k-m").unwrap());
         fs::create_dir_all(weights.parent().unwrap()).unwrap();
         fs::write(format!("{}.part", weights.display()), vec![1u8; 1000]).unwrap();
-        assert_eq!(c.status(Some("win32-x64-nvidia"))["models"][0]["remainingDownloadBytes"], 18_973_870_432i64 - 1000);
+        assert_eq!(c.status(Some("win32-x64-nvidia")).await.unwrap()["models"][0]["remainingDownloadBytes"], 18_973_870_432i64 - 1000);
     }
 
     #[test]

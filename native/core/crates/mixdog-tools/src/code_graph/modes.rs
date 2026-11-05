@@ -751,6 +751,15 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
 // ── declaration lookup ─────────────────────────────────────────────────────
 
 pub(super) fn find_symbol(ctx: &Ctx<'_>) -> Result<String, String> {
+    // `findSymbolTool` checks the anchor before the symbol, and words the miss as its own tool's.
+    if ctx.rel.is_some() && ctx.node.is_none() {
+        let shown = ctx.norm_file.unwrap_or("(missing file)");
+        return Ok(append_same_basename_hint(
+            format!("Error: find_symbol: file not found in graph: {shown}"),
+            ctx.norm_file,
+            ctx.graph,
+        ));
+    }
     let symbol = ctx
         .args
         .symbol
@@ -811,7 +820,8 @@ pub(super) fn references(ctx: &Ctx<'_>) -> Result<String, String> {
             file_rel: ctx.rel.as_deref(),
             body: ctx.args.body == Some(true),
             outside: None,
-            scope_note: (ctx.cwd != ctx.default_cwd).then(|| ctx.cwd_text()),
+            // Node's references mode passes no `defaultCwd`, so its declaration never notes a scope.
+            scope_note: None,
         },
     );
     Ok(format!("# declaration\n{declaration}\n\n# references\n{list}"))

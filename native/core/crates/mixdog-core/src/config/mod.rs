@@ -12,7 +12,11 @@
 //! Only the subtrees in [`PUBLISHED_SUBTREES`] reach clients through the `config` section; the
 //! rest of the document (provider credentials among it) is never serialized to a client.
 
+mod agent_routes;
+mod agent_store;
 mod browser_permissions;
+pub mod patch;
+mod settings;
 mod desktop;
 mod notifications;
 mod schema;
@@ -52,6 +56,13 @@ use mixdog_rt::LaneToken;
 use serde_json::Map;
 use serde_json::Value;
 
+pub use settings::NoEffects;
+pub use settings::Settings;
+pub use settings::SettingsEffects;
+pub use settings::SettingsEnv;
+pub use agent_routes::AgentRoutes;
+pub use agent_routes::MIXY_RUNTIME_ID;
+pub use agent_routes::RouteHome;
 pub use desktop::ActivityRailPins;
 pub use desktop::DesktopSettings;
 pub use desktop::SessionRetention;
@@ -60,6 +71,9 @@ pub use desktop::desktop_settings;
 pub use desktop::session_retention;
 
 use crate::state::change_of;
+
+/// The file section Node's agent config (`readSection('agent')`) lives in.
+pub const AGENT_SECTION: &str = "agent";
 
 /// Top-level keys projected into the `config` section (one section key per subtree), each with
 /// the Node consumer that reads it today. A subtree with no desktop consumer is not published;
@@ -87,6 +101,8 @@ pub enum ConfigError {
     Overloaded(LaneFull),
     /// The job was dropped before it finished (shutdown).
     Stopped,
+    /// A caller's change refused the edit with its own error, which `core_error` returns as is.
+    Rejected(mixdog_core_api::CoreError),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -99,6 +115,7 @@ impl std::fmt::Display for ConfigError {
             ConfigError::Io(error) => write!(f, "mixdog-config.json: {error}"),
             ConfigError::Overloaded(full) => full.fmt(f),
             ConfigError::Stopped => f.write_str("the config job was dropped before it finished"),
+            ConfigError::Rejected(error) => write!(f, "{error:?}"),
         }
     }
 }
@@ -229,6 +246,90 @@ impl Config {
     /// The whole document, secrets included.
     pub fn full(&self) -> Arc<Doc> {
         self.shared.doc.load_full()
+    }
+
+    /// The agent config: the `agent` section of the file, which holds the flat config the
+    /// settings code of Node reads and writes (`providers`, `modules`, `recap`, `profile`,
+    /// `compaction`, `autoClear`, `worktree`, …). Empty when the file has none.
+    pub fn agent(&self) -> Doc {
+        self.shared.doc.load().get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default()
+    }
+
+    /// Edits the agent config under the same transaction as every other writer; every other
+    /// section and key of the file stays. A section that did not exist is not created for an
+    /// edit that leaves it empty.
+    pub async fn update_agent(
+        &self,
+        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static,
+    ) -> Result<Applied, ConfigError> {
+        self.update(move |doc| {
+            let existing = doc.get(AGENT_SECTION).and_then(Value::as_object).cloned();
+            let mut agent = existing.clone().unwrap_or_default();
+            change(&mut agent)?;
+            if existing.is_some() || !agent.is_empty() {
+                doc.insert(AGENT_SECTION.into(), Value::Object(agent));
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// `saveConfigAndAdopt`'s write: the stored form of `after` against that of `before`
+    /// (what this writer started from), applied to the agent section in one transaction, so a
+    /// field another writer changed meanwhile survives. `lead_fill` is a conditional Lead fill:
+    /// its `default`/`presets` changes are skipped while a Lead route is already stored.
+    /// Nothing is written when nothing differs.
+    pub async fn save_agent_config(&self, before: &Doc, after: &Doc, lead_fill: bool) -> Result<Applied, ConfigError> {
+        let mut changes = patch::create_config_patch(before, after);
+        if lead_fill {
+            changes = patch::guard_lead_fill(changes);
+        }
+        if !changes.is_empty() {
+            let seeds = patch::seed_changes(after, &changes);
+            changes.extend(seeds);
+        }
+        self.save_agent_patch(changes).await
+    }
+
+    /// Applies `changes` to the agent section (`saveConfigPatchAsync`); an empty patch writes
+    /// nothing.
+    pub async fn save_agent_patch(&self, changes: Vec<patch::ConfigChange>) -> Result<Applied, ConfigError> {
+        if changes.is_empty() {
+            return Ok(Applied::default());
+        }
+        self.update_agent(move |agent| {
+            *agent = patch::apply_config_patch(agent, &changes);
+            Ok(())
+        })
+        .await
+    }
+
+    /// `reloadFullConfig`: re-reads the file (a change another process made reaches the document
+    /// and is published) and answers the agent config. Writes here are durable before they
+    /// answer, so there is no pending edit to lay back on the reloaded document.
+    pub async fn reload_full_config(&self) -> Result<Doc, ConfigError> {
+        self.reload().await?;
+        Ok(self.agent())
+    }
+
+    /// `confirmLeadFill(filled)`, the config half: re-reads the file and answers the Lead route
+    /// it now holds when that differs from `filled` by provider and model (another process wrote
+    /// one after the fill's re-read, so the fill's patch skipped it); `None` when the file's
+    /// Lead route is `filled` itself or there is none. The caller replaces its Main route only
+    /// while that still is `filled` (`adoptFillWinner`).
+    pub async fn confirm_lead_fill(&self, filled: &Value) -> Result<Option<Value>, ConfigError> {
+        let agent = self.reload_full_config().await?;
+        let text = |route: &Value, key: &str| {
+            mixdog_js::js_trim(&route.get(key).map(mixdog_js::value_to_string).filter(|_| !route[key].is_null()).unwrap_or_default())
+                .to_owned()
+        };
+        let Some(winner) = patch::lead_route(&agent) else { return Ok(None) };
+        if text(&winner, "model").is_empty()
+            || (text(&winner, "provider") == text(filled, "provider") && text(&winner, "model") == text(filled, "model"))
+        {
+            return Ok(None);
+        }
+        Ok(Some(winner))
     }
 
     pub fn get(&self, path: &str) -> Option<Value> {

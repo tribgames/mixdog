@@ -325,6 +325,10 @@ impl DomainService for VisualizeService {
         Ok(Reply::Value(answer))
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["visualize/command"]
+    }
+
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
     }

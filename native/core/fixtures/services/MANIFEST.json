@@ -1,20 +1,30 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-  "fileCount": 1,
+  "fileCount": 3,
   "files": [
+    {
+      "bytes": 232255,
+      "path": "import-convert-twin.json",
+      "sha256": "9b0211fed13a78cbbcf941879822d34b480e774dd7e7aeab13ca21fb94673344"
+    },
     {
       "bytes": 33713,
       "path": "setup-local-voice-twin.json",
       "sha256": "83232f468561ccc568dbd2f07c52cfe1fd92f00839b95a97f9e3b45d1d23fcf5"
+    },
+    {
+      "bytes": 2876,
+      "path": "voice-language-twin.json",
+      "sha256": "afd665e6685e113eaf2ea9b25417d1f4e4ea1e6e7d09ec195be946e1d4a87650"
     }
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +36,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
   "set": "services",
-  "totalBytes": 33713
+  "totalBytes": 268844
 }

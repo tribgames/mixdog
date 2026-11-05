@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::assets::{AssetError, DownloadOptions, Fetcher, discard_downloads, download_verified_asset, install_model, install_runtime, resumable_installations, sha256_file};
+use super::assets::{AssetError, DownloadOptions, Fetcher, discard_downloads, download_verified_asset, install_model, install_runtime, probe, resumable_installations, sha256_file};
 use super::catalog::{Catalog, exact_file, file_has_data};
 use super::change::ChangeSignal;
 use super::context::{local_context_settings, save_local_context, validate_local_context};
@@ -49,6 +49,24 @@ impl From<QueueError> for ProviderError {
     }
 }
 
+/// The model's weights and partial file as they are on disk; a link or a non-regular file is refused.
+fn model_files_blocking(path: &std::path::Path) -> Result<Value, ProviderError> {
+    let mut files = Vec::new();
+    for file in [path.to_path_buf(), PathBuf::from(format!("{}.part", path.display()))] {
+        let meta = match std::fs::symlink_metadata(&file) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return failed(e.to_string()),
+        };
+        if !meta.is_file() || meta.file_type().is_symlink() {
+            return failed("[local-provider] refusing a non-regular or redirected model file");
+        }
+        let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        files.push(json!({"path": file.to_string_lossy(), "size": meta.len(), "mtimeMs": mtime}));
+    }
+    Ok(Value::Array(files))
+}
+
 struct ServerUnloader(Arc<ServerProcess>);
 
 #[async_trait]
@@ -71,6 +89,7 @@ pub struct LocalProvider {
     pub server: Arc<ServerProcess>,
     pub hf: HuggingFaceCatalog,
     fetcher: Arc<dyn Fetcher>,
+    durability: mixdog_rt::DurabilityIo,
     confirmations: Mutex<HashMap<String, Receipt>>,
     platform_key: String,
     signal: ChangeSignal,
@@ -79,6 +98,8 @@ pub struct LocalProvider {
 pub struct Parts {
     pub data_dir: PathBuf,
     pub fetcher: Arc<dyn Fetcher>,
+    /// The io-durability lane token the composition root hands this module: partial downloads are written on it.
+    pub durability: mixdog_rt::DurabilityIo,
     pub hf_http: Box<dyn HfHttp>,
     pub launcher: Arc<dyn Launcher>,
     pub health: Arc<dyn Health>,
@@ -92,7 +113,7 @@ impl LocalProvider {
         let signal = ChangeSignal::default();
         let hardware = HardwareProbe::with_signal(std::env::consts::OS, std::env::consts::ARCH, None, signal.clone());
         let state = Arc::new(ModelState::with_signal(signal.clone()));
-        let catalog = Arc::new(Catalog::new(&parts.data_dir, hardware, state));
+        let catalog = Arc::new(Catalog::new(&parts.data_dir, hardware, state, parts.durability));
         let on_exit: Arc<dyn Fn(&Value) + Send + Sync> = Arc::new(|d| {
             if d["expected"] != true {
                 eprintln!("[local-provider] llama-server exit {d}");
@@ -100,7 +121,7 @@ impl LocalProvider {
         });
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));
         let queue = RequestQueue::with_signal(Arc::new(ServerUnloader(server.clone())), parts.idle_ttl_seconds.unwrap_or(DEFAULT_LOCAL_IDLE_TTL_SECONDS), None, signal.clone());
-        let hf = HuggingFaceCatalog::new(parts.hf_http, super::registered_models::RegisteredModels::new(&parts.data_dir));
+        let hf = HuggingFaceCatalog::new(parts.hf_http, catalog.registry.clone());
         Arc::new(Self {
             catalog,
             installs: Arc::new(Installations::with_signal(signal.clone())),
@@ -108,6 +129,7 @@ impl LocalProvider {
             server,
             hf,
             fetcher: parts.fetcher,
+            durability: parts.durability,
             confirmations: Mutex::default(),
             platform_key: parts.platform_key.unwrap_or_else(|| host_platform_key().to_owned()),
             signal,
@@ -123,8 +145,8 @@ impl LocalProvider {
 
     /// Registers a previewed Hugging Face model (the license must be accepted) and signals the
     /// catalog change.
-    pub fn register_model(&self, preview_id: &str, license_accepted: bool) -> Result<Value, super::hugging_face::HfError> {
-        let out = self.hf.register(preview_id, license_accepted)?;
+    pub async fn register_model(&self, preview_id: &str, license_accepted: bool) -> Result<Value, super::hugging_face::HfError> {
+        let out = self.hf.register(preview_id, license_accepted).await?;
         self.signal.notify();
         Ok(out)
     }
@@ -142,14 +164,26 @@ impl LocalProvider {
     }
 
     /// Catalog, server and resumable installations: what the settings dialog polls.
-    pub fn status(&self) -> Value {
-        let mut status = self.catalog.status(Some(&self.platform_key));
-        let installations = resumable_installations(&self.catalog, &status, self.installs.status());
+    pub async fn status(&self) -> Result<Value, ProviderError> {
+        let mut status = self.catalog.status(Some(&self.platform_key)).await?;
+        let installations = resumable_installations(&self.catalog, &status, self.installs.status()).await?;
         if let (Some(m), Value::Object(s)) = (status.as_object_mut(), self.server_status()) {
             m.extend(s);
         }
         status["installations"] = json!(installations);
-        status
+        Ok(status)
+    }
+
+    /// The model's context settings, read on the durability lane.
+    async fn context_settings(&self, entry: &Value) -> Result<Value, ProviderError> {
+        let (entry, data_dir) = (entry.clone(), self.catalog.data_dir.clone());
+        probe(self.durability, move || local_context_settings(&Catalog::context_limits(&entry), &data_dir)).await?.map_err(|e| ProviderError::Failed(e.to_string()))
+    }
+
+    /// Saves the model's context window on the durability lane.
+    async fn save_context(&self, entry: &Value, tokens: Option<i64>) -> Result<(), ProviderError> {
+        let (entry, data_dir) = (entry.clone(), self.catalog.data_dir.clone());
+        probe(self.durability, move || save_local_context(&Catalog::context_limits(&entry), tokens, &data_dir)).await?.map_err(|e| ProviderError::Failed(e.to_string()))
     }
 
     pub async fn stop(&self) {
@@ -166,13 +200,21 @@ impl LocalProvider {
             return failed("aborted");
         }
         let Some(entry) = self.catalog.model_entry(model_id) else { return failed(format!("[local-provider] unknown model: {model_id}")) };
-        let ctx = local_context_settings(&Catalog::context_limits(&entry), &self.catalog.data_dir).map_err(|e| ProviderError::Failed(e.to_string()))?;
+        let ctx = self.context_settings(&entry).await?;
         let context_window = ctx["contextWindow"].as_i64().unwrap_or(0);
-        let executable = self.catalog.runtime_executable(&self.platform_key).filter(|p| file_has_data(p));
+        let candidate = self.catalog.runtime_executable(&self.platform_key);
+        let executable = match candidate {
+            Some(path) => probe(self.durability, move || file_has_data(&path).then_some(path)).await?,
+            None => None,
+        };
         let Some(executable) = executable else { return failed("[local-provider] runtime is not installed") };
         let weights = self.catalog.model_path(&entry);
         let size = entry["size"].as_i64().unwrap_or(0);
-        if !exact_file(&weights, size) {
+        let installed = {
+            let weights = weights.clone();
+            probe(self.durability, move || exact_file(&weights, size)).await?
+        };
+        if !installed {
             return failed(format!("[local-provider] model is not installed: {}", entry["name"].as_str().unwrap_or("")));
         }
         let (this, entry_for_gpu, id) = (self.clone(), entry.clone(), entry["id"].as_str().unwrap_or("").to_owned());
@@ -226,19 +268,17 @@ impl LocalProvider {
         validate_local_context(&limits, tokens).map_err(|e| ProviderError::Invalid(e.to_string()))?;
         let this = self.clone();
         let id = model_id.to_owned();
-        let data_dir = self.catalog.data_dir.clone();
         self.queue
             .run(None, move |cancel| async move {
                 let entry = this.catalog.model_entry(&id).ok_or_else(|| ProviderError::Failed("Unknown local model.".into()))?;
-                let limits = Catalog::context_limits(&entry);
-                let previous = local_context_settings(&limits, &data_dir).ok().and_then(|s| s["configuredContextWindow"].as_i64());
+                let previous = this.context_settings(&entry).await.ok().and_then(|s| s["configuredContextWindow"].as_i64());
                 let status = this.server.status();
                 let reload = status["activeModel"] == id.as_str() && (status["running"] == true || status["starting"] == true);
-                save_local_context(&limits, tokens, &data_dir).map_err(|e| ProviderError::Failed(e.to_string()))?;
+                this.save_context(&entry, tokens).await?;
                 this.signal.notify();
                 if reload {
                     if let Err(e) = this.ensure_server(&id, Some(cancel)).await {
-                        let _ = save_local_context(&limits, previous, &data_dir);
+                        let _ = this.save_context(&entry, previous).await;
                         this.signal.notify();
                         return Err(e);
                     }
@@ -257,7 +297,7 @@ impl LocalProvider {
                     return Err(ProviderError::Invalid("runtime installation does not accept modelId.".into()));
                 }
                 Ok(self.installs.track("runtime", None, move |progress: Progress, cancel| async move {
-                    install_runtime(&this.catalog, this.fetcher.as_ref(), &this.platform_key, progress, cancel).await.map_err(|e| e.to_string())
+                    install_runtime(&this.catalog, this.fetcher.as_ref(), this.durability, &this.platform_key, progress, cancel).await.map_err(|e| e.to_string())
                 }))
             }
             "model" => {
@@ -266,7 +306,7 @@ impl LocalProvider {
                     .ok_or_else(|| ProviderError::Invalid("modelId must identify a model in the Local Provider catalog.".into()))?;
                 let id = entry["id"].as_str().unwrap_or("").to_owned();
                 Ok(self.installs.track("model", Some(&id), move |progress: Progress, cancel| async move {
-                    install_model(&this.catalog, this.fetcher.as_ref(), &entry, progress, cancel).await.map_err(|e| e.to_string())
+                    install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string())
                 }))
             }
             _ => Err(ProviderError::Invalid("phase must be runtime or model.".into())),
@@ -282,7 +322,7 @@ impl LocalProvider {
         wait(done).await.map_err(ProviderError::Failed)
     }
 
-    pub fn discard_installation(&self, phase: &str, model_id: Option<&str>) -> Result<(), ProviderError> {
+    pub async fn discard_installation(&self, phase: &str, model_id: Option<&str>) -> Result<(), ProviderError> {
         let owner = if phase == "runtime" { None } else { model_id };
         let live = self.installs.status().iter().any(|job| {
             (job["phase"] == "runtime") == (phase == "runtime") && job["modelId"].as_str() == owner && matches!(job["state"].as_str(), Some("running" | "cancelling"))
@@ -291,7 +331,7 @@ impl LocalProvider {
             return failed("[local-provider] stop the installation before discarding it");
         }
         self.installs.forget(phase, owner).map_err(|e| ProviderError::Failed(e.to_string()))?;
-        let discarded = discard_downloads(&self.catalog, phase, model_id).map_err(|e| ProviderError::Failed(e.to_string()));
+        let discarded = discard_downloads(&self.catalog, phase, model_id).await.map_err(|e| ProviderError::Failed(e.to_string()));
         // Removed partial files change the remaining-download bytes the catalog reports.
         self.signal.notify();
         discarded
@@ -299,26 +339,13 @@ impl LocalProvider {
 
     // ---- Model maintenance
 
-    fn model_files(&self, entry: &Value) -> Result<Value, ProviderError> {
+    async fn model_files(&self, entry: &Value) -> Result<Value, ProviderError> {
         let path = self.catalog.model_path(entry);
         let root = self.catalog.model_root();
         if path.parent() != Some(root.as_path()) {
             return failed("[local-provider] model path escapes managed storage");
         }
-        let mut files = Vec::new();
-        for file in [path.clone(), PathBuf::from(format!("{}.part", path.display()))] {
-            let meta = match std::fs::symlink_metadata(&file) {
-                Ok(m) => m,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => return failed(e.to_string()),
-            };
-            if !meta.is_file() || meta.file_type().is_symlink() {
-                return failed("[local-provider] refusing a non-regular or redirected model file");
-            }
-            let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
-            files.push(json!({"path": file.to_string_lossy(), "size": meta.len(), "mtimeMs": mtime}));
-        }
-        Ok(Value::Array(files))
+        probe(self.durability, move || model_files_blocking(&path)).await?
     }
 
     fn loaded(&self, entry: &Value) -> bool {
@@ -344,9 +371,9 @@ impl LocalProvider {
     }
 
     /// What a deletion would remove, with a five-minute confirmation token.
-    pub fn model_details(&self, model_id: &str) -> Result<Value, ProviderError> {
+    pub async fn model_details(&self, model_id: &str) -> Result<Value, ProviderError> {
         let entry = self.entry_of(model_id)?;
-        let files = self.model_files(&entry)?;
+        let files = self.model_files(&entry).await?;
         let mut confirmations = self.confirmations.lock().unwrap();
         confirmations.retain(|_, r| r.expires > Instant::now());
         if confirmations.len() >= MAX_CONFIRMATIONS {
@@ -393,16 +420,16 @@ impl LocalProvider {
         let size = entry["size"].as_i64().unwrap_or(0);
         if operation == "repair" {
             self.guard(entry, Some(operation), false, 0)?;
-            self.model_files(entry)?;
-            download_verified_asset(self.fetcher.as_ref(), entry, &path, DownloadOptions { on_progress: Some(publish), cancel, force: true, ..Default::default() }).await?;
+            self.model_files(entry).await?;
+            download_verified_asset(self.fetcher.as_ref(), entry, &path, DownloadOptions { on_progress: Some(publish), cancel, force: true, ..DownloadOptions::new(self.durability) }).await?;
             self.catalog.state.record_verification(id, json!({"valid": true, "sizeBytes": size, "sha256": entry["sha256"]}));
             return Ok(json!({"modelId": id, "valid": true}));
         }
         publish(serde_json::Map::from_iter([("stage".to_owned(), json!("verifying")), ("percent".into(), Value::Null)]));
-        let files = self.model_files(entry)?;
+        let files = self.model_files(entry).await?;
         let file = files.as_array().into_iter().flatten().find(|f| f["path"].as_str() == Some(&path.to_string_lossy())).cloned();
         let Some(file) = file else { return failed("[local-provider] model file is missing") };
-        let actual = sha256_file(&path, &cancel).await?;
+        let actual = sha256_file(self.durability, &path, &cancel).await?;
         let file_size = file["size"].as_i64().unwrap_or(-1);
         let valid = file_size == size && Some(actual.as_str()) == entry["sha256"].as_str();
         self.catalog.state.record_verification(id, json!({"valid": valid, "sizeBytes": file_size, "sha256": actual}));
@@ -435,7 +462,7 @@ impl LocalProvider {
                 if this.loaded(&entry) {
                     this.server.stop().await.map_err(ProviderError::Failed)?;
                 }
-                let current = this.model_files(&entry)?;
+                let current = this.model_files(&entry).await?;
                 if current != files {
                     return failed("[local-provider] model files changed; request a new deletion confirmation");
                 }
@@ -443,12 +470,13 @@ impl LocalProvider {
                 let mut deleted = Vec::new();
                 for f in current.as_array().into_iter().flatten() {
                     let p = f["path"].as_str().unwrap_or("");
-                    std::fs::remove_file(p).map_err(|e| ProviderError::Failed(e.to_string()))?;
+                    let path = PathBuf::from(p);
+                    probe(this.durability, move || std::fs::remove_file(path)).await?.map_err(|e| ProviderError::Failed(e.to_string()))?;
                     deleted.push(p.to_owned());
                     this.signal.notify();
                 }
                 let id = entry["id"].as_str().unwrap_or("");
-                this.hf.registry().forget(id).map_err(|e| ProviderError::Failed(e.to_string()))?;
+                this.hf.registry().forget(id).await.map_err(|e| ProviderError::Failed(e.to_string()))?;
                 this.installs.forget_model(id).map_err(|e| ProviderError::Failed(e.to_string()))?;
                 this.catalog.state.forget(id);
                 Ok(json!({"modelId": id, "deletedFiles": deleted, "recoverability": "Redownload required; no Recycle Bin copy."}))
@@ -506,6 +534,7 @@ pub(crate) mod tests {
         LocalProvider::new(Parts {
             data_dir: dir.to_owned(),
             fetcher: Arc::new(NoNet),
+            durability: mixdog_rt::testing::tokens().durability_io,
             hf_http: Box::new(NoNet),
             launcher: Arc::new(NoLaunch),
             health: Arc::new(NoNet),
@@ -515,14 +544,14 @@ pub(crate) mod tests {
         })
     }
 
-    pub(crate) fn install_fake_model(p: &LocalProvider, content: &[u8]) -> (Value, PathBuf) {
+    pub(crate) async fn install_fake_model(p: &LocalProvider, content: &[u8]) -> (Value, PathBuf) {
         // Register a model whose pinned digest is that of `content`.
         let mut m = super::super::registered_models::tests::model(7, 16384);
         m["size"] = json!(content.len());
         m["estimatedVramBytes"] = json!(content.len() + 1);
         m["minimumVramBytes"] = json!(content.len() + 1);
         m["sha256"] = json!(sha2::Sha256::digest(content).iter().map(|b| format!("{b:02x}")).collect::<String>());
-        let registered = p.hf.registry().register(&m).unwrap();
+        let registered = p.hf.registry().register(&m).await.unwrap();
         let path = p.catalog.model_path(&registered);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, content).unwrap();
@@ -534,9 +563,9 @@ pub(crate) mod tests {
     async fn details_then_delete_removes_files_and_forgets_the_model() {
         let dir = tempfile::tempdir().unwrap();
         let p = provider(dir.path());
-        let (entry, path) = install_fake_model(&p, b"weights");
+        let (entry, path) = install_fake_model(&p, b"weights").await;
         let id = entry["id"].as_str().unwrap();
-        let details = p.model_details(id).unwrap();
+        let details = p.model_details(id).await.unwrap();
         assert_eq!(details["sizeBytes"], 7);
         let token = details["confirmationToken"].as_str().unwrap().to_owned();
         let deleted = p.delete_model(&token).await.unwrap();
@@ -544,15 +573,15 @@ pub(crate) mod tests {
         assert!(!path.exists());
         assert!(p.catalog.model_entry(id).is_none());
         assert!(p.delete_model(&token).await.is_err(), "a token is single use");
-        assert!(p.model_details("hf-unknown").is_err());
+        assert!(p.model_details("hf-unknown").await.is_err());
     }
 
     #[tokio::test]
     async fn a_changed_file_invalidates_the_confirmation() {
         let dir = tempfile::tempdir().unwrap();
         let p = provider(dir.path());
-        let (entry, path) = install_fake_model(&p, b"weights");
-        let token = p.model_details(entry["id"].as_str().unwrap()).unwrap()["confirmationToken"].as_str().unwrap().to_owned();
+        let (entry, path) = install_fake_model(&p, b"weights").await;
+        let token = p.model_details(entry["id"].as_str().unwrap()).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
         std::fs::write(&path, b"weights!!").unwrap();
         let error = p.delete_model(&token).await.unwrap_err().to_string();
         assert!(error.contains("model files changed"), "{error}");
@@ -563,7 +592,7 @@ pub(crate) mod tests {
     async fn verify_reports_integrity_through_the_job_and_model_state() {
         let dir = tempfile::tempdir().unwrap();
         let p = provider(dir.path());
-        let (entry, path) = install_fake_model(&p, b"weights");
+        let (entry, path) = install_fake_model(&p, b"weights").await;
         let id = entry["id"].as_str().unwrap().to_owned();
         let job = p.start_maintenance(&id, "verify").unwrap();
         assert_eq!(job["phase"], "verify");
@@ -593,11 +622,11 @@ pub(crate) mod tests {
     async fn context_is_validated_saved_and_reflected_in_status() {
         let dir = tempfile::tempdir().unwrap();
         let p = provider(dir.path());
-        let (entry, _) = install_fake_model(&p, b"weights");
+        let (entry, _) = install_fake_model(&p, b"weights").await;
         let id = entry["id"].as_str().unwrap();
         assert!(matches!(p.set_context(id, Some(1000)).await, Err(ProviderError::Invalid(_))));
         assert!(matches!(p.set_context("nope", None).await, Err(ProviderError::Invalid(_))));
-        let m = p.status()["models"].as_array().unwrap().iter().find(|m| m["id"] == id).cloned().unwrap();
+        let m = p.status().await.unwrap()["models"].as_array().unwrap().iter().find(|m| m["id"] == id).cloned().unwrap();
         assert_eq!(m["contextWindow"], 16384);
         assert_eq!(m["installed"], true);
         // The runtime is not installed, so the server cannot start.
@@ -608,7 +637,7 @@ pub(crate) mod tests {
     async fn every_kind_of_status_change_ticks_the_subscription() {
         let dir = tempfile::tempdir().unwrap();
         let p = provider(dir.path());
-        let (entry, _) = install_fake_model(&p, b"weights");
+        let (entry, _) = install_fake_model(&p, b"weights").await;
         let id = entry["id"].as_str().unwrap().to_owned();
         let mut rx = p.subscribe();
         let ticked = |rx: &mut tokio::sync::watch::Receiver<u64>| {
@@ -633,26 +662,26 @@ pub(crate) mod tests {
         }
         assert!(ticked(&mut rx));
         // Installations: a discard removes the finished row.
-        p.discard_installation("verify", Some(&id)).unwrap();
+        p.discard_installation("verify", Some(&id)).await.unwrap();
         assert!(ticked(&mut rx));
         // The status a subscriber re-reads after the tick reflects the change.
-        let model = p.status()["models"].as_array().unwrap().iter().find(|m| m["id"] == id.as_str()).cloned().unwrap();
+        let model = p.status().await.unwrap()["models"].as_array().unwrap().iter().find(|m| m["id"] == id.as_str()).cloned().unwrap();
         assert_eq!(model["configuredContextWindow"], 16_384);
-        assert_eq!(p.status()["idleTtlSeconds"], 30);
+        assert_eq!(p.status().await.unwrap()["idleTtlSeconds"], 30);
         // Catalog: deleting the model.
-        let token = p.model_details(&id).unwrap()["confirmationToken"].as_str().unwrap().to_owned();
+        let token = p.model_details(&id).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
         p.delete_model(&token).await.unwrap();
         assert!(ticked(&mut rx));
-        assert!(p.status()["models"].as_array().unwrap().iter().all(|m| m["id"] != id.as_str()));
+        assert!(p.status().await.unwrap()["models"].as_array().unwrap().iter().all(|m| m["id"] != id.as_str()));
     }
 
-    #[test]
-    fn installation_arguments_are_checked() {
+    #[tokio::test]
+    async fn installation_arguments_are_checked() {
         let dir = tempfile::tempdir().unwrap();
         let p = provider(dir.path());
         assert!(matches!(p.start_installation("runtime", Some("m")), Err(ProviderError::Invalid(_))));
         assert!(matches!(p.start_installation("model", Some("nope")), Err(ProviderError::Invalid(_))));
         assert!(matches!(p.start_installation("verify", None), Err(ProviderError::Invalid(_))));
-        assert!(p.discard_installation("bogus", None).is_err());
+        assert!(p.discard_installation("bogus", None).await.is_err());
     }
 }

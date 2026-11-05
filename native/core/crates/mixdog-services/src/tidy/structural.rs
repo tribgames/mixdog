@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::history_comment::refine_history_comment_matches;
 use super::languages::{files_for_languages, parse_graph_langs};
-use super::process::{RunOptions, run_process};
+use super::process::{Processes, RunOptions};
 use super::rule_files::RULE_FILES;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
@@ -232,25 +232,25 @@ pub fn reset_structural_probe_cache() {
 /// Probes `mixdog-graph <cwd> --langs`. A clean exit is not proof: a binary from before the scan
 /// mode exits 0 with no output. Only the language registry payload proves this binary owns the
 /// scan protocol. Returns the table when it does.
-pub async fn probe_graph_langs(bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> Option<super::languages::GraphLangs> {
+pub async fn probe_graph_langs(processes: &Processes, bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> Option<super::languages::GraphLangs> {
     if !bin.exists() {
         return None;
     }
     let mut options = RunOptions::new(cwd);
     options.timeout = PROBE_TIMEOUT;
     options.cancel = cancel;
-    let result = run_process(&bin.to_string_lossy(), &[cwd.to_string_lossy().into_owned(), "--langs".into()], options).await;
+    let result = processes.run(&bin.to_string_lossy(), &[cwd.to_string_lossy().into_owned(), "--langs".into()], options).await;
     if result.code != 0 || !result.error.is_empty() {
         return None;
     }
     parse_graph_langs(&result.stdout)
 }
 
-pub async fn graph_supports_scan(bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> bool {
+pub async fn graph_supports_scan(processes: &Processes, bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> bool {
     if let Some(cached) = probe_cache().lock().unwrap().get(bin) {
         return *cached;
     }
-    let supported = probe_graph_langs(bin, cwd, cancel).await.is_some();
+    let supported = probe_graph_langs(processes, bin, cwd, cancel).await.is_some();
     probe_cache().lock().unwrap().insert(bin.to_owned(), supported);
     supported
 }
@@ -288,6 +288,7 @@ fn scan_source_reader(cwd: PathBuf) -> impl Fn(&str) -> Option<Vec<u8>> {
 
 pub struct GraphStructuralAdapter {
     pub bin: PathBuf,
+    pub processes: Processes,
 }
 
 impl GraphStructuralAdapter {
@@ -307,7 +308,7 @@ impl GraphStructuralAdapter {
         options.input = Some(rules_text.as_bytes().to_vec());
         options.timeout = STRUCTURAL_TIMEOUT;
         options.cancel = cancel;
-        let result = run_process(&self.bin.to_string_lossy(), &args, options).await;
+        let result = self.processes.run(&self.bin.to_string_lossy(), &args, options).await;
         if !result.error.is_empty() && result.code == -1 {
             return Ok(json!({"matches": [], "summary": {"matches": 0, "files": 0}, "error": {"exitCode": -1, "kind": "spawn", "message": result.error}}));
         }
@@ -329,14 +330,14 @@ impl GraphStructuralAdapter {
 
 /// The structural implementation: the local graph binary, once it proves it owns the scan
 /// protocol. An old or missing binary must never read as "no findings".
-pub async fn resolve_structural_adapter(cwd: &Path, graph_bin: Option<&Path>, graph_ready: Option<bool>, cancel: Option<&CancellationToken>) -> Result<GraphStructuralAdapter, StructuralEngineUnavailable> {
+pub async fn resolve_structural_adapter(processes: &Processes, cwd: &Path, graph_bin: Option<&Path>, graph_ready: Option<bool>, cancel: Option<&CancellationToken>) -> Result<GraphStructuralAdapter, StructuralEngineUnavailable> {
     let ready = match (graph_ready, graph_bin) {
         (Some(r), _) => r,
-        (None, Some(bin)) => graph_supports_scan(bin, cwd, cancel).await,
+        (None, Some(bin)) => graph_supports_scan(processes, bin, cwd, cancel).await,
         (None, None) => false,
     };
     match graph_bin {
-        Some(bin) if ready => Ok(GraphStructuralAdapter { bin: bin.to_owned() }),
+        Some(bin) if ready => Ok(GraphStructuralAdapter { bin: bin.to_owned(), processes: processes.clone() }),
         other => Err(StructuralEngineUnavailable { bin: other.map(|b| b.to_string_lossy().into_owned()).unwrap_or_default() }),
     }
 }
@@ -403,11 +404,11 @@ mod tests {
     #[tokio::test]
     async fn an_absent_or_non_scanning_binary_is_unavailable_with_the_remedy() {
         let dir = tempfile::tempdir().unwrap();
-        let err = resolve_structural_adapter(dir.path(), None, None, None).await.err().unwrap();
+        let err = resolve_structural_adapter(&Processes::for_tests(), dir.path(), None, None, None).await.err().unwrap();
         assert!(err.to_string().contains("no mixdog-graph binary was found") && err.to_string().contains("structural:false"));
         let missing = dir.path().join("nope");
-        assert!(resolve_structural_adapter(dir.path(), Some(&missing), None, None).await.is_err());
-        assert!(resolve_structural_adapter(dir.path(), Some(&missing), Some(true), None).await.is_ok(), "a caller-probed table is trusted");
+        assert!(resolve_structural_adapter(&Processes::for_tests(), dir.path(), Some(&missing), None, None).await.is_err());
+        assert!(resolve_structural_adapter(&Processes::for_tests(), dir.path(), Some(&missing), Some(true), None).await.is_ok(), "a caller-probed table is trusted");
         reset_structural_probe_cache();
     }
 }

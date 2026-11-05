@@ -18,6 +18,7 @@ const support = await load('src/runtime/shared/worktrees/test-support.mjs');
 const { createWorkspaceTransitions } = await load('src/session-runtime/workspace/transitions.mjs');
 const { createWorktreeToolHost } = await load('src/session-runtime/workspace/worktree-tool.mjs');
 const { restoreWorkspaceAfterResume } = await load('src/session-runtime/workspace/workspace-state.mjs');
+const gate = await load('src/session-runtime/workspace/admission-gate.mjs');
 const { commitFile, git, makeRepo, useTempDataDir, writeFile } = support;
 
 const LEAD = 'lead';
@@ -229,6 +230,21 @@ await scenario('input_validation', {
     empty_branch: await capture(() => f.api.selectBranch({ branch: '', txId: 'v3' })),
     bad_branch: await capture(() => f.api.selectBranch({ branch: 'a..b', create: true, txId: 'v4' })),
   }),
+});
+
+// The three call sites that refuse `reason: 'transition'`, each with its own text.
+await scenario('transition_texts', {
+  run: async (f) => {
+    const begin = (id) => gate.beginWorkspaceTransition(id, 'tx');
+    const leave = begin('s-a');
+    const session = await capture(async () => begin('s-a'));
+    const spawn = await capture(async () => gate.enterWorkerSpawn(['s-a']));
+    leave();
+    const release = gate.holdCheckoutFolder('s-b', f.repo);
+    const folder = await capture(async () => gate.holdCheckoutFolder('s-c', join(f.repo, 'sub')));
+    release();
+    return { session, spawn, folder };
+  },
 });
 
 const out = join(dirname(fileURLToPath(import.meta.url)), 'goldens.json');

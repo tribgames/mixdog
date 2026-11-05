@@ -2,6 +2,7 @@
 
 mod args;
 mod dispatch;
+mod cache;
 mod federation;
 mod graph;
 mod hits;
@@ -10,6 +11,8 @@ mod outline;
 mod refs;
 mod resolve;
 mod roots;
+#[cfg(test)]
+mod routing_tests;
 #[cfg(test)]
 mod tests;
 mod util;
@@ -87,31 +90,24 @@ pub fn dependency_roots(output: &ToolOutput) -> Option<Vec<String>> {
     (!roots.is_empty()).then_some(roots)
 }
 
+pub use cache::GraphCache;
 pub use federation::TrustedRoots;
 
 pub struct CodeGraphTool {
     spec: ToolSpec,
-    trust: Option<std::sync::Arc<dyn TrustedRoots>>,
+    trust: std::sync::Arc<dyn TrustedRoots>,
+    cache: std::sync::Arc<GraphCache>,
 }
 
 impl CodeGraphTool {
-    pub fn new() -> Self {
+    /// `trust` is where federated calls find the registered and selected project roots; `cache`
+    /// is the on-disk graph cache, whose manifest also supplies the cached roots.
+    pub fn new(trust: std::sync::Arc<dyn TrustedRoots>, cache: std::sync::Arc<GraphCache>) -> Self {
         Self {
             spec: spec_from(SPEC, true),
-            trust: None,
+            trust,
+            cache,
         }
-    }
-
-    /// Where federated calls find registered, selected and cached project roots.
-    pub fn with_trusted_roots(mut self, trust: std::sync::Arc<dyn TrustedRoots>) -> Self {
-        self.trust = Some(trust);
-        self
-    }
-}
-
-impl Default for CodeGraphTool {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -125,12 +121,15 @@ impl Tool for CodeGraphTool {
         let parsed = args::Args::parse(&args);
         let cwd = ctx.cwd.as_path().to_path_buf();
         // Parsing and indexing a project is CPU and disk bound: keep it off the async workers.
-        let trust = self.trust.clone();
+        let snapshot = federation::TrustSnapshot::read(&*self.trust).await;
+        let cache = self.cache.clone();
         let joined = mixdog_scm::repo::on_lane(ctx.io.maintenance, &ctx.cancel, move || {
-            let env = dispatch::Env { trust: trust.as_deref(), session_cwd: &cwd };
+            let snapshot = snapshot.with_cached(cache.roots());
+            let env = dispatch::Env { trust: &snapshot, cache: &cache, session_cwd: &cwd };
             dispatch::run(&parsed, &cwd, &env)
         })
         .await;
+        self.cache.schedule_flush(ctx.io.maintenance);
         match joined {
             Ok(Ok(answer)) => {
                 let mut output = text_output(answer.text);

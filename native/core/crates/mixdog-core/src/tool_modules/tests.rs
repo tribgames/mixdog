@@ -112,7 +112,8 @@ async fn service(
 ) -> (Arc<ToolModules>, Arc<MockHost>, Arc<MockStatePublisher>, Config, CancellationToken) {
     let path = dir.path().join("mixdog-config.json");
     if let Some(config) = config {
-        std::fs::write(&path, serde_json::to_vec(config).unwrap()).unwrap();
+        // The recorded configs are Node's flat agent config; on disk it is the `agent` section.
+        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": config })).unwrap()).unwrap();
     }
     let publisher = Arc::new(MockStatePublisher::default());
     let (config, _) = Config::open(path, publisher.clone(), lanes()).await.unwrap();
@@ -204,7 +205,7 @@ async fn the_value_and_every_setter_match_the_recorded_node_module() {
                 .get("saved")
                 .filter(|saved| !saved.is_null())
                 .unwrap_or(&entry["config"]);
-            assert_eq!(&Value::Object((*config.full()).clone()), expected_doc, "{label}: config");
+            assert_eq!(&Value::Object(config.agent()), expected_doc, "{label}: config");
             assert_eq!(Value::Array(host.calls()), setter["calls"], "{label}: host calls");
             cancel.cancel();
             compared += 1;
@@ -252,7 +253,7 @@ async fn host_status_and_other_config_writers_push_without_polling() {
     until(|| tool_modules_frames(&publisher) == 2).await;
 
     config
-        .update(|doc| {
+        .update_agent(|doc| {
             doc.insert("autoEffortBase".into(), json!("high"));
             Ok(())
         })

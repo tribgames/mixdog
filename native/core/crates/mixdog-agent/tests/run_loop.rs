@@ -356,6 +356,50 @@ impl Tool for Echo {
     }
 }
 
+/// `echo` whose result carries `meta.complete`, as `code_graph` marks a partial answer.
+struct Marked(bool);
+#[async_trait]
+impl Tool for Marked {
+    fn spec(&self) -> &ToolSpec {
+        static SPEC: std::sync::OnceLock<ToolSpec> = std::sync::OnceLock::new();
+        SPEC.get_or_init(|| Echo::tool().spec().clone())
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput {
+            parts: vec![ToolPart::Text("body".into())],
+            meta: Some(json!({ "complete": self.0 })),
+            ..ToolOutput::default()
+        })
+    }
+}
+
+/// Records what the loop admits to the tool-result cache.
+#[derive(Default)]
+struct Stored(Mutex<Vec<String>>);
+impl ResultReuse for Stored {
+    fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+        None
+    }
+    fn store(&self, _call: &ToolCall, content: &str, _tool_use_id: &str, _output: &ToolOutput) {
+        self.0.lock().unwrap().push(content.to_owned());
+    }
+    fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+}
+
+#[tokio::test]
+async fn a_partial_result_is_never_admitted_to_the_cache() {
+    for (complete, stored) in [(true, vec!["body".to_owned()]), (false, Vec::new())] {
+        let reuse = Arc::new(Stored::default());
+        let mut h = Harness::new(vec![
+            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        h.reuse = Some(reuse.clone());
+        finish(h.run(config(), vec![Arc::new(Marked(complete))], vec![AgentMessage::user("go")])).await;
+        assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}");
+    }
+}
+
 /// Never finishes on its own; ends when its token is cancelled.
 struct Hang(ToolSpec);
 impl Hang {
@@ -407,6 +451,7 @@ struct Harness {
     gate: Arc<dyn ToolGate>,
     compactor: Option<Arc<Compactor100>>,
     tail: Option<Arc<dyn TailReminder>>,
+    reuse: Option<Arc<dyn ResultReuse>>,
     cancel: CancellationToken,
 }
 
@@ -422,6 +467,7 @@ impl Harness {
             gate: Arc::new(AllowAll),
             compactor: None,
             tail: None,
+            reuse: None,
             cancel: CancellationToken::new(),
         }
     }
@@ -451,7 +497,7 @@ impl Harness {
             route: None,
             skills: None,
             hooks: None,
-            reuse: None,
+            reuse: self.reuse.clone(),
             reactions: None,
             tail: self.tail.clone(),
             step_judge: None,
@@ -570,6 +616,46 @@ async fn tool_round_then_final_text() {
     assert_eq!(wire_dump(second), ["User:go", "Assistant:looking", "Tool:echo:{\"a\":1}"]);
     // the assistant turn with calls and each result reached the sink in order
     assert_eq!(h.sink.committed.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_failed_attempts_cleared_provider_state_is_handed_back() {
+    use mixdog_core_api::domain::provider::ProviderState;
+    // A 401 that dropped the gemini cache: the cleared state must be saved even
+    // though the run ends in failure.
+    let mut unauthorized = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+    unauthorized.provider_state = Some(Box::new(ProviderState::default()));
+    let h = Harness::new(vec![Attempt::Reject(unauthorized)]);
+    let Err(failure) = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await else {
+        panic!("an auth refusal ends the run")
+    };
+    assert_eq!(failure.provider_state, Some(ProviderState::default()));
+}
+
+#[tokio::test]
+async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
+    use mixdog_core_api::domain::provider::ProviderState;
+    // An empty reported state means "clear"; it is still a reported change.
+    let h = Harness::new(vec![
+        turn(vec![
+            Step::Event(StreamEvent::ProviderState(ProviderState::default())),
+            call("c1", "echo", json!({})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let mut cfg = config();
+    cfg.options.provider_state = None;
+    let output = finish(h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let requests = h.provider.requests();
+    assert_eq!(requests[0].options.provider_state, None);
+    assert_eq!(requests[1].options.provider_state, Some(ProviderState::default()));
+    assert_eq!(output.provider_state, Some(ProviderState::default()));
+
+    // No report: nothing to save.
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.provider_state, None);
 }
 
 #[tokio::test]

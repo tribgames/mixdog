@@ -144,6 +144,25 @@
     "code": "INSTRUCTION_FILE_CONFLICT"
   },
   {
+    "name": "save null revision",
+    "error": "INSTRUCTION_FILE_CONFLICT: \"swarm\" changed since it was loaded",
+    "code": "INSTRUCTION_FILE_CONFLICT"
+  },
+  {
+    "name": "save nel",
+    "ok": {
+      "group": "delegation",
+      "id": "focused",
+      "label": "Focused",
+      "body": "Keep",
+      "defaultBody": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.",
+      "userOverride": true,
+      "modified": true,
+      "path": "<DATA>\\orchestration\\focused.md",
+      "revision": "0b342ac7aefb71220f8c00ec"
+    }
+  },
+  {
     "name": "save current revision",
     "ok": {
       "group": "delegation",
@@ -187,6 +206,11 @@
   },
   {
     "name": "reset stale",
+    "error": "INSTRUCTION_FILE_CONFLICT: \"simple\" changed since it was loaded",
+    "code": "INSTRUCTION_FILE_CONFLICT"
+  },
+  {
+    "name": "reset null revision",
     "error": "INSTRUCTION_FILE_CONFLICT: \"simple\" changed since it was loaded",
     "code": "INSTRUCTION_FILE_CONFLICT"
   },

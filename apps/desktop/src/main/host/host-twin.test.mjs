@@ -92,7 +92,7 @@ test('host/visualize/command equals the loopback bridge on every step', async ()
   const wire = handlers();
   createVisualizeHost(wire.connection, () => ({
     execute: (command) => hostSide.service.execute(command),
-    snapshot: () => ({ sessions: [] }),
+    snapshot: () => [],
   }));
   const recorded = [];
   try {

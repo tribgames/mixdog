@@ -4,3 +4,4 @@
 pub mod decision;
 pub mod engine;
 pub mod preview;
+pub mod service;

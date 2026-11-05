@@ -500,32 +500,68 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
     ));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_real_store_reopens_a_thread_and_appends_after_it() {
+/// The real thread store (log writer, codec, index) over the data dir `data`.
+async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_store::blobs::BlobStore;
     use mixdog_store::log::OsIo;
     use mixdog_store::log::WriterDeps;
     use mixdog_store::sqlite::SqliteStore;
 
-    let data = tempfile::tempdir().expect("data dir");
-    std::fs::create_dir_all(data.path().join("sessions")).unwrap();
+    std::fs::create_dir_all(data.join("sessions")).unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let index = SqliteStore::open(
-        tokens.sqlite_writer_thread,
-        tokens.interactive_io,
-        &data.path().join("store.sqlite"),
-    )
+    let root = data.to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
     .expect("index");
-    let blobs = BlobStore::new(data.path());
+    let blobs = BlobStore::new(data);
     let writer = WriterDeps {
         io: Arc::new(OsIo),
         blobs: blobs.clone(),
         ownership: Arc::new(MockOwnership::default()),
         index: Arc::new(index.clone()),
     };
-    let store: Arc<dyn super::ThreadStore> =
-        Arc::new(super::StoreThreads::new(data.path(), blobs, index, writer));
+    Arc::new(super::StoreThreads::new(data, blobs, index, writer))
+}
+
+/// A prompt larger than a frame's inline budget goes through the runtime codec into a
+/// blob of its own, and a reopen gives it back (prompt history and the rewind text).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_large_prompt_round_trips_through_the_real_store() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    let text = format!("ask {}", "p".repeat(300 << 10));
+    turn(&handle, &text, "op-1").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let id = handle.id.clone();
+    // Body and prompt are blobs: the log holds neither copy of the text.
+    let log = std::fs::read(data.path().join("sessions").join(id.as_str()).join("log.000000")).unwrap();
+    assert!(log.len() < 64 << 10, "{} log bytes", log.len());
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(prompt_list(&reopened), [text.clone()]);
+    let asked = reopened.cell.view.load_full().items[0].id().clone();
+    let reply = reopened
+        .request(request("thread/rewind", json!({ "threadId": id, "opId": "op-2", "itemId": asked }), "op-2"))
+        .await
+        .expect("rewind");
+    let Reply::Value(value) = reply else { panic!() };
+    assert_eq!(value["text"], text.as_str());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_real_store_reopens_a_thread_and_appends_after_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
     let rig = Rig::new();
     rig.set_script(echo());
 

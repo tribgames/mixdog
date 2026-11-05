@@ -53,6 +53,7 @@ use crate::terminal::TerminalError;
 use crate::terminal::TerminalEvents;
 use crate::terminal::TerminalTabs;
 
+#[derive(Default)]
 pub struct TerminalServiceConfig {
     /// Mixdog's own directory for shell startup files (see [`TerminalConfig`]).
     pub shell_integration_dir: Option<PathBuf>,
@@ -286,6 +287,20 @@ impl DomainService for TerminalService {
             }
             other => Err(invalid_params("method", format!("a method of terminal, not {other}"))),
         }
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "terminal/ensure",
+            "terminal/attach",
+            "terminal/profiles",
+            "terminal/focus",
+            "terminal/pause",
+            "terminal/resume",
+            "terminal/dispose",
+            "terminal/input",
+            "terminal/resize",
+        ]
     }
 
     fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {

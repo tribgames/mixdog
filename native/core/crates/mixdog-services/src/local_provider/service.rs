@@ -28,7 +28,7 @@ pub struct LocalProviderService {
 }
 
 fn domain(code: &str) -> CoreError {
-    CoreError::DomainError { domain: "localProvider".into(), code: code.into(), detail: None }
+    CoreError::DomainError { domain: "localProvider".into(), code: Some(code.into()), detail: None }
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -58,10 +58,10 @@ impl LocalProviderService {
         self.provider.subscribe()
     }
 
-    pub(super) fn settings_view(&self) -> Value {
-        let mut status = self.provider.status();
+    pub(super) async fn settings_view(&self) -> Result<Value, ProviderError> {
+        let mut status = self.provider.status().await?;
         status["installationCommandError"] = json!(self.command_error.lock().unwrap().clone());
-        status
+        Ok(status)
     }
 
     /// `startLocalProviderInstallation`: starts the job and tracks it in the background; a failure
@@ -76,8 +76,11 @@ impl LocalProviderService {
             match super::installations::wait(done).await {
                 Ok(_) => settings.catalog_changed().await,
                 Err(message) => {
-                    let paused = this.status()["installations"].as_array().into_iter().flatten().any(|e| {
-                        e["phase"] == phase.as_str() && (phase == "runtime" || e["modelId"].as_str() == model.as_deref()) && e["state"] == "paused"
+                    // A status that cannot be read cannot show a pause, so the failure is recorded.
+                    let paused = this.status().await.is_ok_and(|status| {
+                        status["installations"].as_array().into_iter().flatten().any(|e| {
+                            e["phase"] == phase.as_str() && (phase == "runtime" || e["modelId"].as_str() == model.as_deref()) && e["state"] == "paused"
+                        })
                     });
                     if !paused {
                         *error_slot.lock().unwrap() = Some(message);
@@ -100,19 +103,19 @@ impl LocalProviderService {
             }
             "localProvider/registerHuggingFaceModel" => {
                 let id = text(&args, "previewId").unwrap_or("");
-                let result = provider.register_model(id, args.get("licenseAccepted") == Some(&Value::Bool(true))).map_err(hf)?;
+                let result = provider.register_model(id, args.get("licenseAccepted") == Some(&Value::Bool(true))).await.map_err(hf)?;
                 self.settings.catalog_changed().await;
                 Ok(result)
             }
-            "localProvider/getLocalProviderModelDetails" => Ok(provider.model_details(text(&args, "modelId").unwrap_or(""))?),
+            "localProvider/getLocalProviderModelDetails" => Ok(provider.model_details(text(&args, "modelId").unwrap_or("")).await?),
             "localProvider/startLocalProviderModelMaintenance" => {
                 let job = provider.start_maintenance(text(&args, "modelId").unwrap_or(""), text(&args, "operation").unwrap_or(""))?;
-                Ok(json!({"job": job, "localProvider": self.settings_view()}))
+                Ok(json!({"job": job, "localProvider": self.settings_view().await?}))
             }
             "localProvider/deleteLocalProviderModel" => {
                 let mut result = provider.delete_model(text(&args, "confirmationToken").unwrap_or("")).await?;
                 self.settings.catalog_changed().await;
-                result["localProvider"] = self.settings_view();
+                result["localProvider"] = self.settings_view().await?;
                 Ok(result)
             }
             "localProvider/setLocalProviderContext" => {
@@ -123,23 +126,23 @@ impl LocalProviderService {
                 };
                 provider.set_context(id, tokens).await?;
                 self.settings.catalog_changed().await;
-                Ok(self.settings_view())
+                Ok(self.settings_view().await?)
             }
             "localProvider/installLocalProviderModel" => {
                 let id = text(&args, "modelId").unwrap_or("");
                 provider.install_model_and_wait(id).await?;
                 self.settings.catalog_changed().await;
-                Ok(self.settings_view())
+                Ok(self.settings_view().await?)
             }
             "localProvider/startLocalProviderInstallation" => {
                 let (phase, model) = (text(&args, "phase").unwrap_or(""), text(&args, "modelId"));
                 self.begin_installation(phase, model)?;
-                Ok(self.settings_view())
+                Ok(self.settings_view().await?)
             }
             "localProvider/cancelLocalProviderInstallation" => {
                 let job = text(&args, "jobId").filter(|s| !mixdog_js::js_trim(s).is_empty()).ok_or_else(|| invalid("params.jobId", "string"))?;
                 provider.installs.cancel(job).map_err(|_| domain("jobNotFound"))?;
-                Ok(self.settings_view())
+                Ok(self.settings_view().await?)
             }
             "localProvider/discardLocalProviderInstallation" => {
                 let phase = text(&args, "phase").filter(|p| ["runtime", "model", "verify", "repair"].contains(p)).ok_or_else(|| invalid("params.phase", "runtime | model | verify | repair"))?;
@@ -147,16 +150,16 @@ impl LocalProviderService {
                 if phase != "runtime" && model.is_none() {
                     return Err(invalid("params.modelId", "string"));
                 }
-                provider.discard_installation(phase, if phase == "runtime" { None } else { model })?;
+                provider.discard_installation(phase, if phase == "runtime" { None } else { model }).await?;
                 *self.command_error.lock().unwrap() = None;
-                Ok(self.settings_view())
+                Ok(self.settings_view().await?)
             }
             "localProvider/setLocalProviderIdleTtl" => {
                 let value = args.get("seconds").and_then(Value::as_i64).ok_or_else(|| invalid("params.seconds", "integer"))?;
                 let seconds = local_idle_ttl_seconds(value).map_err(|_| invalid("params.seconds", "integer from 0 (disabled) to 86400"))?;
                 self.settings.persist_idle_ttl(seconds).await.map_err(|_| domain("settingsFailed"))?;
                 provider.queue.configure(seconds);
-                Ok(self.settings_view())
+                Ok(self.settings_view().await?)
             }
             _ => Err(invalid("method", "localProvider/*")),
         }
@@ -174,6 +177,23 @@ fn hf(e: super::hugging_face::HfError) -> CoreError {
 impl DomainService for LocalProviderService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "localProvider/searchLocalProviderModels",
+            "localProvider/inspectHuggingFaceModel",
+            "localProvider/registerHuggingFaceModel",
+            "localProvider/getLocalProviderModelDetails",
+            "localProvider/startLocalProviderModelMaintenance",
+            "localProvider/deleteLocalProviderModel",
+            "localProvider/setLocalProviderContext",
+            "localProvider/installLocalProviderModel",
+            "localProvider/startLocalProviderInstallation",
+            "localProvider/cancelLocalProviderInstallation",
+            "localProvider/discardLocalProviderInstallation",
+            "localProvider/setLocalProviderIdleTtl",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

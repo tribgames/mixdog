@@ -72,20 +72,15 @@ mod tests {
 
     use super::*;
 
-    #[cfg(windows)]
     #[test]
-    fn case_rule_decides_name_equality() {
-        assert!(names_equal(true, OsStr::new("foo.TXT"), OsStr::new("FOO.txt")));
-        assert!(names_equal(true, OsStr::new("é"), OsStr::new("É")));
-        assert!(!names_equal(true, OsStr::new("foo"), OsStr::new("foo2")));
-        assert!(!names_equal(false, OsStr::new("foo"), OsStr::new("FOO")));
-        assert!(names_equal(false, OsStr::new("foo"), OsStr::new("foo")));
-    }
-
-    #[test]
-    fn exact_names_are_equal_only_when_identical() {
-        assert!(names_equal(false, OsStr::new("a"), OsStr::new("a")));
-        assert!(!names_equal(false, OsStr::new("a"), OsStr::new("b")));
+    fn one_platform_rule_decides_name_equality() {
+        // Node lowercases the lock key on win32 only (`path-locks.mjs:7`) and compares exactly elsewhere.
+        assert_eq!(names_equal(OsStr::new("C:\\D\\foo.TXT"), OsStr::new("c:\\d\\FOO.txt")), cfg!(windows));
+        assert_eq!(names_equal(OsStr::new("foo.TXT"), OsStr::new("FOO.txt")), cfg!(windows));
+        assert_eq!(names_equal(OsStr::new("é"), OsStr::new("É")), cfg!(windows));
+        assert!(!names_equal(OsStr::new("foo"), OsStr::new("foo2")));
+        assert!(names_equal(OsStr::new("foo"), OsStr::new("foo")));
+        assert!(!names_equal(OsStr::new("a"), OsStr::new("b")));
     }
 }
 
@@ -153,59 +148,15 @@ pub fn stat_version(path: &Path) -> io::Result<StatVersion> {
     Ok(StatVersion { mtime_ns: ticks(info.LastWriteTime), ctime_ns: ticks(info.ChangeTime), size: file.metadata()?.len(), ino: id.index, dev: id.volume })
 }
 
-/// Whether names inside the directory `dir` compare without regard to case, as the OS says for that
-/// directory: the per-directory case-sensitivity attribute (`FileCaseSensitiveInfo`). A volume that
-/// has no such attribute is Windows' default, case-insensitive. Other platforms compare names
-/// exactly; a casefolded directory there is not looked up.
-#[cfg(windows)]
-pub fn dir_is_case_insensitive(dir: &Path) -> bool {
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::FILE_CASE_SENSITIVE_INFO;
-    use windows_sys::Win32::Storage::FileSystem::FileCaseSensitiveInfo;
-    use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandleEx;
-    /// `FILE_CS_FLAG_CASE_SENSITIVE_DIR`.
-    const CASE_SENSITIVE_DIR: u32 = 1;
-    let mut options = std::fs::OpenOptions::new();
-    // FILE_FLAG_BACKUP_SEMANTICS: lets a directory be opened.
-    options.read(true).custom_flags(0x0200_0000);
-    let Ok(handle) = options.open(dir) else { return true };
-    let mut info = FILE_CASE_SENSITIVE_INFO { Flags: 0 };
-    // SAFETY: the handle is open for the call and `info` is a plain out struct of the stated size.
-    let ok = unsafe {
-        GetFileInformationByHandleEx(
-            handle.as_raw_handle() as _,
-            FileCaseSensitiveInfo,
-            std::ptr::addr_of_mut!(info).cast(),
-            std::mem::size_of::<FILE_CASE_SENSITIVE_INFO>() as u32,
-        )
-    };
-    ok == 0 || info.Flags & CASE_SENSITIVE_DIR == 0
-}
-
-#[cfg(not(windows))]
-pub fn dir_is_case_insensitive(_dir: &Path) -> bool {
-    false
-}
-
-/// Whether two names in one directory are the same entry: exact when the directory is case-sensitive,
-/// else the OS's ordinal case-insensitive comparison (the one the file system itself applies).
-#[cfg(windows)]
-pub fn names_equal(case_insensitive: bool, a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Globalization::CSTR_EQUAL;
-    use windows_sys::Win32::Globalization::CompareStringOrdinal;
-    if !case_insensitive {
-        return a == b;
+/// Whether two paths name the same file for write serialization. Node's write-lock key is the
+/// resolved path text, lowercased on win32 only and exact elsewhere
+/// (`tools/builtin/path-locks.mjs:5-7`, `advisory-lock.mjs:47`); one rule, no probing.
+pub fn names_equal(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
+    if cfg!(windows) {
+        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    } else {
+        a == b
     }
-    let (a, b): (Vec<u16>, Vec<u16>) = (a.encode_wide().collect(), b.encode_wide().collect());
-    // SAFETY: both pointers and lengths describe live UTF-16 buffers for the duration of the call.
-    unsafe { CompareStringOrdinal(a.as_ptr(), a.len() as i32, b.as_ptr(), b.len() as i32, 1) == CSTR_EQUAL }
-}
-
-#[cfg(not(windows))]
-pub fn names_equal(_case_insensitive: bool, a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
-    a == b
 }
 
 /// Opens `path` (file or directory) only to read its identity.

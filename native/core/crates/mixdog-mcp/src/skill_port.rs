@@ -12,6 +12,7 @@ use mixdog_tools::orch::skill::SkillLookup;
 use mixdog_tools::orch::skill::SkillPort;
 use mixdog_tools::orch::util::PortError;
 
+use crate::skill_catalog::CatalogError;
 use crate::skill_catalog::SkillCatalog;
 use crate::skill_catalog::SkillLoad;
 use crate::skill_deps::SkillToolDependencies;
@@ -46,6 +47,16 @@ impl CatalogSkillPort {
     }
 }
 
+fn port_error(error: CatalogError) -> PortError {
+    match error {
+        CatalogError::Lane(mixdog_rt::SubmitWaitError::Cancelled) => PortError::Cancelled,
+        CatalogError::Lane(_) => PortError::Unavailable { capability: "skills".to_owned(), message: error.to_string() },
+        CatalogError::Dropped(_) | CatalogError::Read(_) => {
+            PortError::Failed { capability: "skills".to_owned(), message: error.to_string() }
+        }
+    }
+}
+
 fn source_name(source: SkillSource) -> &'static str {
     match source {
         SkillSource::Global => "global",
@@ -57,7 +68,7 @@ fn source_name(source: SkillSource) -> &'static str {
 #[async_trait]
 impl SkillPort for CatalogSkillPort {
     async fn load(&self, thread: &ThreadId, name: &str, cwd: &AbsPath) -> Result<SkillLookup, PortError> {
-        Ok(match self.catalog.load(name, cwd.as_path()).await {
+        Ok(match self.catalog.load(name, cwd.as_path()).await.map_err(port_error)? {
             SkillLoad::Refused(refusal) => SkillLookup::Refused(refusal.to_string()),
             SkillLoad::NotFound => SkillLookup::NotFound,
             SkillLoad::Loaded(resource) => {

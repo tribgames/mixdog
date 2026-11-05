@@ -1,0 +1,718 @@
+{
+ "startedAt": 1700000000000,
+ "cases": [
+  {
+   "name": "completed with usage",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "completed",
+    "usage": {
+     "inputTokens": 100,
+     "outputTokens": 20,
+     "cachedTokens": 30
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 70,
+     "output": 20,
+     "cacheRead": 30,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "completed with a response id, a served snapshot and a timed first output",
+   "provider": "anthropic",
+   "model": "zz-claude",
+   "inputExcludesCache": true,
+   "end": {
+    "kind": "completed",
+    "model": "zz-claude-20260101",
+    "responseId": "msg_1",
+    "generationMs": 400,
+    "streamMs": 1500,
+    "usage": {
+     "inputTokens": 50,
+     "outputTokens": 10,
+     "cachedTokens": 5,
+     "cacheWriteTokens": 7
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "anthropic",
+     "model": "zz-claude-20260101",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 50,
+     "output": 10,
+     "cacheRead": 5,
+     "cacheWrite": 7,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-claude\",\"pricingModel\":\"zz-claude-20260101\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "msg_1",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "zz-claude",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": 1100,
+     "elapsedMs": 0,
+     "id": "88600401af2c0ba99bb372ec78b507e00e123a07703dcbd6cc3e5605a67c47a0"
+    }
+   ]
+  },
+  {
+   "name": "completed without usage",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "completed"
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "completed on a fallback model",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "completed",
+    "model": "zz-other",
+    "fallback": true,
+    "usage": {
+     "inputTokens": 10,
+     "outputTokens": 2
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-other",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 10,
+     "output": 2,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-other\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "zz-test-model",
+     "requestedProvider": "",
+     "status": "substituted",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "completed with a provider-reported cost",
+   "provider": "xai",
+   "model": "zz-grok",
+   "end": {
+    "kind": "completed",
+    "usage": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "costUsd": 0.5
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "xai",
+     "model": "zz-grok",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 10,
+     "output": 2,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": 0.5,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":\"zz-grok\",\"pricingModel\":\"zz-grok\",\"pricingProvider\":\"xai\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "completed on a subscription route",
+   "provider": "openai-oauth",
+   "model": "zz-test-model",
+   "sessionId": "no-session",
+   "end": {
+    "kind": "completed",
+    "usage": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "costUsd": 0.25
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai-oauth",
+     "model": "zz-test-model",
+     "kind": "oauth",
+     "sessionId": "",
+     "sourceType": "lead",
+     "input": 10,
+     "output": 2,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai-oauth\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "completed on the local runtime",
+   "provider": "mixdog-local",
+   "model": "zz-local",
+   "end": {
+    "kind": "completed",
+    "generationMs": 100,
+    "streamMs": 900,
+    "usage": {
+     "inputTokens": 10,
+     "outputTokens": 2
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000000900,
+     "day": "2023-11-14",
+     "provider": "mixdog-local",
+     "model": "zz-local",
+     "kind": "local",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 10,
+     "output": 2,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": 0,
+     "costSource": "local",
+     "rates": "{\"requestedModel\":\"zz-local\",\"pricingModel\":\"zz-local\",\"pricingProvider\":\"mixdog-local\",\"pricingSource\":\"local\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 900,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": 800,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "completed after an abandoned attempt",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "abandoned": [
+    {
+     "usage": {
+      "inputTokens": 40,
+      "outputTokens": 4
+     },
+     "model": "zz-test-model"
+    }
+   ],
+   "end": {
+    "kind": "completed",
+    "usage": {
+     "inputTokens": 60,
+     "outputTokens": 6
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 40,
+     "output": 4,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>:abandoned:0"
+    },
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 60,
+     "output": 6,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "retried",
+     "attempts": 2,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "cancelled with reported usage",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "cancelled",
+    "usage": {
+     "inputTokens": 80,
+     "outputTokens": 3,
+     "cachedTokens": 10
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 70,
+     "output": 3,
+     "cacheRead": 10,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "cancelled",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "cancelled without usage",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "cancelled"
+   },
+   "startedAt": 1700000000000,
+   "rows": []
+  },
+  {
+   "name": "cancelled after an abandoned attempt",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "abandoned": [
+    {
+     "usage": {
+      "inputTokens": 40,
+      "outputTokens": 4
+     }
+    }
+   ],
+   "end": {
+    "kind": "cancelled",
+    "usage": {
+     "inputTokens": 5,
+     "outputTokens": 1
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 40,
+     "output": 4,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>:abandoned:0"
+    },
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 5,
+     "output": 1,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "cancelled",
+     "attempts": 2,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "failed with partial usage",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "failed",
+    "usage": {
+     "inputTokens": 70,
+     "outputTokens": 2,
+     "cachedTokens": 20
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 50,
+     "output": 2,
+     "cacheRead": 20,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "failed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 1500,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "failed without usage",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "failed"
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-test-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": 0,
+     "costSource": "none",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-test-model\",\"pricingProvider\":\"openai\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "failed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 1500,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "failed after an abandoned attempt",
+   "provider": "anthropic",
+   "model": "zz-claude",
+   "inputExcludesCache": true,
+   "ownerSessionId": "lead-1",
+   "abandoned": [
+    {
+     "usage": {
+      "inputTokens": 40,
+      "outputTokens": 4
+     },
+     "model": "zz-claude"
+    }
+   ],
+   "end": {
+    "kind": "failed"
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "anthropic",
+     "model": "zz-claude",
+     "kind": "api",
+     "sessionId": "session-1",
+     "ownerSessionId": "lead-1",
+     "sourceType": "lead",
+     "input": 40,
+     "output": 4,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-claude\",\"pricingModel\":\"zz-claude\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>:abandoned:0"
+    },
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "anthropic",
+     "model": "zz-claude",
+     "kind": "api",
+     "sessionId": "session-1",
+     "ownerSessionId": "lead-1",
+     "sourceType": "lead",
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": 0,
+     "costSource": "none",
+     "rates": "{\"requestedModel\":\"zz-claude\",\"pricingModel\":\"zz-claude\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "failed",
+     "attempts": 2,
+     "ttftMs": null,
+     "elapsedMs": 1500,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
+   "name": "failed with a provider-reported cost only",
+   "provider": "xai",
+   "model": "zz-grok",
+   "end": {
+    "kind": "failed",
+    "usage": {
+     "costUsd": 0.125
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "xai",
+     "model": "zz-grok",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": 0.125,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":\"zz-grok\",\"pricingModel\":\"zz-grok\",\"pricingProvider\":\"xai\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "failed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 1500,
+     "id": "<req>"
+    }
+   ]
+  }
+ ]
+}

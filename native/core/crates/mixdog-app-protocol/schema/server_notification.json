@@ -1,6 +1,20 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "ActivityKind": {
+      "description": "What a registered unit of work is. The first five make a stop wait; the last three only keep an unattended core alive.",
+      "enum": [
+        "turn",
+        "approvalWait",
+        "subAgent",
+        "scheduledRun",
+        "backgroundShell",
+        "goal",
+        "schedule",
+        "channel"
+      ],
+      "type": "string"
+    },
     "AggregateCategory": {
       "description": "One category entry of an aggregate tool card header (`categories` / `doneCategories`).",
       "properties": {
@@ -263,6 +277,29 @@
       ],
       "type": "string"
     },
+    "CoreDrainParams": {
+      "description": "Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to every connected client with what is still running, and the token that authorizes an abort.",
+      "properties": {
+        "confirmToken": {
+          "type": "string"
+        },
+        "drainId": {
+          "type": "string"
+        },
+        "running": {
+          "items": {
+            "$ref": "#/definitions/DrainRunning"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "confirmToken",
+        "drainId",
+        "running"
+      ],
+      "type": "object"
+    },
     "DeliveryState": {
       "enum": [
         "notSent",
@@ -270,6 +307,34 @@
         "accepted"
       ],
       "type": "string"
+    },
+    "DrainRunning": {
+      "description": "One unit of running work, as listed to the user.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/ActivityKind"
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "title"
+      ],
+      "type": "object"
     },
     "ErrorNotificationParams": {
       "description": "`error`: a connection-scoped failure, or a thread error with `willRetry`.",
@@ -1021,6 +1086,56 @@
       "required": [
         "event",
         "runId"
+      ],
+      "type": "object"
+    },
+    "ModelRequestPhase": {
+      "enum": [
+        "started",
+        "completed",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "ModelRequestUpdatedParams": {
+      "description": "`thread/modelRequest/updated`: one provider request of a turn (Node `model.request.*`). Request ids are `model_request_<index>`, the index counting from 1.",
+      "properties": {
+        "durationMs": {
+          "description": "On `completed` and `failed`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/ModelRequestPhase"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "requestIndex": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "usage": {
+          "description": "Node's usage delta summary of the request, on `completed`."
+        }
+      },
+      "required": [
+        "phase",
+        "requestId",
+        "requestIndex",
+        "threadId",
+        "turnId"
       ],
       "type": "object"
     },
@@ -2537,6 +2652,32 @@
       ],
       "type": "object"
     },
+    "ThreadNotificationParams": {
+      "description": "`thread/notification`: a runtime notification (a finished background task, a channel message) as Node's `runtime.onNotification` delivers it. The delivered text also lands as a `task-notification` user row; this is the live event with its status.",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "meta": {
+          "description": "Node's `meta`; `meta.status` is `completed`, `failed`, `cancelled`, `canceled` or `timed_out` when the notification settles a task."
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "content",
+        "meta",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadQueueChangedParams": {
       "properties": {
         "queued": {
@@ -3583,6 +3724,64 @@
       ],
       "type": "object"
     },
+    "ToolBatchPhase": {
+      "enum": [
+        "started",
+        "completed"
+      ],
+      "type": "string"
+    },
+    "ToolBatchUpdatedParams": {
+      "description": "`thread/toolBatch/updated`: the tool calls of one model response run together (Node `tool.batch.*`). Batch ids are `tool_batch_<request index>`.",
+      "properties": {
+        "batchId": {
+          "type": "string"
+        },
+        "calls": {
+          "description": "On `completed`: the calls the batch ran.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "durationMs": {
+          "description": "On `completed`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "iteration": {
+          "description": "On `completed`.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/ToolBatchPhase"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "batchId",
+        "phase",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
     "ToolMeta": {
       "description": "A result's side channel: a stable code, the missing capability names and, for a `visualize` call run for another session's work, that owner session.",
       "properties": {
@@ -3749,6 +3948,20 @@
         },
         "status": {
           "$ref": "#/definitions/TurnStatus"
+        },
+        "stopReason": {
+          "description": "The model's stop reason of the turn's final answer (Node `result.stopReason`, a provider string such as `end_turn`); on a completed turn only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terminationReason": {
+          "description": "Why the turn ended where it did (Node `result.terminationReason`; `refusal` is the one the headless result treats as an error); on a completed turn only.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3827,25 +4040,180 @@
       "type": "string"
     },
     "UiOpenRequestedParams": {
-      "description": "App-feed event: a web URL the agent opened is handed to the session's browser panel. Node's `openUrl` visualize event (`visualize/open-actions.ts` `openUrl`), field for field.",
+      "description": "App-feed event (`desktop-services.md` §12.4): the core asks attached UIs to open something. One variant per Node flow it replaces: `browser-open-requested`, `terminal-run-requested` and the visualize open (`visualize/open-actions.ts`).",
+      "oneOf": [
+        {
+          "description": "`DesktopBrowserOpenRequest` (`shared/contract-browser.ts`).",
+          "properties": {
+            "error": {
+              "description": "An agent's `open` that failed, and why: nothing is revealed for it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "handoff": {
+              "description": "A takeover hand-off: the user must act on the page, so the panel opens even where closed.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "hide": {
+              "description": "Hide only: never create or release pages; overrides `reveal`.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "browser"
+              ],
+              "type": "string"
+            },
+            "reveal": {
+              "description": "`false` creates or retains the surface without opening the session dock.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "tabId": {
+              "description": "An agent's `open`: the page it showed (session-local id `p…`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`DesktopTerminalRunRequest` (`shared/terminal-command.ts`): the `terminal` tool ran a command in one of the session's terminals.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "terminal"
+              ],
+              "type": "string"
+            },
+            "requestId": {
+              "description": "The core waits on this: the desktop renderer claims it once a pane really shows `terminalId`; unclaimed, the run is reported as running in the background. Not sent to paired clients.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "tabs": {
+              "description": "Every terminal the core runs for the session: tabs the device lacks are added.",
+              "items": {
+                "$ref": "#/definitions/UiTerminalTab"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "terminalId": {
+              "description": "The terminal the command went to; its tab is selected. (The spec's §6.3 sketch calls it `tabId`; Node's request, which this follows, calls it `terminalId`.)",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The visualize open: a web URL handed to the session's browser panel (`openUrl`), or a revealed tab (`reveal`, `tab`), as `DesktopVisualizeEvent` carries them.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "visualize"
+              ],
+              "type": "string"
+            },
+            "openRequestId": {
+              "description": "With `openUrl`: names the request, so the browser tab the pane creates reports back to the agent's open (`ui/newTab/created`) and no other tab does.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "openUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reveal": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "tab": {
+              "description": "An agent open or content update: bring the panel up on this tab.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UiTerminalTab": {
+      "description": "`DesktopTerminalRunTab`.",
       "properties": {
-        "openRequestId": {
-          "description": "Names the request, so the browser tab the pane creates reports back to the agent's open.",
+        "cwd": {
           "type": [
             "string",
             "null"
           ]
         },
-        "openUrl": {
+        "id": {
           "type": "string"
         },
-        "sessionId": {
-          "type": "string"
+        "tab": {
+          "description": "Tab number within the session (1 = the session's first terminal).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
         }
       },
       "required": [
-        "openUrl",
-        "sessionId"
+        "id",
+        "tab"
       ],
       "type": "object"
     },
@@ -4255,6 +4623,60 @@
         },
         "params": {
           "$ref": "#/definitions/TurnNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/notification"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/modelRequest/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelRequestUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/toolBatch/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ToolBatchUpdatedParams"
         }
       },
       "required": [
@@ -4905,6 +5327,25 @@
         },
         "params": {
           "$ref": "#/definitions/RemotePointerParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Draining: what still runs and the token that authorizes an abort (`lifecycle-remote.md` §5.1).",
+      "properties": {
+        "method": {
+          "enum": [
+            "core/drain"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/CoreDrainParams"
         }
       },
       "required": [

@@ -95,7 +95,7 @@ fn root() -> AbsPath {
     AbsPath::new(std::env::temp_dir()).expect("absolute temp dir")
 }
 
-pub(super) fn ctx() -> ToolContext {
+pub(crate) fn ctx() -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     ToolContext {
         call_id: ToolCallId::from("c"),

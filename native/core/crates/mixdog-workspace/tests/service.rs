@@ -67,7 +67,6 @@ fn env() -> Env {
         state: state.clone(),
         recovery_dir: base.join("recovery"),
         user_data_dir: base.join("userdata"),
-        origin_of: Arc::new(|_| Origin::Relay),
     })
     .unwrap();
     futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
@@ -307,7 +306,7 @@ fn expect_error(message: &str, got: &CoreError, ctx: &str) {
             // Search-pattern text is shown to the user: byte-equal. Others map by reason.
             if message.starts_with("Invalid search pattern") { &**expected == message } else { message == "Entry name is invalid." }
         }
-        CoreError::DomainError { code, .. } => message.starts_with("ENOENT") && &**code == "notFound",
+        CoreError::DomainError { code, .. } => message.starts_with("ENOENT") && code.as_deref() == Some("notFound"),
         _ => false,
     };
     assert!(ok, "{ctx}: recorded {message:?}, got {got:?}");

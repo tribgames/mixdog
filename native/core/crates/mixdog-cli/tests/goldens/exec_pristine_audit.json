@@ -1,0 +1,69 @@
+{
+  "audit": {
+    "schemaVersion": 1,
+    "mode": "headless-exec-pristine",
+    "provider": "openai",
+    "model": "gpt-x",
+    "effort": "high",
+    "fast": true,
+    "configSha256": "b0e22fe31d9b8501bee1e7c2a90bed235eeb2db96ef4b1a21e6ac0a40084f709",
+    "authMode": "in-process-api-key",
+    "authArtifactFilesCopied": 0,
+    "injectedModelCatalogFileCount": 0,
+    "personalState": {
+      "hostConfigRead": false,
+      "behavioralStateFilesCopied": 0,
+      "memoryFilesCopied": 0,
+      "sessionFilesCopied": 0,
+      "userProfileFilesCopied": 0,
+      "pluginStateFilesCopied": 0,
+      "channelStateFilesCopied": 0,
+      "otherPersonalStateFilesCopied": 0
+    },
+    "featuresEnabled": {
+      "mcpSources": false,
+      "skills": false,
+      "bundledSkillSeeding": false,
+      "coreMemoryBoot": false,
+      "channelStart": false,
+      "plugins": false,
+      "userProfiles": false,
+      "priorSessions": false
+    }
+  },
+  "config": "{\n  \"agent\": {\n    \"builtins\": {},\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    },\n    \"presets\": [\n      {\n        \"id\": \"exec-explicit-route\",\n        \"name\": \"EXEC EXPLICIT ROUTE\",\n        \"type\": \"agent\",\n        \"tools\": \"full\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"fast\": true\n      }\n    ],\n    \"default\": \"exec-explicit-route\",\n    \"workflow\": {\n      \"active\": \"headless\"\n    },\n    \"workflowRoutes\": {},\n    \"agents\": {},\n    \"modelSettings\": {\n      \"openai/gpt-x\": {\n        \"effort\": \"high\",\n        \"fast\": true\n      }\n    },\n    \"mcpServers\": {}\n  }\n}\n",
+  "loadConfig": {
+    "builtins": {},
+    "providers": {
+      "openai": {
+        "enabled": true,
+        "apiKey": "sk-host"
+      }
+    },
+    "presets": [
+      {
+        "id": "exec-explicit-route",
+        "name": "EXEC EXPLICIT ROUTE",
+        "type": "agent",
+        "tools": "full",
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "fast": true
+      }
+    ],
+    "default": "exec-explicit-route",
+    "workflow": {
+      "active": "headless"
+    },
+    "workflowRoutes": {},
+    "agents": {},
+    "modelSettings": {
+      "openai/gpt-x": {
+        "effort": "high",
+        "fast": true
+      }
+    },
+    "mcpServers": {}
+  }
+}

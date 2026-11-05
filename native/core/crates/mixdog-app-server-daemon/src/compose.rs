@@ -1,9 +1,9 @@
 //! The composition root: builds the [`CoreHandle`] the server serves (protocol.md §2.1).
 //!
-//! Every domain slot (`mixdog_core::domains::DOMAIN_NAMESPACES`) is filled before the core
-//! exists. Real services register in [`domains`] as their crates land; a slot still without
-//! one gets a [`MockDomain`] that echoes `{method, params}`, and the boot log names those
-//! slots, so the wired/mock split is visible at every start. The thread directory, app feed,
+//! Real services register in [`domains`] as their crates land, each claiming the exact
+//! methods it lists; the table methods still unclaimed get one [`MockDomain`] that echoes
+//! `{method, params}`, and the boot log counts those methods, so the wired/mock split is
+//! visible at every start. The thread directory, app feed,
 //! op index, host media sink and lifecycle are the [`MockCore`] seams until the session core
 //! (`mixdog-core::session`, `feed`, `ops`) lands.
 
@@ -18,6 +18,7 @@ use mixdog_services::effort_judge::model::ModelConfig;
 use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
+use mixdog_services::tidy::process::Processes;
 use mixdog_services::tool_state::StateTick;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
@@ -32,8 +33,6 @@ use mixdog_mcp::launcher::SkillRuntime;
 use mixdog_tools::exec::SkillRuntime as ExecSkillRuntime;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::feed::ScopedFeeds;
-use mixdog_core_api::ids::ConnectionId;
-use mixdog_protocol::Origin;
 use mixdog_scm::tracked::GixTrackedFiles;
 use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
@@ -62,6 +61,7 @@ use mixdog_store::state::CoreState;
 use mixdog_core::domains::Domains;
 use mixdog_core::domains::DomainsBuilder;
 use mixdog_core::domains::DomainsError;
+use mixdog_app_protocol::v2::host::CoreDrainParams;
 use mixdog_core::feed::CoreFeed;
 use mixdog_core::feed::FeedLimits;
 use mixdog_core::state::empty_view;
@@ -91,9 +91,6 @@ const OP_SCOPES: [&str; 14] = [
     "config", "account", "agent", "project", "media", "channel", "mcp", "skills", "plugins",
     "localProvider", "terminal", "git", "remoteAccess", "core",
 ];
-
-/// The namespaces the workspace service answers.
-const WORKSPACE_NAMESPACES: [&str; 6] = ["fs", "lsp", "project", "projectFs", "search", "transfer"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeError {
@@ -133,14 +130,18 @@ pub struct ComposedCore {
     app_feed: Arc<CoreFeed>,
     ops: CoreOpIndex,
     domains: Domains,
-    mocked: Vec<&'static str>,
+    mocked: &'static [&'static str],
     exec: Exec,
     exec_events: std::sync::Mutex<Option<ExecEvents>>,
-    ext_host: Option<Arc<ExtHostPool>>,
+    ext_host: Arc<ExtHostPool>,
     file_service: Arc<dyn FileService>,
     models: Option<Models>,
     catalog: CatalogHost,
+    tidy_processes: Processes,
+    stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
 }
+
+type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
@@ -213,9 +214,9 @@ impl ComposedCore {
         &self.file_service
     }
 
-    /// The shared render browser for WP-TOOLS-WEB's `BrowserEndpoint`; `None` without a JS runtime.
-    pub fn render_browser(&self) -> Option<mixdog_exthost::RenderBrowser> {
-        self.ext_host.as_ref().map(|pool| pool.render_browser())
+    /// The shared render browser for WP-TOOLS-WEB's `BrowserEndpoint`.
+    pub fn render_browser(&self) -> mixdog_exthost::RenderBrowser {
+        self.ext_host.render_browser()
     }
 
     /// The provider catalog;`catalog().service().catalog()` is what `CatalogTraits::new` takes
@@ -233,9 +234,32 @@ impl ComposedCore {
     /// process has exited. Await it before the runtime drops.
     pub async fn close_ext_host(&self) {
         self.catalog.stop();
-        if let Some(pool) = &self.ext_host {
-            pool.close().await;
+        self.ext_host.close().await;
+    }
+
+    /// Registers a step of the ordered stop (trace and session-log flush, usage ledger, session
+    /// directory shutdown, `GraphCache::drain`, ...). Steps run in registration order, after the
+    /// extension host has closed.
+    pub fn on_stop(&self, name: &'static str, step: impl Future<Output = ()> + Send + 'static) {
+        self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, Box::pin(step)));
+    }
+
+    /// The one stop procedure of the core, for the daemon and the in-process server alike: closes
+    /// the extension host, then runs each registered step in order. Returns once all of it is
+    /// done; a second call finds nothing left to run.
+    pub async fn stop(&self) {
+        self.close_ext_host().await;
+        let steps = std::mem::take(&mut *self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for (name, step) in steps {
+            tracing::debug!(step = name, "stopping");
+            step.await;
         }
+    }
+
+    /// The one process manager and durability lane of Tidy, for `TidyTool::new` and
+    /// `tool_modules::host::Parts.processes`.
+    pub fn tidy_processes(&self) -> &Processes {
+        &self.tidy_processes
     }
 
     /// The app feed, for the state publisher (`SectionFeedState::new`).
@@ -243,9 +267,9 @@ impl ComposedCore {
         &self.app_feed
     }
 
-    /// Slots served by a mock rather than a real crate.
+    /// Methods served by a mock rather than a real crate.
     pub fn mocked_domains(&self) -> &[&'static str] {
-        &self.mocked
+        self.mocked
     }
 
     pub fn set_state(&self, state: LifecycleState) {
@@ -266,8 +290,8 @@ impl CoreHandle for ComposedCore {
         &self.ops
     }
 
-    fn domain(&self, namespace: &str) -> Option<&dyn DomainService> {
-        self.domains.get(namespace)
+    fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        self.domains.get(method)
     }
 
     fn host_media(&self) -> &dyn HostMediaSink {
@@ -287,8 +311,14 @@ struct Seams {
     processes: Arc<dyn ProcessManager>,
     recovery_dir: PathBuf,
     user_data_dir: PathBuf,
-    origin_of: OriginOf,
-    ext_host: Option<Arc<ExtHostPool>>,
+    ext_host: Arc<ExtHostPool>,
+}
+
+/// `CoreWiring.drain_feed`: the `core/drain` notification as the next frame of the app feed, so
+/// every attached client gets it in order with the sections. `app` is the section state built over
+/// [`ComposedCore::app_feed_core`], the feed's only producer.
+pub fn drain_feed(app: Arc<mixdog_core::state::SectionFeedState>) -> Arc<dyn Fn(CoreDrainParams) + Send + Sync> {
+    Arc::new(move |params| app.notify("core/drain", &params))
 }
 
 /// Registers the real service of every slot that has one, then returns the slots left over.
@@ -307,34 +337,25 @@ fn register_real(builder: &mut DomainsBuilder, seams: &Seams) -> Result<(), Comp
         state: seams.state.clone(),
         recovery_dir: seams.recovery_dir.clone(),
         user_data_dir: seams.user_data_dir.clone(),
-        origin_of: seams.origin_of.clone(),
     })
     .map_err(ComposeError::Workspace)?;
-    for namespace in WORKSPACE_NAMESPACES {
-        builder.register(namespace, workspace.clone())?;
-    }
-    // Document previews run in the extension host; without a JS runtime the slot stays mocked.
-    // Node caches converted documents under the desktop profile folder (`userDataPath` in
-    // `desktop-operations.ts`), the runtime keeps its own subfolders there.
-    if let Some(pool) = &seams.ext_host {
-        let cache_root = seams.user_data_dir.to_string_lossy().into_owned();
-        builder.register("document", Arc::new(DocumentService::new(pool.clone(), cache_root)))?;
-    }
+    builder.register(workspace)?;
+    // Document previews run in the extension host. Node caches converted documents under the
+    // desktop profile folder (`userDataPath` in `desktop-operations.ts`), the runtime keeps its
+    // own subfolders there.
+    let cache_root = seams.user_data_dir.to_string_lossy().into_owned();
+    builder.register(Arc::new(DocumentService::new(seams.ext_host.clone(), cache_root)))?;
     Ok(())
 }
 
-fn domains(seams: &Seams) -> Result<(Domains, Vec<&'static str>), ComposeError> {
+fn domains(seams: &Seams) -> Result<(Domains, &'static [&'static str]), ComposeError> {
     let mut builder = DomainsBuilder::new();
     register_real(&mut builder, seams)?;
-    let mocked = builder.unfilled();
-    for slot in &mocked {
-        builder.register(slot, Arc::new(MockDomain::default()))?;
-    }
-    Ok((builder.build()?, mocked))
+    // Leaked once at start: a service lists its methods as `'static`.
+    let mocked: &'static [&'static str] = Box::leak(builder.unclaimed().into_boxed_slice());
+    builder.register(Arc::new(MockDomain::serving(mocked)))?;
+    Ok((builder.build(), mocked))
 }
-
-/// The origin of a connection, for the workspace's project-boundary check (DS-WS-9).
-pub type OriginOf = Arc<dyn Fn(&ConnectionId) -> Origin + Send + Sync>;
 
 /// The bundled JavaScript runtime, from the install layout: what runs skill scripts and the
 /// extension host (Node's `process.execPath` and package root).
@@ -350,16 +371,14 @@ pub struct ComposeConfig {
     pub data_dir: PathBuf,
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
-    /// `None` leaves model shells without skill launchers and the extension host unstarted.
-    pub js_runtime: Option<JsRuntime>,
+    pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout); `None` leaves the embedding and
     /// effort-judge models unbuilt.
     pub ort_library: Option<PathBuf>,
-    pub origin_of: OriginOf,
 }
 
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, origin_of } = config;
+    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -369,43 +388,43 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES },
         tokens.cpu_interactive,
     ));
-    let (skill_launcher_dir, skill_runtime, ext_host) = match &js_runtime {
-        Some(js) => {
-            let entry = js.package_root.join("src").join("skill-script-entry.mjs");
-            let exec_skills = ExecSkillRuntime {
-                platform: node_platform().to_owned(),
-                interpreter: js.program.to_string_lossy().into_owned(),
-                entry: entry.to_string_lossy().into_owned(),
-                electron: js.electron,
-            };
-            let skills = SkillRuntime::new(js.program.to_string_lossy(), entry.to_string_lossy(), js.electron);
-            let dir = skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
-            let pool = ExtHostPool::new(ExtHostConfig {
-                program: js.program.clone(),
-                args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
-                electron: js.electron,
-                workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
-                pending_cap: DEFAULT_PENDING_CAP,
-                spawn_io: tokens.spawn_io,
-                render_browser: RenderBrowserConfig {
-                    command: None,
-                    profile_root: data_dir.join("render-browser"),
-                    no_sandbox: false,
-                },
-            })
-            .map_err(ComposeError::ExtHost)?;
-            (Some(dir), Some(exec_skills), Some(Arc::new(pool)))
-        }
-        None => (None, None, None),
+    let js = &js_runtime;
+    let entry = js.package_root.join("src").join("skill-script-entry.mjs");
+    let skill_runtime = ExecSkillRuntime {
+        platform: node_platform().to_owned(),
+        interpreter: js.program.to_string_lossy().into_owned(),
+        entry: entry.to_string_lossy().into_owned(),
+        electron: js.electron,
     };
+    let skills = SkillRuntime::new(js.program.to_string_lossy(), entry.to_string_lossy(), js.electron);
+    let skill_launcher_dir =
+        skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
+    let ext_host = Arc::new(
+        ExtHostPool::new(ExtHostConfig {
+            program: js.program.clone(),
+            args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+            electron: js.electron,
+            workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
+            pending_cap: DEFAULT_PENDING_CAP,
+            spawn_io: tokens.spawn_io,
+            render_browser: RenderBrowserConfig {
+                command: None,
+                profile_root: data_dir.join("render-browser"),
+                no_sandbox: false,
+            },
+        })
+        .map_err(ComposeError::ExtHost)?,
+    );
+    let process_manager: Arc<dyn ProcessManager> =
+        Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
+    let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
     let (domains, mocked) = domains(&Seams {
         tokens: tokens.clone(),
         state: state.clone(),
         scoped_feeds,
-        processes: Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())),
+        processes: process_manager,
         recovery_dir: data_dir.join("recovery"),
         user_data_dir,
-        origin_of,
         ext_host: ext_host.clone(),
     })?;
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
@@ -413,7 +432,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new()).await.map_err(ComposeError::Catalog)?;
-    let (exec, exec_events) = build_exec(tokens, data_dir, skill_launcher_dir, skill_runtime);
+    let (exec, exec_events) = build_exec(tokens, data_dir, skill_launcher_dir, skill_runtime, ext_host.clone());
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());
     let app_feed = Arc::new(CoreFeed::new(
@@ -444,17 +463,16 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         file_service,
         models,
         catalog,
+        tidy_processes,
+        stop_steps: std::sync::Mutex::new(Vec::new()),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use mixdog_app_protocol::CLIENT_METHODS;
     use mixdog_app_protocol::CLIENT_NOTIFICATIONS;
     use mixdog_core::domains::CORE_NAMESPACES;
-    use mixdog_core::domains::DOMAIN_NAMESPACES;
     use mixdog_core_api::CallContext;
     use mixdog_core_api::CoreRequest;
     use mixdog_core_api::Reply;
@@ -463,64 +481,47 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn domain_slots_match_method_table() {
-        let used: BTreeSet<&str> = CLIENT_METHODS
-            .iter()
-            .map(|spec| spec.method)
-            .chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method))
-            .filter_map(|method| method.split('/').next())
-            .filter(|namespace| !CORE_NAMESPACES.contains(namespace))
-            .collect();
-        // `model/proxy/event` is a server→client notification listed with the client ones.
-        let slots: BTreeSet<&str> = DOMAIN_NAMESPACES.iter().copied().collect();
-        assert_eq!(
-            used.difference(&slots).collect::<Vec<_>>(),
-            Vec::<&&str>::new(),
-            "method namespaces without a slot"
-        );
-        assert_eq!(
-            slots.difference(&used).collect::<Vec<_>>(),
-            Vec::<&&str>::new(),
-            "slots without a method"
-        );
-    }
-
     #[tokio::test]
-    async fn every_slot_answers() {
+    async fn every_domain_method_has_a_service() {
         let dir = tempfile::tempdir().unwrap();
         let core = compose(
             &mixdog_rt::testing::tokens(),
             ComposeConfig {
                 data_dir: dir.path().to_path_buf(),
                 user_data_dir: dir.path().join("userdata"),
-                js_runtime: None,
+                js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: None,
-                origin_of: Arc::new(|_| Origin::Local),
             },
         )
         .await.unwrap();
-        let mocked: Vec<&str> =
-            DOMAIN_NAMESPACES.iter().copied().filter(|n| !WORKSPACE_NAMESPACES.contains(n)).collect();
-        assert_eq!(core.mocked_domains(), mocked);
-        for namespace in mocked {
-            let service = core.domain(namespace).unwrap();
+        let table = CLIENT_METHODS
+            .iter()
+            .map(|spec| spec.method)
+            .chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method));
+        for method in table {
+            let namespace = method.split('/').next().unwrap();
+            let service = core.domain_for(method);
+            if CORE_NAMESPACES.contains(&namespace) {
+                assert!(service.is_none(), "{method} is served by the core itself");
+                continue;
+            }
+            let service = service.unwrap_or_else(|| panic!("{method} has no service"));
+            if !core.mocked_domains().contains(&method) {
+                continue;
+            }
             let reply = service
                 .call(CoreRequest {
-                    method: Method("x/y"),
-                    params: json!({ "n": namespace }),
+                    method: Method(method),
+                    params: json!({ "n": method }),
                     op: None,
                     ctx: CallContext::internal("test"),
                 })
                 .await
                 .unwrap();
             match reply {
-                Reply::Value(value) => assert_eq!(value["params"]["n"], namespace),
+                Reply::Value(value) => assert_eq!(value["params"]["n"], method),
                 Reply::Subscribe(_) => panic!("mock domain subscribed"),
             }
-        }
-        for namespace in CORE_NAMESPACES {
-            assert!(core.domain(namespace).is_none());
         }
     }
 }

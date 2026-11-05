@@ -10,14 +10,10 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use mixdog_ledger::db::Connection;
+use mixdog_ledger::reader::UsageReader;
 use mixdog_ledger::requests::RequestQuery;
-use mixdog_ledger::requests::read_usage_requests;
 use mixdog_ledger::rollup::RollupQuery;
-use mixdog_ledger::rollup::rollup_usage;
-use mixdog_ledger::schema::prepare;
-use mixdog_ledger::sums::build_sums_step;
-use mixdog_ledger::sums::read_session_usage;
+use mixdog_ledger::writer::UsageWriter;
 use serde_json::Value;
 
 fn manifest(rel: &str) -> PathBuf {
@@ -84,9 +80,32 @@ fn same(label: &str, got: &Value, want: &Value) {
     if let Some(diff) = first_diff(label, got, want) {
         panic!("{}", diff.chars().take(600).collect::<String>());
     }
+    // Equal values can still be written in another key order: the bytes are the contract.
+    let (a, b) = (
+        mixdog_js::json_stringify(got),
+        mixdog_js::json_stringify(want),
+    );
+    if let Some(at) = a
+        .bytes()
+        .zip(b.bytes())
+        .position(|(x, y)| x != y)
+        .or((a.len() != b.len()).then_some(a.len().min(b.len())))
+    {
+        let window = |s: &str| {
+            s.chars()
+                .skip(at.saturating_sub(120))
+                .take(240)
+                .collect::<String>()
+        };
+        panic!(
+            "{label}: bytes differ at {at}\n got  …{}\n want …{}",
+            window(&a),
+            window(&b)
+        );
+    }
 }
 
-fn check(name: &str, source: &Path) {
+async fn check(name: &str, source: &Path) {
     let golden: Value = serde_json::from_slice(
         &std::fs::read(manifest(&format!(
             "../../fixtures/ledger-queries/{name}.json"
@@ -97,14 +116,15 @@ fn check(name: &str, source: &Path) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
     std::fs::copy(source, &path).unwrap();
-    let mut conn = Connection::open(&path).unwrap();
-    prepare(&mut conn).unwrap();
-    while !build_sums_step(&mut conn, 200).unwrap() {}
+    let tokens = mixdog_rt::testing::tokens();
+    // The production path: the writer upgrades the ledger and builds its sums itself.
+    let writer =
+        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    writer.sums_built().await.unwrap();
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
 
     for case in golden["rollups"].as_array().unwrap() {
-        let got = rollup_usage(&conn, &rollup_query(&case["options"]))
-            .unwrap()
-            .to_value();
+        let got = reader.rollup(rollup_query(&case["options"])).await.unwrap();
         same(
             &format!("{name} rollup {}", case["options"]),
             &got,
@@ -113,7 +133,7 @@ fn check(name: &str, source: &Path) {
     }
     for case in golden["requests"].as_array().unwrap() {
         let query: RequestQuery = serde_json::from_value(case["options"].clone()).unwrap();
-        let got = read_usage_requests(&conn, &query).unwrap();
+        let got = reader.requests_page(query).await.unwrap();
         same(
             &format!("{name} requests {}", case["options"]),
             &got,
@@ -121,12 +141,10 @@ fn check(name: &str, source: &Path) {
         );
     }
     for case in golden["sessionUsage"].as_array().unwrap() {
-        let got = read_session_usage(
-            &conn,
-            &strings(&case["sessionIds"]),
-            &strings(&case["ownerIds"]),
-        )
-        .unwrap();
+        let got = reader
+            .session_usage(strings(&case["sessionIds"]), strings(&case["ownerIds"]))
+            .await
+            .unwrap();
         same(
             &format!("{name} sessionUsage {}", case["sessionIds"]),
             &got,
@@ -135,20 +153,22 @@ fn check(name: &str, source: &Path) {
     }
 }
 
-#[test]
-fn genuine_145_fixture_equals_node() {
+#[tokio::test]
+async fn genuine_145_fixture_equals_node() {
     check(
         "v145",
         &manifest("../../fixtures/migration/ledger-v145/ledger.sqlite"),
-    );
+    )
+    .await;
 }
 
-#[test]
-fn corpus_ledger_equals_node() {
+#[tokio::test]
+async fn corpus_ledger_equals_node() {
     check(
         "corpus",
         Path::new(
             r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus\v145\usage\ledger.sqlite",
         ),
-    );
+    )
+    .await;
 }

@@ -6,12 +6,16 @@
 //! handle without stalling the runtime.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::mpsc;
 
 use bytes::Bytes;
+use mixdog_app_protocol::v2::host::CoreDrainParams;
+use mixdog_app_protocol::v2::host::DrainRunning;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_core_api::StatePublisher;
 use mixdog_core_api::state::SectionChange;
@@ -41,14 +45,29 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Cancellation tokens of registered work, by activity id. A registrant calls
 /// [`CancelRegistry::track`] with its guard's id and the token its work observes; the entry goes
 /// when the returned [`Tracked`] drops.
+///
+/// An abort can run between `begin_activity` and `track`: it lists the activity but finds no
+/// token, and a second abort is refused once the first one started. So the first abort marks the
+/// registry, and a `track` that comes after the mark cancels its token at once.
 #[derive(Default)]
 pub struct CancelRegistry {
-    tokens: Mutex<HashMap<u64, CancellationToken>>,
+    state: Mutex<Tokens>,
+}
+
+#[derive(Default)]
+struct Tokens {
+    by_activity: HashMap<u64, CancellationToken>,
+    aborting: bool,
 }
 
 impl CancelRegistry {
     pub fn track(self: &Arc<Self>, activity_id: u64, token: CancellationToken) -> Tracked {
-        locked(&self.tokens).insert(activity_id, token);
+        let mut state = locked(&self.state);
+        if state.aborting {
+            token.cancel();
+        }
+        state.by_activity.insert(activity_id, token);
+        drop(state);
         Tracked {
             registry: Arc::clone(self),
             activity_id,
@@ -56,9 +75,10 @@ impl CancelRegistry {
     }
 
     fn cancel(&self, running: &[Running]) {
-        let tokens = locked(&self.tokens);
+        let mut state = locked(&self.state);
+        state.aborting = true;
         for work in running {
-            if let Some(token) = tokens.get(&work.id) {
+            if let Some(token) = state.by_activity.get(&work.id) {
                 token.cancel();
             }
         }
@@ -72,7 +92,7 @@ pub struct Tracked {
 
 impl Drop for Tracked {
     fn drop(&mut self) {
-        locked(&self.registry.tokens).remove(&self.activity_id);
+        locked(&self.registry.state).by_activity.remove(&self.activity_id);
     }
 }
 
@@ -81,8 +101,7 @@ pub struct CoreWiring {
     /// The app-feed section publisher (`SectionFeedState`).
     pub state: Arc<dyn StatePublisher>,
     pub connections: Arc<ConnectionHub>,
-    /// `None` when no JavaScript runtime is installed.
-    pub ext_host: Option<Arc<ExtHostPool>>,
+    pub ext_host: Arc<ExtHostPool>,
     /// The core's runtime, to await the extension host's close from the release thread.
     pub runtime: tokio::runtime::Handle,
     pub cancel: Arc<CancelRegistry>,
@@ -90,6 +109,10 @@ pub struct CoreWiring {
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
     pub close_data_handles: Hook,
+    /// Sends the `core/drain` notification to every connected client. It is a notification, not
+    /// a section, and `StatePublisher` carries sections only, so the composition supplies the
+    /// app-feed sender.
+    pub drain_feed: Arc<dyn Fn(CoreDrainParams) + Send + Sync>,
 }
 
 /// [`CorePort`] over the running core.
@@ -111,18 +134,25 @@ impl RuntimeCore {
 }
 
 impl CorePort for RuntimeCore {
-    /// The `core` section carrying `draining`, with the drain's id, running list and token.
+    /// The `core` section as `CoreState::Draining{reason}` (`protocol.md:298`,
+    /// `mixdog-app-protocol/src/v1.rs:98`); the drain's id, running list and token go out as the
+    /// separate `core/drain` notification (`lifecycle-remote.md:288`).
     fn drain_notice(&self, notice: &DrainNotice) {
-        self.publish(
-            SectionName::Core,
-            &serde_json::json!({
-                "state": "draining",
-                "reason": notice.reason,
-                "drainId": notice.drain_id,
-                "running": notice.running,
-                "confirmToken": notice.confirm_token,
-            }),
-        );
+        self.publish(SectionName::Core, &serde_json::json!({ "state": "draining", "reason": notice.reason }));
+        (self.wiring.drain_feed)(CoreDrainParams {
+            drain_id: notice.drain_id.clone(),
+            running: notice
+                .running
+                .iter()
+                .map(|work| DrainRunning {
+                    thread_id: work.thread_id.clone(),
+                    turn_id: work.turn_id.clone(),
+                    kind: work.kind,
+                    title: work.title.clone(),
+                })
+                .collect(),
+            confirm_token: notice.confirm_token.clone(),
+        });
     }
 
     fn health(&self, stalled_ms: u64) {
@@ -146,9 +176,7 @@ impl CorePort for RuntimeCore {
     }
 
     fn close_ext_host(&self) {
-        if let Some(pool) = &self.wiring.ext_host {
-            self.wiring.runtime.block_on(pool.close());
-        }
+        self.wiring.runtime.block_on(self.wiring.ext_host.close());
     }
 
     fn close_data_handles(&self) {
@@ -156,29 +184,80 @@ impl CorePort for RuntimeCore {
     }
 }
 
+enum Job {
+    Publish(Box<Discovery>),
+    /// Everything queued before it has been written; `withdraw` removes the file as well.
+    Barrier { withdraw: bool, done: mpsc::Sender<()> },
+}
+
+type WriteDocument = Box<dyn Fn(&Path, &Discovery) + Send>;
+
 /// [`Publication`] over `<runtime root>/daemon.json`: the lifecycle contributes the phase, the
 /// blocked record and the drain id; the rest of the document is the template.
+///
+/// `publish` is called inline from `Lifecycle::apply`, which can run on a runtime worker, and the
+/// write syncs to disk. So the document is built on the caller and written by one
+/// `mixdog-discovery` thread, in the order published: the last state wins.
 pub struct DiscoveryPublication {
-    root: PathBuf,
     base: Discovery,
     /// The RPC port, published only while serving.
     rpc: Mutex<Option<discovery::Port>>,
+    jobs: Mutex<mpsc::Sender<Job>>,
 }
 
 impl DiscoveryPublication {
     /// `base` carries the pid, endpoints and the core section with its control port; its
     /// `state`, `blocked`, `drain` and `rpc` are replaced on every publish.
     pub fn new(root: PathBuf, base: Discovery) -> Self {
+        let write: WriteDocument = Box::new(|root, document| {
+            if let Err(error) = discovery::publish(root, document) {
+                tracing::error!(%error, "discovery was not published");
+            }
+        });
+        Self::with_writer(root, base, write)
+    }
+
+    fn with_writer(root: PathBuf, base: Discovery, write: WriteDocument) -> Self {
+        let (jobs, inbox) = mpsc::channel::<Job>();
+        let instance_id = base.core.instance_id.clone();
+        std::thread::Builder::new()
+            .name("mixdog-discovery".into())
+            .spawn(move || {
+                for job in inbox {
+                    match job {
+                        Job::Publish(document) => write(&root, &document),
+                        Job::Barrier { withdraw, done } => {
+                            if withdraw && let Err(error) = discovery::withdraw(&root, &instance_id) {
+                                tracing::error!(%error, "discovery was not withdrawn");
+                            }
+                            let _ = done.send(());
+                        }
+                    }
+                }
+            })
+            .expect("the OS refused a discovery thread");
         Self {
-            root,
             base,
             rpc: Mutex::new(None),
+            jobs: Mutex::new(jobs),
         }
     }
 
     /// Records the bound RPC listener; the next `serving` publish names it.
     pub fn set_rpc_port(&self, port: u16) {
         *locked(&self.rpc) = Some(discovery::Port { port });
+    }
+
+    /// Blocks until every state published so far is on disk. Never call it from a runtime worker.
+    pub fn flush(&self) {
+        self.barrier(false);
+    }
+
+    fn barrier(&self, withdraw: bool) {
+        let (done, wait) = mpsc::channel();
+        if locked(&self.jobs).send(Job::Barrier { withdraw, done }).is_ok() {
+            let _ = wait.recv();
+        }
     }
 }
 
@@ -198,15 +277,13 @@ impl Publication for DiscoveryPublication {
             DiscoveryPhase::Serving => locked(&self.rpc).clone(),
             _ => None,
         };
-        if let Err(error) = discovery::publish(&self.root, &document) {
-            tracing::error!(%error, "discovery was not published");
-        }
+        // Sent under the sender's lock, so concurrent publishes keep the order `apply` decided.
+        let _ = locked(&self.jobs).send(Job::Publish(Box::new(document)));
     }
 
+    /// Runs on the release thread, after every queued state.
     fn withdraw(&self) {
-        if let Err(error) = discovery::withdraw(&self.root, &self.base.core.instance_id) {
-            tracing::error!(%error, "discovery was not withdrawn");
-        }
+        self.barrier(true);
     }
 }
 

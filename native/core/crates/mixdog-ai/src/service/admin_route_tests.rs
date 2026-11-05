@@ -5,8 +5,7 @@ use super::*;
 use serde_json::json;
 
 fn twin() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/ai-admin/route-admin-twin.json");
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    serde_json::from_str(include_str!("../../../../fixtures/ai-admin/route-admin-twin.json")).unwrap()
 }
 
 fn obj(v: &Value) -> Obj {
@@ -65,7 +64,9 @@ fn workflow_routes_match_node() {
 fn context_state_matches_node() {
     let twin = twin();
     for (i, case) in twin["contextCases"].as_array().unwrap().iter().enumerate() {
-        let state = resolve_route_context_state(&obj(&case["route"]), Some(&case["meta"]));
+        let meta = (!case["meta"].is_null()).then(|| &case["meta"]);
+        let cached = (!case["cached"].is_null()).then(|| &case["cached"]);
+        let state = resolve_route_context_state(&obj(&case["route"]), window_meta_of(meta, cached));
         let mut got = Obj::new();
         for (k, v) in [
             ("contextPercent", state.context_percent),
@@ -78,6 +79,57 @@ fn context_state_matches_node() {
             }
         }
         assert_eq!(Value::Object(got), case["state"], "context case {i}: {} {}", case["route"], case["meta"]);
+    }
+}
+
+fn known_of(case: &Value) -> Vec<String> {
+    case["known"].as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect()
+}
+
+#[test]
+fn selections_match_node() {
+    for (i, case) in twin()["selectionCases"].as_array().unwrap().iter().enumerate() {
+        let got = outcome(required_model_selection(&case["input"]).map(Value::Object));
+        assert_eq!(got, recorded(case), "selection case {i}: {}", case["input"]);
+    }
+}
+
+#[test]
+fn lead_persistence_matches_node() {
+    for (i, case) in twin()["leadCases"].as_array().unwrap().iter().enumerate() {
+        let known = known_of(case);
+        let is_known = |p: &str, _: &Obj| known.iter().any(|k| k == js_trim(p));
+        let mut config = obj(&case["config"]);
+        let got = persist_adopted_model_settings(
+            &mut config,
+            &obj(&case["live"]),
+            &obj(&case["route"]),
+            case["keepMainModel"].as_bool(),
+            &is_known,
+        );
+        let got = outcome(got.map(|lead| json!({ "lead": lead.unwrap_or(Value::Null), "config": config })));
+        let want = recorded(case);
+        let want = match want.get("value") {
+            Some(v) => json!({ "value": { "lead": v["lead"], "config": v["config"] } }),
+            None => want,
+        };
+        assert_eq!(got, want, "lead case {i}");
+    }
+}
+
+#[test]
+fn chain_entries_match_node() {
+    for (i, case) in twin()["chainCases"].as_array().unwrap().iter().enumerate() {
+        let known = known_of(case);
+        let is_known = |p: &str, _: &Obj| known.iter().any(|k| k == js_trim(p));
+        let meta = (!case["meta"].is_null()).then(|| &case["meta"]);
+        let got = start_chain_entry(&obj(&case["config"]), &obj(&case["requested"]), &obj(&case["stored"]), &is_known)
+            .map(|selected| {
+                finish_chain_entry(selected, meta, window_meta_of(meta, None), |route| {
+                    case["fastByProvider"][clean(route.get("provider")).as_str()].as_bool().unwrap_or(false)
+                })
+            });
+        assert_eq!(outcome(got.map(Value::Object)), recorded(case), "chain case {i}");
     }
 }
 

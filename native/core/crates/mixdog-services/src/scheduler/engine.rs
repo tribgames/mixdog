@@ -14,7 +14,7 @@ use chrono_tz::Tz;
 use serde::Serialize;
 use tokio::task::JoinHandle;
 
-use super::cron::CronExpr;
+use super::cron::{CronExpr, plan_beat};
 use super::model::{Schedule, ScheduleError, ScheduleStatus};
 use super::store::{Clock, RunOutcome, ScheduleRunner, ScheduleStore, Ts};
 use crate::channels::running::{RunningWork, WorkGuard};
@@ -78,6 +78,16 @@ fn iso(t: Ts) -> String {
 
 fn tz_of(schedule: &Schedule, fallback: Tz) -> Tz {
     schedule.timezone.as_deref().and_then(|t| mixdog_js::js_trim(t).parse().ok()).unwrap_or(fallback)
+}
+
+/// node-cron `getDelay`: a heartbeat waits at most a day.
+const MAX_BEAT_WAIT_MS: i64 = 86_400_000;
+/// node-cron `DEFAULT_MISSED_EXECUTION_TOLERANCE`: how late a slot may still run.
+const MISSED_TOLERANCE_MS: i64 = 1000;
+
+/// node-cron `nowWithoutMs`.
+fn whole_seconds(t: Ts) -> Ts {
+    Ts::from_timestamp(t.timestamp(), 0).unwrap_or(t)
 }
 
 fn std_delay(ms: i64) -> StdDuration {
@@ -344,29 +354,34 @@ impl Inner {
         let tz = tz_of(schedule, self.local_tz);
         let name = schedule.name.clone();
         let inner = Arc::clone(self);
-        let first = expr.next_after(self.clock.now(), tz);
-        self.update(&name, |s| s.next_fire_at = first);
+        let mut expected = expr.next_after(whole_seconds(self.clock.now()), tz);
+        self.update(&name, |s| s.next_fire_at = expected);
         self.spawn_task(&schedule.name, async move {
-            if let Some(next) = first {
+            if let Some(next) = expected {
                 let store = Arc::clone(&inner.store);
                 let n = name.clone();
                 tokio::spawn(async move {
                     let _ = store.set_next_fire(&n, Some(next)).await;
                 });
             }
-            let mut after = inner.clock.now();
-            while let Some(next) = expr.next_after(after, tz) {
-                let wait = (next - inner.clock.now()).num_milliseconds();
-                if wait > 0 {
-                    tokio::time::sleep(std_delay(wait)).await;
-                    if inner.clock.now() < next {
-                        continue; // a capped wait: re-evaluate the same slot
-                    }
+            // node-cron's heartbeat: wait for the expected slot (at most a day at a time),
+            // then plan from the present. Slots a suspend or clock jump skipped are only
+            // logged; the next wait is computed from now, never replayed.
+            while let Some(slot) = expected {
+                let wait = (slot - inner.clock.now()).num_milliseconds();
+                tokio::time::sleep(std_delay(wait.min(MAX_BEAT_WAIT_MS))).await;
+                let plan = plan_beat(slot, whole_seconds(inner.clock.now()), MISSED_TOLERANCE_MS, |d| {
+                    expr.next_after(d, tz)
+                });
+                expected = plan.next;
+                for missed in plan.missed {
+                    tracing::warn!(schedule = %name, "missed execution at {}!", iso(missed));
                 }
-                after = next;
-                let fire = Arc::clone(&inner);
-                let n = name.clone();
-                tokio::spawn(async move { fire.on_cron_fire(&n, next).await });
+                if let Some(run) = plan.run {
+                    let fire = Arc::clone(&inner);
+                    let n = name.clone();
+                    tokio::spawn(async move { fire.on_cron_fire(&n, run).await });
+                }
             }
         });
     }

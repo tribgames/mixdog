@@ -5,7 +5,7 @@ import { createVisualizePublisher } from './visualize-publish.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test('a visualize change reaches Node and the core as host/state/set{section:visualize}', async () => {
+test('a visualize change reaches Node and the core as host/state/set{key:visualize}', async () => {
   const sent = [];
   const connection = {
     handleRequest() {},
@@ -14,18 +14,22 @@ test('a visualize change reaches Node and the core as host/state/set{section:vis
       return {};
     },
   };
-  const host = createVisualizeHost(connection, () => ({ execute: async () => ({}), snapshot: () => [] }));
+  const host = createVisualizeHost(
+    connection,
+    () => ({ execute: async () => ({}), snapshot: () => [] }),
+    (error) => assert.fail(`unexpected snapshot failure: ${error}`)
+  );
   const toNode = [];
   const publish = createVisualizePublisher({
     node: async (event) => void toNode.push(event),
     host: () => host.publish,
     onFailure: (target, error) => assert.fail(`unexpected ${target} failure: ${error}`),
   });
-  const event = { sessionId: 's1', state: { tabs: [{ id: 't1' }] } };
+  const event = { sessionId: 's1', state: { active: 't1', tabs: [{ id: 't1' }] } };
   publish(event);
   await tick();
   assert.deepEqual(toNode, [event]);
-  assert.deepEqual(sent, [['host/state/set', { section: 'visualize', value: event }]]);
+  assert.deepEqual(sent, [['host/state/set', { key: 'visualize', value: event }]]);
 });
 
 test('a failing consumer does not stop the other, and a missing host role is skipped', async () => {

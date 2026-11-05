@@ -1,0 +1,95 @@
+name: Rust Core Unix
+
+# WP-OWN's Unix job for native/core: the ownership/barrier/verdict/discovery unit tests, the
+# 1.4.5 tag gates against a real `git archive 69fe41b05` tree, and clippy, on Linux and macOS as
+# a non-root user. Manual only until the schedule is decided (native/core/RELEASE.md).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-core-unix-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: "3"
+  RUST_TOOLCHAIN: "1.95.0"
+  # Satisfies `^22.19.0 || >=24.0.0`; the same pin as apps/desktop/scripts/node-pin.json.
+  NODE_VERSION: "22.19.0"
+  TAG_COMMIT: 69fe41b05
+
+jobs:
+  unix:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: native/core
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+
+      - name: Run as a non-root user, with a job-unique TMPDIR
+        run: |
+          test "$(id -u)" != 0
+          tmp="$RUNNER_TEMP/tmp-$GITHUB_JOB-${{ matrix.os }}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$tmp"
+          echo "TMPDIR=$tmp" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: cargo test -p mixdog-app-server-daemon --lib -- ownership:: barrier:: verdict:: discovery::
+
+      - name: Tag tree
+        run: |
+          tree="$RUNNER_TEMP/tag145"
+          mkdir -p "$tree"
+          git archive "$TAG_COMMIT" | tar -x -C "$tree"
+          git show "$TAG_COMMIT:package-lock.json" > "$tree/package-lock.json"
+          (cd "$tree" && npm ci --omit=dev --ignore-scripts)
+          echo "MIXDOG_TAG_TREE=$tree" >> "$GITHUB_ENV"
+
+      # Gate 4 suspends the core for 61 s and waits for its contenders: allow well over 3 minutes.
+      - name: Tag gates 1, 2, 4 and 5
+        timeout-minutes: 15
+        run: cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates:: -- --ignored --test-threads=1 --skip gate_3
+
+      - name: Tag gates 3a and 3b at 200 repetitions
+        timeout-minutes: 60
+        env:
+          MIXDOG_TAG_GATE_REPS: "200"
+        run: cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates::gate_3 -- --ignored --test-threads=1 --nocapture
+
+      - name: Clippy
+        run: cargo clippy -p mixdog-app-server-daemon --all-targets -- -D warnings
+
+      # WP-INSTALL's slow test: the real trimmed staging and `npm ci`, then the ext-host suites from
+      # the payload under the pinned node.
+      - name: Trimmed remote bundle (linux-x64)
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        working-directory: .
+        timeout-minutes: 45
+        env:
+          MIXDOG_BUILD_SCRATCH: ${{ runner.temp }}/trimmed-bundle
+        run: |
+          npm ci
+          cd apps/desktop
+          npm run test:slow -- remote-trimmed-bundle.slow

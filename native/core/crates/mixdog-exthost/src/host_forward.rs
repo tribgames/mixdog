@@ -26,7 +26,7 @@ pub(crate) async fn forward(
         // The host's redacted message is what the user reads; `data.timing` is for logs only.
         Err(HostError::Rpc { message, .. }) => Err(CoreError::DomainError {
             domain: domain.into(),
-            code: HOST_COMMAND_FAILED.into(),
+            code: Some(HOST_COMMAND_FAILED.into()),
             detail: Some(Box::new(DomainErrorDetail::ExternalFailure { message })),
         }),
     }

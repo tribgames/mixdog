@@ -19,6 +19,7 @@ use mixdog_core_api::domain::provider::ItemKind;
 use mixdog_core_api::domain::provider::Phase;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ProviderReplay;
+use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -31,6 +32,10 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::config::WireContext;
+use super::continuation::ContinuationSpec;
+use super::continuation::TurnResult;
+use super::continuation::next_slot;
+use super::continuation::with_slot;
 use super::error::Failure;
 use super::error::classify;
 
@@ -100,7 +105,21 @@ pub struct ResponseOutcome {
     pub output_items: Vec<Value>,
 }
 
+/// What a stateless-continuation route needs to report its updated slot:
+/// the request's own provider state, model and transcript length. The decoder
+/// then ends the turn with `StreamEvent::ProviderState`, which the session
+/// persists like any provider's state.
+#[derive(Clone, Debug)]
+pub struct StateReport {
+    pub spec: ContinuationSpec,
+    pub prior: Option<ProviderState>,
+    /// The requested model id, not an alias the server answered with.
+    pub model: String,
+    pub message_count: usize,
+}
+
 pub struct ResponsesDecoder {
+    state: Option<StateReport>,
     framing: Framing,
     context: Arc<dyn WireContext>,
     replay_owner: ProviderId,
@@ -112,7 +131,6 @@ pub struct ResponsesDecoder {
     texts: HashMap<String, String>,
     done_items: HashSet<String>,
     calls_emitted: HashSet<String>,
-    replays_emitted: HashSet<String>,
     refusals: Refusals,
     outcome: ResponseOutcome,
 }
@@ -172,6 +190,7 @@ fn usage_from(usage: &Value, service_tier: Option<&str>) -> Usage {
                 &["cache_write_tokens"],
             ],
         ),
+        cache_write_1h_tokens: 0,
         reasoning_tokens: u64_at(usage, &["output_tokens_details", "reasoning_tokens"]),
         cost: billed_cost(usage),
         raw: Some(raw),
@@ -254,6 +273,7 @@ fn is_incomplete_tool_item(item: &Value) -> bool {
 impl ResponsesDecoder {
     pub fn new(framing: Framing, context: Arc<dyn WireContext>, replay_owner: ProviderId) -> Self {
         Self {
+            state: None,
             framing,
             context,
             replay_owner,
@@ -265,10 +285,15 @@ impl ResponsesDecoder {
             texts: HashMap::new(),
             done_items: HashSet::new(),
             calls_emitted: HashSet::new(),
-            replays_emitted: HashSet::new(),
             refusals: Refusals::default(),
             outcome: ResponseOutcome::default(),
         }
+    }
+
+    /// Report the route's continuation slot when the turn ends.
+    pub fn with_state(mut self, report: StateReport) -> Self {
+        self.state = Some(report);
+        self
     }
 
     /// The response id and output items accumulated so far.
@@ -302,13 +327,21 @@ impl ResponsesDecoder {
 
     fn feed_sse(&mut self, unit: &[u8], out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         self.line_buf.extend_from_slice(unit);
-        while let Some(pos) = self.line_buf.iter().position(|b| *b == b'\n') {
+        while !self.terminal
+            && let Some(pos) = self.line_buf.iter().position(|b| *b == b'\n')
+        {
             let mut line: Vec<u8> = self.line_buf.drain(..=pos).collect();
             line.pop();
             if line.last() == Some(&b'\r') {
                 line.pop();
             }
             self.sse_line(&line, out)?;
+        }
+        if self.terminal {
+            // The turn is over: frames buffered behind the terminal one are
+            // ignored, as Node's loop does, so the turn finishes exactly once.
+            self.line_buf.clear();
+            self.data.clear();
         }
         Ok(())
     }
@@ -564,17 +597,19 @@ impl ResponsesDecoder {
         if is_incomplete_tool_item(item) {
             return;
         }
-        let dedupe_key = if item_id.is_empty() {
+        let mut dedupe_key = if item_id.is_empty() {
             Self::call_id_of(item)
         } else {
             item_id.clone()
         };
-        if !dedupe_key.is_empty() && !self.done_items.insert(dedupe_key) {
+        if dedupe_key.is_empty() {
+            dedupe_key = item.to_string();
+        }
+        if !self.done_items.insert(dedupe_key) {
             return;
         }
         self.outcome.output_items.push(item.clone());
         match str_of(item, "type") {
-            "reasoning" => self.reasoning_done(item, out),
             "message" => self.relay_final_text(item, &item_id, out),
             kind @ ("function_call" | "custom_tool_call" | "tool_search_call") => {
                 let flavor = match kind {
@@ -586,31 +621,6 @@ impl ResponsesDecoder {
             }
             _ => {}
         }
-    }
-
-    fn reasoning_done(&mut self, item: &Value, out: &mut Vec<StreamEvent>) {
-        let has_encrypted = !str_of(item, "encrypted_content").is_empty();
-        let id = str_of(item, "id");
-        if !has_encrypted || (!id.is_empty() && !self.replays_emitted.insert(id.to_owned())) {
-            return;
-        }
-        let mut replay = json!({
-            "type": "reasoning",
-            "encrypted_content": str_of(item, "encrypted_content"),
-            "summary": item.get("summary").filter(|s| s.is_array()).cloned().unwrap_or_else(|| json!([])),
-        });
-        if let Some(map) = replay.as_object_mut() {
-            if !id.is_empty() {
-                map.insert("id".into(), json!(id));
-            }
-            if self.exposure.text_emitted {
-                map.insert("afterText".into(), json!(true));
-            }
-        }
-        out.push(StreamEvent::ReasoningReplay(ProviderReplay {
-            owner: self.replay_owner.clone(),
-            items: Value::Array(vec![replay]),
-        }));
     }
 
     fn tool_done(&mut self, flavor: ToolFlavor, item: &Value, item_id: &str, out: &mut Vec<StreamEvent>) {
@@ -677,8 +687,36 @@ impl ResponsesDecoder {
     /// overrides either.
     fn finish_turn(&mut self, response: &Value, stop: Option<StopReason>, out: &mut Vec<StreamEvent>) {
         let service_tier = response.get("service_tier").and_then(Value::as_str);
+        // The response's own items in arrival order, reasoning included
+        // verbatim (ids, summaries, encrypted content): the one envelope the
+        // next request replays (Node `createProviderReplay(owner, responseItems)`).
+        if !self.outcome.output_items.is_empty() {
+            out.push(StreamEvent::ReasoningReplay(ProviderReplay {
+                owner: self.replay_owner.clone(),
+                items: Value::Array(self.outcome.output_items.clone()),
+            }));
+        }
         if let Some(usage) = response.get("usage").filter(|u| u.is_object()) {
             out.push(StreamEvent::Usage(usage_from(usage, service_tier)));
+        }
+        if let Some(report) = &self.state {
+            let response_id = response
+                .get("id")
+                .and_then(Value::as_str)
+                .or(self.outcome.response_id.as_deref());
+            let slot = next_slot(
+                &report.spec,
+                self.replay_owner.as_str(),
+                report.prior.as_ref(),
+                &TurnResult {
+                    response_id,
+                    output: &self.outcome.output_items,
+                    model: &report.model,
+                    message_count: report.message_count,
+                    updated_at_ms: self.context.now_unix_ms(),
+                },
+            );
+            out.push(StreamEvent::ProviderState(with_slot(report.prior.as_ref(), &report.spec, slot)));
         }
         let stop = if self.refusals.seen() {
             out.push(StreamEvent::Refusal(self.refusals.text()));

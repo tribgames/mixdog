@@ -6,6 +6,9 @@
 use serde_json::Value;
 
 use crate::blobs::BlobPin;
+use crate::compaction_view::DropMode;
+use crate::message_facets::Facets;
+use crate::schema::record::CompactedDropped;
 use crate::fold::ResolveBody;
 use crate::fold::resolve_slot;
 use crate::message_state::MessageRow;
@@ -35,11 +38,20 @@ pub enum FrameKind {
         prompt: Option<String>,
         /// The catalog contribution of a model message row.
         msg: Option<MessageRow>,
+        /// What a compaction can take out of a model message row (`history.facets`).
+        facets: Option<Facets>,
     },
     Amend { iid: String, refs: Vec<Digest>, msg: Option<MessageRow> },
     Rewind { to_ordinal: u64 },
     /// `rows`: the entry iid and catalog contribution of each replacement message, in order.
-    Compacted { cid: String, rows: Vec<(String, MessageRow)> },
+    Compacted {
+        cid: String,
+        at: Option<i64>,
+        rows: Vec<(String, MessageRow)>,
+        /// How the event decides what left the context, and its identities (`Ids` only).
+        mode: DropMode,
+        dropped: Option<CompactedDropped>,
+    },
     Run { rid: String, phase: RunPhase },
     Approval { aid: String, rid: String, phase: ApprovalPhase },
     /// `meta`, `queue`, `op`, `checkpoint`: nothing beyond the op lookup.
@@ -75,7 +87,9 @@ impl ProjectedFrame {
                 2 + refs.len() + 2 * usize::from(prompt.is_some()) + usize::from(msg.is_some())
             }
             FrameKind::Amend { refs, .. } => 2 + refs.len(),
-            FrameKind::Compacted { rows, .. } => 1 + rows.len(),
+            FrameKind::Compacted { rows, dropped, .. } => {
+                1 + rows.len() + dropped.as_ref().map_or(0, |d| d.message_ids.len() + d.call_ids.len())
+            }
             FrameKind::Other => 0,
             _ => 1,
         };
@@ -104,12 +118,17 @@ fn op(op: &Option<OpRef>) -> Option<ProjectedOp> {
     })
 }
 
+/// The body of a message slot.
+fn message_body(slot: &Slot<Value>, resolve: &mut ResolveBody<'_>) -> Result<Value, String> {
+    match slot {
+        Slot::Inline(v) => Ok(v.clone()),
+        Slot::Blob(_) => resolve_slot(slot, resolve),
+    }
+}
+
 /// The catalog contribution of a message body slot.
 fn message_row(slot: &Slot<Value>, resolve: &mut ResolveBody<'_>) -> Result<MessageRow, String> {
-    match slot {
-        Slot::Inline(v) => Ok(MessageRow::of(v)),
-        Slot::Blob(_) => Ok(MessageRow::of(&resolve_slot(slot, resolve)?)),
-    }
+    Ok(MessageRow::of(&message_body(slot, resolve)?))
 }
 
 /// The kind and op of a record. `resolve` reads out-of-line message bodies.
@@ -117,19 +136,23 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
     Ok(match record {
         Record::Session(r) => (FrameKind::Session { base: r.base.clone() }, op(&r.op)),
         Record::Meta(r) => (FrameKind::Other, op(&r.op)),
-        Record::Item(r) => (
-            FrameKind::Item {
-                iid: r.iid.as_str().to_owned(),
-                turn: r.turn.as_ref().map(|t| t.as_str().to_owned()),
-                form: r.form,
-                model: r.model,
-                visible: r.visible,
-                refs: r.refs.as_slice().to_vec(),
-                prompt: prompt(r),
-                msg: if r.form == Form::Message && r.model { Some(message_row(&r.body, resolve)?) } else { None },
-            },
-            op(&r.op),
-        ),
+        Record::Item(r) => {
+            let body = if r.form == Form::Message && r.model { Some(message_body(&r.body, resolve)?) } else { None };
+            (
+                FrameKind::Item {
+                    iid: r.iid.as_str().to_owned(),
+                    turn: r.turn.as_ref().map(|t| t.as_str().to_owned()),
+                    form: r.form,
+                    model: r.model,
+                    visible: r.visible,
+                    refs: r.refs.as_slice().to_vec(),
+                    prompt: prompt(r, resolve)?,
+                    msg: body.as_ref().map(MessageRow::of),
+                    facets: body.as_ref().map(Facets::of),
+                },
+                op(&r.op),
+            )
+        }
         Record::Amend(r) => (
             FrameKind::Amend {
                 iid: r.iid.as_str().to_owned(),
@@ -142,7 +165,10 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
         Record::Compacted(r) => (
             FrameKind::Compacted {
                 cid: r.cid.as_str().to_owned(),
+                at: r.at,
                 rows: resolve_slot(&r.replacement, resolve)?.iter().map(|e| (e.iid.clone(), MessageRow::of(&e.body))).collect(),
+                mode: DropMode::of(r.dropped_count, r.dropped.is_some()),
+                dropped: r.dropped.clone(),
             },
             op(&r.op),
         ),
@@ -174,8 +200,12 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
 }
 
 /// The prompt-history text of an item: its `prompt` field, trimmed (JS `trim`), when the
-/// 1.4.5 key (`promptHistoryKey`) is not empty.
-fn prompt(r: &crate::schema::record::ItemRecord) -> Option<String> {
-    let text = mixdog_js::js_trim(r.prompt.as_deref()?);
-    (!crate::title::prompt_history_key(text).is_empty()).then(|| text.to_owned())
+/// 1.4.5 key (`promptHistoryKey`) is not empty. `resolve` reads an out-of-line prompt.
+fn prompt(r: &crate::schema::record::ItemRecord, resolve: &mut ResolveBody<'_>) -> Result<Option<String>, String> {
+    let Some(slot) = &r.prompt else {
+        return Ok(None);
+    };
+    let full = resolve_slot(slot, resolve)?;
+    let text = mixdog_js::js_trim(&full);
+    Ok((!crate::title::prompt_history_key(text).is_empty()).then(|| text.to_owned()))
 }

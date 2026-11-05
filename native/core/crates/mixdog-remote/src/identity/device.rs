@@ -57,6 +57,7 @@ pub enum QueueError {
 
 pub struct DeviceFiles {
     dir: PathBuf,
+    identity_file: String,
     ordered: Mutex<()>,
 }
 
@@ -80,7 +81,13 @@ fn quarantine_path(path: &Path) -> PathBuf {
 
 impl DeviceFiles {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into(), ordered: Mutex::new(()) }
+        Self::at(dir, IDENTITY_FILE)
+    }
+
+    /// Another registration kept the same way, e.g. the webhook tunnel's `relay-hook-device.json`.
+    /// Its revocation queue is the desktop's; only the identity file differs.
+    pub fn at(dir: impl Into<PathBuf>, identity_file: &str) -> Self {
+        Self { dir: dir.into(), identity_file: identity_file.to_owned(), ordered: Mutex::new(()) }
     }
 
     fn path(&self, name: &str) -> PathBuf {
@@ -94,7 +101,7 @@ impl DeviceFiles {
     fn write_identity<L: WriteLane>(&self, lane: &InLane<L>) -> Result<DeviceIdentity, SecretError> {
         let identity = DeviceIdentity::mint();
         let text = serde_json::to_vec_pretty(&identity).unwrap_or_default();
-        write_secret(lane, &self.path(IDENTITY_FILE), &text)?;
+        write_secret(lane, &self.path(&self.identity_file), &text)?;
         Ok(identity)
     }
 
@@ -103,7 +110,7 @@ impl DeviceFiles {
     /// no valid identity is kept beside the original, then replaced.
     pub fn load_or_create<L: WriteLane>(&self, lane: &InLane<L>) -> Result<DeviceIdentity, SecretError> {
         let _guard = self.guard();
-        let path = self.path(IDENTITY_FILE);
+        let path = self.path(&self.identity_file);
         if let Some(bytes) = read_secret(lane, &path)? {
             if let Some(identity) = parse_identity(&bytes) {
                 return Ok(identity);

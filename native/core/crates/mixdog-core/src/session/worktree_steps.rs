@@ -265,6 +265,10 @@ impl Inner {
         }
         let Some(entry) = entry else { return Ok(with_fields(result, vec![("removed", JsonValue::Null)])) };
         let revision = result["revision"].as_u64().unwrap_or(previous.revision);
+        #[cfg(test)]
+        if let Some(hook) = self.before_remove.lock().unwrap().take() {
+            hook();
+        }
         match self.ops.wt.remove(&entry.id, force, Some(session), cancel).await {
             Ok(removed) if removed["removed"] == true => Ok(with_fields(result, vec![("removed", removed)])),
             Ok(_) => Err(Self::incomplete(journal, &entry, revision, true, Vec::new(), None)),
@@ -285,16 +289,24 @@ impl Inner {
                 // Refused before anything was deleted: the journal puts the session back. Once
                 // the checkout may be (partly) gone, the session stays in the project folder
                 // and the removal is reported incomplete.
-                let now = self.ops.session_worktree(session, cancel).await.ok().flatten().or_else(|| Some(entry.clone()));
-                let intact = match &now {
-                    Some(now) => now.id == entry.id && now.state == "ready" && self.ops.exists(&entry.path, cancel).await?,
-                    None => false,
-                };
-                if intact {
+                if self.removal_left_it_intact(session, &entry).await? {
                     return Err(error);
                 }
                 Err(Self::incomplete(journal, &entry, revision, true, Vec::new(), Some(failure_message(&error))))
             }
+        }
+    }
+
+    /// Whether a removal that failed left the worktree untouched. It runs under a token of its
+    /// own: the operation's token may be the very cancellation that arrived after Git deleted
+    /// the folder, and a finished deletion must always be recorded as finished, never rolled
+    /// back to a cwd that no longer exists.
+    pub(super) async fn removal_left_it_intact(&self, session: &str, entry: &WorktreeRecord) -> Result<bool, ScmFailure> {
+        let recovery = CancellationToken::new();
+        let now = self.ops.session_worktree(session, &recovery).await.ok().flatten().or_else(|| Some(entry.clone()));
+        match &now {
+            Some(now) => Ok(now.id == entry.id && now.state == "ready" && self.ops.exists(&entry.path, &recovery).await?),
+            None => Ok(false),
         }
     }
 
@@ -312,7 +324,7 @@ impl Inner {
         }
         let previous = self.workspace(session)?;
         assert_revision(previous.revision, options.expected_revision)?;
-        let tx_id = match options.tx_id.trim() {
+        let tx_id = match mixdog_js::js_trim(&options.tx_id) {
             "" => new_tx_id(),
             given => given.to_owned(),
         };
@@ -372,7 +384,7 @@ impl Inner {
         options: Options,
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
-        let branch = branch.trim();
+        let branch = mixdog_js::js_trim(branch);
         if branch.is_empty() {
             return Err(plain("workspace target branch must be a non-empty string."));
         }

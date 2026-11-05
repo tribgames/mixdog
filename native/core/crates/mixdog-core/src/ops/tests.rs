@@ -407,7 +407,7 @@ async fn an_external_action_finishes_with_its_recorded_outcome() {
         .unwrap();
     let rejected = CoreError::DomainError {
         domain: "git".into(),
-        code: "PUSH_REJECTED".into(),
+        code: Some("PUSH_REJECTED".into()),
         detail: None,
     };
     ticket

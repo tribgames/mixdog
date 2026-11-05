@@ -29,7 +29,7 @@ use serde_json::json;
 
 #[tokio::test]
 async fn mock_core_serves_every_seam() {
-    let mock = MockCore::new(&["config"], MockLimits::default());
+    let mock = MockCore::new(&["config/read"], MockLimits::default());
     let thread = mock.directory().insert(ThreadId::from("t1"));
     thread.set_active_turn(Some(TurnId::from("u1")));
     let core: &dyn CoreHandle = &mock;
@@ -52,7 +52,7 @@ async fn mock_core_serves_every_seam() {
     ));
 
     let reply = core
-        .domain("config")
+        .domain_for("config/read")
         .unwrap()
         .call(CoreRequest {
             method: Method("config/read"),

@@ -107,6 +107,12 @@ export type AccountUpdateCustomProviderModelParams = { opId: OpId, threadId?: Th
 export type AccountUpdateProviderAccountsParams = { opId: OpId, threadId?: ThreadId, providerId: string, change: JsonValue, };
 
 /**
+ * What a registered unit of work is. The first five make a stop wait; the last three only
+ * keep an unattended core alive.
+ */
+export type ActivityKind = "turn" | "approvalWait" | "subAgent" | "scheduledRun" | "backgroundShell" | "goal" | "schedule" | "channel";
+
+/**
  * Params of `agent/agentDefinitionPresence`.
  */
 export type AgentAgentDefinitionPresenceParams = { threadId?: ThreadId, agentIds: Array<string>, };
@@ -257,11 +263,6 @@ export type AgentSetAgentConnectorsParams = { opId: OpId, threadId?: ThreadId, a
 export type AgentSetAgentPermissionParams = { opId: OpId, threadId?: ThreadId, agentId: string, action: string, mode: string, options?: JsonValue, };
 
 /**
- * Params of `agent/setBotOrder`.
- */
-export type AgentSetBotOrderParams = { opId: OpId, threadId?: ThreadId, order: Array<string>, };
-
-/**
  * Params of `agent/setLeadAppearance`.
  */
 export type AgentSetLeadAppearanceParams = { opId: OpId, threadId?: ThreadId, avatar: JsonValue, };
@@ -285,6 +286,11 @@ export type AppSnapshotParams = { sections: Array<SectionUpdate>, };
 export type AppSubscribeParams = { resumeFrom?: FeedPosition, };
 
 export type AppSubscribeResponse = { subscription: Subscription, };
+
+/**
+ * Node accepts only `implicit`; anything else means none.
+ */
+export type ApprovalMode = "implicit";
 
 /**
  * Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`);
@@ -350,6 +356,13 @@ export type BlobReadResponse = { bytesB64: string, };
  * `{"blob":{"digest":"sha256:…","bytes":n,"mediaType":"…"}}`.
  */
 export type BlobRef = { blob: BlobDescriptor, };
+
+/**
+ * The one bot order (Lead and Sessions bot lists): trimmed, de-duplicated agent ids, at most
+ * 500. Mixy is pinned first by the UI and is not part of it. Empty means no stored order.
+ * Result of `config/getBotOrder` and `config/setBotOrder`.
+ */
+export type BotOrder = { order: Array<string>, };
 
 export type BrowserApprovalRequestParams = { 
 /**
@@ -471,14 +484,14 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams };
 
 export type ClientPerfLogParams = { line: string, };
 
 /**
  * Request from a client to the core.
  */
-export type ClientRequest = { "method": "initialize", id: RequestId, params: InitializeParams, } | { "method": "app/subscribe", id: RequestId, params: AppSubscribeParams, } | { "method": "feed/subscribe", id: RequestId, params: FeedSubscribeParams, } | { "method": "feed/unsubscribe", id: RequestId, params: FeedUnsubscribeParams, } | { "method": "op/status", id: RequestId, params: OpStatusParams, } | { "method": "blob/read", id: RequestId, params: BlobReadParams, } | { "method": "blob/put", id: RequestId, params: BlobPutParams, } | { "method": "model/list", id: RequestId, params: ModelListParams, } | { "method": "feedback/upload", id: RequestId, params: FeedbackUploadParams, } | { "method": "approval/provideSecret", id: RequestId, params: ApprovalProvideSecretParams, } | { "method": "channel/call", id: RequestId, params: ChannelCallParams, } | { "method": "route/set", id: RequestId, params: RouteSetParams, } | { "method": "fast/set", id: RequestId, params: FastSetParams, } | { "method": "thread/start", id: RequestId, params: ThreadStartParams, } | { "method": "thread/resume", id: RequestId, params: ThreadResumeParams, } | { "method": "thread/unsubscribe", id: RequestId, params: ThreadIdParams, } | { "method": "thread/list", id: RequestId, params: ThreadListParams, } | { "method": "thread/read", id: RequestId, params: ThreadReadParams, } | { "method": "thread/turns/list", id: RequestId, params: ThreadTurnsListParams, } | { "method": "thread/items/list", id: RequestId, params: ThreadItemsListParams, } | { "method": "thread/items/read", id: RequestId, params: ThreadItemsReadParams, } | { "method": "thread/attachment/list", id: RequestId, params: ThreadPageParams, } | { "method": "thread/modelMessages/list", id: RequestId, params: ThreadModelMessagesListParams, } | { "method": "thread/finalAnswer/read", id: RequestId, params: ThreadFinalAnswerReadParams, } | { "method": "thread/readState/update", id: RequestId, params: ThreadReadStateUpdateParams, } | { "method": "thread/search", id: RequestId, params: ThreadSearchParams, } | { "method": "thread/name/set", id: RequestId, params: ThreadNameSetParams, } | { "method": "thread/metadata/update", id: RequestId, params: ThreadMetadataUpdateParams, } | { "method": "thread/archive", id: RequestId, params: ThreadOpParams, } | { "method": "thread/unarchive", id: RequestId, params: ThreadOpParams, } | { "method": "thread/delete", id: RequestId, params: ThreadDeleteParams, } | { "method": "thread/fork", id: RequestId, params: ThreadForkParams, } | { "method": "thread/continueInModel", id: RequestId, params: ThreadContinueInModelParams, } | { "method": "thread/rewind", id: RequestId, params: ThreadRewindParams, } | { "method": "thread/clear", id: RequestId, params: ThreadOpParams, } | { "method": "thread/compact/start", id: RequestId, params: ThreadCompactStartParams, } | { "method": "thread/queue/delete", id: RequestId, params: ThreadQueueDeleteParams, } | { "method": "thread/goal/set", id: RequestId, params: ThreadGoalSetParams, } | { "method": "thread/goal/clear", id: RequestId, params: ThreadOpParams, } | { "method": "thread/goal/control", id: RequestId, params: ThreadGoalControlParams, } | { "method": "thread/quotaResume/schedule", id: RequestId, params: ThreadOpParams, } | { "method": "thread/quotaResume/cancel", id: RequestId, params: ThreadOpParams, } | { "method": "thread/backgroundTerminals/terminate", id: RequestId, params: ThreadBackgroundTerminalParams, } | { "method": "thread/backgroundTerminals/release", id: RequestId, params: ThreadBackgroundTerminalParams, } | { "method": "thread/backgroundTerminals/clean", id: RequestId, params: ThreadOpParams, } | { "method": "turn/start", id: RequestId, params: TurnStartParams, } | { "method": "turn/interrupt", id: RequestId, params: TurnInterruptParams, } | { "method": "turn/steer", id: RequestId, params: TurnSteerParams, } | { "method": "turn/retryFailed", id: RequestId, params: TurnRetryFailedParams, } | { "method": "thread/contextStatus", id: RequestId, params: ThreadContextStatusParams, } | { "method": "thread/getSessionUsage", id: RequestId, params: ThreadGetSessionUsageParams, } | { "method": "thread/getSessionWorktreeWork", id: RequestId, params: ThreadGetSessionWorktreeWorkParams, } | { "method": "thread/inheritancePreflight", id: RequestId, params: ThreadInheritancePreflightParams, } | { "method": "thread/listShellJobs", id: RequestId, params: ThreadListShellJobsParams, } | { "method": "thread/listStoppableShellJobs", id: RequestId, params: ThreadListStoppableShellJobsParams, } | { "method": "thread/getBranchMenu", id: RequestId, params: ThreadGetBranchMenuParams, } | { "method": "thread/askSide", id: RequestId, params: ThreadAskSideParams, } | { "method": "thread/cancelSide", id: RequestId, params: ThreadCancelSideParams, } | { "method": "thread/agentControl", id: RequestId, params: ThreadAgentControlParams, } | { "method": "thread/switchContext", id: RequestId, params: ThreadSwitchContextParams, } | { "method": "thread/setCwd", id: RequestId, params: ThreadSetCwdParams, } | { "method": "thread/setEffort", id: RequestId, params: ThreadSetEffortParams, } | { "method": "thread/setToolMode", id: RequestId, params: ThreadSetToolModeParams, } | { "method": "thread/setWorkflow", id: RequestId, params: ThreadSetWorkflowParams, } | { "method": "thread/setOrchestrationMode", id: RequestId, params: ThreadSetOrchestrationModeParams, } | { "method": "thread/setOutputStyle", id: RequestId, params: ThreadSetOutputStyleParams, } | { "method": "thread/revertTurnReview", id: RequestId, params: ThreadRevertTurnReviewParams, } | { "method": "thread/revertTurnReviewFile", id: RequestId, params: ThreadRevertTurnReviewFileParams, } | { "method": "thread/revertTurnChanges", id: RequestId, params: ThreadRevertTurnChangesParams, } | { "method": "thread/reapplyTurnChanges", id: RequestId, params: ThreadReapplyTurnChangesParams, } | { "method": "thread/clearSessionChangeHistory", id: RequestId, params: ThreadClearSessionChangeHistoryParams, } | { "method": "thread/stageAttachmentOriginal", id: RequestId, params: ThreadStageAttachmentOriginalParams, } | { "method": "thread/resizeImage", id: RequestId, params: ThreadResizeImageParams, } | { "method": "thread/pushNotice", id: RequestId, params: ThreadPushNoticeParams, } | { "method": "thread/requestWorktree", id: RequestId, params: ThreadRequestWorktreeParams, } | { "method": "thread/mergeWorkspace", id: RequestId, params: ThreadMergeWorkspaceParams, } | { "method": "thread/selectBranch", id: RequestId, params: ThreadSelectBranchParams, } | { "method": "project/inspectProjectBranch", id: RequestId, params: ProjectInspectProjectBranchParams, } | { "method": "project/getProjectBranchMenu", id: RequestId, params: ProjectGetProjectBranchMenuParams, } | { "method": "project/getProjectConnectors", id: RequestId, params: ProjectGetProjectConnectorsParams, } | { "method": "project/listWorktrees", id: RequestId, params: ProjectListWorktreesParams, } | { "method": "project/previewWorktreeCleanup", id: RequestId, params: ProjectPreviewWorktreeCleanupParams, } | { "method": "project/selectProjectBranch", id: RequestId, params: ProjectSelectProjectBranchParams, } | { "method": "project/mergeProjectBranch", id: RequestId, params: ProjectMergeProjectBranchParams, } | { "method": "project/manageProjectBranch", id: RequestId, params: ProjectManageProjectBranchParams, } | { "method": "project/removeWorktree", id: RequestId, params: ProjectRemoveWorktreeParams, } | { "method": "project/pruneWorktrees", id: RequestId, params: ProjectPruneWorktreesParams, } | { "method": "project/deleteWorktree", id: RequestId, params: ProjectDeleteWorktreeParams, } | { "method": "project/setArchivedSessionWorktrees", id: RequestId, params: ProjectSetArchivedSessionWorktreesParams, } | { "method": "project/setProjectConnectorEnabled", id: RequestId, params: ProjectSetProjectConnectorEnabledParams, } | { "method": "agent/agentDefinitionPresence", id: RequestId, params: AgentAgentDefinitionPresenceParams, } | { "method": "agent/archivedAgentIdentities", id: RequestId, params: AgentArchivedAgentIdentitiesParams, } | { "method": "agent/getAgentDefinition", id: RequestId, params: AgentGetAgentDefinitionParams, } | { "method": "agent/getAgentAvatarImage", id: RequestId, params: AgentGetAgentAvatarImageParams, } | { "method": "agent/getAgentConnectors", id: RequestId, params: AgentGetAgentConnectorsParams, } | { "method": "agent/getAgentAlwaysAllowedTools", id: RequestId, params: AgentGetAgentAlwaysAllowedToolsParams, } | { "method": "agent/getAgentConnectorTools", id: RequestId, params: AgentGetAgentConnectorToolsParams, } | { "method": "agent/getAgentPermissions", id: RequestId, params: AgentGetAgentPermissionsParams, } | { "method": "agent/getLeadPersona", id: RequestId, params: AgentGetLeadPersonaParams, } | { "method": "agent/getLeadAgentBody", id: RequestId, params: AgentGetLeadAgentBodyParams, } | { "method": "agent/getLeadStatus", id: RequestId, params: AgentGetLeadStatusParams, } | { "method": "agent/getLeadHomeRoute", id: RequestId, params: AgentGetLeadHomeRouteParams, } | { "method": "agent/getLeadAppearance", id: RequestId, params: AgentGetLeadAppearanceParams, } | { "method": "agent/saveAgentDefinition", id: RequestId, params: AgentSaveAgentDefinitionParams, } | { "method": "agent/deleteAgentDefinition", id: RequestId, params: AgentDeleteAgentDefinitionParams, } | { "method": "agent/restoreAgentDefinition", id: RequestId, params: AgentRestoreAgentDefinitionParams, } | { "method": "agent/purgeAgentDefinition", id: RequestId, params: AgentPurgeAgentDefinitionParams, } | { "method": "agent/setAgentConnectors", id: RequestId, params: AgentSetAgentConnectorsParams, } | { "method": "agent/setAgentConnectorEnabled", id: RequestId, params: AgentSetAgentConnectorEnabledParams, } | { "method": "agent/setAgentConnectorToolPermission", id: RequestId, params: AgentSetAgentConnectorToolPermissionParams, } | { "method": "agent/setAgentPermission", id: RequestId, params: AgentSetAgentPermissionParams, } | { "method": "agent/recordAgentApprovalAudit", id: RequestId, params: AgentRecordAgentApprovalAuditParams, } | { "method": "agent/saveLeadPersona", id: RequestId, params: AgentSaveLeadPersonaParams, } | { "method": "agent/saveLeadAgentBody", id: RequestId, params: AgentSaveLeadAgentBodyParams, } | { "method": "agent/setLeadCreated", id: RequestId, params: AgentSetLeadCreatedParams, } | { "method": "agent/saveLeadIdentity", id: RequestId, params: AgentSaveLeadIdentityParams, } | { "method": "agent/setLeadAppearance", id: RequestId, params: AgentSetLeadAppearanceParams, } | { "method": "agent/setBotOrder", id: RequestId, params: AgentSetBotOrderParams, } | { "method": "agent/home/open", id: RequestId, params: AgentHomeOpenParams, } | { "method": "agent/home/reset", id: RequestId, params: AgentHomeResetParams, } | { "method": "agent/memory/list", id: RequestId, params: AgentMemoryListParams, } | { "method": "agent/memory/delete", id: RequestId, params: AgentMemoryDeleteParams, } | { "method": "agent/pool/list", id: RequestId, params: AgentPoolListParams, } | { "method": "room/create", id: RequestId, params: RoomCreateParams, } | { "method": "room/update", id: RequestId, params: RoomUpdateParams, } | { "method": "room/continue", id: RequestId, params: RoomContinueParams, } | { "method": "room/leave", id: RequestId, params: RoomLeaveParams, } | { "method": "room/remove", id: RequestId, params: RoomRemoveParams, } | { "method": "instructions/listInstructionFiles", id: RequestId, params: InstructionsListInstructionFilesParams, } | { "method": "instructions/getInstructionFile", id: RequestId, params: InstructionsGetInstructionFileParams, } | { "method": "instructions/saveInstructionFile", id: RequestId, params: InstructionsSaveInstructionFileParams, } | { "method": "instructions/resetInstructionFile", id: RequestId, params: InstructionsResetInstructionFileParams, } | { "method": "instructions/setInstructionFiles", id: RequestId, params: InstructionsSetInstructionFilesParams, } | { "method": "connector/listConnectorTools", id: RequestId, params: ConnectorListConnectorToolsParams, } | { "method": "connector/addConnectorAccount", id: RequestId, params: ConnectorAddConnectorAccountParams, } | { "method": "config/getAutoClear", id: RequestId, params: ConfigGetAutoClearParams, } | { "method": "config/getCacheWarmingSettings", id: RequestId, params: ConfigGetCacheWarmingSettingsParams, } | { "method": "config/getCompactionSettings", id: RequestId, params: ConfigGetCompactionSettingsParams, } | { "method": "config/getDeveloperSettings", id: RequestId, params: ConfigGetDeveloperSettingsParams, } | { "method": "config/getOutputStyle", id: RequestId, params: ConfigGetOutputStyleParams, } | { "method": "config/getOrchestrationMode", id: RequestId, params: ConfigGetOrchestrationModeParams, } | { "method": "config/getConfiguredOrchestrationMode", id: RequestId, params: ConfigGetConfiguredOrchestrationModeParams, } | { "method": "config/getProfile", id: RequestId, params: ConfigGetProfileParams, } | { "method": "config/getRecapSettings", id: RequestId, params: ConfigGetRecapSettingsParams, } | { "method": "config/getSessionTitleSettings", id: RequestId, params: ConfigGetSessionTitleSettingsParams, } | { "method": "config/getHeartbeatSettings", id: RequestId, params: ConfigGetHeartbeatSettingsParams, } | { "method": "config/getReactionSettings", id: RequestId, params: ConfigGetReactionSettingsParams, } | { "method": "config/getSystemShell", id: RequestId, params: ConfigGetSystemShellParams, } | { "method": "config/getTheme", id: RequestId, params: ConfigGetThemeParams, } | { "method": "config/getToolModuleSettings", id: RequestId, params: ConfigGetToolModuleSettingsParams, } | { "method": "config/getUpdateSettings", id: RequestId, params: ConfigGetUpdateSettingsParams, } | { "method": "config/getWorktreeSettings", id: RequestId, params: ConfigGetWorktreeSettingsParams, } | { "method": "config/listOutputStyles", id: RequestId, params: ConfigListOutputStylesParams, } | { "method": "config/getNetworkProxy", id: RequestId, params: ConfigGetNetworkProxyParams, } | { "method": "config/testNetworkProxy", id: RequestId, params: ConfigTestNetworkProxyParams, } | { "method": "config/getWorkflowPack", id: RequestId, params: ConfigGetWorkflowPackParams, } | { "method": "config/isSetupRequestActive", id: RequestId, params: ConfigIsSetupRequestActiveParams, } | { "method": "config/setAutoUpdate", id: RequestId, params: ConfigSetAutoUpdateParams, } | { "method": "config/setCacheWarmingEnabled", id: RequestId, params: ConfigSetCacheWarmingEnabledParams, } | { "method": "config/setRecapEnabled", id: RequestId, params: ConfigSetRecapEnabledParams, } | { "method": "config/setAiSessionTitles", id: RequestId, params: ConfigSetAiSessionTitlesParams, } | { "method": "config/setHeartbeatEnabled", id: RequestId, params: ConfigSetHeartbeatEnabledParams, } | { "method": "config/setReactionsEnabled", id: RequestId, params: ConfigSetReactionsEnabledParams, } | { "method": "config/setWebSearchEnabled", id: RequestId, params: ConfigSetWebSearchEnabledParams, } | { "method": "config/setMemoryToolsEnabled", id: RequestId, params: ConfigSetMemoryToolsEnabledParams, } | { "method": "config/setAutoClear", id: RequestId, params: ConfigSetAutoClearParams, } | { "method": "config/setCompactionSettings", id: RequestId, params: ConfigSetCompactionSettingsParams, } | { "method": "config/setDeveloperOption", id: RequestId, params: ConfigSetDeveloperOptionParams, } | { "method": "config/setProfile", id: RequestId, params: ConfigSetProfileParams, } | { "method": "config/setHeartbeatInterval", id: RequestId, params: ConfigSetHeartbeatIntervalParams, } | { "method": "config/setSystemShell", id: RequestId, params: ConfigSetSystemShellParams, } | { "method": "config/setTheme", id: RequestId, params: ConfigSetThemeParams, } | { "method": "config/setWebSearchRoute", id: RequestId, params: ConfigSetWebSearchRouteParams, } | { "method": "config/setAutoEffortBase", id: RequestId, params: ConfigSetAutoEffortBaseParams, } | { "method": "config/setBuiltinToolEnabled", id: RequestId, params: ConfigSetBuiltinToolEnabledParams, } | { "method": "config/installBuiltinFeature", id: RequestId, params: ConfigInstallBuiltinFeatureParams, } | { "method": "config/setWorktreeSettings", id: RequestId, params: ConfigSetWorktreeSettingsParams, } | { "method": "config/setNetworkProxy", id: RequestId, params: ConfigSetNetworkProxyParams, } | { "method": "config/saveWorkflowPack", id: RequestId, params: ConfigSaveWorkflowPackParams, } | { "method": "config/createWorkflow", id: RequestId, params: ConfigCreateWorkflowParams, } | { "method": "config/deleteWorkflow", id: RequestId, params: ConfigDeleteWorkflowParams, } | { "method": "config/setModelPreferences", id: RequestId, params: ConfigSetModelPreferencesParams, } | { "method": "config/skipOnboarding", id: RequestId, params: ConfigSkipOnboardingParams, } | { "method": "config/completeOnboarding", id: RequestId, params: ConfigCompleteOnboardingParams, } | { "method": "config/saveStarterGuideState", id: RequestId, params: ConfigSaveStarterGuideStateParams, } | { "method": "config/claimSetupRequest", id: RequestId, params: ConfigClaimSetupRequestParams, } | { "method": "config/completeSetupRequest", id: RequestId, params: ConfigCompleteSetupRequestParams, } | { "method": "config/setExtensionScope", id: RequestId, params: ConfigSetExtensionScopeParams, } | { "method": "config/read", id: RequestId, params: ConfigReadParams, } | { "method": "config/value/write", id: RequestId, params: ConfigValueWriteParams, } | { "method": "config/batchWrite", id: RequestId, params: ConfigBatchWriteParams, } | { "method": "channel/getChannelSettings", id: RequestId, params: ChannelGetChannelSettingsParams, } | { "method": "channel/getChannelSetup", id: RequestId, params: ChannelGetChannelSetupParams, } | { "method": "channel/getChannelWorkerStatus", id: RequestId, params: ChannelGetChannelWorkerStatusParams, } | { "method": "channel/setWebhookConfig", id: RequestId, params: ChannelSetWebhookConfigParams, } | { "method": "channel/saveSchedule", id: RequestId, params: ChannelSaveScheduleParams, } | { "method": "channel/deleteSchedule", id: RequestId, params: ChannelDeleteScheduleParams, } | { "method": "channel/setScheduleEnabled", id: RequestId, params: ChannelSetScheduleEnabledParams, } | { "method": "channel/runScheduleNow", id: RequestId, params: ChannelRunScheduleNowParams, } | { "method": "channel/runWebhookNow", id: RequestId, params: ChannelRunWebhookNowParams, } | { "method": "channel/retryRoutineDelivery", id: RequestId, params: ChannelRetryRoutineDeliveryParams, } | { "method": "channel/testWebhook", id: RequestId, params: ChannelTestWebhookParams, } | { "method": "channel/saveWebhook", id: RequestId, params: ChannelSaveWebhookParams, } | { "method": "channel/deleteWebhook", id: RequestId, params: ChannelDeleteWebhookParams, } | { "method": "channel/setWebhookEnabled", id: RequestId, params: ChannelSetWebhookEnabledParams, } | { "method": "import/getConversationImportJobs", id: RequestId, params: ImportGetConversationImportJobsParams, } | { "method": "import/listImportableConversations", id: RequestId, params: ImportListImportableConversationsParams, } | { "method": "import/startConversationImport", id: RequestId, params: ImportStartConversationImportParams, } | { "method": "import/cancelConversationImport", id: RequestId, params: ImportCancelConversationImportParams, } | { "method": "import/registerConversationImportFile", id: RequestId, params: ImportRegisterConversationImportFileParams, } | { "method": "media/getMediaDefault", id: RequestId, params: MediaGetMediaDefaultParams, } | { "method": "media/getMediaJob", id: RequestId, params: MediaGetMediaJobParams, } | { "method": "media/getMediaPins", id: RequestId, params: MediaGetMediaPinsParams, } | { "method": "media/listMediaAssets", id: RequestId, params: MediaListMediaAssetsParams, } | { "method": "media/listMediaBoards", id: RequestId, params: MediaListMediaBoardsParams, } | { "method": "media/listMediaLanes", id: RequestId, params: MediaListMediaLanesParams, } | { "method": "media/readMediaAsset", id: RequestId, params: MediaReadMediaAssetParams, } | { "method": "media/resolveMediaFile", id: RequestId, params: MediaResolveMediaFileParams, } | { "method": "media/startMediaJob", id: RequestId, params: MediaStartMediaJobParams, } | { "method": "media/cancelMediaJob", id: RequestId, params: MediaCancelMediaJobParams, } | { "method": "media/deleteMediaAsset", id: RequestId, params: MediaDeleteMediaAssetParams, } | { "method": "media/deleteMediaAssets", id: RequestId, params: MediaDeleteMediaAssetsParams, } | { "method": "media/createMediaBoard", id: RequestId, params: MediaCreateMediaBoardParams, } | { "method": "media/renameMediaBoard", id: RequestId, params: MediaRenameMediaBoardParams, } | { "method": "media/deleteMediaBoard", id: RequestId, params: MediaDeleteMediaBoardParams, } | { "method": "media/setMediaAssetBoard", id: RequestId, params: MediaSetMediaAssetBoardParams, } | { "method": "media/setMediaDefault", id: RequestId, params: MediaSetMediaDefaultParams, } | { "method": "media/setMediaPin", id: RequestId, params: MediaSetMediaPinParams, } | { "method": "media/cacheMediaThumbnail", id: RequestId, params: MediaCacheMediaThumbnailParams, } | { "method": "media/openMediaAsset", id: RequestId, params: MediaOpenMediaAssetParams, } | { "method": "media/openMediaFolder", id: RequestId, params: MediaOpenMediaFolderParams, } | { "method": "mcp/getMcpServerConfig", id: RequestId, params: McpGetMcpServerConfigParams, } | { "method": "mcp/getMcpOAuthLoginStatus", id: RequestId, params: McpGetMcpOAuthLoginStatusParams, } | { "method": "mcp/mcpStatus", id: RequestId, params: McpMcpStatusParams, } | { "method": "mcp/addMcpServer", id: RequestId, params: McpAddMcpServerParams, } | { "method": "mcp/saveMcpServer", id: RequestId, params: McpSaveMcpServerParams, } | { "method": "mcp/removeMcpServer", id: RequestId, params: McpRemoveMcpServerParams, } | { "method": "mcp/setMcpServerEnabled", id: RequestId, params: McpSetMcpServerEnabledParams, } | { "method": "mcp/reconnectMcp", id: RequestId, params: McpReconnectMcpParams, } | { "method": "mcp/beginMcpOAuthLogin", id: RequestId, params: McpBeginMcpOAuthLoginParams, } | { "method": "mcp/cancelMcpOAuthLogin", id: RequestId, params: McpCancelMcpOAuthLoginParams, } | { "method": "mcp/completeMcpOAuthLogin", id: RequestId, params: McpCompleteMcpOAuthLoginParams, } | { "method": "mcp/signOutMcpServer", id: RequestId, params: McpSignOutMcpServerParams, } | { "method": "mcp/probeMcpServerAuth", id: RequestId, params: McpProbeMcpServerAuthParams, } | { "method": "mcp/enablePluginMcp", id: RequestId, params: McpEnablePluginMcpParams, } | { "method": "account/getOAuthProviderLoginStatus", id: RequestId, params: AccountGetOAuthProviderLoginStatusParams, } | { "method": "account/listWebSearchModels", id: RequestId, params: AccountListWebSearchModelsParams, } | { "method": "account/getQuotaHistory", id: RequestId, params: AccountGetQuotaHistoryParams, } | { "method": "account/authenticateProvider", id: RequestId, params: AccountAuthenticateProviderParams, } | { "method": "account/beginOAuthProviderLogin", id: RequestId, params: AccountBeginOAuthProviderLoginParams, } | { "method": "account/completeOAuthProviderLogin", id: RequestId, params: AccountCompleteOAuthProviderLoginParams, } | { "method": "account/cancelOAuthProviderLogin", id: RequestId, params: AccountCancelOAuthProviderLoginParams, } | { "method": "account/loginOAuthProvider", id: RequestId, params: AccountLoginOAuthProviderParams, } | { "method": "account/forgetProviderAuth", id: RequestId, params: AccountForgetProviderAuthParams, } | { "method": "account/updateProviderAccounts", id: RequestId, params: AccountUpdateProviderAccountsParams, } | { "method": "account/saveProviderApiKey", id: RequestId, params: AccountSaveProviderApiKeyParams, } | { "method": "account/saveCustomProvider", id: RequestId, params: AccountSaveCustomProviderParams, } | { "method": "account/saveCustomProviderKey", id: RequestId, params: AccountSaveCustomProviderKeyParams, } | { "method": "account/removeCustomProvider", id: RequestId, params: AccountRemoveCustomProviderParams, } | { "method": "account/updateCustomProviderModel", id: RequestId, params: AccountUpdateCustomProviderModelParams, } | { "method": "account/testCustomProvider", id: RequestId, params: AccountTestCustomProviderParams, } | { "method": "account/checkCustomProviderKeyEnv", id: RequestId, params: AccountCheckCustomProviderKeyEnvParams, } | { "method": "account/discoverCustomProviderModels", id: RequestId, params: AccountDiscoverCustomProviderModelsParams, } | { "method": "account/saveOpenAIUsageSessionKey", id: RequestId, params: AccountSaveOpenAIUsageSessionKeyParams, } | { "method": "account/consumeCodexRateLimitResetCredit", id: RequestId, params: AccountConsumeCodexRateLimitResetCreditParams, } | { "method": "account/refreshProviderSetup", id: RequestId, params: AccountRefreshProviderSetupParams, } | { "method": "localProvider/searchLocalProviderModels", id: RequestId, params: LocalProviderSearchLocalProviderModelsParams, } | { "method": "localProvider/inspectHuggingFaceModel", id: RequestId, params: LocalProviderInspectHuggingFaceModelParams, } | { "method": "localProvider/getLocalProviderModelDetails", id: RequestId, params: LocalProviderGetLocalProviderModelDetailsParams, } | { "method": "localProvider/installLocalProviderModel", id: RequestId, params: LocalProviderInstallLocalProviderModelParams, } | { "method": "localProvider/startLocalProviderInstallation", id: RequestId, params: LocalProviderStartLocalProviderInstallationParams, } | { "method": "localProvider/cancelLocalProviderInstallation", id: RequestId, params: LocalProviderCancelLocalProviderInstallationParams, } | { "method": "localProvider/discardLocalProviderInstallation", id: RequestId, params: LocalProviderDiscardLocalProviderInstallationParams, } | { "method": "localProvider/setLocalProviderIdleTtl", id: RequestId, params: LocalProviderSetLocalProviderIdleTtlParams, } | { "method": "localProvider/setLocalProviderContext", id: RequestId, params: LocalProviderSetLocalProviderContextParams, } | { "method": "localProvider/registerHuggingFaceModel", id: RequestId, params: LocalProviderRegisterHuggingFaceModelParams, } | { "method": "localProvider/startLocalProviderModelMaintenance", id: RequestId, params: LocalProviderStartLocalProviderModelMaintenanceParams, } | { "method": "localProvider/deleteLocalProviderModel", id: RequestId, params: LocalProviderDeleteLocalProviderModelParams, } | { "method": "usage/getUsageDashboard", id: RequestId, params: UsageGetUsageDashboardParams, } | { "method": "usage/getUsageStats", id: RequestId, params: UsageGetUsageStatsParams, } | { "method": "usage/getUsageRequests", id: RequestId, params: UsageGetUsageRequestsParams, } | { "method": "update/getUpdateStatus", id: RequestId, params: UpdateGetUpdateStatusParams, } | { "method": "update/checkForUpdate", id: RequestId, params: UpdateCheckForUpdateParams, } | { "method": "update/runUpdateNow", id: RequestId, params: UpdateRunUpdateNowParams, } | { "method": "update/desktop/command", id: RequestId, params: UpdateDesktopCommandParams, } | { "method": "voice/getVoiceStatus", id: RequestId, params: VoiceGetVoiceStatusParams, } | { "method": "voice/toggleVoice", id: RequestId, params: VoiceToggleVoiceParams, } | { "method": "voice/transcribeAudio", id: RequestId, params: VoiceTranscribeAudioParams, } | { "method": "voice/prepareTranscription", id: RequestId, params: VoicePrepareTranscriptionParams, } | { "method": "tidy/getTidyEngineStatus", id: RequestId, params: TidyGetTidyEngineStatusParams, } | { "method": "tidy/getTidyInstallStatus", id: RequestId, params: TidyGetTidyInstallStatusParams, } | { "method": "skills/skillsStatus", id: RequestId, params: SkillsSkillsStatusParams, } | { "method": "skills/skillContent", id: RequestId, params: SkillsSkillContentParams, } | { "method": "skills/getDisabledSkills", id: RequestId, params: SkillsGetDisabledSkillsParams, } | { "method": "skills/addSkill", id: RequestId, params: SkillsAddSkillParams, } | { "method": "skills/saveSkill", id: RequestId, params: SkillsSaveSkillParams, } | { "method": "skills/removeSkill", id: RequestId, params: SkillsRemoveSkillParams, } | { "method": "skills/reloadSkills", id: RequestId, params: SkillsReloadSkillsParams, } | { "method": "skills/setDisabledSkills", id: RequestId, params: SkillsSetDisabledSkillsParams, } | { "method": "plugins/pluginsStatus", id: RequestId, params: PluginsPluginsStatusParams, } | { "method": "plugins/addPlugin", id: RequestId, params: PluginsAddPluginParams, } | { "method": "plugins/updatePlugin", id: RequestId, params: PluginsUpdatePluginParams, } | { "method": "plugins/setPluginEnabled", id: RequestId, params: PluginsSetPluginEnabledParams, } | { "method": "plugins/removePlugin", id: RequestId, params: PluginsRemovePluginParams, } | { "method": "plugins/reloadPlugins", id: RequestId, params: PluginsReloadPluginsParams, } | { "method": "tools/toolsStatus", id: RequestId, params: ToolsToolsStatusParams, } | { "method": "memory/memoryControl", id: RequestId, params: MemoryMemoryControlParams, } | { "method": "memory/recall", id: RequestId, params: MemoryRecallParams, } | { "method": "diagnostics/runDoctor", id: RequestId, params: DiagnosticsRunDoctorParams, } | { "method": "project/list", id: RequestId, params: ProjectListParams, } | { "method": "project/read", id: RequestId, params: ProjectReadParams, } | { "method": "project/create", id: RequestId, params: ProjectCreateParams, } | { "method": "project/touch", id: RequestId, params: ProjectTouchParams, } | { "method": "project/update", id: RequestId, params: ProjectUpdateParams, } | { "method": "project/delete", id: RequestId, params: ProjectDeleteParams, } | { "method": "project/ensureDirectory", id: RequestId, params: ProjectEnsureDirectoryParams, } | { "method": "project/directory", id: RequestId, params: ProjectDirectoryParams, } | { "method": "project/recoveryDirectory", id: RequestId, params: ProjectRecoveryDirectoryParams, } | { "method": "project/taskWorkspace", id: RequestId, params: ProjectTaskWorkspaceParams, } | { "method": "project/codeGraph", id: RequestId, params: ProjectCodeGraphParams, } | { "method": "projectFs/listDir", id: RequestId, params: ProjectFsListDirParams, } | { "method": "projectFs/readText", id: RequestId, params: ProjectFsReadTextParams, } | { "method": "projectFs/writeText", id: RequestId, params: ProjectFsWriteTextParams, } | { "method": "projectFs/writeTextBatch", id: RequestId, params: ProjectFsWriteTextBatchParams, } | { "method": "projectFs/stat", id: RequestId, params: ProjectFsStatParams, } | { "method": "projectFs/create", id: RequestId, params: ProjectFsCreateParams, } | { "method": "projectFs/rename", id: RequestId, params: ProjectFsRenameParams, } | { "method": "projectFs/move", id: RequestId, params: ProjectFsMoveParams, } | { "method": "projectFs/copy", id: RequestId, params: ProjectFsCopyParams, } | { "method": "projectFs/trash", id: RequestId, params: ProjectFsTrashParams, } | { "method": "projectFs/entryPath", id: RequestId, params: ProjectFsEntryPathParams, } | { "method": "projectFs/readLocal", id: RequestId, params: ProjectFsReadLocalParams, } | { "method": "projectFs/statLocal", id: RequestId, params: ProjectFsStatLocalParams, } | { "method": "projectFs/browseDirs", id: RequestId, params: ProjectFsBrowseDirsParams, } | { "method": "projectFs/searchText", id: RequestId, params: ProjectFsSearchTextParams, } | { "method": "projectFs/replaceText", id: RequestId, params: ProjectFsReplaceTextParams, } | { "method": "projectFs/recovery", id: RequestId, params: ProjectFsRecoveryParams, } | { "method": "projectFs/backup/read", id: RequestId, params: ProjectFsBackupReadParams, } | { "method": "projectFs/backup/write", id: RequestId, params: ProjectFsBackupWriteParams, } | { "method": "projectFs/backup/delete", id: RequestId, params: ProjectFsBackupDeleteParams, } | { "method": "projectFs/workspaceFile/read", id: RequestId, params: ProjectFsWorkspaceFileReadParams, } | { "method": "projectFs/workspaceFile/write", id: RequestId, params: ProjectFsWorkspaceFileWriteParams, } | { "method": "projectFs/readEditorSettings", id: RequestId, params: ProjectFsReadEditorSettingsParams, } | { "method": "projectFs/captureSnapshot", id: RequestId, params: ProjectFsCaptureSnapshotParams, } | { "method": "projectFs/localPageUrl", id: RequestId, params: ProjectFsLocalPageUrlParams, } | { "method": "fs/watch", id: RequestId, params: FsWatchParams, } | { "method": "fs/unwatch", id: RequestId, params: FsUnwatchParams, } | { "method": "search/start", id: RequestId, params: SearchStartParams, } | { "method": "search/update", id: RequestId, params: SearchUpdateParams, } | { "method": "search/stop", id: RequestId, params: SearchStopParams, } | { "method": "transfer/beginRead", id: RequestId, params: TransferBeginReadParams, } | { "method": "transfer/beginZip", id: RequestId, params: TransferBeginZipParams, } | { "method": "transfer/readRange", id: RequestId, params: TransferReadRangeParams, } | { "method": "transfer/endRead", id: RequestId, params: TransferEndReadParams, } | { "method": "transfer/beginWrite", id: RequestId, params: TransferBeginWriteParams, } | { "method": "transfer/writeChunk", id: RequestId, params: TransferWriteChunkParams, } | { "method": "transfer/commit", id: RequestId, params: TransferCommitParams, } | { "method": "transfer/abort", id: RequestId, params: TransferAbortParams, } | { "method": "transfer/trash/info", id: RequestId, params: TransferTrashInfoParams, } | { "method": "transfer/trash/entry", id: RequestId, params: TransferTrashEntryParams, } | { "method": "lsp/subscribe", id: RequestId, params: LspSubscribeParams, } | { "method": "lsp/unsubscribe", id: RequestId, params: LspSubscribeParams, } | { "method": "lsp/document", id: RequestId, params: LspDocumentParams, } | { "method": "lsp/request", id: RequestId, params: LspRequestParams, } | { "method": "document/preview", id: RequestId, params: DocumentPreviewParams, } | { "method": "document/previewPages", id: RequestId, params: DocumentPreviewPagesParams, } | { "method": "document/libreOfficeStatus", id: RequestId, params: DocumentLibreOfficeStatusParams, } | { "method": "document/installLibreOffice", id: RequestId, params: DocumentInstallLibreOfficeParams, } | { "method": "git/status", id: RequestId, params: GitStatusParams, } | { "method": "git/branches", id: RequestId, params: GitBranchesParams, } | { "method": "git/log", id: RequestId, params: GitLogParams, } | { "method": "git/show", id: RequestId, params: GitShowParams, } | { "method": "git/showDiff", id: RequestId, params: GitShowDiffParams, } | { "method": "git/showFile", id: RequestId, params: GitShowFileParams, } | { "method": "git/diff", id: RequestId, params: GitDiffParams, } | { "method": "git/stashList", id: RequestId, params: GitStashListParams, } | { "method": "git/requestContext", id: RequestId, params: GitRequestContextParams, } | { "method": "git/cliStatus", id: RequestId, params: GitCliStatusParams, } | { "method": "git/globalConfig/read", id: RequestId, params: GitGlobalConfigReadParams, } | { "method": "git/watch", id: RequestId, params: GitWatchParams, } | { "method": "git/unwatch", id: RequestId, params: GitUnwatchParams, } | { "method": "git/stage", id: RequestId, params: GitStageParams, } | { "method": "git/unstage", id: RequestId, params: GitUnstageParams, } | { "method": "git/commit", id: RequestId, params: GitCommitParams, } | { "method": "git/commitPaths", id: RequestId, params: GitCommitPathsParams, } | { "method": "git/amend", id: RequestId, params: GitAmendParams, } | { "method": "git/undoLastCommit", id: RequestId, params: GitUndoLastCommitParams, } | { "method": "git/push", id: RequestId, params: GitPushParams, } | { "method": "git/pull", id: RequestId, params: GitPullParams, } | { "method": "git/fetch", id: RequestId, params: GitFetchParams, } | { "method": "git/sync", id: RequestId, params: GitSyncParams, } | { "method": "git/stash", id: RequestId, params: GitStashParams, } | { "method": "git/stashPop", id: RequestId, params: GitStashPopParams, } | { "method": "git/stashApply", id: RequestId, params: GitStashApplyParams, } | { "method": "git/stashDrop", id: RequestId, params: GitStashDropParams, } | { "method": "git/createTag", id: RequestId, params: GitCreateTagParams, } | { "method": "git/deleteTag", id: RequestId, params: GitDeleteTagParams, } | { "method": "git/deleteBranch", id: RequestId, params: GitDeleteBranchParams, } | { "method": "git/renameBranch", id: RequestId, params: GitRenameBranchParams, } | { "method": "git/resetToCommit", id: RequestId, params: GitResetToCommitParams, } | { "method": "git/revertCommit", id: RequestId, params: GitRevertCommitParams, } | { "method": "git/revertFile", id: RequestId, params: GitRevertFileParams, } | { "method": "git/cherryPickCommit", id: RequestId, params: GitCherryPickCommitParams, } | { "method": "git/applyPatch", id: RequestId, params: GitApplyPatchParams, } | { "method": "git/ignore", id: RequestId, params: GitIgnoreParams, } | { "method": "git/continue", id: RequestId, params: GitContinueParams, } | { "method": "git/abortOperation", id: RequestId, params: GitAbortOperationParams, } | { "method": "git/globalConfig/write", id: RequestId, params: GitGlobalConfigWriteParams, } | { "method": "git/cli/install", id: RequestId, params: GitCliInstallParams, } | { "method": "github/status", id: RequestId, params: GithubStatusParams, } | { "method": "github/account", id: RequestId, params: GithubAccountParams, } | { "method": "github/login/start", id: RequestId, params: GithubLoginStartParams, } | { "method": "github/login/status", id: RequestId, params: GithubLoginStatusParams, } | { "method": "github/login/openBrowser", id: RequestId, params: GithubLoginOpenBrowserParams, } | { "method": "github/login/cancel", id: RequestId, params: GithubLoginCancelParams, } | { "method": "github/logout", id: RequestId, params: GithubLogoutParams, } | { "method": "github/install", id: RequestId, params: GithubInstallParams, } | { "method": "github/request", id: RequestId, params: GithubRequestParams, } | { "method": "github/starStatus", id: RequestId, params: GithubStarStatusParams, } | { "method": "github/star", id: RequestId, params: GithubStarParams, } | { "method": "github/pr/list", id: RequestId, params: GithubPrListParams, } | { "method": "github/pr/view", id: RequestId, params: GithubPrViewParams, } | { "method": "github/pr/diff", id: RequestId, params: GithubPrDiffParams, } | { "method": "github/pr/defaultBranch", id: RequestId, params: GithubPrDefaultBranchParams, } | { "method": "github/pr/create", id: RequestId, params: GithubPrCreateParams, } | { "method": "github/pr/checkout", id: RequestId, params: GithubPrCheckoutParams, } | { "method": "github/pr/merge", id: RequestId, params: GithubPrMergeParams, } | { "method": "review/diff/get", id: RequestId, params: ReviewDiffGetParams, } | { "method": "process/spawn", id: RequestId, params: ProcessSpawnParams, } | { "method": "process/kill", id: RequestId, params: ProcessKillParams, } | { "method": "process/resizePty", id: RequestId, params: ProcessResizePtyParams, } | { "method": "process/writeStdin", id: RequestId, params: ProcessWriteStdinParams, } | { "method": "terminal/ensure", id: RequestId, params: TerminalEnsureParams, } | { "method": "terminal/attach", id: RequestId, params: TerminalAttachParams, } | { "method": "terminal/profiles", id: RequestId, params: TerminalProfilesParams, } | { "method": "terminal/focus", id: RequestId, params: TerminalFocusParams, } | { "method": "terminal/pause", id: RequestId, params: TerminalPauseParams, } | { "method": "terminal/resume", id: RequestId, params: TerminalResumeParams, } | { "method": "terminal/dispose", id: RequestId, params: TerminalDisposeParams, } | { "method": "system/ports/subscribe", id: RequestId, params: SystemPortsSubscribeParams, } | { "method": "system/ports/unsubscribe", id: RequestId, params: SystemPortsUnsubscribeParams, } | { "method": "remoteAccess/setEnabled", id: RequestId, params: RemoteAccessSetEnabledParams, } | { "method": "remoteAccess/setName", id: RequestId, params: RemoteAccessSetNameParams, } | { "method": "remoteAccess/setClientAlias", id: RequestId, params: RemoteAccessSetClientAliasParams, } | { "method": "remoteAccess/rotate", id: RequestId, params: RemoteAccessRotateParams, } | { "method": "remoteAccess/resolveClaim", id: RequestId, params: RemoteAccessResolveClaimParams, } | { "method": "remoteAccess/pairCode", id: RequestId, params: RemoteAccessPairCodeParams, } | { "method": "remoteAccess/revokeClient", id: RequestId, params: RemoteAccessRevokeClientParams, } | { "method": "remoteAccess/settleOwedControllerKeys", id: RequestId, params: RemoteAccessSettleOwedControllerKeysParams, } | { "method": "remoteAccess/deliverScreenControllerKey", id: RequestId, params: RemoteAccessDeliverScreenControllerKeyParams, } | { "method": "remoteAccess/pushPublicKey", id: RequestId, params: RemoteAccessPushPublicKeyParams, } | { "method": "remoteAccess/registerPushSubscription", id: RequestId, params: RemoteAccessRegisterPushSubscriptionParams, } | { "method": "remoteAccess/removePushSubscription", id: RequestId, params: RemoteAccessRemovePushSubscriptionParams, } | { "method": "remoteAccess/registerNativePush", id: RequestId, params: RemoteAccessRegisterNativePushParams, } | { "method": "remoteAccess/removeNativePush", id: RequestId, params: RemoteAccessRemoveNativePushParams, } | { "method": "browser/command", id: RequestId, params: BrowserCommandParams, } | { "method": "visualize/command", id: RequestId, params: VisualizeCommandParams, } | { "method": "notify/test", id: RequestId, params: NotifyTestParams, } | { "method": "host/claim", id: RequestId, params: HostClaimParams, } | { "method": "host/state/set", id: RequestId, params: HostStateSetParams, } | { "method": "host/remoteTarget/set", id: RequestId, params: HostRemoteTargetSetParams, } | { "method": "modelProxy/run", id: RequestId, params: ModelProxyRunParams, };
+export type ClientRequest = { "method": "initialize", id: RequestId, params: InitializeParams, } | { "method": "app/subscribe", id: RequestId, params: AppSubscribeParams, } | { "method": "feed/subscribe", id: RequestId, params: FeedSubscribeParams, } | { "method": "feed/unsubscribe", id: RequestId, params: FeedUnsubscribeParams, } | { "method": "op/status", id: RequestId, params: OpStatusParams, } | { "method": "blob/read", id: RequestId, params: BlobReadParams, } | { "method": "blob/put", id: RequestId, params: BlobPutParams, } | { "method": "model/list", id: RequestId, params: ModelListParams, } | { "method": "feedback/upload", id: RequestId, params: FeedbackUploadParams, } | { "method": "approval/provideSecret", id: RequestId, params: ApprovalProvideSecretParams, } | { "method": "channel/call", id: RequestId, params: ChannelCallParams, } | { "method": "route/set", id: RequestId, params: RouteSetParams, } | { "method": "fast/set", id: RequestId, params: FastSetParams, } | { "method": "thread/start", id: RequestId, params: ThreadStartParams, } | { "method": "thread/resume", id: RequestId, params: ThreadResumeParams, } | { "method": "thread/unsubscribe", id: RequestId, params: ThreadIdParams, } | { "method": "thread/list", id: RequestId, params: ThreadListParams, } | { "method": "thread/read", id: RequestId, params: ThreadReadParams, } | { "method": "thread/turns/list", id: RequestId, params: ThreadTurnsListParams, } | { "method": "thread/items/list", id: RequestId, params: ThreadItemsListParams, } | { "method": "thread/items/read", id: RequestId, params: ThreadItemsReadParams, } | { "method": "thread/attachment/list", id: RequestId, params: ThreadPageParams, } | { "method": "thread/modelMessages/list", id: RequestId, params: ThreadModelMessagesListParams, } | { "method": "thread/finalAnswer/read", id: RequestId, params: ThreadFinalAnswerReadParams, } | { "method": "thread/readState/update", id: RequestId, params: ThreadReadStateUpdateParams, } | { "method": "thread/search", id: RequestId, params: ThreadSearchParams, } | { "method": "thread/name/set", id: RequestId, params: ThreadNameSetParams, } | { "method": "thread/metadata/update", id: RequestId, params: ThreadMetadataUpdateParams, } | { "method": "thread/archive", id: RequestId, params: ThreadOpParams, } | { "method": "thread/unarchive", id: RequestId, params: ThreadOpParams, } | { "method": "thread/delete", id: RequestId, params: ThreadDeleteParams, } | { "method": "thread/fork", id: RequestId, params: ThreadForkParams, } | { "method": "thread/continueInModel", id: RequestId, params: ThreadContinueInModelParams, } | { "method": "thread/rewind", id: RequestId, params: ThreadRewindParams, } | { "method": "thread/clear", id: RequestId, params: ThreadOpParams, } | { "method": "thread/compact/start", id: RequestId, params: ThreadCompactStartParams, } | { "method": "thread/queue/delete", id: RequestId, params: ThreadQueueDeleteParams, } | { "method": "thread/goal/set", id: RequestId, params: ThreadGoalSetParams, } | { "method": "thread/goal/clear", id: RequestId, params: ThreadOpParams, } | { "method": "thread/goal/control", id: RequestId, params: ThreadGoalControlParams, } | { "method": "thread/quotaResume/schedule", id: RequestId, params: ThreadOpParams, } | { "method": "thread/quotaResume/cancel", id: RequestId, params: ThreadOpParams, } | { "method": "thread/backgroundTerminals/terminate", id: RequestId, params: ThreadBackgroundTerminalParams, } | { "method": "thread/backgroundTerminals/release", id: RequestId, params: ThreadBackgroundTerminalParams, } | { "method": "thread/backgroundTerminals/clean", id: RequestId, params: ThreadOpParams, } | { "method": "turn/start", id: RequestId, params: TurnStartParams, } | { "method": "turn/interrupt", id: RequestId, params: TurnInterruptParams, } | { "method": "turn/steer", id: RequestId, params: TurnSteerParams, } | { "method": "turn/retryFailed", id: RequestId, params: TurnRetryFailedParams, } | { "method": "thread/contextStatus", id: RequestId, params: ThreadContextStatusParams, } | { "method": "thread/getSessionUsage", id: RequestId, params: ThreadGetSessionUsageParams, } | { "method": "thread/getSessionWorktreeWork", id: RequestId, params: ThreadGetSessionWorktreeWorkParams, } | { "method": "thread/inheritancePreflight", id: RequestId, params: ThreadInheritancePreflightParams, } | { "method": "thread/listShellJobs", id: RequestId, params: ThreadListShellJobsParams, } | { "method": "thread/listStoppableShellJobs", id: RequestId, params: ThreadListStoppableShellJobsParams, } | { "method": "thread/getBranchMenu", id: RequestId, params: ThreadGetBranchMenuParams, } | { "method": "thread/askSide", id: RequestId, params: ThreadAskSideParams, } | { "method": "thread/cancelSide", id: RequestId, params: ThreadCancelSideParams, } | { "method": "thread/agentControl", id: RequestId, params: ThreadAgentControlParams, } | { "method": "thread/switchContext", id: RequestId, params: ThreadSwitchContextParams, } | { "method": "thread/setCwd", id: RequestId, params: ThreadSetCwdParams, } | { "method": "thread/setEffort", id: RequestId, params: ThreadSetEffortParams, } | { "method": "thread/setToolMode", id: RequestId, params: ThreadSetToolModeParams, } | { "method": "thread/setWorkflow", id: RequestId, params: ThreadSetWorkflowParams, } | { "method": "thread/setOrchestrationMode", id: RequestId, params: ThreadSetOrchestrationModeParams, } | { "method": "thread/setOutputStyle", id: RequestId, params: ThreadSetOutputStyleParams, } | { "method": "thread/revertTurnReview", id: RequestId, params: ThreadRevertTurnReviewParams, } | { "method": "thread/revertTurnReviewFile", id: RequestId, params: ThreadRevertTurnReviewFileParams, } | { "method": "thread/revertTurnChanges", id: RequestId, params: ThreadRevertTurnChangesParams, } | { "method": "thread/reapplyTurnChanges", id: RequestId, params: ThreadReapplyTurnChangesParams, } | { "method": "thread/clearSessionChangeHistory", id: RequestId, params: ThreadClearSessionChangeHistoryParams, } | { "method": "thread/stageAttachmentOriginal", id: RequestId, params: ThreadStageAttachmentOriginalParams, } | { "method": "thread/resizeImage", id: RequestId, params: ThreadResizeImageParams, } | { "method": "thread/pushNotice", id: RequestId, params: ThreadPushNoticeParams, } | { "method": "thread/requestWorktree", id: RequestId, params: ThreadRequestWorktreeParams, } | { "method": "thread/mergeWorkspace", id: RequestId, params: ThreadMergeWorkspaceParams, } | { "method": "thread/selectBranch", id: RequestId, params: ThreadSelectBranchParams, } | { "method": "project/inspectProjectBranch", id: RequestId, params: ProjectInspectProjectBranchParams, } | { "method": "project/getProjectBranchMenu", id: RequestId, params: ProjectGetProjectBranchMenuParams, } | { "method": "project/getProjectConnectors", id: RequestId, params: ProjectGetProjectConnectorsParams, } | { "method": "project/listWorktrees", id: RequestId, params: ProjectListWorktreesParams, } | { "method": "project/previewWorktreeCleanup", id: RequestId, params: ProjectPreviewWorktreeCleanupParams, } | { "method": "project/selectProjectBranch", id: RequestId, params: ProjectSelectProjectBranchParams, } | { "method": "project/mergeProjectBranch", id: RequestId, params: ProjectMergeProjectBranchParams, } | { "method": "project/manageProjectBranch", id: RequestId, params: ProjectManageProjectBranchParams, } | { "method": "project/removeWorktree", id: RequestId, params: ProjectRemoveWorktreeParams, } | { "method": "project/pruneWorktrees", id: RequestId, params: ProjectPruneWorktreesParams, } | { "method": "project/deleteWorktree", id: RequestId, params: ProjectDeleteWorktreeParams, } | { "method": "project/setArchivedSessionWorktrees", id: RequestId, params: ProjectSetArchivedSessionWorktreesParams, } | { "method": "project/setProjectConnectorEnabled", id: RequestId, params: ProjectSetProjectConnectorEnabledParams, } | { "method": "agent/agentDefinitionPresence", id: RequestId, params: AgentAgentDefinitionPresenceParams, } | { "method": "agent/archivedAgentIdentities", id: RequestId, params: AgentArchivedAgentIdentitiesParams, } | { "method": "agent/getAgentDefinition", id: RequestId, params: AgentGetAgentDefinitionParams, } | { "method": "agent/getAgentAvatarImage", id: RequestId, params: AgentGetAgentAvatarImageParams, } | { "method": "agent/getAgentConnectors", id: RequestId, params: AgentGetAgentConnectorsParams, } | { "method": "agent/getAgentAlwaysAllowedTools", id: RequestId, params: AgentGetAgentAlwaysAllowedToolsParams, } | { "method": "agent/getAgentConnectorTools", id: RequestId, params: AgentGetAgentConnectorToolsParams, } | { "method": "agent/getAgentPermissions", id: RequestId, params: AgentGetAgentPermissionsParams, } | { "method": "agent/getLeadPersona", id: RequestId, params: AgentGetLeadPersonaParams, } | { "method": "agent/getLeadAgentBody", id: RequestId, params: AgentGetLeadAgentBodyParams, } | { "method": "agent/getLeadStatus", id: RequestId, params: AgentGetLeadStatusParams, } | { "method": "agent/getLeadHomeRoute", id: RequestId, params: AgentGetLeadHomeRouteParams, } | { "method": "agent/getLeadAppearance", id: RequestId, params: AgentGetLeadAppearanceParams, } | { "method": "agent/saveAgentDefinition", id: RequestId, params: AgentSaveAgentDefinitionParams, } | { "method": "agent/deleteAgentDefinition", id: RequestId, params: AgentDeleteAgentDefinitionParams, } | { "method": "agent/restoreAgentDefinition", id: RequestId, params: AgentRestoreAgentDefinitionParams, } | { "method": "agent/purgeAgentDefinition", id: RequestId, params: AgentPurgeAgentDefinitionParams, } | { "method": "agent/setAgentConnectors", id: RequestId, params: AgentSetAgentConnectorsParams, } | { "method": "agent/setAgentConnectorEnabled", id: RequestId, params: AgentSetAgentConnectorEnabledParams, } | { "method": "agent/setAgentConnectorToolPermission", id: RequestId, params: AgentSetAgentConnectorToolPermissionParams, } | { "method": "agent/setAgentPermission", id: RequestId, params: AgentSetAgentPermissionParams, } | { "method": "agent/recordAgentApprovalAudit", id: RequestId, params: AgentRecordAgentApprovalAuditParams, } | { "method": "agent/saveLeadPersona", id: RequestId, params: AgentSaveLeadPersonaParams, } | { "method": "agent/saveLeadAgentBody", id: RequestId, params: AgentSaveLeadAgentBodyParams, } | { "method": "agent/setLeadCreated", id: RequestId, params: AgentSetLeadCreatedParams, } | { "method": "agent/saveLeadIdentity", id: RequestId, params: AgentSaveLeadIdentityParams, } | { "method": "agent/setLeadAppearance", id: RequestId, params: AgentSetLeadAppearanceParams, } | { "method": "config/getBotOrder", id: RequestId, params: ConfigGetBotOrderParams, } | { "method": "config/setBotOrder", id: RequestId, params: ConfigSetBotOrderParams, } | { "method": "agent/home/open", id: RequestId, params: AgentHomeOpenParams, } | { "method": "agent/home/reset", id: RequestId, params: AgentHomeResetParams, } | { "method": "agent/memory/list", id: RequestId, params: AgentMemoryListParams, } | { "method": "agent/memory/delete", id: RequestId, params: AgentMemoryDeleteParams, } | { "method": "agent/pool/list", id: RequestId, params: AgentPoolListParams, } | { "method": "room/create", id: RequestId, params: RoomCreateParams, } | { "method": "room/update", id: RequestId, params: RoomUpdateParams, } | { "method": "room/continue", id: RequestId, params: RoomContinueParams, } | { "method": "room/leave", id: RequestId, params: RoomLeaveParams, } | { "method": "room/remove", id: RequestId, params: RoomRemoveParams, } | { "method": "instructions/listInstructionFiles", id: RequestId, params: InstructionsListInstructionFilesParams, } | { "method": "instructions/getInstructionFile", id: RequestId, params: InstructionsGetInstructionFileParams, } | { "method": "instructions/saveInstructionFile", id: RequestId, params: InstructionsSaveInstructionFileParams, } | { "method": "instructions/resetInstructionFile", id: RequestId, params: InstructionsResetInstructionFileParams, } | { "method": "instructions/setInstructionFiles", id: RequestId, params: InstructionsSetInstructionFilesParams, } | { "method": "connector/listConnectorTools", id: RequestId, params: ConnectorListConnectorToolsParams, } | { "method": "connector/addConnectorAccount", id: RequestId, params: ConnectorAddConnectorAccountParams, } | { "method": "config/getAutoClear", id: RequestId, params: ConfigGetAutoClearParams, } | { "method": "config/getCacheWarmingSettings", id: RequestId, params: ConfigGetCacheWarmingSettingsParams, } | { "method": "config/getCompactionSettings", id: RequestId, params: ConfigGetCompactionSettingsParams, } | { "method": "config/getDeveloperSettings", id: RequestId, params: ConfigGetDeveloperSettingsParams, } | { "method": "config/getOutputStyle", id: RequestId, params: ConfigGetOutputStyleParams, } | { "method": "config/getOrchestrationMode", id: RequestId, params: ConfigGetOrchestrationModeParams, } | { "method": "config/getConfiguredOrchestrationMode", id: RequestId, params: ConfigGetConfiguredOrchestrationModeParams, } | { "method": "config/getProfile", id: RequestId, params: ConfigGetProfileParams, } | { "method": "config/getRecapSettings", id: RequestId, params: ConfigGetRecapSettingsParams, } | { "method": "config/getSessionTitleSettings", id: RequestId, params: ConfigGetSessionTitleSettingsParams, } | { "method": "config/getHeartbeatSettings", id: RequestId, params: ConfigGetHeartbeatSettingsParams, } | { "method": "config/getReactionSettings", id: RequestId, params: ConfigGetReactionSettingsParams, } | { "method": "config/getSystemShell", id: RequestId, params: ConfigGetSystemShellParams, } | { "method": "config/getTheme", id: RequestId, params: ConfigGetThemeParams, } | { "method": "config/getToolModuleSettings", id: RequestId, params: ConfigGetToolModuleSettingsParams, } | { "method": "config/getUpdateSettings", id: RequestId, params: ConfigGetUpdateSettingsParams, } | { "method": "config/getWorktreeSettings", id: RequestId, params: ConfigGetWorktreeSettingsParams, } | { "method": "config/listOutputStyles", id: RequestId, params: ConfigListOutputStylesParams, } | { "method": "config/getNetworkProxy", id: RequestId, params: ConfigGetNetworkProxyParams, } | { "method": "config/testNetworkProxy", id: RequestId, params: ConfigTestNetworkProxyParams, } | { "method": "config/getWorkflowPack", id: RequestId, params: ConfigGetWorkflowPackParams, } | { "method": "config/isSetupRequestActive", id: RequestId, params: ConfigIsSetupRequestActiveParams, } | { "method": "config/setAutoUpdate", id: RequestId, params: ConfigSetAutoUpdateParams, } | { "method": "config/setCacheWarmingEnabled", id: RequestId, params: ConfigSetCacheWarmingEnabledParams, } | { "method": "config/setRecapEnabled", id: RequestId, params: ConfigSetRecapEnabledParams, } | { "method": "config/setAiSessionTitles", id: RequestId, params: ConfigSetAiSessionTitlesParams, } | { "method": "config/setHeartbeatEnabled", id: RequestId, params: ConfigSetHeartbeatEnabledParams, } | { "method": "config/setReactionsEnabled", id: RequestId, params: ConfigSetReactionsEnabledParams, } | { "method": "config/setWebSearchEnabled", id: RequestId, params: ConfigSetWebSearchEnabledParams, } | { "method": "config/setMemoryToolsEnabled", id: RequestId, params: ConfigSetMemoryToolsEnabledParams, } | { "method": "config/setAutoClear", id: RequestId, params: ConfigSetAutoClearParams, } | { "method": "config/setCompactionSettings", id: RequestId, params: ConfigSetCompactionSettingsParams, } | { "method": "config/setDeveloperOption", id: RequestId, params: ConfigSetDeveloperOptionParams, } | { "method": "config/setProfile", id: RequestId, params: ConfigSetProfileParams, } | { "method": "config/setHeartbeatInterval", id: RequestId, params: ConfigSetHeartbeatIntervalParams, } | { "method": "config/setSystemShell", id: RequestId, params: ConfigSetSystemShellParams, } | { "method": "config/setTheme", id: RequestId, params: ConfigSetThemeParams, } | { "method": "config/setWebSearchRoute", id: RequestId, params: ConfigSetWebSearchRouteParams, } | { "method": "config/setAutoEffortBase", id: RequestId, params: ConfigSetAutoEffortBaseParams, } | { "method": "config/setBuiltinToolEnabled", id: RequestId, params: ConfigSetBuiltinToolEnabledParams, } | { "method": "config/installBuiltinFeature", id: RequestId, params: ConfigInstallBuiltinFeatureParams, } | { "method": "config/setWorktreeSettings", id: RequestId, params: ConfigSetWorktreeSettingsParams, } | { "method": "config/setNetworkProxy", id: RequestId, params: ConfigSetNetworkProxyParams, } | { "method": "config/saveWorkflowPack", id: RequestId, params: ConfigSaveWorkflowPackParams, } | { "method": "config/createWorkflow", id: RequestId, params: ConfigCreateWorkflowParams, } | { "method": "config/deleteWorkflow", id: RequestId, params: ConfigDeleteWorkflowParams, } | { "method": "config/setModelPreferences", id: RequestId, params: ConfigSetModelPreferencesParams, } | { "method": "config/skipOnboarding", id: RequestId, params: ConfigSkipOnboardingParams, } | { "method": "config/completeOnboarding", id: RequestId, params: ConfigCompleteOnboardingParams, } | { "method": "config/saveStarterGuideState", id: RequestId, params: ConfigSaveStarterGuideStateParams, } | { "method": "config/claimSetupRequest", id: RequestId, params: ConfigClaimSetupRequestParams, } | { "method": "config/completeSetupRequest", id: RequestId, params: ConfigCompleteSetupRequestParams, } | { "method": "config/setExtensionScope", id: RequestId, params: ConfigSetExtensionScopeParams, } | { "method": "config/read", id: RequestId, params: ConfigReadParams, } | { "method": "config/value/write", id: RequestId, params: ConfigValueWriteParams, } | { "method": "config/batchWrite", id: RequestId, params: ConfigBatchWriteParams, } | { "method": "channel/getChannelSettings", id: RequestId, params: ChannelGetChannelSettingsParams, } | { "method": "channel/getChannelSetup", id: RequestId, params: ChannelGetChannelSetupParams, } | { "method": "channel/getChannelWorkerStatus", id: RequestId, params: ChannelGetChannelWorkerStatusParams, } | { "method": "channel/setWebhookConfig", id: RequestId, params: ChannelSetWebhookConfigParams, } | { "method": "channel/saveSchedule", id: RequestId, params: ChannelSaveScheduleParams, } | { "method": "channel/deleteSchedule", id: RequestId, params: ChannelDeleteScheduleParams, } | { "method": "channel/setScheduleEnabled", id: RequestId, params: ChannelSetScheduleEnabledParams, } | { "method": "channel/runScheduleNow", id: RequestId, params: ChannelRunScheduleNowParams, } | { "method": "channel/runWebhookNow", id: RequestId, params: ChannelRunWebhookNowParams, } | { "method": "channel/retryRoutineDelivery", id: RequestId, params: ChannelRetryRoutineDeliveryParams, } | { "method": "channel/testWebhook", id: RequestId, params: ChannelTestWebhookParams, } | { "method": "channel/saveWebhook", id: RequestId, params: ChannelSaveWebhookParams, } | { "method": "channel/deleteWebhook", id: RequestId, params: ChannelDeleteWebhookParams, } | { "method": "channel/setWebhookEnabled", id: RequestId, params: ChannelSetWebhookEnabledParams, } | { "method": "import/getConversationImportJobs", id: RequestId, params: ImportGetConversationImportJobsParams, } | { "method": "import/listImportableConversations", id: RequestId, params: ImportListImportableConversationsParams, } | { "method": "import/startConversationImport", id: RequestId, params: ImportStartConversationImportParams, } | { "method": "import/cancelConversationImport", id: RequestId, params: ImportCancelConversationImportParams, } | { "method": "import/registerConversationImportFile", id: RequestId, params: ImportRegisterConversationImportFileParams, } | { "method": "media/getMediaDefault", id: RequestId, params: MediaGetMediaDefaultParams, } | { "method": "media/getMediaJob", id: RequestId, params: MediaGetMediaJobParams, } | { "method": "media/getMediaPins", id: RequestId, params: MediaGetMediaPinsParams, } | { "method": "media/listMediaAssets", id: RequestId, params: MediaListMediaAssetsParams, } | { "method": "media/listMediaBoards", id: RequestId, params: MediaListMediaBoardsParams, } | { "method": "media/listMediaLanes", id: RequestId, params: MediaListMediaLanesParams, } | { "method": "media/readMediaAsset", id: RequestId, params: MediaReadMediaAssetParams, } | { "method": "media/resolveMediaFile", id: RequestId, params: MediaResolveMediaFileParams, } | { "method": "media/startMediaJob", id: RequestId, params: MediaStartMediaJobParams, } | { "method": "media/cancelMediaJob", id: RequestId, params: MediaCancelMediaJobParams, } | { "method": "media/deleteMediaAsset", id: RequestId, params: MediaDeleteMediaAssetParams, } | { "method": "media/deleteMediaAssets", id: RequestId, params: MediaDeleteMediaAssetsParams, } | { "method": "media/createMediaBoard", id: RequestId, params: MediaCreateMediaBoardParams, } | { "method": "media/renameMediaBoard", id: RequestId, params: MediaRenameMediaBoardParams, } | { "method": "media/deleteMediaBoard", id: RequestId, params: MediaDeleteMediaBoardParams, } | { "method": "media/setMediaAssetBoard", id: RequestId, params: MediaSetMediaAssetBoardParams, } | { "method": "media/setMediaDefault", id: RequestId, params: MediaSetMediaDefaultParams, } | { "method": "media/setMediaPin", id: RequestId, params: MediaSetMediaPinParams, } | { "method": "media/cacheMediaThumbnail", id: RequestId, params: MediaCacheMediaThumbnailParams, } | { "method": "media/openMediaAsset", id: RequestId, params: MediaOpenMediaAssetParams, } | { "method": "media/openMediaFolder", id: RequestId, params: MediaOpenMediaFolderParams, } | { "method": "mcp/getMcpServerConfig", id: RequestId, params: McpGetMcpServerConfigParams, } | { "method": "mcp/getMcpOAuthLoginStatus", id: RequestId, params: McpGetMcpOAuthLoginStatusParams, } | { "method": "mcp/mcpStatus", id: RequestId, params: McpMcpStatusParams, } | { "method": "mcp/addMcpServer", id: RequestId, params: McpAddMcpServerParams, } | { "method": "mcp/saveMcpServer", id: RequestId, params: McpSaveMcpServerParams, } | { "method": "mcp/removeMcpServer", id: RequestId, params: McpRemoveMcpServerParams, } | { "method": "mcp/setMcpServerEnabled", id: RequestId, params: McpSetMcpServerEnabledParams, } | { "method": "mcp/reconnectMcp", id: RequestId, params: McpReconnectMcpParams, } | { "method": "mcp/beginMcpOAuthLogin", id: RequestId, params: McpBeginMcpOAuthLoginParams, } | { "method": "mcp/cancelMcpOAuthLogin", id: RequestId, params: McpCancelMcpOAuthLoginParams, } | { "method": "mcp/completeMcpOAuthLogin", id: RequestId, params: McpCompleteMcpOAuthLoginParams, } | { "method": "mcp/signOutMcpServer", id: RequestId, params: McpSignOutMcpServerParams, } | { "method": "mcp/probeMcpServerAuth", id: RequestId, params: McpProbeMcpServerAuthParams, } | { "method": "mcp/enablePluginMcp", id: RequestId, params: McpEnablePluginMcpParams, } | { "method": "account/getOAuthProviderLoginStatus", id: RequestId, params: AccountGetOAuthProviderLoginStatusParams, } | { "method": "account/listWebSearchModels", id: RequestId, params: AccountListWebSearchModelsParams, } | { "method": "account/getQuotaHistory", id: RequestId, params: AccountGetQuotaHistoryParams, } | { "method": "account/authenticateProvider", id: RequestId, params: AccountAuthenticateProviderParams, } | { "method": "account/beginOAuthProviderLogin", id: RequestId, params: AccountBeginOAuthProviderLoginParams, } | { "method": "account/completeOAuthProviderLogin", id: RequestId, params: AccountCompleteOAuthProviderLoginParams, } | { "method": "account/cancelOAuthProviderLogin", id: RequestId, params: AccountCancelOAuthProviderLoginParams, } | { "method": "account/loginOAuthProvider", id: RequestId, params: AccountLoginOAuthProviderParams, } | { "method": "account/forgetProviderAuth", id: RequestId, params: AccountForgetProviderAuthParams, } | { "method": "account/updateProviderAccounts", id: RequestId, params: AccountUpdateProviderAccountsParams, } | { "method": "account/saveProviderApiKey", id: RequestId, params: AccountSaveProviderApiKeyParams, } | { "method": "account/saveCustomProvider", id: RequestId, params: AccountSaveCustomProviderParams, } | { "method": "account/saveCustomProviderKey", id: RequestId, params: AccountSaveCustomProviderKeyParams, } | { "method": "account/removeCustomProvider", id: RequestId, params: AccountRemoveCustomProviderParams, } | { "method": "account/updateCustomProviderModel", id: RequestId, params: AccountUpdateCustomProviderModelParams, } | { "method": "account/testCustomProvider", id: RequestId, params: AccountTestCustomProviderParams, } | { "method": "account/checkCustomProviderKeyEnv", id: RequestId, params: AccountCheckCustomProviderKeyEnvParams, } | { "method": "account/discoverCustomProviderModels", id: RequestId, params: AccountDiscoverCustomProviderModelsParams, } | { "method": "account/saveOpenAIUsageSessionKey", id: RequestId, params: AccountSaveOpenAIUsageSessionKeyParams, } | { "method": "account/consumeCodexRateLimitResetCredit", id: RequestId, params: AccountConsumeCodexRateLimitResetCreditParams, } | { "method": "account/refreshProviderSetup", id: RequestId, params: AccountRefreshProviderSetupParams, } | { "method": "localProvider/searchLocalProviderModels", id: RequestId, params: LocalProviderSearchLocalProviderModelsParams, } | { "method": "localProvider/inspectHuggingFaceModel", id: RequestId, params: LocalProviderInspectHuggingFaceModelParams, } | { "method": "localProvider/getLocalProviderModelDetails", id: RequestId, params: LocalProviderGetLocalProviderModelDetailsParams, } | { "method": "localProvider/installLocalProviderModel", id: RequestId, params: LocalProviderInstallLocalProviderModelParams, } | { "method": "localProvider/startLocalProviderInstallation", id: RequestId, params: LocalProviderStartLocalProviderInstallationParams, } | { "method": "localProvider/cancelLocalProviderInstallation", id: RequestId, params: LocalProviderCancelLocalProviderInstallationParams, } | { "method": "localProvider/discardLocalProviderInstallation", id: RequestId, params: LocalProviderDiscardLocalProviderInstallationParams, } | { "method": "localProvider/setLocalProviderIdleTtl", id: RequestId, params: LocalProviderSetLocalProviderIdleTtlParams, } | { "method": "localProvider/setLocalProviderContext", id: RequestId, params: LocalProviderSetLocalProviderContextParams, } | { "method": "localProvider/registerHuggingFaceModel", id: RequestId, params: LocalProviderRegisterHuggingFaceModelParams, } | { "method": "localProvider/startLocalProviderModelMaintenance", id: RequestId, params: LocalProviderStartLocalProviderModelMaintenanceParams, } | { "method": "localProvider/deleteLocalProviderModel", id: RequestId, params: LocalProviderDeleteLocalProviderModelParams, } | { "method": "usage/getUsageDashboard", id: RequestId, params: UsageGetUsageDashboardParams, } | { "method": "usage/getUsageStats", id: RequestId, params: UsageGetUsageStatsParams, } | { "method": "usage/getUsageRequests", id: RequestId, params: UsageGetUsageRequestsParams, } | { "method": "update/getUpdateStatus", id: RequestId, params: UpdateGetUpdateStatusParams, } | { "method": "update/checkForUpdate", id: RequestId, params: UpdateCheckForUpdateParams, } | { "method": "update/runUpdateNow", id: RequestId, params: UpdateRunUpdateNowParams, } | { "method": "update/desktop/command", id: RequestId, params: UpdateDesktopCommandParams, } | { "method": "voice/getVoiceStatus", id: RequestId, params: VoiceGetVoiceStatusParams, } | { "method": "voice/toggleVoice", id: RequestId, params: VoiceToggleVoiceParams, } | { "method": "voice/transcribeAudio", id: RequestId, params: VoiceTranscribeAudioParams, } | { "method": "voice/prepareTranscription", id: RequestId, params: VoicePrepareTranscriptionParams, } | { "method": "tidy/getTidyEngineStatus", id: RequestId, params: TidyGetTidyEngineStatusParams, } | { "method": "tidy/getTidyInstallStatus", id: RequestId, params: TidyGetTidyInstallStatusParams, } | { "method": "skills/skillsStatus", id: RequestId, params: SkillsSkillsStatusParams, } | { "method": "skills/skillContent", id: RequestId, params: SkillsSkillContentParams, } | { "method": "skills/getDisabledSkills", id: RequestId, params: SkillsGetDisabledSkillsParams, } | { "method": "skills/addSkill", id: RequestId, params: SkillsAddSkillParams, } | { "method": "skills/saveSkill", id: RequestId, params: SkillsSaveSkillParams, } | { "method": "skills/removeSkill", id: RequestId, params: SkillsRemoveSkillParams, } | { "method": "skills/reloadSkills", id: RequestId, params: SkillsReloadSkillsParams, } | { "method": "skills/setDisabledSkills", id: RequestId, params: SkillsSetDisabledSkillsParams, } | { "method": "plugins/pluginsStatus", id: RequestId, params: PluginsPluginsStatusParams, } | { "method": "plugins/addPlugin", id: RequestId, params: PluginsAddPluginParams, } | { "method": "plugins/updatePlugin", id: RequestId, params: PluginsUpdatePluginParams, } | { "method": "plugins/setPluginEnabled", id: RequestId, params: PluginsSetPluginEnabledParams, } | { "method": "plugins/removePlugin", id: RequestId, params: PluginsRemovePluginParams, } | { "method": "plugins/reloadPlugins", id: RequestId, params: PluginsReloadPluginsParams, } | { "method": "tools/toolsStatus", id: RequestId, params: ToolsToolsStatusParams, } | { "method": "memory/memoryControl", id: RequestId, params: MemoryMemoryControlParams, } | { "method": "memory/recall", id: RequestId, params: MemoryRecallParams, } | { "method": "diagnostics/runDoctor", id: RequestId, params: DiagnosticsRunDoctorParams, } | { "method": "project/list", id: RequestId, params: ProjectListParams, } | { "method": "project/read", id: RequestId, params: ProjectReadParams, } | { "method": "project/create", id: RequestId, params: ProjectCreateParams, } | { "method": "project/touch", id: RequestId, params: ProjectTouchParams, } | { "method": "project/update", id: RequestId, params: ProjectUpdateParams, } | { "method": "project/delete", id: RequestId, params: ProjectDeleteParams, } | { "method": "project/ensureDirectory", id: RequestId, params: ProjectEnsureDirectoryParams, } | { "method": "project/directory", id: RequestId, params: ProjectDirectoryParams, } | { "method": "project/recoveryDirectory", id: RequestId, params: ProjectRecoveryDirectoryParams, } | { "method": "project/taskWorkspace", id: RequestId, params: ProjectTaskWorkspaceParams, } | { "method": "project/codeGraph", id: RequestId, params: ProjectCodeGraphParams, } | { "method": "projectFs/listDir", id: RequestId, params: ProjectFsListDirParams, } | { "method": "projectFs/readText", id: RequestId, params: ProjectFsReadTextParams, } | { "method": "projectFs/writeText", id: RequestId, params: ProjectFsWriteTextParams, } | { "method": "projectFs/writeTextBatch", id: RequestId, params: ProjectFsWriteTextBatchParams, } | { "method": "projectFs/stat", id: RequestId, params: ProjectFsStatParams, } | { "method": "projectFs/create", id: RequestId, params: ProjectFsCreateParams, } | { "method": "projectFs/rename", id: RequestId, params: ProjectFsRenameParams, } | { "method": "projectFs/move", id: RequestId, params: ProjectFsMoveParams, } | { "method": "projectFs/copy", id: RequestId, params: ProjectFsCopyParams, } | { "method": "projectFs/trash", id: RequestId, params: ProjectFsTrashParams, } | { "method": "projectFs/entryPath", id: RequestId, params: ProjectFsEntryPathParams, } | { "method": "projectFs/readLocal", id: RequestId, params: ProjectFsReadLocalParams, } | { "method": "projectFs/statLocal", id: RequestId, params: ProjectFsStatLocalParams, } | { "method": "projectFs/browseDirs", id: RequestId, params: ProjectFsBrowseDirsParams, } | { "method": "projectFs/searchText", id: RequestId, params: ProjectFsSearchTextParams, } | { "method": "projectFs/replaceText", id: RequestId, params: ProjectFsReplaceTextParams, } | { "method": "projectFs/recovery", id: RequestId, params: ProjectFsRecoveryParams, } | { "method": "projectFs/backup/read", id: RequestId, params: ProjectFsBackupReadParams, } | { "method": "projectFs/backup/write", id: RequestId, params: ProjectFsBackupWriteParams, } | { "method": "projectFs/backup/delete", id: RequestId, params: ProjectFsBackupDeleteParams, } | { "method": "projectFs/workspaceFile/read", id: RequestId, params: ProjectFsWorkspaceFileReadParams, } | { "method": "projectFs/workspaceFile/write", id: RequestId, params: ProjectFsWorkspaceFileWriteParams, } | { "method": "projectFs/readEditorSettings", id: RequestId, params: ProjectFsReadEditorSettingsParams, } | { "method": "projectFs/captureSnapshot", id: RequestId, params: ProjectFsCaptureSnapshotParams, } | { "method": "projectFs/localPageUrl", id: RequestId, params: ProjectFsLocalPageUrlParams, } | { "method": "fs/watch", id: RequestId, params: FsWatchParams, } | { "method": "fs/unwatch", id: RequestId, params: FsUnwatchParams, } | { "method": "search/start", id: RequestId, params: SearchStartParams, } | { "method": "search/update", id: RequestId, params: SearchUpdateParams, } | { "method": "search/stop", id: RequestId, params: SearchStopParams, } | { "method": "transfer/beginRead", id: RequestId, params: TransferBeginReadParams, } | { "method": "transfer/beginZip", id: RequestId, params: TransferBeginZipParams, } | { "method": "transfer/readRange", id: RequestId, params: TransferReadRangeParams, } | { "method": "transfer/endRead", id: RequestId, params: TransferEndReadParams, } | { "method": "transfer/beginWrite", id: RequestId, params: TransferBeginWriteParams, } | { "method": "transfer/writeChunk", id: RequestId, params: TransferWriteChunkParams, } | { "method": "transfer/commit", id: RequestId, params: TransferCommitParams, } | { "method": "transfer/abort", id: RequestId, params: TransferAbortParams, } | { "method": "transfer/trash/info", id: RequestId, params: TransferTrashInfoParams, } | { "method": "transfer/trash/entry", id: RequestId, params: TransferTrashEntryParams, } | { "method": "lsp/subscribe", id: RequestId, params: LspSubscribeParams, } | { "method": "lsp/unsubscribe", id: RequestId, params: LspSubscribeParams, } | { "method": "lsp/document", id: RequestId, params: LspDocumentParams, } | { "method": "lsp/request", id: RequestId, params: LspRequestParams, } | { "method": "document/preview", id: RequestId, params: DocumentPreviewParams, } | { "method": "document/previewPages", id: RequestId, params: DocumentPreviewPagesParams, } | { "method": "document/libreOfficeStatus", id: RequestId, params: DocumentLibreOfficeStatusParams, } | { "method": "document/installLibreOffice", id: RequestId, params: DocumentInstallLibreOfficeParams, } | { "method": "git/status", id: RequestId, params: GitStatusParams, } | { "method": "git/branches", id: RequestId, params: GitBranchesParams, } | { "method": "git/log", id: RequestId, params: GitLogParams, } | { "method": "git/show", id: RequestId, params: GitShowParams, } | { "method": "git/showDiff", id: RequestId, params: GitShowDiffParams, } | { "method": "git/showFile", id: RequestId, params: GitShowFileParams, } | { "method": "git/diff", id: RequestId, params: GitDiffParams, } | { "method": "git/stashList", id: RequestId, params: GitStashListParams, } | { "method": "git/requestContext", id: RequestId, params: GitRequestContextParams, } | { "method": "git/cliStatus", id: RequestId, params: GitCliStatusParams, } | { "method": "git/globalConfig/read", id: RequestId, params: GitGlobalConfigReadParams, } | { "method": "git/watch", id: RequestId, params: GitWatchParams, } | { "method": "git/unwatch", id: RequestId, params: GitUnwatchParams, } | { "method": "git/stage", id: RequestId, params: GitStageParams, } | { "method": "git/unstage", id: RequestId, params: GitUnstageParams, } | { "method": "git/commit", id: RequestId, params: GitCommitParams, } | { "method": "git/commitPaths", id: RequestId, params: GitCommitPathsParams, } | { "method": "git/amend", id: RequestId, params: GitAmendParams, } | { "method": "git/undoLastCommit", id: RequestId, params: GitUndoLastCommitParams, } | { "method": "git/push", id: RequestId, params: GitPushParams, } | { "method": "git/pull", id: RequestId, params: GitPullParams, } | { "method": "git/fetch", id: RequestId, params: GitFetchParams, } | { "method": "git/sync", id: RequestId, params: GitSyncParams, } | { "method": "git/stash", id: RequestId, params: GitStashParams, } | { "method": "git/stashPop", id: RequestId, params: GitStashPopParams, } | { "method": "git/stashApply", id: RequestId, params: GitStashApplyParams, } | { "method": "git/stashDrop", id: RequestId, params: GitStashDropParams, } | { "method": "git/createTag", id: RequestId, params: GitCreateTagParams, } | { "method": "git/deleteTag", id: RequestId, params: GitDeleteTagParams, } | { "method": "git/deleteBranch", id: RequestId, params: GitDeleteBranchParams, } | { "method": "git/renameBranch", id: RequestId, params: GitRenameBranchParams, } | { "method": "git/resetToCommit", id: RequestId, params: GitResetToCommitParams, } | { "method": "git/revertCommit", id: RequestId, params: GitRevertCommitParams, } | { "method": "git/revertFile", id: RequestId, params: GitRevertFileParams, } | { "method": "git/cherryPickCommit", id: RequestId, params: GitCherryPickCommitParams, } | { "method": "git/applyPatch", id: RequestId, params: GitApplyPatchParams, } | { "method": "git/ignore", id: RequestId, params: GitIgnoreParams, } | { "method": "git/continue", id: RequestId, params: GitContinueParams, } | { "method": "git/abortOperation", id: RequestId, params: GitAbortOperationParams, } | { "method": "git/globalConfig/write", id: RequestId, params: GitGlobalConfigWriteParams, } | { "method": "git/cli/install", id: RequestId, params: GitCliInstallParams, } | { "method": "github/status", id: RequestId, params: GithubStatusParams, } | { "method": "github/account", id: RequestId, params: GithubAccountParams, } | { "method": "github/login/start", id: RequestId, params: GithubLoginStartParams, } | { "method": "github/login/status", id: RequestId, params: GithubLoginStatusParams, } | { "method": "github/login/openBrowser", id: RequestId, params: GithubLoginOpenBrowserParams, } | { "method": "github/login/cancel", id: RequestId, params: GithubLoginCancelParams, } | { "method": "github/logout", id: RequestId, params: GithubLogoutParams, } | { "method": "github/install", id: RequestId, params: GithubInstallParams, } | { "method": "github/request", id: RequestId, params: GithubRequestParams, } | { "method": "github/starStatus", id: RequestId, params: GithubStarStatusParams, } | { "method": "github/star", id: RequestId, params: GithubStarParams, } | { "method": "github/pr/list", id: RequestId, params: GithubPrListParams, } | { "method": "github/pr/view", id: RequestId, params: GithubPrViewParams, } | { "method": "github/pr/diff", id: RequestId, params: GithubPrDiffParams, } | { "method": "github/pr/defaultBranch", id: RequestId, params: GithubPrDefaultBranchParams, } | { "method": "github/pr/create", id: RequestId, params: GithubPrCreateParams, } | { "method": "github/pr/checkout", id: RequestId, params: GithubPrCheckoutParams, } | { "method": "github/pr/merge", id: RequestId, params: GithubPrMergeParams, } | { "method": "review/diff/get", id: RequestId, params: ReviewDiffGetParams, } | { "method": "process/spawn", id: RequestId, params: ProcessSpawnParams, } | { "method": "process/kill", id: RequestId, params: ProcessKillParams, } | { "method": "process/resizePty", id: RequestId, params: ProcessResizePtyParams, } | { "method": "process/writeStdin", id: RequestId, params: ProcessWriteStdinParams, } | { "method": "terminal/ensure", id: RequestId, params: TerminalEnsureParams, } | { "method": "terminal/attach", id: RequestId, params: TerminalAttachParams, } | { "method": "terminal/profiles", id: RequestId, params: TerminalProfilesParams, } | { "method": "terminal/focus", id: RequestId, params: TerminalFocusParams, } | { "method": "terminal/pause", id: RequestId, params: TerminalPauseParams, } | { "method": "terminal/resume", id: RequestId, params: TerminalResumeParams, } | { "method": "terminal/dispose", id: RequestId, params: TerminalDisposeParams, } | { "method": "system/ports/subscribe", id: RequestId, params: SystemPortsSubscribeParams, } | { "method": "system/ports/unsubscribe", id: RequestId, params: SystemPortsUnsubscribeParams, } | { "method": "remoteAccess/setEnabled", id: RequestId, params: RemoteAccessSetEnabledParams, } | { "method": "remoteAccess/setName", id: RequestId, params: RemoteAccessSetNameParams, } | { "method": "remoteAccess/setClientAlias", id: RequestId, params: RemoteAccessSetClientAliasParams, } | { "method": "remoteAccess/rotate", id: RequestId, params: RemoteAccessRotateParams, } | { "method": "remoteAccess/resolveClaim", id: RequestId, params: RemoteAccessResolveClaimParams, } | { "method": "remoteAccess/pairCode", id: RequestId, params: RemoteAccessPairCodeParams, } | { "method": "remoteAccess/revokeClient", id: RequestId, params: RemoteAccessRevokeClientParams, } | { "method": "remoteAccess/settleOwedControllerKeys", id: RequestId, params: RemoteAccessSettleOwedControllerKeysParams, } | { "method": "remoteAccess/deliverScreenControllerKey", id: RequestId, params: RemoteAccessDeliverScreenControllerKeyParams, } | { "method": "remoteAccess/pushPublicKey", id: RequestId, params: RemoteAccessPushPublicKeyParams, } | { "method": "remoteAccess/registerPushSubscription", id: RequestId, params: RemoteAccessRegisterPushSubscriptionParams, } | { "method": "remoteAccess/removePushSubscription", id: RequestId, params: RemoteAccessRemovePushSubscriptionParams, } | { "method": "remoteAccess/registerNativePush", id: RequestId, params: RemoteAccessRegisterNativePushParams, } | { "method": "remoteAccess/removeNativePush", id: RequestId, params: RemoteAccessRemoveNativePushParams, } | { "method": "browser/command", id: RequestId, params: BrowserCommandParams, } | { "method": "visualize/command", id: RequestId, params: VisualizeCommandParams, } | { "method": "notify/test", id: RequestId, params: NotifyTestParams, } | { "method": "host/claim", id: RequestId, params: HostClaimParams, } | { "method": "host/state/set", id: RequestId, params: HostStateSetParams, } | { "method": "host/remoteTarget/set", id: RequestId, params: HostRemoteTargetSetParams, } | { "method": "modelProxy/run", id: RequestId, params: ModelProxyRunParams, };
 
 /**
  * WebSocket close codes (P §4.5, X17).
@@ -542,6 +555,11 @@ export type ConfigEdit = { path: ConfigPath, value: JsonValue, mode?: ConfigWrit
  * Params of `config/getAutoClear`.
  */
 export type ConfigGetAutoClearParams = { threadId?: ThreadId, };
+
+/**
+ * Params of `config/getBotOrder`.
+ */
+export type ConfigGetBotOrderParams = { threadId?: ThreadId, };
 
 /**
  * Params of `config/getCacheWarmingSettings`.
@@ -685,6 +703,13 @@ export type ConfigSetAutoEffortBaseParams = { opId: OpId, threadId?: ThreadId, l
 export type ConfigSetAutoUpdateParams = { opId: OpId, threadId?: ThreadId, enabled: boolean, };
 
 /**
+ * Params of `config/setBotOrder`. Node rejects more than 500 ids, or an id that is empty after
+ * trimming or longer than 128, with `usage: setBotOrder(an array of agent ids)`; an empty
+ * list clears the stored order.
+ */
+export type ConfigSetBotOrderParams = { opId: OpId, threadId?: ThreadId, order: Array<string>, };
+
+/**
  * Params of `config/setBuiltinToolEnabled`.
  */
 export type ConfigSetBuiltinToolEnabledParams = { opId: OpId, threadId?: ThreadId, name: string, enabled: boolean, };
@@ -824,6 +849,12 @@ export type ConversationNotificationOverride = { target: NotificationTarget, set
  */
 export type ConversationNotificationSetting = { "mode": "always" } | { "mode": "muted", until: number | null, };
 
+/**
+ * Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to
+ * every connected client with what is still running, and the token that authorizes an abort.
+ */
+export type CoreDrainParams = { drainId: string, running: Array<DrainRunning>, confirmToken: string, };
+
 export type CoreState = { "state": "serving" } | { "state": "migrating", kind: string, done: number, total: number, } | { "state": "draining", reason: DrainReason, };
 
 /**
@@ -873,12 +904,17 @@ export type DomainErrorDetail = { "type": "externalFailure", message: string, } 
 /**
  * `session` or `external` (today's `kind`).
  */
-kind?: string, sessionId?: string, } | { "type": "worktreeMissing", entryId?: string, worktreeId?: string, path?: string, } | { "type": "worktreeFileRecovery", entryId: string, path: string, recoveryRoot: string, } | { "type": "worktreeDefaultBranch", branch: string, } | { "type": "worktreeDiskInsufficient", requiredBytes: number, freeBytes?: number, path: string, reason?: string, } | { "type": "worktreeLargeRepoConfirm", estimateBytes: number, thresholdBytes: number, } | { "type": "worktreeProjectMismatch", projectPath: string, worktreeId?: string, worktreeProject?: string, repoCommonDir?: string, } | { "type": "worktreeRemovalIncomplete", entryId: string, path: string, retryable: boolean, remaining: Array<RemovalRemnant>, reason?: string, revision?: number, } | { "type": "mergeFailed", reason: string, source?: string, aborted?: boolean, } | { "type": "mergeTargetDirty", operation: string, files: Array<string>, count?: number, } | { "type": "display", name: string, } | { "type": "commandFailed", message: string, } | { "type": "mergeConflict", files: Array<string>, };
+kind?: string, sessionId?: string, } | { "type": "worktreeMissing", entryId?: string, worktreeId?: string, path?: string, } | { "type": "worktreeFileRecovery", entryId: string, path: string, recoveryRoot: string, } | { "type": "worktreeDefaultBranch", branch: string, } | { "type": "worktreeDiskInsufficient", requiredBytes: number, freeBytes?: number, path: string, reason?: string, } | { "type": "worktreeLargeRepoConfirm", estimateBytes: number, thresholdBytes: number, } | { "type": "worktreeProjectMismatch", projectPath: string, worktreeId?: string, worktreeProject?: string, repoCommonDir?: string, } | { "type": "worktreeRemovalIncomplete", entryId: string, path: string, retryable: boolean, remaining: Array<RemovalRemnant>, reason?: string, revision?: number, } | { "type": "mergeFailed", reason: string, source?: string, aborted?: boolean, } | { "type": "mergeTargetDirty", operation: string, files: Array<string>, count?: number, } | { "type": "roomMemberSwitchedOff", name: string, } | { "type": "scheduleNameTaken", name: string, } | { "type": "scheduleRenameRunning", name: string, } | { "type": "scheduleRenameReloadFailed", name: string, } | { "type": "display", name: string, } | { "type": "commandFailed", message: string, } | { "type": "mergeConflict", files: Array<string>, };
 
 /**
  * Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.
  */
 export type DrainReason = "update" | "quit" | "restart" | "noClients";
+
+/**
+ * One unit of running work, as listed to the user.
+ */
+export type DrainRunning = { threadId: string | null, turnId: string | null, kind: ActivityKind, title: string, };
 
 /**
  * The auto-effort judge model card (`effortJudgeInfo`).
@@ -904,7 +940,7 @@ export type EnabledModule = { enabled: boolean, };
 /**
  * `{"reason": …, …typed fields}`.
  */
-export type ErrorData = { "reason": "notInitialized" } | { "reason": "alreadyInitialized" } | { "reason": "clientOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverShuttingDown", drainReason: DrainReason, } | { "reason": "coreMigrating", kind: string, done: number, total: number, } | { "reason": "catalogRebuilding", done: number, total: number, } | { "reason": "threadNotFound", threadId: ThreadId, } | { "reason": "threadClosing", threadId: ThreadId, } | { "reason": "turnNotActive", threadId: ThreadId, turnId?: TurnId, } | { "reason": "itemNotFound", threadId: ThreadId, itemId: ItemId, } | { "reason": "queuedEntryNotFound", threadId: ThreadId, queuedId: QueuedId, } | { "reason": "preconditionFailed", expected: JsonValue, actual: JsonValue, } | { "reason": "permissionDenied", method: string, origin: Origin, } | { "reason": "capabilityUnavailable", capability: string, detail: string, } | { "reason": "opFenced", opId: OpId, } | { "reason": "connectionClosed" } | { "reason": "storeDamaged", threadId: ThreadId, fileNo: number, offset: number, } | { "reason": "blobNotFound", digest: BlobDigest, } | { "reason": "itemTooLarge", limit: number, } | { "reason": "domainError", domain: string, code: string, detail?: DomainErrorDetail, } | { "reason": "methodNotFound", method: string, } | { "reason": "invalidParams", path: string, expected: string, } | { "reason": "opIdConflict", opId: OpId, } | { "reason": "opIdExpired", opId: OpId, watermark: string, } | { "reason": "opIdRequired" } | { "reason": "cursorInvalidated", threadId: ThreadId, historyRev: number, } | { "reason": "inputTooLarge", limit: number, } | { "reason": "internal", incidentId: string, } | { "reason": "barrierFailed", scope: string, ioKind: string, } | { "reason": "storageIndeterminate", scope: string, } | { "reason": "storageUnsupported", op: string, osError: string, } | { "reason": "externalOutcomeUnknown", opId: OpId, effect: string, target: string, } | { "reason": "providerError", provider: string, status?: number, kind: string, } | { "reason": "cancelled", by: string, } | { "reason": "blobCorrupt", digest: BlobDigest, } | { "reason": "inflightLimit", class: RequestClass, limit: number, } | { "reason": "windowFull", threadId: ThreadId, } | { "reason": "queueFull", queue: string, } | { "reason": "invalidServerRequestResponse", requestId: RequestId, detail: string, };
+export type ErrorData = { "reason": "notInitialized" } | { "reason": "alreadyInitialized" } | { "reason": "clientOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverOutdated", serverVersion: string, clientVersion: string, } | { "reason": "serverShuttingDown", drainReason: DrainReason, } | { "reason": "coreMigrating", kind: string, done: number, total: number, } | { "reason": "catalogRebuilding", done: number, total: number, } | { "reason": "threadNotFound", threadId: ThreadId, } | { "reason": "threadClosing", threadId: ThreadId, } | { "reason": "turnNotActive", threadId: ThreadId, turnId?: TurnId, } | { "reason": "itemNotFound", threadId: ThreadId, itemId: ItemId, } | { "reason": "queuedEntryNotFound", threadId: ThreadId, queuedId: QueuedId, } | { "reason": "preconditionFailed", expected: JsonValue, actual: JsonValue, } | { "reason": "permissionDenied", method: string, origin: Origin, } | { "reason": "capabilityUnavailable", capability: string, detail: string, } | { "reason": "opFenced", opId: OpId, } | { "reason": "connectionClosed" } | { "reason": "storeDamaged", threadId: ThreadId, fileNo: number, offset: number, } | { "reason": "blobNotFound", digest: BlobDigest, } | { "reason": "itemTooLarge", limit: number, } | { "reason": "domainError", domain: string, code?: string, detail?: DomainErrorDetail, } | { "reason": "methodNotFound", method: string, } | { "reason": "invalidParams", path: string, expected: string, } | { "reason": "opIdConflict", opId: OpId, } | { "reason": "opIdExpired", opId: OpId, watermark: string, } | { "reason": "opIdRequired" } | { "reason": "cursorInvalidated", threadId: ThreadId, historyRev: number, } | { "reason": "inputTooLarge", limit: number, } | { "reason": "internal", incidentId: string, } | { "reason": "barrierFailed", scope: string, ioKind: string, } | { "reason": "storageIndeterminate", scope: string, } | { "reason": "storageUnsupported", op: string, osError: string, } | { "reason": "externalOutcomeUnknown", opId: OpId, effect: string, target: string, } | { "reason": "providerError", provider: string, status?: number, kind: string, } | { "reason": "cancelled", by: string, } | { "reason": "blobCorrupt", digest: BlobDigest, } | { "reason": "inflightLimit", class: RequestClass, limit: number, } | { "reason": "windowFull", threadId: ThreadId, } | { "reason": "queueFull", queue: string, } | { "reason": "invalidServerRequestResponse", requestId: RequestId, detail: string, };
 
 /**
  * `error`: a connection-scoped failure, or a thread error with `willRetry`.
@@ -1425,12 +1461,11 @@ export type HostRemoteTargetSetParams = {
  */
 endpoint?: string, token?: string, };
 
-export type HostStateKey = "browserTabs" | "browserImport" | "visualize" | "displayPreferences";
-
 /**
- * Publishes desktop-owned state into section `hostState`.
+ * Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape
+ * picked by the key. Only `visualize` is typed; the others stay the desktop's own JSON.
  */
-export type HostStateSetParams = { key: HostStateKey, value: JsonValue, };
+export type HostStateSetParams = { "key": "browserTabs", "value": JsonValue } | { "key": "browserImport", "value": JsonValue } | { "key": "visualize", "value": VisualizeHostValue } | { "key": "displayPreferences", "value": JsonValue };
 
 export type HostSystemProxyResolveParams = { url: string, };
 
@@ -1443,7 +1478,11 @@ rules: string, };
 /**
  * Params of `host/update/command` (core → host).
  */
-export type HostUpdateCommandParams = { action: UpdaterAction, };
+export type HostUpdateCommandParams = { action: UpdaterAction, 
+/**
+ * Node's `updaterInstall` argument `args[0]`: the user confirmed the install.
+ */
+confirmed?: boolean, };
 
 /**
  * Today's `DesktopUpdaterState`.
@@ -1452,7 +1491,8 @@ export type HostUpdateReportParams = { state: JsonValue, };
 
 /**
  * Params of `host/visualize/command` (core → host): the loopback bridge's request body.
- * The result is the service's object (`{text, tabs?, path?, …}`), `{}` when it returns nothing.
+ * The result is the service's object (`{text, tabs?, path?, …}`), `null` when it returns nothing
+ * (`visualizeCommand`: `(await visualize.command(…)) ?? null`).
  */
 export type HostVisualizeCommandParams = { sessionId: string, cwd: string, action: VisualizeAction, input?: JsonValue, };
 
@@ -2167,6 +2207,22 @@ export type ModelProxyRunParams = {
  * Stream id the local core stamps on `modelProxy/run/event`.
  */
 runId: string, call: JsonValue, };
+
+export type ModelRequestPhase = "started" | "completed" | "failed";
+
+/**
+ * `thread/modelRequest/updated`: one provider request of a turn (Node `model.request.*`).
+ * Request ids are `model_request_<index>`, the index counting from 1.
+ */
+export type ModelRequestUpdatedParams = { threadId: ThreadId, turnId: TurnId, requestId: string, requestIndex: number, phase: ModelRequestPhase, 
+/**
+ * On `completed` and `failed`.
+ */
+durationMs?: number, 
+/**
+ * Node's usage delta summary of the request, on `completed`.
+ */
+usage?: JsonValue, };
 
 /**
  * Today's `DesktopModelSelection`.
@@ -2984,7 +3040,7 @@ revision: number, value?: JsonValue, removed?: boolean, stub?: SectionStub, };
  */
 export type ServerCapabilities = { office: CapabilityState, jsSkills: CapabilityState, browser: CapabilityState, computer: CapabilityState, voice: CapabilityState, };
 
-export type ServerNotification = { "method": "thread/snapshot", "params": ThreadSnapshotParams } | { "method": "thread/closed", "params": ThreadIdParams } | { "method": "thread/status/changed", "params": ThreadStatusChangedParams } | { "method": "thread/name/updated", "params": ThreadNameUpdatedParams } | { "method": "thread/tokenUsage/updated", "params": TokenUsageUpdatedParams } | { "method": "thread/goal/updated", "params": ThreadValueParams } | { "method": "thread/goal/cleared", "params": ThreadIdParams } | { "method": "thread/queue/changed", "params": ThreadQueueChangedParams } | { "method": "turn/started", "params": TurnNotificationParams } | { "method": "turn/completed", "params": TurnNotificationParams } | { "method": "item/started", "params": ItemNotificationParams } | { "method": "item/completed", "params": ItemNotificationParams } | { "method": "item/agentMessage/delta", "params": ItemDeltaParams } | { "method": "item/reasoning/textDelta", "params": ItemDeltaParams } | { "method": "item/reasoning/summaryTextDelta", "params": ItemDeltaParams } | { "method": "thread/historyReset", "params": ThreadHistoryResetParams } | { "method": "thread/runtime/updated", "params": ThreadSectionParams<ThreadRuntime> } | { "method": "thread/route/updated", "params": ThreadSectionParams<ThreadRoute> } | { "method": "thread/context/updated", "params": ThreadSectionParams<ThreadContext> } | { "method": "thread/todo/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/quotaResume/updated", "params": ThreadSectionParams<QuotaResume | null> } | { "method": "thread/agents/updated", "params": ThreadSectionParams<ThreadAgents> } | { "method": "thread/shellJobs/updated", "params": ThreadSectionParams<JsonValue> } | { "method": "thread/workflow/updated", "params": ThreadSectionParams<ThreadWorkflow> } | { "method": "thread/workspace/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/approvals/updated", "params": ThreadSectionParams<ThreadApprovals> } | { "method": "thread/promptRestore", "params": ThreadSectionParams<PromptRestore | null> } | { "method": "thread/providerAccount/changed", "params": ThreadSectionParams<ProviderAccountChange | null> } | { "method": "thread/promptHistory/updated", "params": ThreadSectionParams<PromptHistoryChange> } | { "method": "thread/remote/updated", "params": ThreadSectionParams<boolean> } | { "method": "review/diff/updated", "params": SectionUpdate } | { "method": "error", "params": ErrorNotificationParams } | { "method": "serverRequest/resolved", "params": ServerRequestResolvedParams } | { "method": "host/notification/show", "params": HostNotificationShowParams } | { "method": "host/browser/viewFrames", "params": HostBrowserViewFramesParams } | { "method": "modelProxy/run/event", "params": ModelProxyRunEventParams } | { "method": "app/snapshot", "params": AppSnapshotParams } | { "method": "thread/started", "params": ThreadStartedParams } | { "method": "thread/summary/updated", "params": ThreadSummaryUpdatedParams } | { "method": "thread/deleted", "params": ThreadIdParams } | { "method": "thread/archived", "params": ThreadIdParams } | { "method": "thread/unarchived", "params": ThreadIdParams } | { "method": "warning", "params": WarningParams } | { "method": "configWarning", "params": WarningParams } | { "method": "ui/openRequested", "params": UiOpenRequestedParams } | { "method": "remote/pointer", "params": RemotePointerParams } | { "method": "config/updated", "params": SectionUpdate } | { "method": "project/updated", "params": SectionUpdate } | { "method": "agent/pool/updated", "params": SectionUpdate } | { "method": "agent/list/updated", "params": SectionUpdate } | { "method": "agent/botOrder/updated", "params": SectionUpdate } | { "method": "model/presets/updated", "params": SectionUpdate } | { "method": "model/catalog/updated", "params": SectionUpdate } | { "method": "workflow/list/updated", "params": SectionUpdate } | { "method": "webSearch/updated", "params": SectionUpdate } | { "method": "toolModules/updated", "params": SectionUpdate } | { "method": "account/updated", "params": SectionUpdate } | { "method": "usage/updated", "params": SectionUpdate } | { "method": "shellJobs/host/updated", "params": SectionUpdate } | { "method": "terminal/activity/updated", "params": SectionUpdate } | { "method": "terminal/tabs/updated", "params": SectionUpdate } | { "method": "remote/state/updated", "params": SectionUpdate } | { "method": "notice/updated", "params": SectionUpdate } | { "method": "update/status/updated", "params": SectionUpdate } | { "method": "host/state/updated", "params": SectionUpdate } | { "method": "computer/updated", "params": SectionUpdate } | { "method": "approval/inbox/updated", "params": SectionUpdate } | { "method": "core/state/updated", "params": SectionUpdate } | { "method": "core/health/updated", "params": SectionUpdate } | { "method": "migration/progress", "params": SectionUpdate } | { "method": "feed/snapshot", "params": FeedSnapshotParams } | { "method": "fs/changed", "params": FsChangedParams } | { "method": "search/updated", "params": SearchUpdatedParams } | { "method": "search/completed", "params": SearchCompletedParams } | { "method": "process/outputDelta", "params": ProcessOutputDeltaParams } | { "method": "process/exited", "params": ProcessExitedParams } | { "method": "login/updated", "params": LoginUpdatedParams } | { "method": "git/status/updated", "params": SectionUpdate } | { "method": "lsp/status/updated", "params": SectionUpdate } | { "method": "lsp/diagnostics/updated", "params": SectionUpdate } | { "method": "media/job/updated", "params": SectionUpdate } | { "method": "system/ports/updated", "params": SectionUpdate };
+export type ServerNotification = { "method": "thread/snapshot", "params": ThreadSnapshotParams } | { "method": "thread/closed", "params": ThreadIdParams } | { "method": "thread/status/changed", "params": ThreadStatusChangedParams } | { "method": "thread/name/updated", "params": ThreadNameUpdatedParams } | { "method": "thread/tokenUsage/updated", "params": TokenUsageUpdatedParams } | { "method": "thread/goal/updated", "params": ThreadValueParams } | { "method": "thread/goal/cleared", "params": ThreadIdParams } | { "method": "thread/queue/changed", "params": ThreadQueueChangedParams } | { "method": "turn/started", "params": TurnNotificationParams } | { "method": "turn/completed", "params": TurnNotificationParams } | { "method": "thread/notification", "params": ThreadNotificationParams } | { "method": "thread/modelRequest/updated", "params": ModelRequestUpdatedParams } | { "method": "thread/toolBatch/updated", "params": ToolBatchUpdatedParams } | { "method": "item/started", "params": ItemNotificationParams } | { "method": "item/completed", "params": ItemNotificationParams } | { "method": "item/agentMessage/delta", "params": ItemDeltaParams } | { "method": "item/reasoning/textDelta", "params": ItemDeltaParams } | { "method": "item/reasoning/summaryTextDelta", "params": ItemDeltaParams } | { "method": "thread/historyReset", "params": ThreadHistoryResetParams } | { "method": "thread/runtime/updated", "params": ThreadSectionParams<ThreadRuntime> } | { "method": "thread/route/updated", "params": ThreadSectionParams<ThreadRoute> } | { "method": "thread/context/updated", "params": ThreadSectionParams<ThreadContext> } | { "method": "thread/todo/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/quotaResume/updated", "params": ThreadSectionParams<QuotaResume | null> } | { "method": "thread/agents/updated", "params": ThreadSectionParams<ThreadAgents> } | { "method": "thread/shellJobs/updated", "params": ThreadSectionParams<JsonValue> } | { "method": "thread/workflow/updated", "params": ThreadSectionParams<ThreadWorkflow> } | { "method": "thread/workspace/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/approvals/updated", "params": ThreadSectionParams<ThreadApprovals> } | { "method": "thread/promptRestore", "params": ThreadSectionParams<PromptRestore | null> } | { "method": "thread/providerAccount/changed", "params": ThreadSectionParams<ProviderAccountChange | null> } | { "method": "thread/promptHistory/updated", "params": ThreadSectionParams<PromptHistoryChange> } | { "method": "thread/remote/updated", "params": ThreadSectionParams<boolean> } | { "method": "review/diff/updated", "params": SectionUpdate } | { "method": "error", "params": ErrorNotificationParams } | { "method": "serverRequest/resolved", "params": ServerRequestResolvedParams } | { "method": "host/notification/show", "params": HostNotificationShowParams } | { "method": "host/browser/viewFrames", "params": HostBrowserViewFramesParams } | { "method": "modelProxy/run/event", "params": ModelProxyRunEventParams } | { "method": "app/snapshot", "params": AppSnapshotParams } | { "method": "thread/started", "params": ThreadStartedParams } | { "method": "thread/summary/updated", "params": ThreadSummaryUpdatedParams } | { "method": "thread/deleted", "params": ThreadIdParams } | { "method": "thread/archived", "params": ThreadIdParams } | { "method": "thread/unarchived", "params": ThreadIdParams } | { "method": "warning", "params": WarningParams } | { "method": "configWarning", "params": WarningParams } | { "method": "ui/openRequested", "params": UiOpenRequestedParams } | { "method": "remote/pointer", "params": RemotePointerParams } | { "method": "core/drain", "params": CoreDrainParams } | { "method": "config/updated", "params": SectionUpdate } | { "method": "project/updated", "params": SectionUpdate } | { "method": "agent/pool/updated", "params": SectionUpdate } | { "method": "agent/list/updated", "params": SectionUpdate } | { "method": "agent/botOrder/updated", "params": SectionUpdate } | { "method": "model/presets/updated", "params": SectionUpdate } | { "method": "model/catalog/updated", "params": SectionUpdate } | { "method": "workflow/list/updated", "params": SectionUpdate } | { "method": "webSearch/updated", "params": SectionUpdate } | { "method": "toolModules/updated", "params": SectionUpdate } | { "method": "account/updated", "params": SectionUpdate } | { "method": "usage/updated", "params": SectionUpdate } | { "method": "shellJobs/host/updated", "params": SectionUpdate } | { "method": "terminal/activity/updated", "params": SectionUpdate } | { "method": "terminal/tabs/updated", "params": SectionUpdate } | { "method": "remote/state/updated", "params": SectionUpdate } | { "method": "notice/updated", "params": SectionUpdate } | { "method": "update/status/updated", "params": SectionUpdate } | { "method": "host/state/updated", "params": SectionUpdate } | { "method": "computer/updated", "params": SectionUpdate } | { "method": "approval/inbox/updated", "params": SectionUpdate } | { "method": "core/state/updated", "params": SectionUpdate } | { "method": "core/health/updated", "params": SectionUpdate } | { "method": "migration/progress", "params": SectionUpdate } | { "method": "feed/snapshot", "params": FeedSnapshotParams } | { "method": "fs/changed", "params": FsChangedParams } | { "method": "search/updated", "params": SearchUpdatedParams } | { "method": "search/completed", "params": SearchCompletedParams } | { "method": "process/outputDelta", "params": ProcessOutputDeltaParams } | { "method": "process/exited", "params": ProcessExitedParams } | { "method": "login/updated", "params": LoginUpdatedParams } | { "method": "git/status/updated", "params": SectionUpdate } | { "method": "lsp/status/updated", "params": SectionUpdate } | { "method": "lsp/diagnostics/updated", "params": SectionUpdate } | { "method": "media/job/updated", "params": SectionUpdate } | { "method": "system/ports/updated", "params": SectionUpdate };
 
 /**
  * Request from the core to a client.
@@ -2995,6 +3051,11 @@ export type ServerRequest = { "method": "item/tool/requestApproval", id: Request
  * To every eligible connection, losers included (P §8.4 step 4).
  */
 export type ServerRequestResolvedParams = { threadId: ThreadId, requestId: RequestId, resolution: ApprovalResolution, };
+
+/**
+ * Node's `TOOL_MODES`.
+ */
+export type SessionToolMode = "full" | "readonly" | "lead";
 
 /**
  * Params of `skills/addSkill`.
@@ -3314,6 +3375,18 @@ export type ThreadNameSetParams = { threadId: ThreadId, opId: OpId, title: strin
 
 export type ThreadNameUpdatedParams = { threadId: ThreadId, title: string, };
 
+/**
+ * `thread/notification`: a runtime notification (a finished background task, a channel
+ * message) as Node's `runtime.onNotification` delivers it. The delivered text also lands as
+ * a `task-notification` user row; this is the live event with its status.
+ */
+export type ThreadNotificationParams = { threadId: ThreadId, turnId?: TurnId, content: string, 
+/**
+ * Node's `meta`; `meta.status` is `completed`, `failed`, `cancelled`, `canceled` or
+ * `timed_out` when the notification settles a task.
+ */
+meta: JsonValue, };
+
 export type ThreadOpParams = { threadId: ThreadId, opId: OpId, };
 
 export type ThreadPageParams = { threadId: ThreadId, cursor?: string, limit?: number, };
@@ -3403,6 +3476,41 @@ export type ThreadSectionParams<T> = { threadId: ThreadId, value: T, };
 export type ThreadSelectBranchParams = { opId: OpId, threadId?: ThreadId, input: JsonValue, };
 
 /**
+ * The session options Node's `createMixdogSessionRuntime` takes (headless exec sets all of
+ * them, `headless-exec.mjs` `createHeadlessSessionRuntime`). Stored in the thread's header.
+ */
+export type ThreadSessionOptions = { 
+/**
+ * Node default `interactive`.
+ */
+toolProfile?: ToolProfile, 
+/**
+ * Node default `full`.
+ */
+toolMode?: SessionToolMode, 
+/**
+ * Node default none: approvals go to a person. Under `implicit` every approval ask is
+ * denied at once with Node's text, as when no approval UI is wired.
+ */
+approvalMode?: ApprovalMode, 
+/**
+ * Node default `false`: the session may not delegate to agents.
+ */
+disallowDelegation?: boolean, 
+/**
+ * Node default `true`: finished background work wakes the session.
+ */
+autoWakeCompletions?: boolean, 
+/**
+ * The web-search feature switch for this session (`MIXDOG_FEATURE_WEB_SEARCH`).
+ */
+webSearch?: boolean, 
+/**
+ * The memory feature switch for this session (`MIXDOG_FEATURE_MEMORY`).
+ */
+memory?: boolean, };
+
+/**
  * Params of `thread/setCwd`.
  */
 export type ThreadSetCwdParams = { opId: OpId, threadId?: ThreadId, path: string, };
@@ -3445,7 +3553,11 @@ export type ThreadStartParams = { opId: OpId, kind: ThreadStartKind, projectPath
 /**
  * Starts the first turn in the same request (today's `submitNewTask`).
  */
-initialInput?: TurnInput, };
+initialInput?: TurnInput, 
+/**
+ * How the session runs; absent is an interactive session (Node's defaults).
+ */
+session?: ThreadSessionOptions, };
 
 export type ThreadStartResponse = { thread: ThreadSummary, turn?: TurnStartResponse, };
 
@@ -3586,6 +3698,26 @@ order: number, };
  */
 export type ToolApprovalResult = { id: string, approved: boolean, device: string, at: number, expired?: boolean, withdrawn?: boolean, interrupted?: boolean, };
 
+export type ToolBatchPhase = "started" | "completed";
+
+/**
+ * `thread/toolBatch/updated`: the tool calls of one model response run together (Node
+ * `tool.batch.*`). Batch ids are `tool_batch_<request index>`.
+ */
+export type ToolBatchUpdatedParams = { threadId: ThreadId, turnId: TurnId, batchId: string, phase: ToolBatchPhase, 
+/**
+ * On `completed`.
+ */
+iteration?: number, 
+/**
+ * On `completed`: the calls the batch ran.
+ */
+calls?: number, 
+/**
+ * On `completed`.
+ */
+durationMs?: number, };
+
 /**
  * A model tool call (the provider's call id as received).
  */
@@ -3601,6 +3733,11 @@ export type ToolMeta = { code: string, missing: Array<string>, ownerSessionId?: 
  * Value of the `toolModules` section.
  */
 export type ToolModuleSettings = { instructionFiles: InstructionFilesMode, autoEffortBase: AutoEffortBase, webSearch: EnabledModule, memory: MemoryModule, git: InstallableModule, office: InstallableModule, tidy: InstallableModule, visualize: InstallableModule, media: InstallableModule, localProvider: LocalProviderModule, autoEffort: AutoEffortModule, };
+
+/**
+ * `normalizeToolProfile`'s value set.
+ */
+export type ToolProfile = "interactive" | "headless" | "heartbeat";
 
 /**
  * The facts of a tool row shared by every tool-backed item variant
@@ -3687,6 +3824,16 @@ export type TransferWriteChunkParams = { transferId: TransferId, offset: number,
 
 export type Turn = { id: TurnId, status: TurnStatus, startedAt?: number, completedAt?: number, error?: TurnError, 
 /**
+ * The model's stop reason of the turn's final answer (Node `result.stopReason`, a provider
+ * string such as `end_turn`); on a completed turn only.
+ */
+stopReason?: string, 
+/**
+ * Why the turn ended where it did (Node `result.terminationReason`; `refusal` is the one
+ * the headless result treats as an error); on a completed turn only.
+ */
+terminationReason?: string, 
+/**
  * Present only when the read asked for items (`itemsView`).
  */
 items?: Array<ThreadItem>, };
@@ -3753,14 +3900,108 @@ export type TurnSteerResponse = {
 accepted: boolean, queuedId: QueuedId, };
 
 /**
- * App-feed event: a web URL the agent opened is handed to the session's browser panel.
- * Node's `openUrl` visualize event (`visualize/open-actions.ts` `openUrl`), field for field.
+ * Client notification `ui/newTab/created` (UI → core): the pane created the tab that request
+ * `openRequestId` (a `ui/openRequested` visualize open with `openUrl`) asked for, and this is
+ * the page's agent-facing id (`p…`), Node's `watchNewTab(...).page`.
+ *
+ * Semantics, from `main/browser/new-tab-waiters.ts`: the core starts waiting when it publishes
+ * the open and answers the agent's `open` with this page id. Only a report whose `sessionId`
+ * and `openRequestId` both match the pending open settles it, once; a tab nobody named (the
+ * user's "+"), another request's tab or a different session's says nothing about it. There is
+ * no negative report: a pane that drops or replaces the request sends nothing, so the wait
+ * ends with no page id after 3000 ms, or when the open is cancelled, a new open reuses the
+ * request id, or the session's browser is released. With no page id the agent is told to find
+ * the page with the browser tool's `list_tabs`.
  */
-export type UiOpenRequestedParams = { sessionId: string, openUrl: string, 
+export type UiNewTabCreatedParams = { sessionId: string, openRequestId: string, pageId: string, };
+
 /**
- * Names the request, so the browser tab the pane creates reports back to the agent's open.
+ * `DesktopBrowserOpenRequest` (`shared/contract-browser.ts`).
  */
-openRequestId?: string, };
+export type UiOpenBrowser = { sessionId: string, 
+/**
+ * `false` creates or retains the surface without opening the session dock.
+ */
+reveal?: boolean, 
+/**
+ * Hide only: never create or release pages; overrides `reveal`.
+ */
+hide?: boolean, 
+/**
+ * A takeover hand-off: the user must act on the page, so the panel opens even where closed.
+ */
+handoff?: boolean, 
+/**
+ * An agent's `open`: the page it showed (session-local id `p…`).
+ */
+tabId?: string, title?: string, 
+/**
+ * An agent's `open` that failed, and why: nothing is revealed for it.
+ */
+error?: string, };
+
+/**
+ * App-feed event (`desktop-services.md` §12.4): the core asks attached UIs to open something.
+ * One variant per Node flow it replaces: `browser-open-requested`, `terminal-run-requested`
+ * and the visualize open (`visualize/open-actions.ts`).
+ */
+export type UiOpenRequestedParams = { "kind": "browser" } & UiOpenBrowser | { "kind": "terminal" } & UiOpenTerminal | { "kind": "visualize" } & UiOpenVisualize;
+
+/**
+ * `DesktopTerminalRunRequest` (`shared/terminal-command.ts`): the `terminal` tool ran a command
+ * in one of the session's terminals.
+ */
+export type UiOpenTerminal = { sessionId: string, 
+/**
+ * The terminal the command went to; its tab is selected. (The spec's §6.3 sketch calls it
+ * `tabId`; Node's request, which this follows, calls it `terminalId`.)
+ */
+terminalId?: string, 
+/**
+ * Every terminal the core runs for the session: tabs the device lacks are added.
+ */
+tabs?: Array<UiTerminalTab>, 
+/**
+ * The core waits on this: the desktop renderer claims it once a pane really shows
+ * `terminalId`; unclaimed, the run is reported as running in the background. Not sent to
+ * paired clients.
+ */
+requestId?: string, };
+
+/**
+ * The visualize open: a web URL handed to the session's browser panel (`openUrl`), or a
+ * revealed tab (`reveal`, `tab`), as `DesktopVisualizeEvent` carries them.
+ */
+export type UiOpenVisualize = { sessionId: string, openUrl?: string, 
+/**
+ * With `openUrl`: names the request, so the browser tab the pane creates reports back to
+ * the agent's open (`ui/newTab/created`) and no other tab does.
+ */
+openRequestId?: string, 
+/**
+ * An agent open or content update: bring the panel up on this tab.
+ */
+tab?: string, reveal?: boolean, };
+
+/**
+ * Client notification `ui/terminalRun/claimed` (UI → core): a pane now shows the terminal of a
+ * `ui/openRequested` terminal open that carried `requestId`.
+ *
+ * No response. The core waits for the claim 2000 ms (the renderer's 1500 ms shown-wait plus
+ * 500 ms for the claim's trip back) and then settles the run as `shown: false`, reported to the
+ * agent as running in the background; with no UI attached it settles `shown: false` at once. A
+ * claim settles its run once: a claim for an unknown or already-settled id has no effect.
+ */
+export type UiTerminalRunClaimedParams = { requestId: string, };
+
+/**
+ * `DesktopTerminalRunTab`.
+ */
+export type UiTerminalTab = { id: string, 
+/**
+ * Tab number within the session (1 = the session's first terminal).
+ */
+tab: number, cwd?: string | null, };
 
 /**
  * Params of `update/checkForUpdate`.
@@ -3873,9 +4114,155 @@ roomRow?: string, attachments: Array<MessageAttachment>, images: Array<ImageChip
 export type VisualizeAction = "open" | "close" | "annotate" | "capture" | "export" | "check" | "inspect" | "act";
 
 /**
+ * The agent's mark on displayed pane `pane` (selectors and labels only).
+ */
+export type VisualizeAnnotation = { pane: number, selector: string, label?: string, };
+
+/**
  * Params of `visualize/command`.
  */
 export type VisualizeCommandParams = { action: string, input?: JsonValue, };
+
+/**
+ * An open of a finished turn whose tab had nothing left to show.
+ */
+export type VisualizeGoneOpen = { tab: string, call: string, };
+
+/**
+ * One thing opened in a session (open or since closed); path-free.
+ */
+export type VisualizeHistoryItem = { id: string, label: string, kind: VisualizeHistoryKind, versions: number, 
+/**
+ * When it was last opened (ms since epoch).
+ */
+at: number, open: boolean, };
+
+/**
+ * The pane kinds and inline kinds a history entry can show, or a `split` of several.
+ */
+export type VisualizeHistoryKind = "html" | "document" | "pdf" | "image" | "audio" | "video" | "inline" | "mermaid" | "svg" | "chart" | "markdown" | "split";
+
+/**
+ * `VisualizeHostEvent` (`apps/desktop/src/shared/visualize.ts`), main → core: the change
+ * `DesktopVisualizeEvent` carries, with host paths.
+ */
+export type VisualizeHostEvent = { sessionId: string, state?: VisualizeHostState, reveal?: boolean, 
+/**
+ * With `reveal`: the tab the open or update was for.
+ */
+tab?: string, 
+/**
+ * A content update of this tab.
+ */
+updated?: string, 
+/**
+ * Sent while the session's agent turn runs.
+ */
+held?: boolean, 
+/**
+ * With `held`: when the turn started (ms).
+ */
+heldSince?: number, openUrl?: string, };
+
+/**
+ * A pane with the symlink-resolved file it shows.
+ */
+export type VisualizeHostPane = { kind: VisualizePaneKind, label: string, target: string, 
+/**
+ * `""` for an `inline` pane, which has no file.
+ */
+path: string, inline?: VisualizeInlineContent, 
+/**
+ * What a remote client is told the target is.
+ */
+remoteTarget: string, 
+/**
+ * The folder this pane's file and page assets must stay inside.
+ */
+root?: string, version?: number, 
+/**
+ * Inline panes: the render id a remote client's report must carry.
+ */
+remoteRenderId?: string, };
+
+/**
+ * One session's tabs with their resolved files.
+ */
+export type VisualizeHostState = { sessionId: string, tabs: Array<VisualizeHostTab>, 
+/**
+ * Always written; `null` when no tab is active.
+ */
+active: string | null, history?: Array<VisualizeHistoryItem>, goneOpens?: Array<VisualizeGoneOpen>, };
+
+export type VisualizeHostTab = { id: string, label: string, 
+/**
+ * The label a remote client sees.
+ */
+remoteLabel: string, revision: number, 
+/**
+ * The working directory every pane and page asset must stay inside.
+ */
+cwd: string, panes: Array<VisualizeHostPane>, 
+/**
+ * Always `true` when present.
+ */
+missing?: true, problems?: Array<VisualizeProblem>, 
+/**
+ * Always `true` when present.
+ */
+networkAllowed?: true, versions?: Array<VisualizeVersionView>, 
+/**
+ * The version shown instead of the live files; `null` = live.
+ */
+version?: number | null, compare?: boolean, restoreAssets?: Array<string>, 
+/**
+ * A data URL.
+ */
+thumbnail?: string, thumbnailVersion?: number, annotations?: Array<VisualizeAnnotation>, };
+
+/**
+ * What the desktop publishes under `visualize`: the visualize service's `hostSnapshot()`
+ * (every session's state, sent again on each claim) or one `publishRemote` change event.
+ */
+export type VisualizeHostValue = Array<VisualizeHostState> | VisualizeHostEvent;
+
+export type VisualizeInlineContent = { kind: VisualizeInlineKind, source: string, title?: string, 
+/**
+ * Always `true` when present: a device's snapshot left the source out.
+ */
+deferred?: true, };
+
+/**
+ * What `open` can render straight from `input.content`.
+ */
+export type VisualizeInlineKind = "mermaid" | "svg" | "chart" | "html" | "markdown";
+
+export type VisualizePaneKind = "html" | "document" | "pdf" | "image" | "audio" | "video" | "inline";
+
+/**
+ * One distinct runtime problem of a tab's HTML pane; `source` is project-relative.
+ */
+export type VisualizeProblem = { kind: VisualizeProblemKind, message: string, source: string, line: number, count: number, 
+/**
+ * Index of the pane (in the tab's displayed panes) it came from.
+ */
+pane: number, version?: number, };
+
+export type VisualizeProblemKind = "exception" | "rejection" | "csp" | "asset-failed" | "blocked-network" | "blocked-navigation" | "load" | "console-error" | "console-warn" | "render";
+
+/**
+ * One agent turn's span (ms since epoch).
+ */
+export type VisualizeVersionTurn = { since: number, end: number, };
+
+/**
+ * One kept version of a tab's files (`n` counts up per tab from 1).
+ */
+export type VisualizeVersionView = { n: number, 
+/**
+ * When it was kept (ms since epoch).
+ */
+at: number, label?: string, turns?: Array<VisualizeVersionTurn>, };
 
 /**
  * Params of `voice/getVoiceStatus`.
@@ -4032,7 +4419,8 @@ export type ClientMethods = {
   "agent/setLeadCreated": { params: AgentSetLeadCreatedParams; result: JsonValue };
   "agent/saveLeadIdentity": { params: AgentSaveLeadIdentityParams; result: JsonValue };
   "agent/setLeadAppearance": { params: AgentSetLeadAppearanceParams; result: JsonValue };
-  "agent/setBotOrder": { params: AgentSetBotOrderParams; result: JsonValue };
+  "config/getBotOrder": { params: ConfigGetBotOrderParams; result: BotOrder };
+  "config/setBotOrder": { params: ConfigSetBotOrderParams; result: BotOrder };
   "agent/home/open": { params: AgentHomeOpenParams; result: JsonValue };
   "agent/home/reset": { params: AgentHomeResetParams; result: JsonValue };
   "agent/memory/list": { params: AgentMemoryListParams; result: JsonValue };
@@ -4389,7 +4777,7 @@ export type ServerRequestMethods = {
   "item/browser/requestApproval": { params: BrowserApprovalRequestParams; result: ToolApprovalDecision };
   "item/computer/requestApproval": { params: ComputerApprovalRequestParams; result: ToolApprovalDecision };
   "host/browser/command": { params: HostCommandParams; result: JsonValue };
-  "host/visualize/command": { params: HostVisualizeCommandParams; result: JsonValue };
+  "host/visualize/command": { params: HostVisualizeCommandParams; result: JsonValue | null };
   "host/systemProxy/resolve": { params: HostSystemProxyResolveParams; result: HostSystemProxyResolveResponse };
   "host/update/command": { params: HostUpdateCommandParams; result: JsonValue };
   "host/capture/fileSnapshot": { params: HostFileSnapshotParams; result: HostFileSnapshot };
@@ -4409,6 +4797,9 @@ export type ServerNotificationMethods = {
   "thread/queue/changed": ThreadQueueChangedParams;
   "turn/started": TurnNotificationParams;
   "turn/completed": TurnNotificationParams;
+  "thread/notification": ThreadNotificationParams;
+  "thread/modelRequest/updated": ModelRequestUpdatedParams;
+  "thread/toolBatch/updated": ToolBatchUpdatedParams;
   "item/started": ItemNotificationParams;
   "item/completed": ItemNotificationParams;
   "item/agentMessage/delta": ItemDeltaParams;
@@ -4445,6 +4836,7 @@ export type ServerNotificationMethods = {
   "configWarning": WarningParams;
   "ui/openRequested": UiOpenRequestedParams;
   "remote/pointer": RemotePointerParams;
+  "core/drain": CoreDrainParams;
   "config/updated": SectionUpdate;
   "project/updated": SectionUpdate;
   "agent/pool/updated": SectionUpdate;
@@ -7069,14 +7461,36 @@ export const methodTable = {
       }
     },
     {
-      "class": "C2",
-      "method": "agent/setBotOrder",
+      "class": "C1",
+      "method": "config/getBotOrder",
       "mutation": {
-        "domain": "agent",
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ConfigGetBotOrderParams",
+      "result": "BotOrder",
+      "scope": {
+        "field": "threadId",
+        "key": "config",
+        "kind": "threadOrSharedRead"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "config/setBotOrder",
+      "mutation": {
+        "domain": "config",
         "kind": "op"
       },
       "opScope": {
-        "domain": "agent",
+        "domain": "config",
         "field": "threadId",
         "kind": "threadOrDomain"
       },
@@ -7085,11 +7499,12 @@ export const methodTable = {
         "ssh",
         "relay"
       ],
-      "params": "AgentSetBotOrderParams",
-      "result": "JsonValue",
+      "params": "ConfigSetBotOrderParams",
+      "result": "BotOrder",
       "scope": {
         "field": "threadId",
-        "kind": "threadOrNone"
+        "key": "config",
+        "kind": "threadOrGlobal"
       }
     },
     {
@@ -14784,6 +15199,16 @@ export const methodTable = {
       "delivery": null,
       "method": "model/proxy/event",
       "params": "ModelProxyEventParams"
+    },
+    {
+      "delivery": null,
+      "method": "ui/newTab/created",
+      "params": "UiNewTabCreatedParams"
+    },
+    {
+      "delivery": null,
+      "method": "ui/terminalRun/claimed",
+      "params": "UiTerminalRunClaimedParams"
     }
   ],
   "serverNotifications": [
@@ -14836,6 +15261,21 @@ export const methodTable = {
       "delivery": "thread",
       "method": "turn/completed",
       "params": "TurnNotificationParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/notification",
+      "params": "ThreadNotificationParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/modelRequest/updated",
+      "params": "ModelRequestUpdatedParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/toolBatch/updated",
+      "params": "ToolBatchUpdatedParams"
     },
     {
       "delivery": "thread",
@@ -15016,6 +15456,11 @@ export const methodTable = {
       "delivery": "app",
       "method": "remote/pointer",
       "params": "RemotePointerParams"
+    },
+    {
+      "delivery": "app",
+      "method": "core/drain",
+      "params": "CoreDrainParams"
     },
     {
       "delivery": "app",
@@ -15261,7 +15706,7 @@ export const methodTable = {
       "method": "host/visualize/command",
       "params": "HostVisualizeCommandParams",
       "requires": "host.visualize",
-      "result": "JsonValue"
+      "result": "Option<JsonValue>"
     },
     {
       "method": "host/systemProxy/resolve",

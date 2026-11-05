@@ -381,6 +381,8 @@ fn call_args(call: &Value) -> Option<Value> {
     }
 }
 
+use mixdog_protocol::tool_visibility::is_task_wait;
+
 fn restored_tool_calls(message: &Value, meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let at = meta.get("at").and_then(Value::as_f64).filter(|a| a.is_finite());
     for call in message_calls(message) {
@@ -397,11 +399,15 @@ fn restored_tool_calls(message: &Value, meta: &Row, ids: &mut Ids<'_>, out: &mut
             "" => "tool".to_owned(),
             trimmed => trimmed.to_owned(),
         };
+        let args = call_args(call).filter(|a| a != &json!(""));
+        if is_task_wait(&name, args.as_ref()) {
+            continue;
+        }
         let mut row = Row::new();
         row.insert("kind".into(), json!("tool"));
         row.insert("id".into(), json!(ids.next()));
         row.insert("name".into(), json!(name));
-        if let Some(args) = call_args(call).filter(|a| a != &json!("")) {
+        if let Some(args) = args {
             row.insert("args".into(), args);
         }
         row.insert("expanded".into(), json!(false));
@@ -756,7 +762,7 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         out.push(Restored::Row { row, source: None });
         return;
     }
-    let Some(text) = record.prompt.as_deref() else {
+    let Some(text) = record.prompt_text() else {
         return;
     };
     let mut row = Row::new();

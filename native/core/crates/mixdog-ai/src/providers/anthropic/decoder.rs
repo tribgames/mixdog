@@ -96,6 +96,7 @@ struct UsageAcc {
     output: u64,
     cache_read: u64,
     cache_write: u64,
+    cache_write_1h: u64,
     raw: Map<String, Value>,
 }
 
@@ -116,6 +117,14 @@ impl UsageAcc {
         if let Some(v) = field("cache_creation_input_tokens") {
             self.cache_write = v;
         }
+        // Node's turn-state: `cache_creation.ephemeral_1h_input_tokens`, same keep-or-replace rule.
+        if let Some(v) = map
+            .get("cache_creation")
+            .and_then(|c| c.get("ephemeral_1h_input_tokens"))
+            .and_then(Value::as_u64)
+        {
+            self.cache_write_1h = v;
+        }
         for (key, value) in map {
             self.raw.insert(key.clone(), value.clone());
         }
@@ -128,6 +137,7 @@ impl UsageAcc {
             output_tokens: self.output,
             cache_read_tokens: self.cache_read,
             cache_write_tokens: self.cache_write,
+            cache_write_1h_tokens: self.cache_write_1h,
             reasoning_tokens: 0,
             raw: Some(Value::Object(self.raw.clone())),
             cost: None,

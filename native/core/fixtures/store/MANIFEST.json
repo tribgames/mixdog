@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-store-registry.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 30605,
+      "path": "registry/projects-registry.json",
+      "sha256": "2b81ff8b11e8ae7ff01a3e08486549988534e8a0febb4593870a1793da7e7164"
+    }
+  ],
+  "product": {
+    "appsSha256": "b66a4bd6f8a15d621316e91b15fa61c129a258907e14a9d12e0fed0754f1e809",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9233,
+    "refComparison": {
+      "closestCommit": "eb47a6b01ea242286619aab7475bd4ba94ec7880",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 29
+    },
+    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-store-registry.mjs",
+  "set": "store",
+  "totalBytes": 30605
+}

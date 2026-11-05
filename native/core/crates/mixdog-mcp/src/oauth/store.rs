@@ -64,47 +64,94 @@ impl KeyringStore {
     }
 }
 
-/// What libsecret / the D-Bus client report when a host has no provider at all: libsecret
-/// missing from the loader, no session bus to talk to, or no service owning
-/// `org.freedesktop.secrets`. Anything else — a locked keyring, an unknown failure — is NOT
-/// matched, so it never falls back to the secrets file.
-static NO_PROVIDER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::RegexBuilder::new(
-        &[
-            r"error while loading shared libraries: libsecret",
-            r"libsecret-1\.so[^\n]*cannot open shared object",
-            r"org\.freedesktop\.DBus\.Error\.ServiceUnknown",
-            r"org\.freedesktop\.DBus\.Error\.NameHasNoOwner",
-            r"org\.freedesktop\.DBus\.Error\.NoServer",
-            r"org\.freedesktop\.secrets was not provided by any \.service files",
-            r"name org\.freedesktop\.secrets (?:is not|has no owner)",
-            r"Cannot autolaunch D-Bus without X11",
-            r"Unable to autolaunch a dbus-daemon without a \$DISPLAY",
-            r"Failed to execute child process .{0,6}dbus-launch",
-            r"Could not connect: (?:No such file or directory|Connection refused)",
-            r"Failed to connect to (?:socket|bus)[^\n]*(?:No such file or directory|Connection refused)",
-            r"Error (?:connecting|spawning command line)[^\n]*dbus",
-            r"Cannot spawn a message bus",
-        ]
-        .join("|"),
-    )
-    .case_insensitive(true)
-    .build()
-    .expect("static pattern")
-});
+/// The D-Bus error names that say a host has no Secret Service to talk to: nothing owns
+/// `org.freedesktop.secrets` (`ServiceUnknown`, `NameHasNoOwner`), the bus socket is absent or
+/// refuses (`FileNotFound`, `NoServer`: libdbus maps `ENOENT` and `ECONNREFUSED` to them), or
+/// the bus launcher cannot start (`Spawn.ExecFailed`). Anything else — a locked keyring, a
+/// dismissed prompt, an unknown failure — is not a missing provider, so it never falls back to
+/// the secrets file. These replace the text patterns Node matched on `secret-tool`'s stderr.
+const NO_PROVIDER_DBUS_ERRORS: [&str; 5] = [
+    "org.freedesktop.DBus.Error.ServiceUnknown",
+    "org.freedesktop.DBus.Error.NameHasNoOwner",
+    "org.freedesktop.DBus.Error.NoServer",
+    "org.freedesktop.DBus.Error.FileNotFound",
+    "org.freedesktop.DBus.Error.Spawn.ExecFailed",
+];
 
-/// Whether a keychain failure report positively means "this host has no keychain provider".
-pub fn reports_no_provider(message: &str) -> bool {
-    NO_PROVIDER.is_match(message)
+pub fn dbus_error_means_no_provider(name: &str) -> bool {
+    NO_PROVIDER_DBUS_ERRORS.contains(&name)
+}
+
+/// Whether no D-Bus session bus can be reached: no `DBUS_SESSION_BUS_ADDRESS`, no
+/// `$XDG_RUNTIME_DIR/bus` socket, and no `DISPLAY` for libdbus to autolaunch one with (Node's
+/// "Cannot autolaunch D-Bus without X11 $DISPLAY"). A fact about the environment, found before
+/// any connect.
+pub fn no_session_bus(address: Option<&str>, display: Option<&str>, runtime_bus_exists: bool) -> bool {
+    address.is_none_or(str::is_empty) && display.is_none_or(str::is_empty) && !runtime_bus_exists
+}
+
+#[cfg(target_os = "linux")]
+#[allow(clippy::disallowed_methods, reason = "runs inside a durability-lane job")]
+fn session_bus_missing() -> bool {
+    let var = |name: &str| std::env::var(name).ok();
+    let runtime_bus = std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|dir| std::path::Path::new(&dir).join("bus").exists());
+    no_session_bus(var("DBUS_SESSION_BUS_ADDRESS").as_deref(), var("DISPLAY").as_deref(), runtime_bus)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn session_bus_missing() -> bool {
+    false
+}
+
+/// Whether the keyring library's typed error says the provider is absent. The library wraps
+/// the Secret Service client's error in `PlatformFailure`; zbus reports a missing or refusing
+/// bus socket as an I/O error (or an address error when none is named), and an absent service
+/// as one of the D-Bus error names above.
+#[cfg(target_os = "linux")]
+fn error_means_no_provider(error: &keyring::Error) -> bool {
+    let keyring::Error::PlatformFailure(source) = error else { return false };
+    match source.downcast_ref::<secret_service::Error>() {
+        Some(secret_service::Error::Zbus(inner)) => zbus_means_no_provider(inner),
+        Some(secret_service::Error::ZbusFdo(inner)) => fdo_means_no_provider(inner),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn fdo_means_no_provider(error: &zbus::fdo::Error) -> bool {
+    use zbus::fdo::Error as Fdo;
+    match error {
+        Fdo::ServiceUnknown(_) | Fdo::NameHasNoOwner(_) | Fdo::NoServer(_) | Fdo::FileNotFound(_) | Fdo::SpawnExecFailed(_) => true,
+        Fdo::ZBus(inner) => zbus_means_no_provider(inner),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn zbus_means_no_provider(error: &zbus::Error) -> bool {
+    use zbus::Error as Zbus;
+    match error {
+        Zbus::Address(_) => true,
+        Zbus::InputOutput(io) => matches!(io.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused),
+        Zbus::MethodError(name, _, _) => dbus_error_means_no_provider(name.as_str()),
+        Zbus::FDO(inner) => fdo_means_no_provider(inner),
+        _ => false,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn error_means_no_provider(_: &keyring::Error) -> bool {
+    false
 }
 
 fn keyring_error(error: keyring::Error) -> StoreError {
-    let message = error.to_string();
-    let no_provider = cfg!(target_os = "linux") && reports_no_provider(&message);
-    StoreError { message, no_provider }
+    StoreError { no_provider: error_means_no_provider(&error), message: error.to_string() }
 }
 
 fn entry(account: &str) -> Result<keyring::Entry, StoreError> {
+    if session_bus_missing() {
+        return Err(StoreError { message: "no D-Bus session bus is available".to_owned(), no_provider: true });
+    }
     keyring::Entry::new(SERVICE, account).map_err(keyring_error)
 }
 

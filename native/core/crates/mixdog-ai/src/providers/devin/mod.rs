@@ -131,7 +131,7 @@ impl WireCodec for DevinCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         Box::new(DevinDecoder::new(
             self.provider.clone(),
             self.target.model.clone(),
@@ -338,6 +338,6 @@ impl ProviderAdapter for DevinAdapter {
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        Ok(Box::new(DecodedStream::new(head.body, codec.decoder()).with_fault_code("unavailable")))
+        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable")))
     }
 }

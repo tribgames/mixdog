@@ -1060,13 +1060,22 @@ crate::client_request_definitions! {
         mutation: op(Agent),
         origins: [Local, Ssh, Relay],
     },
-    /// Today's session configure action `setBotOrder`.
-    AgentSetBotOrder => "agent/setBotOrder" {
-        params: AgentSetBotOrderParams,
-        result: JsonValue,
-        scope: thread_or_none(thread_id),
+    /// Today's session read action `getBotOrder`.
+    ConfigGetBotOrder => "config/getBotOrder" {
+        params: ConfigGetBotOrderParams,
+        result: BotOrder,
+        scope: thread_or_shared_read(thread_id, "config"),
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Today's session configure action `setBotOrder`; answers the order as stored.
+    ConfigSetBotOrder => "config/setBotOrder" {
+        params: ConfigSetBotOrderParams,
+        result: BotOrder,
+        scope: thread_or_global(thread_id, "config"),
         class: C2,
-        mutation: op(Agent),
+        mutation: op(Config),
         origins: [Local, Ssh, Relay],
     },
     /// Today's `openAgentHome`.

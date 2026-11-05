@@ -1,11 +1,10 @@
 //! The per-bucket measurement algebra (`usage-ledger-rollup.mjs` `empty`/`add`): one
 //! accumulator for a day, a route, or either's conversation share.
 
-use std::collections::BTreeMap;
-
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::measure::Ordered;
 use crate::measure::is_unmeasuring_provider;
 use crate::measure::js_number;
 
@@ -38,7 +37,8 @@ pub struct Bucket {
     pub duration_ms: f64,
     pub duration_turns: f64,
     pub unmeasured_turns: f64,
-    pub sessions: BTreeMap<String, f64>,
+    /// Session id → tokens, in the order the ids were first seen (a JavaScript object's order).
+    pub sessions: Ordered<f64>,
     pub sessions_complete: bool,
 }
 
@@ -57,7 +57,7 @@ impl Bucket {
             duration_ms: 0.0,
             duration_turns: 0.0,
             unmeasured_turns: 0.0,
-            sessions: BTreeMap::new(),
+            sessions: Ordered::default(),
             sessions_complete: true,
         }
     }

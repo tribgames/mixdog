@@ -56,7 +56,7 @@ pub enum StopMode {
 
 /// What a registered unit of work is. The first five make a stop wait; the last three only
 /// keep an unattended core alive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum ActivityKind {
     Turn,

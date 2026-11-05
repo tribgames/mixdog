@@ -1,0 +1,383 @@
+{
+  "cases": [
+    {
+      "args": [
+        "nope",
+        "k"
+      ],
+      "error": {
+        "code": null,
+        "message": "unknown API-key provider \"nope\"",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "openai",
+        "   "
+      ],
+      "error": {
+        "code": null,
+        "message": "API key is required for openai",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "",
+        "k"
+      ],
+      "error": {
+        "code": null,
+        "message": "unknown API-key provider \"\"",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "vertex-ai",
+        "k",
+        {
+          "authMode": "adc"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Vertex AI gcloud login takes no key",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "vertex-ai",
+        "{\"a\":1}",
+        {
+          "authMode": "api-key"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Vertex AI express mode takes an API key, not a JSON key file",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "vertex-ai",
+        "abc",
+        {
+          "authMode": "api-key",
+          "location": "eu"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Vertex AI express mode serves only the global location",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "vertex-ai",
+        "abc",
+        {
+          "authMode": "api-key",
+          "location": "Bad_Loc"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Vertex AI location is invalid",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "vertex-ai",
+        "abc",
+        {
+          "authMode": "api-key",
+          "projectId": "a/b"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Vertex AI project ID override is invalid",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "vertex-ai",
+        "not json"
+      ],
+      "error": {
+        "code": null,
+        "message": "Vertex AI service-account JSON is invalid.",
+        "name": "Error"
+      },
+      "fn": "saveProviderApiKey"
+    },
+    {
+      "args": [
+        "  "
+      ],
+      "error": {
+        "code": null,
+        "message": "OpenAI usage session key is required for credit lookup",
+        "name": "Error"
+      },
+      "fn": "saveOpenAIUsageSessionKey"
+    },
+    {
+      "args": [
+        "nope"
+      ],
+      "error": {
+        "code": null,
+        "message": "unknown provider \"nope\"",
+        "name": "Error"
+      },
+      "fn": "forgetProviderAuth"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        "../outside"
+      ],
+      "error": {
+        "code": null,
+        "message": "Account is no longer connected.",
+        "name": "TypeError"
+      },
+      "fn": "forgetProviderAuth"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        "00000000-0000-4000-8000-000000000007"
+      ],
+      "error": {
+        "code": null,
+        "message": "Account is no longer connected.",
+        "name": "TypeError"
+      },
+      "fn": "forgetProviderAuth"
+    },
+    {
+      "args": [
+        "nope"
+      ],
+      "error": {
+        "code": null,
+        "message": "unknown OAuth provider \"nope\"",
+        "name": "Error"
+      },
+      "fn": "loginOAuthProvider"
+    },
+    {
+      "args": [
+        "nope"
+      ],
+      "error": {
+        "code": null,
+        "message": "unknown OAuth provider \"nope\"",
+        "name": "Error"
+      },
+      "fn": "beginOAuthProviderLogin"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        {
+          "surprise": 1
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Invalid OAuth account login options.",
+        "name": "TypeError"
+      },
+      "fn": "beginOAuthProviderLogin"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        {
+          "addAccount": "yes"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Invalid OAuth account login options.",
+        "name": "TypeError"
+      },
+      "fn": "beginOAuthProviderLogin"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        {
+          "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Invalid OAuth account login options.",
+        "name": "TypeError"
+      },
+      "fn": "beginOAuthProviderLogin"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        {
+          "accountId": "00000000-0000-4000-8000-000000000007"
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Account is no longer connected.",
+        "name": "TypeError"
+      },
+      "fn": "beginOAuthProviderLogin"
+    },
+    {
+      "args": [
+        "openai-oauth",
+        {
+          "accountId": "00000000-0000-4000-8000-000000000007",
+          "addAccount": true
+        }
+      ],
+      "error": {
+        "code": null,
+        "message": "Account is no longer connected.",
+        "name": "TypeError"
+      },
+      "fn": "beginOAuthProviderLogin"
+    },
+    {
+      "args": [
+        "nope"
+      ],
+      "error": {
+        "code": null,
+        "message": "Unknown OAuth provider.",
+        "name": "TypeError"
+      },
+      "fn": "listProviderAccounts"
+    },
+    {
+      "args": [
+        "nope",
+        {}
+      ],
+      "error": {
+        "code": null,
+        "message": "Unknown OAuth provider.",
+        "name": "TypeError"
+      },
+      "fn": "updateProviderAccounts"
+    },
+    {
+      "args": [
+        "OK_NAME"
+      ],
+      "fn": "checkCustomProviderKeyEnv",
+      "ok": {
+        "found": false
+      }
+    },
+    {
+      "args": [
+        "1bad"
+      ],
+      "error": {
+        "code": null,
+        "message": "environment variable name is invalid",
+        "name": "TypeError"
+      },
+      "fn": "checkCustomProviderKeyEnv"
+    },
+    {
+      "args": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "error": {
+        "code": null,
+        "message": "environment variable name is invalid",
+        "name": "TypeError"
+      },
+      "fn": "checkCustomProviderKeyEnv"
+    },
+    {
+      "args": [
+        5
+      ],
+      "error": {
+        "code": null,
+        "message": "environment variable name is invalid",
+        "name": "TypeError"
+      },
+      "fn": "checkCustomProviderKeyEnv"
+    }
+  ],
+  "domain": "account-admin",
+  "flowCases": [
+    {
+      "error": {
+        "code": null,
+        "message": "OAuth flow id is invalid.",
+        "name": "TypeError"
+      },
+      "id": "nope",
+      "op": "status"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "OAuth login flow is no longer available.",
+        "name": "Error"
+      },
+      "id": "oauth_missing",
+      "op": "status"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "OAuth flow id is invalid.",
+        "name": "TypeError"
+      },
+      "id": "",
+      "op": "status"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "OAuth login flow is no longer available.",
+        "name": "Error"
+      },
+      "id": "oauth_gone",
+      "op": "cancel"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "OAuth login flow is no longer available.",
+        "name": "Error"
+      },
+      "id": "oauth_gone",
+      "op": "complete"
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-ai-account.mjs"
+}

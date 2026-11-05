@@ -275,6 +275,14 @@ export function createDesktopVisualize(options: {
     };
   };
 
+  /** To the main window only; with no window the event is dropped. */
+  function publishToWindow(event: DesktopVisualizeEvent): void {
+    const contents = liveWindow()?.webContents;
+    if (!contents) return;
+    watchVisualizeZoomInput(contents);
+    contents.send(DESKTOP_IPC.visualizeChanged, event);
+  }
+
   const service: VisualizeService = createVisualizeService({
     ...(options.versionsDirectory ? { versions: { directory: options.versionsDirectory } } : {}),
     thumbnail: (sessionId, tab, targets, signal) => cardThumbnail(liveWindow(), sessionId, tab, targets, signal),
@@ -296,12 +304,7 @@ export function createDesktopVisualize(options: {
     windowAvailable: () => liveWindow() !== null,
     browserAvailable: options.browserAvailable,
     watchBrowserTab: options.watchBrowserTab,
-    publish(event: DesktopVisualizeEvent) {
-      const contents = liveWindow()?.webContents;
-      if (!contents) return;
-      watchVisualizeZoomInput(contents);
-      contents.send(DESKTOP_IPC.visualizeChanged, event);
-    },
+    publish: publishToWindow,
     publishHost: options.publishRemote,
     prepareInlinePage: (content) => inlinePageUrl(content, liveWindow()?.webContents, observePageProblems),
     preparePane: (target) =>
@@ -386,7 +389,11 @@ export function createDesktopVisualize(options: {
         files && { files, renderers: { ...exportRenderers, documentPages }, onPagesCut }
       ),
   });
-  return Object.assign(service, createFeedbackHost(service, { live: liveWindow, require: requireWindow }));
+  return Object.assign(service, createFeedbackHost(service, { live: liveWindow, require: requireWindow }), {
+    /** A web URL the core's agent opened (`ui/openRequested`): handed to the window exactly as the service's own
+     *  `openUrl` publish is. */
+    openRequested: publishToWindow,
+  });
 }
 
 export type DesktopVisualize = ReturnType<typeof createDesktopVisualize>;

@@ -124,8 +124,14 @@ async fn every_action_answers_and_calls_the_runtime_as_node_does() {
         let setup = AutomationSetup::new(fake.clone(), Arc::new(Agents(agents.clone())));
         let thread = ThreadId::from(case["sessionId"].as_str().unwrap());
         let got = setup.run(case["action"].as_str().unwrap(), &case["args"], &thread, &scope_of(&case["scope"])).await;
-        tokio::task::yield_now().await;
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        // A run starts on its own task; wait for the calls Node made, not for a fixed delay.
+        let expected = case["calls"].as_array().unwrap().len();
+        for _ in 0..2000 {
+            if fake.calls.lock().unwrap().len() >= expected {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
         match (&got, case.get("error")) {
             (Ok(value), None) => assert_eq!(value, &case["value"], "{label}"),
             (Err(error), Some(expected)) => assert_eq!(&message(error.clone()), expected.as_str().unwrap(), "{label}"),

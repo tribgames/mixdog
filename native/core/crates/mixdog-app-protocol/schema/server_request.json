@@ -212,6 +212,13 @@
       "properties": {
         "action": {
           "$ref": "#/definitions/UpdaterAction"
+        },
+        "confirmed": {
+          "description": "Node's `updaterInstall` argument `args[0]`: the user confirmed the install.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -220,7 +227,7 @@
       "type": "object"
     },
     "HostVisualizeCommandParams": {
-      "description": "Params of `host/visualize/command` (core → host): the loopback bridge's request body. The result is the service's object (`{text, tabs?, path?, …}`), `{}` when it returns nothing.",
+      "description": "Params of `host/visualize/command` (core → host): the loopback bridge's request body. The result is the service's object (`{text, tabs?, path?, …}`), `null` when it returns nothing (`visualizeCommand`: `(await visualize.command(…)) ?? null`).",
       "properties": {
         "action": {
           "$ref": "#/definitions/VisualizeAction"

@@ -33,20 +33,14 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-/// Lane jobs this crate has started. The clippy ban on `std::fs` sends the crate's blocking
-/// file-system bodies to lane jobs, and each is submitted through `lanes::counted`; so this is the
-/// crate's file-system work counted at its one entry point, with none of the OS's background activity
-/// in the test process. A file-system call from a thread outside a lane job (the notify backend's
-/// own watch thread, the store's writer thread) is not seen; see the report.
-fn jobs_started() -> u64 {
-    mixdog_workspace::lanes::JOBS_STARTED.load(std::sync::atomic::Ordering::SeqCst)
-}
+use mixdog_workspace::lanes::idle_window_violation;
+use mixdog_workspace::lanes::job_snapshot;
 
-/// Lane jobs executing right now: file-system work in a job that began before a window is
-/// visible here, which a start count alone would miss.
-fn jobs_running() -> u64 {
-    mixdog_workspace::lanes::JOBS_RUNNING.load(std::sync::atomic::Ordering::SeqCst)
-}
+// The count is of lane jobs this crate started: the clippy ban on `std::fs` sends the crate's
+// blocking file-system bodies to lane jobs, and each is submitted through `lanes::counted`. A
+// file-system call from a thread outside a lane job (the notify backend's own watch thread, the
+// store's writer thread) is not seen; see the report. Each reading is one atomic snapshot of
+// started and running together.
 
 struct NoGit;
 
@@ -82,7 +76,6 @@ async fn idle_run(idle: Duration) {
         state,
         recovery_dir: base.join("recovery"),
         user_data_dir: base.join("userdata"),
-        origin_of: Arc::new(|_| Origin::Local),
     })
     .unwrap();
     service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();
@@ -119,7 +112,7 @@ async fn idle_run(idle: Duration) {
     conn.drain_text();
     // Calibration: a stat run through the crate's entry point shows in the counter, so a zero below
     // means something.
-    let calibrate = jobs_started();
+    let calibrate = job_snapshot();
     mixdog_workspace::lanes::run(tokens.interactive_io, &CancellationToken::new(), {
         let big = root.join("big.bin");
         move || std::fs::metadata(big)
@@ -127,14 +120,13 @@ async fn idle_run(idle: Duration) {
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(jobs_started(), calibrate + 1, "the counter cannot see a lane job");
-    // A job still running when the window opens could do file-system work through all of it.
-    assert_eq!(jobs_running(), 0, "a lane job is still running when the idle window opens");
-    let before = jobs_started();
+    assert_eq!(job_snapshot().started, calibrate.started + 1, "the counter cannot see a lane job");
+    let open = job_snapshot();
     tokio::time::sleep(idle).await;
-    let started = jobs_started() - before;
-    assert_eq!(started, 0, "{started} file-system jobs ran while idle for {idle:?}: something polls");
-    assert_eq!(jobs_running(), 0, "a lane job is running when the idle window closes");
+    let close = job_snapshot();
+    if let Some(violation) = idle_window_violation(open, close) {
+        panic!("{violation} over an idle window of {idle:?}: something polls");
+    }
     assert!(conn.drain_text().is_empty(), "frames arrived while idle");
 
     // An external write is pushed, not found by a poll.

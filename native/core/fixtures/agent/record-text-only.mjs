@@ -1,6 +1,6 @@
 // Records the goldens of the text-only input check (input-capabilities.mjs).
 //
-//   node native/core/fixtures/agent/record-text-only.mjs [path-to-node-checkout]
+//   node native/core/fixtures/agent/record-text-only.mjs [--tree <node checkout with node_modules>]
 //
 // Each case is run through the real `assertLocalModelInput`; the messages it
 // returns (or the error it throws) are written beside the input to
@@ -9,9 +9,11 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const nodeRoot = resolve(process.argv[2] || process.env.MIXDOG_NODE_ROOT || 'C:/Project/mixdog');
+const nodeRoot = resolveTree(parseArgs());
+const stage = stageSet(here, ['text_only']);
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-text-only-'));
 const { assertLocalModelInput } = await import(
   pathToFileURL(join(nodeRoot, 'src/runtime/local-provider/input-capabilities.mjs')).href
@@ -60,7 +62,9 @@ const out = cases.map((c) => {
   }
 });
 
-const dir = join(here, 'text_only');
+const dir = join(stage, 'text_only');
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, 'cases.json'), `${JSON.stringify(out, null, 2)}\n`);
+refreshSetManifest(stage, nodeRoot);
+commitStage(stage, here);
 for (const c of out) console.log(c.name, c.error ? `ERROR ${c.error.slice(0, 60)}` : 'ok');

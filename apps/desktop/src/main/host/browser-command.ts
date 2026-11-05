@@ -5,6 +5,7 @@
  * results and redaction are unchanged. A failure is a JSON-RPC error whose
  * message is redacted and whose `data.timing` carries the failure timing.
  */
+import type { HostCommandParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserControl } from '../../shared/contract';
 import {
   normalizeBrowserCredentialId,
@@ -40,7 +41,7 @@ export interface BrowserCommandRunner {
 }
 
 export function toBrowserCommand(params: unknown): BrowserCommand {
-  const { action, input, threadId } = objectParams(params, HOST_METHOD.browserCommand);
+  const { action, input, threadId } = objectParams<HostCommandParams>(params, HOST_METHOD.browserCommand);
   if (typeof action !== 'string' || !action) {
     throw new HostRpcError(HOST_INVALID_PARAMS, 'host/browser/command needs an action.');
   }

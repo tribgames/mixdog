@@ -31,6 +31,7 @@ use crate::env::SteerSource;
 use crate::env::Ticket;
 use crate::env::TranscriptSink;
 use crate::message::AgentMessage;
+use crate::repair::repair_before_send;
 use crate::run::AgentError;
 use crate::run::Run;
 use crate::run::RunCarry;
@@ -61,6 +62,32 @@ impl TranscriptSink for DiscardSink {
         String::new()
     }
     async fn durable(&self, _ticket: Ticket) {}
+}
+
+/// A run outside any session: the host's clock, jitter, retry wait and decider,
+/// with steering, compaction, routing fallback, hooks and sinks off.
+pub(crate) fn isolated_env(host: &RunEnv) -> RunEnv {
+    RunEnv {
+        clock: Arc::clone(&host.clock),
+        jitter: Arc::clone(&host.jitter),
+        waiter: Arc::clone(&host.waiter),
+        decider: Arc::clone(&host.decider),
+        steer: Arc::new(NoSteer),
+        observer: Arc::new(NullObserver),
+        sink: Arc::new(DiscardSink),
+        gate: Arc::new(AllowAll),
+        guards: Arc::new(NoGuards),
+        compactor: None,
+        route: None,
+        skills: None,
+        hooks: None,
+        reuse: None,
+        reactions: None,
+        tail: None,
+        step_judge: None,
+        artifacts: None,
+        images: None,
+    }
 }
 
 /// What one call asks for.
@@ -98,28 +125,7 @@ impl OneShot {
     /// off. `cancel` ends every call of this value. `tool_env` is only the
     /// run's identity: no tool is offered.
     pub fn new(host: &RunEnv, tool_env: ToolEnv, provider: Arc<dyn ProviderAdapter>, cancel: CancellationToken) -> Self {
-        let env = RunEnv {
-            clock: Arc::clone(&host.clock),
-            jitter: Arc::clone(&host.jitter),
-            waiter: Arc::clone(&host.waiter),
-            decider: Arc::clone(&host.decider),
-            steer: Arc::new(NoSteer),
-            observer: Arc::new(NullObserver),
-            sink: Arc::new(DiscardSink),
-            gate: Arc::new(AllowAll),
-            guards: Arc::new(NoGuards),
-            compactor: None,
-            route: None,
-            skills: None,
-            hooks: None,
-            reuse: None,
-            reactions: None,
-            tail: None,
-            step_judge: None,
-            artifacts: None,
-            images: None,
-        };
-        Self { env, tool_env, provider, cancel, options: RequestOptions::default() }
+        Self { env: isolated_env(host), tool_env, provider, cancel, options: RequestOptions::default() }
     }
 
     /// The session facts a request carries (session id, transport scope,
@@ -131,7 +137,10 @@ impl OneShot {
     }
 
     /// Sends `messages` (system and user rows, as given on the wire).
-    pub async fn call(&self, call: &OneShotCall, messages: Vec<AgentMessage>) -> Result<OneShotOutput, AgentError> {
+    pub async fn call(&self, call: &OneShotCall, mut messages: Vec<AgentMessage>) -> Result<OneShotOutput, AgentError> {
+        // This path skips the request boundary, which repairs the loop's
+        // transcript; the adapters do not pair tool calls themselves.
+        repair_before_send(&mut messages);
         // An independent request, never a continuation of the source
         // conversation's effort history.
         let options = RequestOptions {
@@ -139,6 +148,8 @@ impl OneShot {
             effort_projection: None,
             tool_choice: None,
             hosted_tools: Vec::new(),
+            shared_cache_prefix_count: None,
+            provider_state: None,
             fast: call.fast,
             request_kind: Some("compaction".to_owned()),
             max_output_tokens_override: Some(call.max_output_tokens),

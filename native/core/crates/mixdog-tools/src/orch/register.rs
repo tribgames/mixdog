@@ -64,6 +64,9 @@ pub struct Services {
     /// Mints unique request ids (`secret_<uuid>`).
     pub ids: Arc<dyn Fn() -> String + Send + Sync>,
     pub host: Arc<dyn HostCommands>,
+    /// The pending UI waits (new-tab page ids, terminal claims); the same instance is the
+    /// domain service that receives `ui/newTab/created` and `ui/terminalRun/claimed`.
+    pub pending: crate::desktop::pending::PendingWaits,
     pub terminals: Arc<dyn TerminalPort>,
     pub command_policy: Arc<dyn CommandPolicy>,
     /// `None` where the OS has no computer-use backend.
@@ -90,7 +93,7 @@ pub fn tools(s: Services) -> Vec<Arc<dyn Tool>> {
         Arc::new(OfficeTool::new(s.ext_pool, s.office_writes, s.data_dir)),
         Arc::new(BrowserTool::browser(s.host.clone())),
         Arc::new(BrowserTool::devtools(s.host.clone())),
-        Arc::new(VisualizeTool::new(s.host)),
+        Arc::new(VisualizeTool::new(s.host, s.pending)),
         Arc::new(TerminalTool::new(s.terminals, s.command_policy)),
     ];
     if let Some(backend) = s.computer {

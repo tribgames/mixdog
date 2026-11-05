@@ -1,0 +1,33 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-message-presence.mjs --tree <tree> [--corpus <migration-corpus>]",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 126330,
+      "path": "presence.json",
+      "sha256": "b70ddbed313cd2fbad0aaf2efe98343b413043c598eb19686c611cb51dace8c9"
+    }
+  ],
+  "hidden": 3562,
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43480,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34400
+    },
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-message-presence.mjs",
+  "sessions": 59,
+  "set": "migration/message-presence",
+  "shown": 4428,
+  "totalBytes": 126330
+}

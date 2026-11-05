@@ -11,7 +11,6 @@
 //! Project text saves (`projectFs/writeText`) are not this service: they keep the in-place rewrite
 //! and recovery journal of [`crate::fsops`].
 
-use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
@@ -54,10 +53,10 @@ use mixdog_core_api::domain::fs::WalkRequest;
 use mixdog_core_api::domain::fs::WritePrecondition;
 use mixdog_core_api::domain::fs::WriteRequest;
 use crate::ident::StatVersion;
-use crate::ident::dir_is_case_insensitive;
 use crate::ident::names_equal;
 use crate::ident::stat_version;
 use crate::pathguard::canonical;
+use crate::pathguard::lexical;
 use crate::lanes::counted;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
@@ -105,12 +104,13 @@ struct PathLocks {
 struct LockKey {
     dir: PathBuf,
     leaf: OsString,
-    case_insensitive: bool,
 }
 
 impl LockKey {
     fn same(&self, other: &Self) -> bool {
-        self.dir == other.dir && names_equal(self.case_insensitive, &self.leaf, &other.leaf)
+        // Node's key is the whole resolved path, lowercased on win32 only
+        // (`path-locks.mjs:5-7`, `advisory-lock.mjs:47`).
+        names_equal(self.dir.join(&self.leaf).as_os_str(), other.dir.join(&other.leaf).as_os_str())
     }
 }
 
@@ -163,37 +163,36 @@ struct Resolved {
     key: LockKey,
 }
 
-/// Node: `symlinkWriteTarget` (a leaf symlink is written through to its target; a dangling one has
-/// nothing to resolve), then the parent directory resolved through junctions, symlinks and `..`, and
-/// the leaf in the name the file system stores. A parent that does not exist resolves to nothing: the
-/// write then fails with `NotFound` before it touches anything.
-fn resolve_write(path: &Path) -> Resolved {
-    let through = match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => canonical(path).ok(),
-        _ => None,
+/// Node: the write target is [`canonical_lock_target`]: resolved through junctions, symlinks (a
+/// leaf symlink is written through) and `..`, names in the case the file system stores. A parent
+/// that does not exist is kept as given, so the write fails with `NotFound` before it touches
+/// anything.
+fn resolve_write(path: &Path) -> Result<Resolved, FsError> {
+    let full = canonical_lock_target(path);
+    let (Some(dir), Some(leaf)) = (full.parent(), full.file_name()) else {
+        return Ok(Resolved { path: full.clone(), key: LockKey { dir: full, leaf: OsString::new() } });
     };
-    let full = through.unwrap_or_else(|| path.to_path_buf());
-    let (Some(parent), Some(leaf)) = (full.parent(), full.file_name()) else {
-        return unresolved(&full);
-    };
-    let Ok(dir) = canonical(parent) else { return unresolved(&full) };
-    let named = dir.join(leaf);
-    // An existing leaf comes back in its stored case (what a case-insensitive spelling resolves to).
-    let (dir, leaf) = match canonical(&named) {
-        Ok(real) => match (real.parent(), real.file_name()) {
-            (Some(d), Some(l)) if d == dir => (dir, l.to_owned()),
-            _ => (dir, leaf.to_owned()),
-        },
-        Err(_) => (dir, leaf.to_owned()),
-    };
-    let case_insensitive = dir_is_case_insensitive(&dir);
-    Resolved { path: dir.join(&leaf), key: LockKey { dir, leaf, case_insensitive } }
+    let (dir, leaf) = (dir.to_path_buf(), leaf.to_owned());
+    Ok(Resolved { path: full, key: LockKey { dir, leaf } })
 }
 
-fn unresolved(path: &Path) -> Resolved {
-    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let leaf = path.file_name().map(OsStr::to_os_string).unwrap_or_default();
-    Resolved { path: path.to_path_buf(), key: LockKey { dir, leaf, case_insensitive: false } }
+/// Node `canonicalLockTarget` (`advisory-lock.mjs:17`): the deepest existing component (the target
+/// itself when present, so a leaf symlink shares its referent's lock) is resolved, and components
+/// not created yet are appended as given.
+fn canonical_lock_target(path: &Path) -> PathBuf {
+    let resolved = lexical(path);
+    let mut tail: Vec<OsString> = Vec::new();
+    let mut dir = resolved.clone();
+    loop {
+        if let Ok(real) = canonical(&dir) {
+            return tail.iter().rev().fold(real, |acc, part| acc.join(part));
+        }
+        let (Some(parent), Some(name)) = (dir.parent().map(Path::to_path_buf), dir.file_name().map(OsString::from)) else {
+            return resolved;
+        };
+        tail.push(name);
+        dir = parent;
+    }
 }
 
 fn io_error(error: &io::Error, path: &Path) -> FsError {
@@ -572,13 +571,13 @@ impl FileService for LocalFileService {
 
     async fn write(&self, lane: DurabilityIo, request: WriteRequest) -> Result<FileStat, FsError> {
         let locks = self.locks.clone();
-        on(lane, move || write_resolved(&locks, &resolve_write(request.path.as_path()), &request)).await?
+        on(lane, move || write_resolved(&locks, &resolve_write(request.path.as_path())?, &request)).await?
     }
 
     async fn write_batch(&self, lane: DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<FileStat>, FsError> {
         let locks = self.locks.clone();
         on(lane, move || {
-            let resolved: Vec<Resolved> = requests.iter().map(|r| resolve_write(r.path.as_path())).collect();
+            let resolved = requests.iter().map(|r| resolve_write(r.path.as_path())).collect::<Result<Vec<Resolved>, FsError>>()?;
             let targets: Vec<PathBuf> = resolved.iter().map(|r| r.path.clone()).collect();
             let _held = locks.acquire(resolved.iter().map(|r| r.key.clone()));
             // Every precondition and pre-image first: a failed condition writes nothing.
@@ -976,7 +975,7 @@ mod tests {
         std::fs::create_dir(root.join("sub").as_path()).unwrap();
         let plain = root.join("f.txt");
         let dotted = AbsPath::new(root.as_path().join("sub").join("..").join("f.txt")).unwrap();
-        assert!(resolve_write(plain.as_path()).key.same(&resolve_write(dotted.as_path()).key));
+        assert!(resolve_write(plain.as_path()).unwrap().key.same(&resolve_write(dotted.as_path()).unwrap().key));
         fs.write(l.durability, put(&plain, b"base", WritePrecondition::Absent)).await.unwrap();
         let mut spellings = vec![plain.clone(), dotted.clone()];
         #[cfg(unix)]
@@ -1024,7 +1023,7 @@ mod tests {
         let link = root.join("link");
         make_dir_link(link.as_path(), a.as_path());
         let request = put(&AbsPath::new(link.as_path().join("f.txt")).unwrap(), b"payload", WritePrecondition::Absent);
-        let resolved = resolve_write(request.path.as_path());
+        let resolved = resolve_write(request.path.as_path()).unwrap();
         // The link now points at B, as an attacker (or a racing process) would leave it.
         remove_dir_link(link.as_path());
         make_dir_link(link.as_path(), b.as_path());
@@ -1036,44 +1035,42 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_intermediate_directory_under_an_alias_has_the_canonical_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let real = root.join("Real");
+        fs::create_dir(real.as_path()).unwrap();
+        let link = root.join("link");
+        make_dir_link(link.as_path(), real.as_path());
+        let canonical_spelling = resolve_write(&real.join("new1").join("new2").join("f.txt")).unwrap();
+        let aliased = resolve_write(&link.join("new1").join("new2").join("f.txt")).unwrap();
+        assert!(aliased.key.same(&canonical_spelling.key));
+        assert_eq!(aliased.path, canonical_spelling.path);
+        if cfg!(windows) {
+            // A case alias of the existing ancestor resolves to its stored case.
+            let cased = resolve_write(&root.join("REAL").join("new1").join("new2").join("f.txt")).unwrap();
+            assert_eq!(cased.path, canonical_spelling.path);
+        }
+    }
+
+    #[test]
     fn names_that_differ_only_in_case_are_one_key_when_the_directory_says_so() {
         let dir = tempfile::tempdir().unwrap();
         let root = canonical(dir.path()).unwrap();
-        let (lower, upper) = (resolve_write(&root.join("foo.txt")), resolve_write(&root.join("FOO.TXT")));
-        let insensitive = dir_is_case_insensitive(&root);
+        let (lower, upper) = (resolve_write(&root.join("foo.txt")).unwrap(), resolve_write(&root.join("FOO.TXT")).unwrap());
+        let insensitive = cfg!(windows);
         assert_eq!(lower.key.same(&upper.key), insensitive);
-        assert_eq!(lower.key.case_insensitive, insensitive);
-        if cfg!(windows) {
-            // NTFS default: insensitive.
-            assert!(insensitive);
-        }
         // The key does not change once the file exists (and is found under the other spelling).
         fs::write(root.join("foo.txt"), b"x").unwrap();
-        let created = resolve_write(&root.join("FOO.TXT"));
+        let created = resolve_write(&root.join("FOO.TXT")).unwrap();
         assert_eq!(created.key.same(&lower.key), insensitive);
-        assert!(resolve_write(&root.join("foo.txt")).key.same(&lower.key));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn a_case_sensitive_directory_keeps_case_variants_apart() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = canonical(dir.path()).unwrap();
-        // Needs the per-directory case-sensitivity feature and an elevated token; `fsutil` reports a
-        // refusal in its text, not its exit code, so the directory itself says whether it took.
-        let _ = std::process::Command::new("fsutil").args(["file", "setCaseSensitiveInfo"]).arg(&root).arg("enable").output();
-        if dir_is_case_insensitive(&root) {
-            eprintln!("skipped: cannot make a case-sensitive directory without elevation");
-            return;
-        }
-        let (lower, upper) = (resolve_write(&root.join("foo.txt")), resolve_write(&root.join("FOO.TXT")));
-        assert!(!lower.key.same(&upper.key));
+        assert!(resolve_write(&root.join("foo.txt")).unwrap().key.same(&lower.key));
     }
 
     #[tokio::test]
     async fn case_variants_of_a_new_file_have_one_winner_in_an_insensitive_directory() {
         let (_dir, root) = root();
-        if !dir_is_case_insensitive(root.as_path()) {
+        if !cfg!(windows) {
             return;
         }
         let fs = Arc::new(LocalFileService::new());
@@ -1100,7 +1097,7 @@ mod tests {
         let fs = LocalFileService::new();
         let l = lanes();
         let busy = root.join("busy.txt");
-        let held = fs.locks.acquire([resolve_write(busy.as_path()).key]);
+        let held = fs.locks.acquire([resolve_write(busy.as_path()).unwrap().key]);
         for i in 0..80 {
             let file = root.join(&format!("other{i}.txt"));
             tokio::time::timeout(Duration::from_secs(5), fs.write(l.durability, put(&file, b"x", WritePrecondition::Unconditional)))
@@ -1111,7 +1108,7 @@ mod tests {
         assert_eq!(fs.locks.len(), 1, "only the held file keeps a lock");
         let waiting = {
             let locks = fs.locks.clone();
-            let key = resolve_write(busy.as_path()).key;
+            let key = resolve_write(busy.as_path()).unwrap().key;
             tokio::task::spawn_blocking(move || drop(locks.acquire([key])))
         };
         tokio::time::sleep(Duration::from_millis(150)).await;

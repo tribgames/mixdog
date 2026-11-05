@@ -81,7 +81,7 @@ async fn leg_pairs_and_serves_a_phone_through_the_real_relay() {
     let (out_tx, out_rx) = mpsc::channel(64);
     let cancel = CancellationToken::new();
     let config_device_id = identity.device_id.clone();
-    let config = LegConfig { relay_url: format!("ws://127.0.0.1:{}", relay.port), identity, max_payload: 80 << 20 };
+    let config = LegConfig::desktop(format!("ws://127.0.0.1:{}", relay.port), identity, 80 << 20);
     let leg = tokio::spawn(run_leg(config, events_tx, out_rx, cancel.clone()));
 
     // The leg opens, announces itself, and registers the phone token before any client binds.

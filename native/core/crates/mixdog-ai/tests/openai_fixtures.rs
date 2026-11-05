@@ -94,7 +94,7 @@ fn recorded_body() -> String {
 
 fn decode(dir: &str) -> (Vec<StreamEvent>, Option<mixdog_core_api::domain::provider::ProviderError>) {
     let sse = std::fs::read(fixtures().join(dir).join("response.sse")).unwrap();
-    let mut decoder = codex_codec(TransportKind::Http1).decoder();
+    let mut decoder = codex_codec(TransportKind::Http1).decoder(&request());
     let mut events = Vec::new();
     // Small chunks exercise the framing across unit boundaries.
     for chunk in sse.chunks(7) {
@@ -190,7 +190,7 @@ fn intercepted_recordings_decode_to_the_recorded_results() {
                 .unwrap_or_else(|| panic!("{family}/{scenario}: no responses record"));
             let websocket = record["frames"].is_array();
             let transport = if websocket { TransportKind::WebSocket } else { TransportKind::Http1 };
-            let mut decoder = codex_codec(transport).decoder();
+            let mut decoder = codex_codec(transport).decoder(&request());
             let mut events = Vec::new();
             if websocket {
                 for frame in record["frames"].as_array().unwrap().iter().filter(|f| f["dir"] == "out") {

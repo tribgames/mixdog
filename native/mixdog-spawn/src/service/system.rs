@@ -170,6 +170,10 @@ impl DomainService for SystemService {
         }
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["system/ports/subscribe", "system/ports/unsubscribe"]
+    }
+
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
     }

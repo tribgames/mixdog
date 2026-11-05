@@ -1,6 +1,12 @@
 {
-  "command": "see benchmarks/rust-core/README.md",
-  "fileCount": 18,
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>",
+  "domains": {
+    "files": 19,
+    "git": 17,
+    "ports": 3,
+    "search": 10
+  },
+  "fileCount": 20,
   "files": [
     {
       "bytes": 3900,
@@ -58,6 +64,11 @@
       "sha256": "3ff32f03cd3b63c1c80b14dd832522b248816e16bcf7ccb2468aee315609b89e"
     },
     {
+      "bytes": 2446403,
+      "path": "settings/config-settings-twin.json",
+      "sha256": "3e72b28d0bb6861984a170593dcb3245e804354961cb82bbf07ebb6f086d7428"
+    },
+    {
       "bytes": 914396,
       "path": "settings/config-twin.json",
       "sha256": "93edcf30e737bd0ebb25b2967dbdd2d3713d323434c2b077abdcc0ad079a9aa3"
@@ -71,6 +82,11 @@
       "bytes": 49430,
       "path": "settings/local-provider-status.json",
       "sha256": "6f8040fce2b47743a0c114aa17beb5757e2d0b557a2fa491bd68209b08a0caa7"
+    },
+    {
+      "bytes": 9800,
+      "path": "settings/notification-readers-twin.json",
+      "sha256": "500d4b7f94eb6c2e86f58161c79d633243c972c91a1fbe23bd4252f75f680983"
     },
     {
       "bytes": 15175,
@@ -94,31 +110,22 @@
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "appsSha256": "b66a4bd6f8a15d621316e91b15fa61c129a258907e14a9d12e0fed0754f1e809",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 9233,
     "refComparison": {
-      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "closestCommit": "eb47a6b01ea242286619aab7475bd4ba94ec7880",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 29
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
-  "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs + record-desktop-services.mjs",
-  "serviceDomains": [
-    "settings:16",
-    "github:11",
-    "terminal:15",
-    "lsp:14",
-    "notifications:12",
-    "transfer:14",
-    "remote-relay:10"
-  ],
+  "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 5742549
+  "totalBytes": 8198752
 }

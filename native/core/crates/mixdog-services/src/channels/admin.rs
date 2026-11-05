@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, TimeZone, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use serde_json::{Map, Value, json};
 
@@ -15,11 +15,12 @@ use super::ports::{ChannelSettings, ProbeError, PublicBase, WebhookPatch, Webhoo
 use super::runtime::ChannelRuntime;
 use crate::bots::attachments::normalize_attachments;
 use crate::bots::ids::{MIXY_AGENT_ID, agent_home_session_id};
+use crate::bots::owned::never_cancelled;
 use crate::bots::{
     OwnedOutcome, OwnerProblem, RoutineKind, RoutineRuntime, ScheduleRunOpts, Skip, WebhookRun,
 };
 use crate::scheduler::cron::CronExpr;
-use crate::scheduler::{Clock, Schedule, ScheduleError, ScheduleRecords, ScheduleStore};
+use crate::scheduler::{Clock, Schedule, ScheduleError, ScheduleRecords};
 use crate::webhooks::prompt::{webhook_event_summary, webhook_run_prompt};
 use crate::webhooks::signature::hmac_hex;
 use crate::webhooks::{EndpointRecord, EndpointRecords};
@@ -196,27 +197,16 @@ fn resolve_schedule_timezone(value: Option<&Value>, local: Tz) -> Done<String> {
     Ok(zone)
 }
 
-/// `new Date(at)` for the spellings a person types: an RFC 3339 instant, a local date-time,
-/// or a date (UTC midnight).
+/// `new Date(at)`: whatever `Date.parse` reads, with local time in `local`.
 fn parse_at_datetime(at: &str, local: Tz) -> Done<DateTime<Utc>> {
     let raw = mixdog_js::js_trim(at);
     if raw.is_empty() {
         return Err("at must be a datetime".into());
     }
-    let invalid = || AdminError::from(format!("at \"{at}\" is not a valid datetime"));
-    if let Ok(instant) = DateTime::parse_from_rfc3339(raw) {
-        return Ok(instant.with_timezone(&Utc));
-    }
-    for format in ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M"] {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(raw, format) {
-            return local.from_local_datetime(&naive).earliest().map(|t| t.with_timezone(&Utc)).ok_or_else(invalid);
-        }
-    }
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-        .ok()
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .map(|d| d.and_utc())
-        .ok_or_else(invalid)
+    let ms = mixdog_js::time::date_parse_in(local, raw);
+    DateTime::from_timestamp_millis(ms as i64)
+        .filter(|_| ms.is_finite())
+        .ok_or_else(|| AdminError::from(format!("at \"{at}\" is not a valid datetime")))
 }
 
 /// Failures in a row and the results of finished runs still not queued for the owner.
@@ -819,7 +809,7 @@ impl ChannelAdmin {
                     skill_selection: run.skill_selection,
                 },
                 true,
-                Default::default(),
+                never_cancelled(),
             )
             .await?;
         match outcome {

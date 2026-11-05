@@ -22,6 +22,7 @@ use crate::v2::approval::ServerRequestResolvedParams;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
 use crate::v2::host::HostBrowserViewFramesParams;
+use crate::v2::host::CoreDrainParams;
 use crate::v2::host::HostNotificationShowParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::RemotePointerParams;
@@ -122,6 +123,9 @@ crate::notification_definitions! {
     ThreadQueueChanged => "thread/queue/changed" (ThreadQueueChangedParams) @thread,
     TurnStarted => "turn/started" (TurnNotificationParams) @thread,
     TurnCompleted => "turn/completed" (TurnNotificationParams) @thread,
+    ThreadNotification => "thread/notification" (ThreadNotificationParams) @thread,
+    ThreadModelRequestUpdated => "thread/modelRequest/updated" (ModelRequestUpdatedParams) @thread,
+    ThreadToolBatchUpdated => "thread/toolBatch/updated" (ToolBatchUpdatedParams) @thread,
     ItemStarted => "item/started" (ItemNotificationParams) @thread,
     /// The authoritative, persisted row.
     ItemCompleted => "item/completed" (ItemNotificationParams) @thread,
@@ -162,6 +166,8 @@ crate::notification_definitions! {
     ConfigWarning => "configWarning" (WarningParams) @app,
     UiOpenRequested => "ui/openRequested" (UiOpenRequestedParams) @app,
     RemotePointer => "remote/pointer" (RemotePointerParams) @app,
+    /// Draining: what still runs and the token that authorizes an abort (`lifecycle-remote.md` §5.1).
+    CoreDrain => "core/drain" (CoreDrainParams) @app,
     ConfigUpdated => "config/updated" (SectionUpdate) @app,
     ProjectUpdated => "project/updated" (SectionUpdate) @app,
     AgentPoolUpdated => "agent/pool/updated" (SectionUpdate) @app,
@@ -262,6 +268,14 @@ pub enum ClientNotification {
     #[serde(rename = "model/proxy/event")]
     #[ts(rename = "model/proxy/event")]
     ModelProxyEvent(crate::v2::host::ModelProxyEventParams),
+    /// The pane created the tab a `ui/openRequested` visualize open asked for.
+    #[serde(rename = "ui/newTab/created")]
+    #[ts(rename = "ui/newTab/created")]
+    UiNewTabCreated(crate::v2::host::UiNewTabCreatedParams),
+    /// A pane shows the terminal of a `ui/openRequested` terminal open.
+    #[serde(rename = "ui/terminalRun/claimed")]
+    #[ts(rename = "ui/terminalRun/claimed")]
+    UiTerminalRunClaimed(crate::v2::host::UiTerminalRunClaimedParams),
 }
 
 pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
@@ -313,6 +327,16 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "model/proxy/event",
         params: "ModelProxyEventParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "ui/newTab/created",
+        params: "UiNewTabCreatedParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "ui/terminalRun/claimed",
+        params: "UiTerminalRunClaimedParams",
         delivery: None,
     },
 ];

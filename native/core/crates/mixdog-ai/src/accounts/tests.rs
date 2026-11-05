@@ -107,7 +107,7 @@ async fn a_selection_move_calls_the_hook_and_other_writes_do_not() {
     });
     s.register(PROVIDER, ID_A, "A", false).await.unwrap();
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "first registration selects");
-    s.block(PROVIDER, ID_A, now_ms() + 1000, "", BlockOptions::default()).await.unwrap();
+    s.block(PROVIDER, ID_A, s.now_ms() + 1000, "", BlockOptions::default()).await.unwrap();
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
@@ -116,7 +116,7 @@ async fn blocks_cap_replace_per_model_and_a_free_reading_lifts_them() {
     let dir = tempfile::tempdir().unwrap();
     let s = store(&dir);
     s.register(PROVIDER, ID_A, "A", false).await.unwrap();
-    let far = now_ms() + 3 * MAX_BLOCK_MS;
+    let far = s.now_ms() + 3 * MAX_BLOCK_MS;
     let pool = s.block(PROVIDER, ID_A, far, "m1", BlockOptions::default()).await.unwrap();
     assert!(pool.accounts[0].blocked_until.unwrap() < far, "inferred blocks are capped");
     let pool = s

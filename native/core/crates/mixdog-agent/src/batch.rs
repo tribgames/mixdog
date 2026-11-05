@@ -81,6 +81,18 @@ impl CrossTurn {
 }
 
 /// A successfully executed tool that represents real edit or progress.
+/// A result a tool marked partial (`meta.complete == false`: a federated
+/// section failed or a cap cut the scan) must never be reused; a tool that says
+/// nothing is whole.
+fn output_is_complete(output: &ToolOutput) -> bool {
+    output
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("complete"))
+        .and_then(|complete| complete.as_bool())
+        .unwrap_or(true)
+}
+
 fn is_edit_progress(name: &str, read_only: bool) -> bool {
     if read_only {
         return false;
@@ -354,6 +366,7 @@ impl Run {
             && !executed.failed
             && executed.cache_hit.is_none()
             && !later_mutation
+            && executed.output.as_ref().is_none_or(output_is_complete)
             && executed.message.tool_kind == Some(ToolKind::Normal);
         if executed.failed {
             return cacheable;
@@ -467,11 +480,11 @@ impl Run {
             // 2. Record finished outcomes in call order.
             while recorded < n && finished[recorded] {
                 if let Some(mut result) = executed[recorded].take() {
-                    outputs[recorded] = result.output.take();
                     let later_mutation = (recorded + 1..n).any(|k| !self.tools.read_only(&calls[k].name));
                     let sig_pair = std::mem::take(&mut sigs[recorded]);
                     cacheable[recorded] =
                         self.record_executed(&calls[recorded], &result, sig_pair, later_mutation);
+                    outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
                     follow_ups.extend(result.follow_ups.iter().cloned());
                     staged[recorded] = Some(result.message);

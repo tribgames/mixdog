@@ -18,7 +18,17 @@ use mixdog_rt::CpuInteractive;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
+use mixdog_core_api::ids::ItemId;
 use mixdog_store::blobs::BlobStore;
+use mixdog_store::context::ContextBlobs;
+use mixdog_store::context::ContextCursor;
+use mixdog_store::context::ContextError;
+use mixdog_store::context::ContextPage;
+use mixdog_store::context::DecodedContext;
+use mixdog_store::context::decode_context;
+use mixdog_store::context::finish_context;
+use mixdog_store::context::read_context_blobs;
+use mixdog_store::sqlite::DbError;
 use mixdog_store::encode::EncodeError;
 use mixdog_store::encode::Encoded;
 use mixdog_store::encode::encode_record;
@@ -43,11 +53,14 @@ use mixdog_store::sqlite::LineageLevel;
 use mixdog_store::sqlite::SqliteStore;
 use mixdog_store::summary::CatalogHead;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tokio::sync::mpsc;
 
 use super::seams::AppendPosition;
 use super::seams::BarrierError;
 use super::seams::CommitRecord;
+use super::seams::ContextRead;
+use super::seams::ContextStep;
 use super::seams::EncodedRecord;
 use super::seams::HeadRead;
 use super::seams::OpenedLog;
@@ -284,6 +297,77 @@ impl StoreThreads {
     }
 }
 
+/// Context rows read per page.
+const CONTEXT_PAGE_ROWS: usize = 200;
+
+/// A model-context read between its lane steps.
+struct ContextState {
+    lineage: Vec<LineageLevel>,
+    cut: Option<u64>,
+    out: Vec<(ItemId, Value)>,
+    at: ContextAt,
+}
+
+enum ContextAt {
+    /// The next page is read from this cursor (io).
+    Next(ContextCursor),
+    /// A page to decode (cpu).
+    Page(ContextPage),
+    /// A decoded page whose blobs are read next (io).
+    Decoded(DecodedContext),
+    /// A decoded page and its blobs, to finish (cpu).
+    Finish(DecodedContext, ContextBlobs),
+    /// Between a page's finish and its successor.
+    Pending,
+}
+
+impl StoreThreads {
+    /// The first page of the read, over the lineage as of now.
+    fn context_start(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<ContextState, CoreError> {
+        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index)
+            .map_err(|e| Self::open_error(id, e))?;
+        let lineage = self.lineage(lane, &opened.fold)?;
+        let cut = opened.fold.base_cut;
+        let page = self
+            .index
+            .context_page_on_lane(lane, &self.sessions, &lineage, cut, None, CONTEXT_PAGE_ROWS)
+            .map_err(|e| internal("context", &e))?;
+        Ok(ContextState {
+            lineage,
+            cut,
+            out: Vec::new(),
+            at: ContextAt::Page(page),
+        })
+    }
+
+    /// The cpu end of a page: its messages, then the next page or the whole context.
+    fn context_finish(
+        lane: &InLane<CpuInteractive>,
+        mut state: ContextState,
+        decoded: DecodedContext,
+        blobs: ContextBlobs,
+    ) -> Result<ContextStep, CoreError> {
+        let next = decoded.next;
+        state.out.extend(
+            finish_context(lane, decoded, blobs)
+                .map_err(|e| internal("context", &e))?
+                .into_iter()
+                .map(|m| (ItemId::from(m.iid), m.body)),
+        );
+        Ok(match next {
+            Some(cursor) => {
+                state.at = ContextAt::Next(cursor);
+                ContextStep::More(ContextRead(Box::new(state)))
+            }
+            None => ContextStep::Done(state.out),
+        })
+    }
+}
+
 /// J2's reads, handed to decode.
 struct Window {
     window: Vec<(u64, ItemRecord)>,
@@ -349,6 +433,7 @@ impl ThreadStore for StoreThreads {
                 item.body = amend.body;
             }
             item.body = self.resolve(lane, &item.body)?;
+            item.prompt = item.prompt.map(|prompt| self.resolve(lane, &prompt)).transpose()?;
             window.push((row.ordinal, item));
         }
         let prompts = self
@@ -448,6 +533,74 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("prompts", &e))?;
         // Oldest first, as the seam returns rows; only `prompt` is read by the caller.
         Ok(prompts.into_iter().rev().map(prompt_row).collect())
+    }
+
+    /// Pages run while the cursor holds; a page after a rewind or compaction restarts the
+    /// read over the new lineage.
+    fn context_io(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        read: Option<ContextRead>,
+    ) -> Result<ContextRead, CoreError> {
+        let Some(read) = read else {
+            // The read must see every row acked so far.
+            self.wait(self.projector.flush());
+            return Ok(ContextRead(Box::new(self.context_start(lane, id)?)));
+        };
+        let mut state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
+        state.at = match state.at {
+            ContextAt::Next(cursor) => match self.index.context_page_on_lane(
+                lane,
+                &self.sessions,
+                &state.lineage,
+                state.cut,
+                Some(cursor),
+                CONTEXT_PAGE_ROWS,
+            ) {
+                Ok(page) => ContextAt::Page(page),
+                Err(ContextError::Db(DbError::CursorStale)) => {
+                    return Ok(ContextRead(Box::new(self.context_start(lane, id)?)));
+                }
+                Err(e) => return Err(internal("context", &e)),
+            },
+            ContextAt::Decoded(decoded) => {
+                let blobs = read_context_blobs(lane, &self.blobs, &decoded)
+                    .map_err(|e| internal("context", &e))?;
+                ContextAt::Finish(decoded, blobs)
+            }
+            ContextAt::Page(_) | ContextAt::Finish(..) | ContextAt::Pending => {
+                return Err(internal("context", &"io step on a cpu state"));
+            }
+        };
+        Ok(ContextRead(Box::new(state)))
+    }
+
+    fn context_cpu(
+        &self,
+        lane: &InLane<CpuInteractive>,
+        read: ContextRead,
+    ) -> Result<ContextStep, CoreError> {
+        let state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
+        let ContextState { lineage, cut, out, at } = state;
+        let rest = |at| ContextState { lineage, cut, out, at };
+        match at {
+            ContextAt::Page(page) => {
+                let decoded = decode_context(lane, page).map_err(|e| internal("context", &e))?;
+                if decoded.needs_blobs() {
+                    let state = rest(ContextAt::Decoded(decoded));
+                    return Ok(ContextStep::More(ContextRead(Box::new(state))));
+                }
+                let (state, blobs) = (rest(ContextAt::Pending), ContextBlobs::default());
+                Self::context_finish(lane, state, decoded, blobs)
+            }
+            ContextAt::Finish(decoded, blobs) => {
+                Self::context_finish(lane, rest(ContextAt::Pending), decoded, blobs)
+            }
+            ContextAt::Next(_) | ContextAt::Decoded(_) | ContextAt::Pending => {
+                Err(internal("context", &"cpu step on an io state"))
+            }
+        }
     }
 
     /// RL §9.2 rule 1: the session is marked dirty before the activation's first append.
@@ -562,7 +715,7 @@ fn prompt_row(text: String) -> ItemRecord {
         visible: false,
         archive: None,
         op: None,
-        prompt: Some(text),
+        prompt: Some(Slot::Inline(text)),
         refs: Vec::new().try_into().expect("empty list fits"),
         body: Slot::Inline(serde_json::Value::Null),
     }

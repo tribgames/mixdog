@@ -63,8 +63,11 @@ fn reset_at(detail: &JsonValue, now: SystemTime) -> Option<SystemTime> {
         let ms = if n < 1e12 { n * 1000.0 } else { n };
         return Some(UNIX_EPOCH + Duration::from_millis(ms.round() as u64));
     }
-    let when = chrono::DateTime::parse_from_rfc3339(raw.as_str()?).ok()?;
-    Some(UNIX_EPOCH + Duration::from_millis(u64::try_from(when.timestamp_millis()).ok()?))
+    let when = mixdog_js::time::date_parse(raw.as_str()?);
+    if !when.is_finite() {
+        return None;
+    }
+    Some(UNIX_EPOCH + Duration::from_millis(u64::try_from(when as i64).ok()?))
 }
 
 /// The wire error object of a body: `{error:{…}}`, `{error:"text"}` or a bare

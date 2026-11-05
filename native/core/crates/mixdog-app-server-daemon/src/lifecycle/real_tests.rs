@@ -7,6 +7,8 @@ use std::sync::atomic::Ordering;
 
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::mgmt::ActivityKind;
+use mixdog_app_protocol::v2::host::CoreDrainParams;
+use mixdog_app_protocol::v2::host::DrainRunning;
 use mixdog_core_api::StatePublisher;
 use mixdog_core_api::state::SectionChange;
 use mixdog_protocol::DrainReason;
@@ -47,6 +49,8 @@ struct Fixture {
     barriers: Arc<AtomicU32>,
     data: Arc<AtomicU32>,
     released: Arc<Mutex<Vec<u32>>>,
+    ext_host: Arc<ExtHostPool>,
+    drains: Arc<Mutex<Vec<CoreDrainParams>>>,
     core: RuntimeCore,
 }
 
@@ -57,16 +61,38 @@ fn fixture() -> Fixture {
     let barriers = Arc::new(AtomicU32::new(0));
     let data = Arc::new(AtomicU32::new(0));
     let released = Arc::new(Mutex::new(Vec::new()));
+    let drains = Arc::new(Mutex::new(Vec::new()));
     let counter = |count: &Arc<AtomicU32>| -> Hook {
         let count = Arc::clone(count);
         Arc::new(move || {
             count.fetch_add(1, Ordering::SeqCst);
         })
     };
+    let install = tempfile::tempdir().unwrap();
+    let js = crate::js_runtime::fixture(install.path());
+    let ext_host = {
+        let _enter = runtime.enter();
+        Arc::new(
+            ExtHostPool::new(mixdog_exthost::ExtHostConfig {
+                program: js.program.clone(),
+                args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+                electron: js.electron,
+                workers: 1,
+                pending_cap: mixdog_exthost::DEFAULT_PENDING_CAP,
+                spawn_io: mixdog_rt::testing::tokens().spawn_io,
+                render_browser: mixdog_exthost::RenderBrowserConfig {
+                    command: None,
+                    profile_root: install.path().join("render-browser"),
+                    no_sandbox: false,
+                },
+            })
+            .unwrap(),
+        )
+    };
     let core = RuntimeCore::new(CoreWiring {
         state: sections.clone(),
         connections: Arc::new(ConnectionHub::new(Limits::default()).unwrap()),
-        ext_host: None,
+        ext_host: ext_host.clone(),
         runtime: runtime.handle().clone(),
         cancel: cancel.clone(),
         final_barriers: counter(&barriers),
@@ -75,8 +101,12 @@ fn fixture() -> Fixture {
             Arc::new(move |pid| released.lock().unwrap().push(pid))
         },
         close_data_handles: counter(&data),
+        drain_feed: {
+            let drains = Arc::clone(&drains);
+            Arc::new(move |params| drains.lock().unwrap().push(params))
+        },
     });
-    Fixture { runtime, sections, cancel, barriers, data, released, core }
+    Fixture { runtime, sections, cancel, barriers, data, released, ext_host, drains, core }
 }
 
 #[test]
@@ -95,11 +125,41 @@ fn health_and_the_drain_reach_the_app_feed_sections() {
     assert_eq!(sections[1], (SectionName::CoreHealth, serde_json::json!({ "stalledMs": 0 })));
     let (section, drain) = &sections[2];
     assert_eq!(*section, SectionName::Core);
-    assert_eq!(drain["state"], "draining");
-    assert_eq!(drain["drainId"], "d1");
-    assert_eq!(drain["confirmToken"], "tok");
-    assert_eq!(drain["running"][0]["threadId"], "t1");
-    assert!(drain["running"][0].get("id").is_none(), "the internal id is not on the wire");
+    let state: mixdog_app_protocol::v1::CoreState = serde_json::from_value(drain.clone()).unwrap();
+    assert_eq!(state, mixdog_app_protocol::v1::CoreState::Draining { reason: DrainReason::Update });
+
+    let drains = f.drains.lock().unwrap();
+    assert_eq!(
+        *drains,
+        [CoreDrainParams {
+            drain_id: "d1".into(),
+            running: vec![DrainRunning {
+                thread_id: Some("t1".into()),
+                turn_id: Some("u1".into()),
+                kind: ActivityKind::Turn,
+                title: "a turn".into(),
+            }],
+            confirm_token: "tok".into(),
+        }]
+    );
+}
+
+#[test]
+fn work_without_a_thread_is_listed_with_null_ids() {
+    let f = fixture();
+    let mut shell = work(9);
+    shell.kind = ActivityKind::BackgroundShell;
+    shell.thread_id = None;
+    shell.turn_id = None;
+    f.core.drain_notice(&DrainNotice {
+        drain_id: "d2".into(),
+        reason: DrainReason::Quit,
+        running: vec![shell],
+        confirm_token: "t".into(),
+    });
+    let wire = serde_json::to_value(&f.drains.lock().unwrap()[0]).unwrap();
+    assert!(wire["running"][0]["threadId"].is_null());
+    assert!(wire["running"][0]["turnId"].is_null());
 }
 
 #[test]
@@ -128,6 +188,16 @@ fn the_release_steps_reach_what_the_composition_supplied() {
     assert_eq!(f.data.load(Ordering::SeqCst), 1);
     assert_eq!(*f.released.lock().unwrap(), vec![4242]);
     drop(f.runtime);
+}
+
+#[test]
+fn close_ext_host_closes_the_fixture_pool_and_returns() {
+    let f = fixture();
+    // Release steps run off the runtime; the test thread stands in for the release thread.
+    f.core.close_ext_host();
+    // A closed host refuses later work: the shared render browser stops answering.
+    let endpoint = f.runtime.block_on(f.ext_host.render_browser().endpoint());
+    assert!(endpoint.is_err(), "the pool was closed: {endpoint:?}");
 }
 
 fn template() -> Discovery {
@@ -163,26 +233,65 @@ fn discovery_names_the_phase_and_the_rpc_port_only_while_serving() {
     let state = |phase, drain_id| DiscoveryState { phase, blocked: None, drain_id };
 
     publication.publish(&state(DiscoveryPhase::Booting, None));
+    publication.flush();
     assert_eq!(read(root.path())["core"]["state"], "booting");
     assert!(read(root.path())["core"].get("rpc").is_none());
 
     publication.publish(&state(DiscoveryPhase::Serving, None));
+    publication.flush();
     assert_eq!(read(root.path())["core"]["state"], "serving");
     assert_eq!(read(root.path())["core"]["rpc"]["port"], 5005);
     assert_eq!(read(root.path())["pid"], 1234);
 
     publication.publish(&state(DiscoveryPhase::Draining, Some("d1".into())));
+    publication.flush();
     let draining = read(root.path());
     assert_eq!(draining["core"]["state"], "draining");
     assert_eq!(draining["core"]["drain"]["drainId"], "d1");
     assert!(draining["core"].get("rpc").is_none(), "rpc goes away while draining");
 
     publication.publish(&state(DiscoveryPhase::Serving, None));
+    publication.flush();
     assert_eq!(read(root.path())["core"]["rpc"]["port"], 5005, "cancelDrain gives rpc back");
     assert!(read(root.path())["core"].get("drain").is_none());
 
     publication.withdraw();
     assert!(!discovery::path(root.path()).exists());
+}
+
+#[test]
+fn work_that_registers_after_an_abort_began_is_cancelled_at_once() {
+    let f = fixture();
+    // The abort listed activity 5 before its owner got to `track`.
+    f.core.cancel_running(&[work(5)]);
+    let late = CancellationToken::new();
+    let _tracked = f.cancel.track(5, late.clone());
+    assert!(late.is_cancelled());
+}
+
+#[test]
+fn publishing_never_writes_on_the_calling_thread_and_the_last_state_wins() {
+    let written = Arc::new(Mutex::new(Vec::<(std::thread::ThreadId, String)>::new()));
+    let write: WriteDocument = {
+        let written = Arc::clone(&written);
+        Box::new(move |_root, document| {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            let phase = serde_json::to_value(document.core.state).unwrap().as_str().unwrap().to_owned();
+            written.lock().unwrap().push((std::thread::current().id(), phase));
+        })
+    };
+    let root = tempfile::tempdir().unwrap();
+    let publication = DiscoveryPublication::with_writer(root.path().to_path_buf(), template(), write);
+    let state = |phase| DiscoveryState { phase, blocked: None, drain_id: None };
+    for phase in [DiscoveryPhase::Booting, DiscoveryPhase::Serving, DiscoveryPhase::Draining, DiscoveryPhase::Serving] {
+        publication.publish(&state(phase));
+    }
+    assert!(written.lock().unwrap().len() < 4, "publish returned before the slow writes finished");
+    publication.flush();
+    let written = written.lock().unwrap();
+    assert!(written.iter().all(|(thread, _)| *thread != std::thread::current().id()));
+    let phases: Vec<&str> = written.iter().map(|(_, phase)| phase.as_str()).collect();
+    assert_eq!(phases, ["booting", "serving", "draining", "serving"]);
 }
 
 #[test]

@@ -101,6 +101,7 @@ use super::run::InputState;
 use super::run::ItemCommit;
 use super::run::ProducerMsg;
 use super::run::RunError;
+use super::run::ModelContext;
 use super::run::RunPort;
 use super::run::SteerInput;
 use super::run::within_priority;
@@ -1104,7 +1105,7 @@ impl SessionActor {
             visible: item.visible,
             archive: None,
             op,
-            prompt,
+            prompt: prompt.map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(item.body),
         }))
@@ -1538,8 +1539,9 @@ impl SessionActor {
         if let Some(op) = &mut op_ref {
             op.result = Json::try_from(value.clone()).ok();
         }
+        let input_iid = mixdog_core_api::ids::ItemId::from(new_id());
         let item = Record::Item(ItemRecord {
-            iid: id(&new_id()),
+            iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
@@ -1547,7 +1549,7 @@ impl SessionActor {
             visible: true,
             archive: None,
             op: op_ref,
-            prompt: prompt_fact,
+            prompt: prompt_fact.map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         });
@@ -1596,6 +1598,12 @@ impl SessionActor {
             turn: turn.clone(),
             input,
             port,
+            context: ModelContext {
+                store: self.deps.store.clone(),
+                lanes: self.deps.lanes,
+                thread: self.id.clone(),
+                input: input_iid,
+            },
             surface: self.surface.subscribe(),
             cancel,
         });
@@ -1682,7 +1690,7 @@ impl SessionActor {
             let Ok(rows) = deps.store.user_rows(lane, &thread) else {
                 return;
             };
-            let texts: Vec<String> = rows.into_iter().filter_map(|row| row.prompt).collect();
+            let texts: Vec<String> = rows.iter().filter_map(|row| row.prompt_text().map(str::to_owned)).collect();
             let session = prompt_history::recompute(&texts);
             let _ = jobs.send(JobDone::PromptSession { session, publish });
         });
@@ -1735,6 +1743,8 @@ fn turn_of(run: &RunRecord) -> Option<Turn> {
         started_at: run.at.filter(|_| started),
         completed_at: run.at.filter(|_| !started),
         error,
+        stop_reason: None,
+        termination_reason: None,
         items: None,
     })
 }

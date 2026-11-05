@@ -9,6 +9,11 @@
 //! `Unavailable`. The desktop-hosted features (browser, computer) and the desktop's own
 //! preparation of git and office go through [`SetupDesktop`].
 
+mod requests;
+
+pub use requests::SetupRequests;
+pub use requests::SetupUiSurface;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -22,6 +27,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 use crate::config::Config;
+use crate::config::Settings;
 use crate::tool_modules::AUTO_EFFORT_BASES;
 use crate::tool_modules::INSTRUCTION_FILES_MODES;
 use crate::tool_modules::ToolModules;
@@ -101,9 +107,10 @@ const UNATTENDED_OWN: [&str; 5] = [
     "set_agent_route",
 ];
 
-const NATIVE: [&str; 8] = [
+const NATIVE: [&str; 10] = [
     "set_memory_enabled", "set_recap_enabled", "set_web_search_enabled", "set_instruction_files",
     "set_auto_effort_base", "set_builtin_enabled", "install_builtin", "set_worktree_settings",
+    "set_bot_order", "set_cache_warming_enabled",
 ];
 
 fn applies_to(action: &str) -> &'static str {
@@ -158,9 +165,16 @@ pub struct SetupService {
     desktop: Arc<dyn SetupDesktop>,
     voice: Arc<dyn SetupVoice>,
     owners: HashMap<&'static str, Arc<dyn SetupActions>>,
+    settings: Option<Settings>,
 }
 
 impl SetupService {
+    /// Serves the config-backed roster actions (`set_bot_order`, `set_cache_warming_enabled`).
+    pub fn with_settings(mut self, settings: Settings) -> Self {
+        self.settings = Some(settings);
+        self
+    }
+
     pub fn new(
         config: Config,
         tool_modules: Arc<ToolModules>,
@@ -168,7 +182,7 @@ impl SetupService {
         desktop: Arc<dyn SetupDesktop>,
         voice: Arc<dyn SetupVoice>,
     ) -> Self {
-        Self { tool_modules, config, callers, desktop, voice, owners: HashMap::new() }
+        Self { tool_modules, config, callers, desktop, voice, owners: HashMap::new(), settings: None }
     }
 
     /// Registers the actions an owner serves; a name this service serves itself is refused.
@@ -270,11 +284,31 @@ impl SetupService {
                         other => PortError::Failed { capability: "config".into(), message: format!("{other:?}") },
                     })
             }
+            "set_bot_order" => {
+                let settings = self.settings()?;
+                let order = settings.set_bot_order(args.get("botOrder").unwrap_or(&Value::Null)).await;
+                Ok(serde_json::json!({ "botOrder": order.map_err(from_modules)?["order"] }))
+            }
+            "set_cache_warming_enabled" => {
+                let settings = self.settings()?;
+                let view = settings
+                    .set_cache_warming_enabled(args.get("enabled").unwrap_or(&Value::Null))
+                    .await
+                    .map_err(from_modules)?;
+                Ok(serde_json::json!({ "promptCacheWarming": view["enabled"] }))
+            }
             other => Err(PortError::Unavailable {
                 capability: format!("setup.{other}"),
                 message: format!("setup {other} is not served by the config actor"),
             }),
         }
+    }
+
+    fn settings(&self) -> Result<&Settings, PortError> {
+        self.settings.as_ref().ok_or_else(|| PortError::Unavailable {
+            capability: "config.settings".into(),
+            message: "the scalar settings are not wired".into(),
+        })
     }
 
     /// Browser and computer run in the desktop window; nobody claiming is an error.

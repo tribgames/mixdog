@@ -193,7 +193,10 @@ pub(crate) fn assert_access(
 
 /// `new Date(whenAt).toISOString()`.
 fn iso(value: &str) -> Option<String> {
-    DateTime::parse_from_rfc3339(value).ok().map(|t| t.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Millis, true))
+    let ms = mixdog_js::time::date_parse(value);
+    DateTime::<Utc>::from_timestamp_millis(ms as i64)
+        .filter(|_| ms.is_finite())
+        .map(|t| t.to_rfc3339_opts(SecondsFormat::Millis, true))
 }
 
 impl AutomationSetup {

@@ -246,7 +246,7 @@ fn fold(events: &[StreamEvent]) -> Folded {
 }
 
 fn decode_all(codec: &GoogleCodec, wire: &str) -> Result<Vec<StreamEvent>, ProviderError> {
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(&fixture_request("gemini-2.5-pro"));
     let mut events = decoder.feed(wire.as_bytes())?;
     events.extend(decoder.finish()?);
     Ok(events)
@@ -280,7 +280,7 @@ fn recorded_sse_streams_fold_to_the_recorded_results() {
         // The shared codec conformance: split feeding, one terminal event, and
         // an end without it is a truncated stream.
         let cut = load(p.dir, "truncated-eof");
-        check_wire_codec(&p.codec, text.content().served.as_bytes(), cut.content().served.as_bytes(), 17);
+        check_wire_codec(&p.codec, &fixture_request("gemini-2.5-pro"), text.content().served.as_bytes(), cut.content().served.as_bytes(), 17);
     }
 }
 
@@ -305,7 +305,7 @@ fn vertex_chunks_decode_as_sse_with_cache_exclusive_usage() {
     for p in providers().into_iter().filter(|p| p.dir.starts_with("vertex")) {
         let text = as_sse(&load(p.dir, "text").content().served);
         let first_chunk = text.split("\n\n").next().unwrap().to_owned() + "\n\n";
-        check_wire_codec(&p.codec, text.as_bytes(), first_chunk.as_bytes(), 31);
+        check_wire_codec(&p.codec, &fixture_request("gemini-2.5-pro"), text.as_bytes(), first_chunk.as_bytes(), 31);
         let (content, _, usage, stop) = fold(&decode_all(&p.codec, &text).unwrap());
         assert_eq!((content.as_str(), usage, stop), ("The result is 42.", Some((20, 8)), None));
 
@@ -558,6 +558,184 @@ async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<S
 
 fn gemini_adapter(http: Arc<Scripted>) -> super::adapter::GoogleAdapter {
     super::gemini("key-1", http, traits())
+}
+
+struct TokioRuntime;
+
+impl super::cache::layer::CacheRuntime for TokioRuntime {
+    fn now_ms(&self) -> u64 {
+        NOW_MS
+    }
+    fn spawn(&self, task: futures::future::BoxFuture<'static, ()>) {
+        tokio::spawn(task);
+    }
+    fn spawn_after(&self, _delay_ms: u64, _task: futures::future::BoxFuture<'static, ()>) {}
+    fn deadline(&self, _ms: u64) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(futures::future::pending())
+    }
+}
+
+/// A cached request the server answers 400: the cache is forgotten (registry
+/// and session state) and the request is resent once without it, never again.
+#[tokio::test]
+async fn a_rejected_cache_is_dropped_and_the_request_resent_once_uncached() {
+    use super::cache::layer::ExplicitCache;
+    use super::cache::policy::Tuning;
+    use super::cache::registry::Registry;
+    use mixdog_core_api::domain::provider::ProviderState;
+    use mixdog_core_api::domain::provider::StreamEvent;
+
+    let text = load("gemini", "text");
+    let create = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTokenCount":3000}}"#;
+    let http = Scripted::new(vec![
+        respond(200, create),
+        respond(400, r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"rejected"}}"#),
+        respond(200, &text.content().served),
+    ]);
+    let registry = Arc::new(Registry::default());
+    let cache = ExplicitCache::new(
+        "key-1",
+        super::codec::GEMINI_ORIGIN,
+        http.clone(),
+        Arc::new(TokioRuntime),
+        registry.clone(),
+        Tuning::default(),
+    );
+    let adapter = super::gemini("key-1", http.clone(), traits()).with_cache(cache);
+    let say = |role, t: String| Message::new(role, Content::Text(t));
+    let mut request = fixture_request("gemini-2.5-pro");
+    request.messages = vec![
+        say(Role::System, "x".repeat(12_000)),
+        say(Role::User, "first".into()),
+        say(Role::Assistant, "second".into()),
+        say(Role::User, "third".into()),
+    ];
+    let (events, err) = collect(&adapter, request).await;
+    assert!(err.is_none());
+    assert_eq!(fold(&events).0, "The result is 42.");
+    let sent = http.seen.lock().unwrap();
+    assert_eq!(sent.len(), 3, "one create, the cached send, one uncached resend");
+    assert!(sent[0].url.ends_with("/v1beta/cachedContents"));
+    let body = |i: usize| -> serde_json::Value { serde_json::from_slice(&sent[i].body).unwrap() };
+    assert_eq!(body(1)["cachedContent"], "cachedContents/c1");
+    assert!(body(2).get("cachedContent").is_none());
+    assert!(!registry.name_is_live("cachedContents/c1", NOW_MS));
+    let states: Vec<_> = events.iter().filter_map(|e| if let StreamEvent::ProviderState(s) = e { Some(s) } else { None }).collect();
+    assert_eq!(states.last(), Some(&&ProviderState::default()));
+}
+
+fn cached_adapter(steps: Vec<Step>) -> (super::adapter::GoogleAdapter, Arc<Scripted>) {
+    use super::cache::layer::ExplicitCache;
+    use super::cache::policy::Tuning;
+    use super::cache::registry::Registry;
+
+    let http = Scripted::new(steps);
+    let cache = ExplicitCache::new(
+        "key-1",
+        super::codec::GEMINI_ORIGIN,
+        http.clone(),
+        Arc::new(TokioRuntime),
+        Arc::new(Registry::default()),
+        Tuning::default(),
+    );
+    (super::gemini("key-1", http.clone(), traits()).with_cache(cache), http)
+}
+
+fn big_request() -> ModelRequest {
+    let say = |role, t: String| Message::new(role, Content::Text(t));
+    let mut request = fixture_request("gemini-2.5-pro");
+    request.messages = vec![
+        say(Role::System, "x".repeat(12_000)),
+        say(Role::User, "first".into()),
+        say(Role::Assistant, "second".into()),
+        say(Role::User, "third".into()),
+    ];
+    request
+}
+
+fn held_state() -> mixdog_core_api::domain::provider::ProviderState {
+    serde_json::from_value(json!({
+        "gemini": {
+            "cacheName": "cachedContents/old", "cacheCreatedAt": 1, "cacheCreatedAtIter": 1,
+            "cacheExpiresAt": 2, "cacheModel": "gemini-2.5-pro", "cacheTokenSize": 3,
+            "cachePrefixContentCount": 1, "cachePrefixHash": "h", "cacheCredentialFingerprint": "f"
+        },
+        "providerAccountId": "acct-1"
+    }))
+    .unwrap()
+}
+
+const CREATE_C1: &str = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTokenCount":3000}}"#;
+const REJECTED: &str = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"rejected"}}"#;
+
+/// After a cached rejection the uncached resend runs once; if it fails, the
+/// error carries no state (Node persists state from a delivered result only).
+#[tokio::test]
+async fn a_failing_resend_after_a_cache_reset_persists_no_state() {
+    let fault = || ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent);
+    let cases = [
+        ("retry transport failure", Step::Fail(fault())),
+        ("retry 500", respond(500, r#"{"error":{"code":500,"status":"INTERNAL","message":"boom"}}"#)),
+        ("retry 403", respond(403, r#"{"error":{"code":403,"status":"PERMISSION_DENIED","message":"no"}}"#)),
+    ];
+    for (name, retry) in cases {
+        let (adapter, http) = cached_adapter(vec![respond(200, CREATE_C1), respond(400, REJECTED), retry]);
+        let mut request = big_request();
+        request.options.provider_state = Some(held_state());
+        let (_, err) = collect(&adapter, request).await;
+        let err = err.unwrap_or_else(|| panic!("{name}: fails"));
+        assert!(err.provider_state.is_none(), "{name}: a failed send persists no state");
+        assert_eq!(http.seen.lock().unwrap().len(), 3, "{name}: create, cached send, one resend");
+    }
+}
+
+/// A 401 on the key drops every cache made under it from the process registry
+/// (Node `gemini.mjs:667`), and the key is not resent.
+#[tokio::test]
+async fn a_rejected_key_drops_its_caches_from_the_registry() {
+    use super::cache::layer::ExplicitCache;
+    use super::cache::policy::Tuning;
+    use super::cache::registry::Registry;
+
+    let create = r#"{"name":"cachedContents/c9","usageMetadata":{"totalTokenCount":3000}}"#;
+    let http = Scripted::new(vec![
+        respond(200, create),
+        respond(401, r#"{"error":{"code":401,"status":"UNAUTHENTICATED","message":"bad key"}}"#),
+    ]);
+    let registry = Arc::new(Registry::default());
+    let cache = ExplicitCache::new(
+        "key-1",
+        super::codec::GEMINI_ORIGIN,
+        http.clone(),
+        Arc::new(TokioRuntime),
+        registry.clone(),
+        Tuning::default(),
+    );
+    let adapter = super::gemini("key-1", http.clone(), traits()).with_cache(cache);
+    let say = |role, t: String| Message::new(role, Content::Text(t));
+    let mut request = fixture_request("gemini-2.5-pro");
+    request.messages = vec![
+        say(Role::System, "x".repeat(12_000)),
+        say(Role::User, "first".into()),
+        say(Role::Assistant, "second".into()),
+        say(Role::User, "third".into()),
+    ];
+    // The session already holds a Gemini cache and other providers' keys.
+    let held: mixdog_core_api::domain::provider::ProviderState = serde_json::from_value(json!({
+        "gemini": {
+            "cacheName": "cachedContents/old", "cacheCreatedAt": 1, "cacheCreatedAtIter": 1,
+            "cacheExpiresAt": 2, "cacheModel": "gemini-2.5-pro", "cacheTokenSize": 3,
+            "cachePrefixContentCount": 1, "cachePrefixHash": "h", "cacheCredentialFingerprint": "f"
+        },
+        "providerAccountId": "acct-1"
+    }))
+    .unwrap();
+    request.options.provider_state = Some(held);
+    let (_, err) = collect(&adapter, request).await;
+    let err = err.expect("401 surfaces");
+    assert!(err.provider_state.is_none(), "Node persists no state from a failed send");
+    assert_eq!(http.seen.lock().unwrap().len(), 2, "create and one send; a static key is not resent");
+    assert!(!registry.name_is_live("cachedContents/c9", NOW_MS));
 }
 
 #[tokio::test]

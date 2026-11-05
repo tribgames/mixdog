@@ -26,7 +26,7 @@ use super::config::RoomConfigInput;
 use super::ids::{MIXY_AGENT_ID, room_member_session_id, room_session_id};
 use super::records::{RoomPatch, RoomRecord, RoomStore, Rooms};
 use crate::domains::OpScopes;
-use crate::domains::support::{decode, failed, wrong_method};
+use crate::domains::support::{coded, decode, wrong_method};
 
 /// An agent contact as the room needs it.
 #[derive(Clone, Debug)]
@@ -135,7 +135,7 @@ fn failure(error: RoomError) -> CoreError {
         RoomError::PreconditionFailed(_) => "preconditionFailed",
         RoomError::Port(_) => "failed",
     };
-    failed("room", code, error.to_string())
+    coded("room", code, error.to_string())
 }
 
 pub struct RoomService<S: RoomStore, H: RoomHost, R: RoomRunner> {
@@ -329,6 +329,10 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
                 || async { Ok(json!({})) },
             )
             .await
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &["room/create", "room/update", "room/continue", "room/leave", "room/remove"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

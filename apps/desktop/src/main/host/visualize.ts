@@ -5,16 +5,18 @@
  * body, the result is the value the bridge wrapped as `{ ...value, ok: true }`,
  * and a failure carries the same message the bridge answered as `{ ok: false, error }`.
  */
+import type { HostVisualizeCommandParams } from '../../../../../packages/protocol/src/index.ts';
+import type { VisualizeHostEvent, VisualizeHostState } from '../../shared/visualize';
 import { HOST_COMMAND_FAILED, HostRpcError, type HostConnection, objectParams } from './connection';
-import { HOST_STATE_SET } from './browser-tabs';
+import { sendHostState } from './browser-tabs';
 
 export const HOST_VISUALIZE_COMMAND = 'host/visualize/command';
 
 export interface VisualizeControl {
   /** The visualize service's `execute` (what the bridge ran). */
   execute(command: object): Promise<unknown>;
-  /** The service's `hostSnapshot`: every session's host state, sent again on a claim. */
-  snapshot(): unknown;
+  /** The service's `hostSnapshot`: every session's host state (a list), sent again on a claim. */
+  snapshot(): VisualizeHostState[];
 }
 
 export function createVisualizeHost(
@@ -24,22 +26,21 @@ export function createVisualizeHost(
   onPublishFailed: (error: unknown) => void
 ) {
   connection.handleRequest(HOST_VISUALIZE_COMMAND, async (params) => {
-    const command = objectParams(params, HOST_VISUALIZE_COMMAND);
+    const command = objectParams<HostVisualizeCommandParams>(params, HOST_VISUALIZE_COMMAND);
     try {
       return (await control().execute(command)) ?? null;
     } catch (error) {
       throw new HostRpcError(HOST_COMMAND_FAILED, (error as Error)?.message || String(error));
     }
   });
-  const send = (value: unknown): Promise<void> =>
-    connection.request(HOST_STATE_SET, { section: 'visualize', value }).then(() => undefined);
   return {
     /** A change event of the service's `publishRemote`. */
-    publish: send,
+    publish: (event: VisualizeHostEvent): Promise<void> =>
+      sendHostState(connection, { key: 'visualize', value: event }),
     /** After a claim: the core learns every session's tabs again. */
     start(): void {
       void Promise.resolve()
-        .then(() => send(control().snapshot()))
+        .then(() => sendHostState(connection, { key: 'visualize', value: control().snapshot() }))
         .catch(onPublishFailed);
     },
   };

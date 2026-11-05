@@ -19,6 +19,9 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
+use mixdog_core_api::domain::provider::GeminiCacheState;
+
+use super::cache::policy::cached_body;
 use super::decode::DecodeDialect;
 use super::decode::GeminiDecoder;
 use super::decode::UsageStyle;
@@ -221,8 +224,49 @@ impl WireCodec for GoogleCodec {
     }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        let inner = self.build_inner(request)?;
+        self.wire(request, &inner, None)
+    }
+
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
+        self.decoder_impl()
+    }
+
+    fn classify(&self, response: &ErrorResponse) -> ProviderError {
+        classify(response, self.error_dialect())
+    }
+}
+
+/// A live explicit cache attached to a Gemini API request.
+#[derive(Clone, Copy)]
+pub struct Attach<'a> {
+    pub name: &'a str,
+    pub state: &'a GeminiCacheState,
+}
+
+impl GoogleCodec {
+    /// The Gemini-shaped request object, before any endpoint envelope.
+    pub fn build_inner(&self, request: &ModelRequest) -> Result<Value, ProviderError> {
+        self.model_id(&request.model)?;
+        build_request(request, &self.dialect(), self.traits.as_ref())
+    }
+
+    /// The HTTP request for `inner`; with `cache` the body carries only the
+    /// uncached tail and `cachedContent` (the cache holds the rest).
+    pub fn wire(
+        &self,
+        request: &ModelRequest,
+        inner: &Value,
+        cache: Option<Attach<'_>>,
+    ) -> Result<WireRequest, ProviderError> {
         let id = self.model_id(&request.model)?;
-        let mut inner = build_request(request, &self.dialect(), self.traits.as_ref())?;
+        let mut inner = match cache {
+            Some(attach) => {
+                let contents = inner["contents"].as_array().map(Vec::as_slice).unwrap_or_default();
+                cached_body(attach.name, attach.state, contents, inner.get("generationConfig"))
+            }
+            None => inner.clone(),
+        };
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
             Target::Gemini { origin } => (
@@ -278,7 +322,7 @@ impl WireCodec for GoogleCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder_impl(&self) -> Box<dyn WireDecoder> {
         Box::new(GeminiDecoder::new(DecodeDialect {
             owner: self.provider.clone(),
             envelope: matches!(self.target, Target::Antigravity { .. }),
@@ -289,9 +333,5 @@ impl WireCodec for GoogleCodec {
             },
             errors: self.error_dialect(),
         }))
-    }
-
-    fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify(response, self.error_dialect())
     }
 }

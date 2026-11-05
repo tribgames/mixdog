@@ -21,6 +21,8 @@ mod policy;
 #[cfg(test)]
 mod effort_tests;
 #[cfg(test)]
+mod shared_prefix_tests;
+#[cfg(test)]
 mod tests;
 
 pub use adapter::AnthropicAdapter;

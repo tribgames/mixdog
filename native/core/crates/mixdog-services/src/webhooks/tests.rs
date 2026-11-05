@@ -185,6 +185,34 @@ async fn content_type_json_and_self_comment_gates() {
     assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
 }
 
+#[test]
+fn transport_collector_joins_chunks_and_caps_the_wire_body() {
+    // Chunks split inside a multi-byte character join byte for byte.
+    let body = [0xe2, 0x82, 0xac, 0x00, 0xff];
+    let mut c = BodyCollector::default();
+    c.push(&body[..2]).unwrap();
+    c.push(&body[2..]).unwrap();
+    assert_eq!(c.finish(), Some(body.to_vec()));
+
+    // Exactly the cap is accepted.
+    let mut c = BodyCollector::default();
+    c.push(&vec![b'a'; MAX_BODY_BYTES]).unwrap();
+    assert_eq!(c.finish().map(|b| b.len()), Some(MAX_BODY_BYTES));
+
+    // One byte past the cap, spread over small chunks: the 413 comes once, at the chunk that
+    // crosses it, and nothing is buffered beyond the cap.
+    let mut c = BodyCollector::default();
+    let chunk = vec![b'a'; 1024 * 1024];
+    for _ in 0..5 {
+        c.push(&chunk).unwrap();
+    }
+    let reply = c.push(&[b'b']).unwrap_err();
+    assert_eq!(reply.status, 413);
+    assert_eq!(reply.body, json!({"error":"payload too large","limit":MAX_BODY_BYTES}));
+    c.push(&chunk).unwrap(); // discarded, no second reply
+    assert_eq!(c.finish(), None);
+}
+
 #[tokio::test]
 async fn oversized_body_is_413_and_listener_counts_as_work() {
     let f = fx(WebhookConfig::default());
@@ -196,4 +224,182 @@ async fn oversized_body_is_413_and_listener_counts_as_work() {
     assert_eq!(f.work.count(), 1);
     drop(listening);
     assert!(f.work.is_idle());
+}
+
+// ---- transport: the real listener over loopback ----
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+async fn serve_on_loopback(f: &Fx) -> WebhookListener {
+    let service = Arc::new(WebhookService::new(f.store.clone(), f.dispatched.clone(), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
+    WebhookListener::start(service, 0).await.unwrap()
+}
+
+/// Sends `parts` one after the other and returns (status, body text) of the whole reply.
+async fn exchange(port: u16, parts: &[&[u8]]) -> (u16, String) {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    for part in parts {
+        stream.write_all(part).await.unwrap();
+    }
+    let mut reply = Vec::new();
+    stream.read_to_end(&mut reply).await.unwrap();
+    let text = String::from_utf8(reply).unwrap();
+    let (head, body) = text.split_once("\r\n\r\n").unwrap();
+    (head.split(' ').nth(1).unwrap().parse().unwrap(), body.to_string())
+}
+
+fn post(path: &str, headers: &[(&str, &str)], framing: &str) -> Vec<u8> {
+    let mut head = format!("POST {path} HTTP/1.1\r\nHost: x\r\n{framing}");
+    for (k, v) in headers {
+        head.push_str(&format!("{k}: {v}\r\n"));
+    }
+    head.push_str("\r\n");
+    head.into_bytes()
+}
+
+#[tokio::test]
+async fn the_listener_routes_gets_and_posts_and_walks_past_a_busy_port() {
+    let f = fx(WebhookConfig::default());
+    let busy = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let busy_port = busy.local_addr().unwrap().port();
+    let service = Arc::new(WebhookService::new(f.store.clone(), f.dispatched.clone(), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
+    let listener = WebhookListener::start(service, busy_port).await.unwrap();
+    assert!((busy_port + 1..=busy_port + 7).contains(&listener.port()), "walked up from the busy port");
+    assert_eq!(f.work.count(), 1, "a listening server is running work");
+
+    assert_eq!(exchange(listener.port(), &[b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"]).await, (200, "OK".into()));
+    assert_eq!(exchange(listener.port(), &[b"GET /nope HTTP/1.1\r\n\r\n"]).await, (404, "Not Found".into()));
+    assert_eq!(exchange(listener.port(), &[b"POST /elsewhere HTTP/1.1\r\n\r\n"]).await, (404, "Not Found".into()));
+
+    listener.stop().await;
+    assert!(f.work.is_idle());
+    drop(busy);
+}
+
+#[tokio::test]
+async fn a_signed_body_arrives_byte_exact_whether_sized_or_chunked() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let body = r#"{"a":"€"}"#.as_bytes();
+    let sig = sign("s3", body);
+    let signed = [JSON_CT, ("x-hub-signature-256", sig.as_str()), ("x-github-delivery", "t1")];
+
+    // Content-Length, the body split across writes (and inside the multi-byte character).
+    let length = format!("Content-Length: {}\r\n", body.len());
+    let head = post("/webhook/hook", &signed, &length);
+    let (status, text) = exchange(listener.port(), &[&head, &body[..7], &body[7..]]).await;
+    assert_eq!(status, 200, "{text}");
+    assert!(text.contains("accepted"));
+
+    // Chunked, with another delivery id so it is not a replay.
+    let other = [JSON_CT, ("x-hub-signature-256", sig.as_str()), ("x-github-delivery", "t2")];
+    let head = post("/webhook/hook", &other, "Transfer-Encoding: chunked\r\n");
+    let chunked = [b"4\r\n".as_slice(), &body[..4], b"\r\n", format!("{:x}\r\n", body.len() - 4).as_bytes(), &body[4..], b"\r\n0\r\n\r\n"].concat();
+    let (status, text) = exchange(listener.port(), &[&head, &chunked]).await;
+    assert_eq!(status, 200, "{text}");
+
+    let seen = f.dispatched.0.lock().unwrap().clone();
+    assert_eq!(seen, vec![("hook".to_string(), json!({"a": "€"})); 2]);
+    listener.stop().await;
+}
+
+#[tokio::test]
+async fn the_endpoint_gate_answers_before_any_body_is_read() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    // A declared body that never comes: the 404 must not wait for it.
+    let head = post("/webhook/nope", &[JSON_CT], "Content-Length: 1000\r\n");
+    let (status, text) = exchange(listener.port(), &[&head]).await;
+    assert_eq!((status, text.as_str()), (404, r#"{"error":"unknown endpoint"}"#));
+    listener.stop().await;
+}
+
+#[tokio::test]
+async fn a_body_past_the_cap_gets_413_at_the_crossing_chunk_and_never_dispatches() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let total = MAX_BODY_BYTES + 1;
+    let head = post("/webhook/hook", &[JSON_CT], &format!("Content-Length: {total}\r\n"));
+    let megabyte = vec![b' '; 1024 * 1024];
+    let mut parts: Vec<&[u8]> = vec![&head];
+    parts.extend(std::iter::repeat_n(megabyte.as_slice(), MAX_BODY_BYTES / megabyte.len()));
+    parts.push(b" ");
+    let (status, text) = exchange(listener.port(), &parts).await;
+    assert_eq!(status, 413);
+    assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), json!({"error":"payload too large","limit":MAX_BODY_BYTES}));
+    assert!(f.dispatched.0.lock().unwrap().is_empty());
+    assert!(f.store.deliveries.lock().unwrap().is_empty());
+    listener.stop().await;
+}
+
+mod lifecycle_tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    use super::*;
+    use crate::webhooks::lifecycle::{HookTunnel, LocalPort, TunnelStarter, WebhookServer};
+
+    struct Fake {
+        closed: Arc<AtomicBool>,
+    }
+    impl HookTunnel for Fake {
+        fn public_base(&self) -> String {
+            "https://relay.example/hook/dev-1".into()
+        }
+        fn close(&mut self) {
+            self.closed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Default)]
+    struct Starter {
+        mode: usize,
+        starts: AtomicUsize,
+        closed: Arc<AtomicBool>,
+        port_seen: Mutex<Option<LocalPort>>,
+    }
+    #[async_trait]
+    impl TunnelStarter for Starter {
+        async fn start(&self, port: LocalPort) -> Result<Option<Box<dyn HookTunnel>>, String> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            *self.port_seen.lock().unwrap() = Some(port);
+            match self.mode {
+                0 => Ok(Some(Box::new(Fake { closed: self.closed.clone() }))),
+                1 => Ok(None),
+                _ => Err("boom".into()),
+            }
+        }
+    }
+
+    async fn server(starter: &Arc<Starter>) -> WebhookServer {
+        let f = fx(WebhookConfig::default());
+        let service = Arc::new(WebhookService::new(f.store.clone(), f.dispatched.clone(), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
+        WebhookServer::new(service, starter.clone(), 0)
+    }
+
+    #[tokio::test]
+    async fn the_tunnel_starts_once_the_listener_is_bound_and_closes_before_it_stops() {
+        let starter = Arc::new(Starter::default());
+        let mut server = server(&starter).await;
+        server.start().await.unwrap();
+        server.start().await.unwrap();
+        assert_eq!(starter.starts.load(Ordering::SeqCst), 1);
+        let port = server.port().unwrap();
+        assert_eq!(starter.port_seen.lock().unwrap().as_ref().unwrap().get(), Some(port), "the tunnel reads the bound port");
+        assert_eq!(server.url("gh"), "https://relay.example/hook/dev-1/webhook/gh");
+        server.stop().await;
+        assert!(starter.closed.load(Ordering::SeqCst));
+        assert_eq!(starter.port_seen.lock().unwrap().as_ref().unwrap().get(), None, "a stopped server has no local port");
+    }
+
+    #[tokio::test]
+    async fn a_disabled_or_failed_tunnel_leaves_the_local_url() {
+        for mode in [1, 2] {
+            let starter = Arc::new(Starter { mode, ..Default::default() });
+            let mut server = server(&starter).await;
+            server.start().await.unwrap();
+            assert_eq!(server.url("gh"), format!("http://localhost:{}/webhook/gh", server.port().unwrap()));
+            server.stop().await;
+        }
+    }
 }

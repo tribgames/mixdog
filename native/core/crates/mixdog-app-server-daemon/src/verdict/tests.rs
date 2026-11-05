@@ -256,12 +256,18 @@ pub(crate) fn idle_child_process(listen: bool) -> (SelfChild, Option<u16>) {
 // LR §3.1 decision table
 // ---------------------------------------------------------------------------
 
-fn facts(record: Option<&str>, discovery: Option<&str>, claim: ClaimLock) -> Facts {
-    Facts {
-        record: record.map(|r| r.as_bytes().to_vec()),
-        discovery: discovery.map(|d| d.as_bytes().to_vec()),
-        claim,
-    }
+fn owner(record: Option<&str>, discovery: Option<&str>, table: &FakeTable) -> Option<Verdict> {
+    judge_owner(
+        record.map(str::as_bytes),
+        discovery.map(str::as_bytes),
+        table,
+        &[],
+    )
+    .unwrap()
+}
+
+fn claim(lock: ClaimLock, table: &FakeTable) -> ClaimJudgement {
+    judge_claim(&lock, table, &[]).unwrap()
 }
 
 const P: u32 = 4242;
@@ -272,37 +278,36 @@ fn held(text: &str) -> ClaimLock {
 
 #[test]
 fn barrier_present_is_clear() {
-    let table = FakeTable::default().run(P, 1).listen(P, 9000);
-    let record = format!(r#"{{"pid":{P},"livenessPort":9000}}"#);
     assert_eq!(
-        decide(&facts(Some(&record), None, ClaimLock::Barrier), &table, &[]).unwrap(),
-        Verdict::Clear(None)
+        claim(ClaimLock::Barrier, &FakeTable::default()),
+        ClaimJudgement::Barrier
+    );
+}
+
+#[test]
+fn absent_claim_lock_is_taken_before_the_owner_is_judged() {
+    assert_eq!(
+        claim(ClaimLock::Absent, &FakeTable::default()),
+        ClaimJudgement::Free(Take::Absent)
     );
 }
 
 #[test]
 fn record_names_dead_pid_is_clear() {
     let record = format!(r#"{{"pid":{P},"livenessPort":9000}}"#);
-    let verdict = decide(
-        &facts(Some(&record), None, ClaimLock::Absent),
-        &FakeTable::default(),
-        &[],
-    )
-    .unwrap();
-    assert_eq!(verdict, Verdict::Clear(Some(Take::Absent)));
+    assert_eq!(owner(Some(&record), None, &FakeTable::default()), None);
 }
 
 #[test]
 fn record_owner_listening_on_its_liveness_port_must_exit() {
     let table = FakeTable::default().run(P, 1).listen(P, 9000);
     let record = format!(r#"{{"pid":{P},"livenessPort":9000}}"#);
-    let verdict = decide(&facts(Some(&record), None, ClaimLock::Absent), &table, &[]).unwrap();
     assert_eq!(
-        verdict,
-        Verdict::WaitExit {
+        owner(Some(&record), None, &table),
+        Some(Verdict::WaitExit {
             process: info(P, 1),
             proven: true
-        }
+        })
     );
 }
 
@@ -310,24 +315,26 @@ fn record_owner_listening_on_its_liveness_port_must_exit() {
 fn reused_pid_without_the_liveness_socket_is_clear() {
     let table = FakeTable::default().run(P, 1).listen(P, 9001);
     let record = format!(r#"{{"pid":{P},"livenessPort":9000}}"#);
-    let verdict = decide(&facts(Some(&record), None, ClaimLock::Absent), &table, &[]).unwrap();
-    assert_eq!(verdict, Verdict::Clear(Some(Take::Absent)));
+    assert_eq!(owner(Some(&record), None, &table), None);
 }
 
 #[test]
 fn record_without_liveness_port_naming_a_live_pid_is_undecidable() {
     let table = FakeTable::default().run(P, 1);
     let record = format!(r#"{{"pid":{P},"heartbeatAt":"x"}}"#);
-    let verdict = decide(&facts(Some(&record), None, ClaimLock::Absent), &table, &[]).unwrap();
-    assert_eq!(verdict, Verdict::Undecidable(info(P, 1)));
+    assert_eq!(
+        owner(Some(&record), None, &table),
+        Some(Verdict::Undecidable(info(P, 1)))
+    );
 }
 
 #[test]
 fn released_identity_is_not_an_owner() {
     let table = FakeTable::default().run(P, 1);
     let record = format!(r#"{{"pid":{P}}}"#);
-    let verdict = decide(
-        &facts(Some(&record), None, ClaimLock::Absent),
+    let verdict = judge_owner(
+        Some(record.as_bytes()),
+        None,
         &table,
         &[ProcessIdentity {
             pid: P,
@@ -335,7 +342,7 @@ fn released_identity_is_not_an_owner() {
         }],
     )
     .unwrap();
-    assert_eq!(verdict, Verdict::Clear(Some(Take::Absent)));
+    assert_eq!(verdict, None);
 }
 
 #[test]
@@ -343,8 +350,12 @@ fn own_pid_is_never_a_prior_owner() {
     let own = std::process::id();
     let table = FakeTable::default().run(own, 1).listen(own, 9000);
     let record = format!(r#"{{"pid":{own},"livenessPort":9000}}"#);
-    let verdict = decide(&facts(Some(&record), None, ClaimLock::Absent), &table, &[]).unwrap();
-    assert_eq!(verdict, Verdict::Clear(Some(Take::Absent)));
+    assert_eq!(owner(Some(&record), None, &table), None);
+    let lock = held(&format!("{own} 0 mixdog-core:x"));
+    assert!(matches!(
+        claim(lock, &table),
+        ClaimJudgement::Free(Take::DeadHolder(_))
+    ));
 }
 
 #[test]
@@ -353,42 +364,24 @@ fn barrier_record_text_pid_defers_to_discovery() {
     let discovery =
         format!(r#"{{"pid":{P},"endpoints":{{"session":{{"port":9100,"token":"t"}}}}}}"#);
     let table = FakeTable::default().run(P, 1).listen(P, 9100);
-    let verdict = decide(
-        &facts(Some(barrier_record), Some(&discovery), ClaimLock::Absent),
-        &table,
-        &[],
-    )
-    .unwrap();
     assert_eq!(
-        verdict,
-        Verdict::WaitExit {
+        owner(Some(barrier_record), Some(&discovery), &table),
+        Some(Verdict::WaitExit {
             process: info(P, 1),
             proven: true
-        }
+        })
     );
 
     let not_listening = FakeTable::default().run(P, 1);
-    let verdict = decide(
-        &facts(None, Some(&discovery), ClaimLock::Absent),
-        &not_listening,
-        &[],
-    )
-    .unwrap();
     assert_eq!(
-        verdict,
-        Verdict::WaitExit {
+        owner(None, Some(&discovery), &not_listening),
+        Some(Verdict::WaitExit {
             process: info(P, 1),
             proven: false
-        }
+        })
     );
 
-    let verdict = decide(
-        &facts(None, Some(&discovery), ClaimLock::Absent),
-        &FakeTable::default(),
-        &[],
-    )
-    .unwrap();
-    assert_eq!(verdict, Verdict::Clear(Some(Take::Absent)));
+    assert_eq!(owner(None, Some(&discovery), &FakeTable::default()), None);
 }
 
 #[test]
@@ -397,42 +390,33 @@ fn a_core_discovery_is_never_a_prior_owner() {
         r#"{{"pid":{P},"endpoints":{{"session":{{"port":9100,"token":"t"}}}},"core":{{}}}}"#
     );
     let table = FakeTable::default().run(P, 1).listen(P, 9100);
-    let verdict = decide(
-        &facts(None, Some(&discovery), ClaimLock::Absent),
-        &table,
-        &[],
-    )
-    .unwrap();
-    assert_eq!(verdict, Verdict::Clear(Some(Take::Absent)));
+    assert_eq!(owner(None, Some(&discovery), &table), None);
 }
 
 #[test]
 fn claim_lock_held_by_its_live_writer_waits_for_a_change() {
     let table = FakeTable::default().run(P, 1_000);
-    let claim = held(&format!("{P} 2000 abcdef"));
     assert_eq!(
-        decide(&facts(None, None, claim), &table, &[]).unwrap(),
-        Verdict::WaitClaim(info(P, 1_000))
+        claim(held(&format!("{P} 2000 abcdef")), &table),
+        ClaimJudgement::Blocked(Verdict::WaitClaim(info(P, 1_000)))
     );
 }
 
 #[test]
 fn claim_lock_naming_a_process_started_after_it_is_undecidable() {
     let table = FakeTable::default().run(P, 3_000);
-    let claim = held(&format!("{P} 2000 abcdef"));
     assert_eq!(
-        decide(&facts(None, None, claim), &table, &[]).unwrap(),
-        Verdict::Undecidable(info(P, 3_000))
+        claim(held(&format!("{P} 2000 abcdef")), &table),
+        ClaimJudgement::Blocked(Verdict::Undecidable(info(P, 3_000)))
     );
 }
 
 #[test]
 fn claim_lock_of_a_dead_holder_is_taken_by_reclaim() {
     let text = format!("{P} 2000 abcdef\n");
-    let verdict = decide(&facts(None, None, held(&text)), &FakeTable::default(), &[]).unwrap();
     assert_eq!(
-        verdict,
-        Verdict::Clear(Some(Take::DeadHolder(text.into_bytes())))
+        claim(held(&text), &FakeTable::default()),
+        ClaimJudgement::Free(Take::DeadHolder(text.into_bytes()))
     );
 }
 
@@ -440,22 +424,12 @@ fn claim_lock_of_a_dead_holder_is_taken_by_reclaim() {
 fn legacy_lock_directories() {
     let table = FakeTable::default();
     assert_eq!(
-        decide(
-            &facts(None, None, ClaimLock::Dir { empty: true }),
-            &table,
-            &[]
-        )
-        .unwrap(),
-        Verdict::Clear(Some(Take::EmptyDir))
+        claim(ClaimLock::Dir { empty: true }, &table),
+        ClaimJudgement::Free(Take::EmptyDir)
     );
     assert_eq!(
-        decide(
-            &facts(None, None, ClaimLock::Dir { empty: false }),
-            &table,
-            &[]
-        )
-        .unwrap(),
-        Verdict::Unusable
+        claim(ClaimLock::Dir { empty: false }, &table),
+        ClaimJudgement::Blocked(Verdict::Unusable)
     );
 }
 

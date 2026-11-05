@@ -5,6 +5,7 @@
  * and sends each JPEG paint as one X17 binary frame. Nothing is captured or
  * sent while nobody views.
  */
+import type { HostBrowserViewFramesParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame, DesktopRemoteBrowserStreamOptions } from '../../shared/contract';
 import { HOST_INVALID_PARAMS, HOST_METHOD, type HostConnection, HostRpcError, objectParams } from './connection';
 import { encodeMediaFrame, MEDIA_FLAG_FIT_FAILED, MEDIA_FLAG_FIT_SETTLED } from './media-frame';
@@ -36,7 +37,12 @@ function streamOptions(request: unknown): DesktopRemoteBrowserStreamOptions {
   };
 }
 
-export function createBrowserView(connection: HostConnection, control: BrowserViewControl) {
+export function createBrowserView(
+  connection: HostConnection,
+  control: BrowserViewControl,
+  /** A live view that could not start or renew. */
+  onFailure: (error: unknown) => void
+) {
   const viewing = new Map<string, Viewing>();
 
   function stop(tabId: string): void {
@@ -47,23 +53,27 @@ export function createBrowserView(connection: HostConnection, control: BrowserVi
     void control.remoteBrowserStream(tabId, null).catch(() => undefined);
   }
 
-  async function setFrames(params: unknown): Promise<unknown> {
-    const { tabId, streamId, on, request } = objectParams(params, HOST_METHOD.browserViewFrames);
+  // Checked here, before the notification handler returns: an invalid one throws, as `host/notification/show` does.
+  function parseFrames(params: unknown): { tabId: string; streamId: number; on: boolean; options: DesktopRemoteBrowserStreamOptions | null } {
+    const { tabId, streamId, on, request } = objectParams<HostBrowserViewFramesParams>(params, HOST_METHOD.browserViewFrames);
     if (typeof tabId !== 'string' || !tabId || !Number.isSafeInteger(streamId) || typeof on !== 'boolean') {
       throw new HostRpcError(HOST_INVALID_PARAMS, 'viewFrames needs tabId, streamId and on.');
     }
-    if (!on) {
+    return { tabId, streamId: Number(streamId), on, options: on ? streamOptions(request) : null };
+  }
+
+  async function setFrames({ tabId, streamId, on, options }: ReturnType<typeof parseFrames>): Promise<void> {
+    if (!on || !options) {
       stop(tabId);
-      return {};
+      return;
     }
-    const options = streamOptions(request);
     const existing = viewing.get(tabId);
     if (existing) {
-      existing.streamId = Number(streamId);
+      existing.streamId = streamId;
       existing.options = options;
     } else {
       const entry: Viewing = {
-        streamId: Number(streamId),
+        streamId,
         options,
         renew: setInterval(
           () => void control.remoteBrowserStream(tabId, entry.options).catch(() => undefined),
@@ -74,10 +84,12 @@ export function createBrowserView(connection: HostConnection, control: BrowserVi
       viewing.set(tabId, entry);
     }
     await control.remoteBrowserStream(tabId, options);
-    return {};
   }
 
-  connection.handleRequest(HOST_METHOD.browserViewFrames, async (params) => setFrames(params));
+  // A server notification in the protocol: nothing answers it, so a stream that cannot start is reported.
+  connection.handleNotification(HOST_METHOD.browserViewFrames, (params) => {
+    void setFrames(parseFrames(params)).catch(onFailure);
+  });
   connection.onClose(() => {
     for (const tabId of [...viewing.keys()]) stop(tabId);
   });

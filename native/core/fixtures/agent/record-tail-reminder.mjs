@@ -1,6 +1,6 @@
 // Records the goldens of the tail reminder rules (session/tail-reminder-rules.mjs).
 //
-//   node native/core/fixtures/agent/record-tail-reminder.mjs [path-to-node-checkout]
+//   node native/core/fixtures/agent/record-tail-reminder.mjs [--tree <node checkout with node_modules>]
 //
 // Each case is run through the real `matchTailReminder` and `modelFamilyId`;
 // results are written to `tail_reminder/cases.json`, which
@@ -9,9 +9,11 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const nodeRoot = resolve(process.argv[2] || process.env.MIXDOG_NODE_ROOT || 'C:/Project/mixdog');
+const nodeRoot = resolveTree(parseArgs());
+const stage = stageSet(here, ['tail_reminder']);
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-tail-'));
 const { matchTailReminder, modelFamilyId } = await import(
   pathToFileURL(join(nodeRoot, 'src/runtime/agent/orchestrator/session/tail-reminder-rules.mjs')).href
@@ -45,8 +47,10 @@ const out = {
   families: models.map((model) => ({ model, id: modelFamilyId(model) })),
   matches: contexts.map((context) => ({ context, text: matchTailReminder(context) })),
 };
-const dir = join(here, 'tail_reminder');
+const dir = join(stage, 'tail_reminder');
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, 'cases.json'), `${JSON.stringify(out, null, 2)}\n`);
+refreshSetManifest(stage, nodeRoot);
+commitStage(stage, here);
 console.log(out.families.map((f) => `${JSON.stringify(f.model)} -> ${f.id}`).join('\n'));
 console.log(out.matches.filter((m) => m.text).length, 'of', out.matches.length, 'matched');

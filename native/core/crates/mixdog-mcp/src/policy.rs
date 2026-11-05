@@ -58,12 +58,14 @@ impl GmailCardEnricher {
     }
 
     async fn describe(&self, tool: &str, args: &Value, trash: bool) -> Option<(String, Vec<String>, usize)> {
-        let (server, _) = self.hub.resolve(tool)?;
+        // The server is the second `__` segment of the name, as Node reads it (not the
+        // name's catalog entry); only the Gmail connector's server is ever asked.
+        let server = self.hub.server(tool.split("__").nth(1).unwrap_or(""))?;
         if server.config().connector.as_deref() != Some(GMAIL) {
             return None;
         }
         let ids: Vec<String> = match args.get("ids").and_then(Value::as_array) {
-            Some(list) if trash => list.iter().map(js_string).collect(),
+            Some(list) if trash => list.iter().map(value_to_string).collect(),
             _ => Vec::new(),
         };
         let shown: Vec<&String> = ids.iter().take(PREVIEW_MESSAGES).collect();
@@ -76,36 +78,46 @@ impl GmailCardEnricher {
             .call_tool_unlisted("card:describe_emails", "describe_emails", request, &CancellationToken::new(), None)
             .await
             .ok()?;
-        let text: String = output
+        // A reply with any part that is not text reaches Node's `JSON.parse` as an object, not a
+        // string, and fails there.
+        let texts = output
             .parts
             .iter()
-            .filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None })
-            .collect::<Vec<_>>()
-            .join("\n");
+            .map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None })
+            .collect::<Option<Vec<_>>>()?;
+        let text = texts.join("\n");
         let parsed: Value = serde_json::from_str(&text).ok()?;
-        let account = parsed.get("account").map(js_string).unwrap_or_default();
-        let messages = parsed
-            .get("emails")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .map(|mail| {
-                let field = |key: &str| mail.get(key).filter(|v| !v.is_null()).map(js_string).unwrap_or_default();
-                let date = mixdog_js::slice_utf16(&field("date"), 10);
-                [field("from"), field("subject"), date]
-                    .into_iter()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" · ")
-            })
-            .collect();
+        // `const { account, emails } = JSON.parse(raw)` throws on null.
+        if parsed.is_null() {
+            return None;
+        }
+        let account = truthy_text(parsed.get("account")).unwrap_or_default();
+        let mut messages = Vec::new();
+        for mail in parsed.get("emails").and_then(Value::as_array).into_iter().flatten() {
+            // `mail.from` on null throws, which leaves the card as it was.
+            if mail.is_null() {
+                return None;
+            }
+            // `filter(Boolean)` keeps a truthy value even when its text is empty (`[]`).
+            let date = truthy_text(mail.get("date")).map(|d| mixdog_js::slice_utf16(&d, 10)).filter(|d| !d.is_empty());
+            let parts = [truthy_text(mail.get("from")), truthy_text(mail.get("subject")), date];
+            messages.push(parts.into_iter().flatten().collect::<Vec<_>>().join(" · "));
+        }
         Some((account, messages, ids.len().saturating_sub(shown.len())))
     }
 }
 
-/// `String(value ?? '')`.
-fn js_string(value: &Value) -> String {
-    if value.is_null() { String::new() } else { value_to_string(value) }
+/// The JS string of `value` when it is truthy; falsy values (absent, null, false, 0, "") are None.
+fn truthy_text(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    let truthy = match value {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    };
+    truthy.then(|| value_to_string(value))
 }
 
 #[async_trait]

@@ -92,6 +92,14 @@ pub struct Turn {
     pub completed_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<TurnError>,
+    /// The model's stop reason of the turn's final answer (Node `result.stopReason`, a provider
+    /// string such as `end_turn`); on a completed turn only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    /// Why the turn ended where it did (Node `result.terminationReason`; `refusal` is the one
+    /// the headless result treats as an error); on a completed turn only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination_reason: Option<String>,
     /// Present only when the read asked for items (`itemsView`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<crate::ThreadItem>>,
@@ -387,7 +395,10 @@ pub enum Origin {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DomainErrorDetail {
     /// An external tool's or host's failure message, for codes whose Node-visible text
-    /// includes it (for example the LibreOffice install failure).
+    /// includes it. The codes: `INSTALL_FAILED` and `FAILED` (document worker: package manager
+    /// and conversion engine), `HOST_COMMAND_FAILED` (a command the desktop host answered with
+    /// a JSON-RPC error). With `code: None` it carries the text of a plain Node `Error` (one
+    /// that has no `code`), so the message reaches the user unchanged.
     ExternalFailure { message: String },
     /// `WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.
     #[serde(rename_all = "camelCase")]
@@ -691,7 +702,22 @@ pub enum DomainErrorDetail {
         #[ts(optional, type = "number")]
         count: Option<u64>,
     },
-    /// Room and schedule refusals: the public display param.
+    /// `ROOM_MEMBER_SWITCHED_OFF`: a message names a room member whose bot is switched off
+    /// (Node `details: {name}`, the member's display name).
+    #[serde(rename_all = "camelCase")]
+    RoomMemberSwitchedOff { name: String },
+    /// `SCHEDULE_NAME_TAKEN`: another schedule has the name (`name` is the name asked for).
+    #[serde(rename_all = "camelCase")]
+    ScheduleNameTaken { name: String },
+    /// `SCHEDULE_RENAME_RUNNING`: a run of the schedule, or another rename of it, is in flight.
+    #[serde(rename_all = "camelCase")]
+    ScheduleRenameRunning { name: String },
+    /// `SCHEDULE_RENAME_RELOAD_FAILED`: the row moved but the scheduler did not reload (`name`
+    /// is the new name). `SCHEDULE_RENAME_UNCERTAIN` carries no detail.
+    #[serde(rename_all = "camelCase")]
+    ScheduleRenameReloadFailed { name: String },
+    /// A failure whose only structured part is a text shown as is; the SCM engine puts the
+    /// git or gh text of a code that has no fields of its own here, in `name`.
     #[serde(rename_all = "camelCase")]
     Display { name: String },
     /// A command failure whose text is shown to the user verbatim (git or

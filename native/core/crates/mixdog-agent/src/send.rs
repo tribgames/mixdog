@@ -122,6 +122,7 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
 impl Run {
     fn build_request(&mut self) -> ModelRequest {
         let mut options = self.config.options.clone();
+        options.provider_state = self.provider_state.clone();
         // The output-limit escalation is one-shot: this attempt alone carries it.
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
         let mut messages = if self.unprojected {
@@ -173,6 +174,14 @@ impl Run {
                 }
                 Err(failure) => failure,
             };
+            // A failed attempt may have changed the session's state (a dropped
+            // cache after a 401): it replaces the pending state exactly as a
+            // reported one does, before any recovery builds the next request.
+            let mut failure = failure;
+            if let Some(state) = failure.error.provider_state.take() {
+                self.provider_state = Some(*state);
+                self.provider_state_changed = true;
+            }
             match self.recover(*failure).await? {
                 Recovery::Proceed(response) => return Ok(SendResult::Proceed(response)),
                 Recovery::Replay => continue,
@@ -251,6 +260,12 @@ impl Run {
                 // Informational only: never progress, never death.
                 StreamEvent::ProviderKeepalive => {
                     self.emit(RunEvent::Stage(Stage::WaitingOnProvider));
+                }
+                // The provider changed the session's state; later requests of
+                // the turn (a replay included) carry it, and the host persists it.
+                StreamEvent::ProviderState(state) => {
+                    self.provider_state = Some(state.clone());
+                    self.provider_state_changed = true;
                 }
                 _ => {}
             }

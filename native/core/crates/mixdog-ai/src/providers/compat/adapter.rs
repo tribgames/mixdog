@@ -144,7 +144,7 @@ impl ProviderAdapter for CompatAdapter {
         loop {
             let response = self.http.send(Self::with_key(&wire, key.as_deref())).await?;
             if response.is_success() {
-                return Ok(Box::new(CompatStream::new(response.body, self.codec.decoder())));
+                return Ok(Box::new(CompatStream::new(response.body, self.codec.decoder(&request))));
             }
             let err = self.failure(response, key.as_deref()).await;
             if err.status == Some(401)

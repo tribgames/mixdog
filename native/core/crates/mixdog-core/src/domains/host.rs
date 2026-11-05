@@ -79,13 +79,21 @@ impl HostService {
         power: Arc<dyn PowerSink>,
         clicks: Arc<dyn NotificationClicks>,
     ) -> Arc<Self> {
-        Arc::new(Self { publisher, bridge, power, clicks })
+        Arc::new(Self {
+            publisher,
+            bridge,
+            power,
+            clicks,
+        })
     }
 
     fn state_set(&self, req: &CoreRequest) -> Result<Value, CoreError> {
-        let HostStateSetParams { key, value } = decode(req)?;
-        let key = serde_json::to_value(key).ok().and_then(|key| key.as_str().map(str::to_owned));
-        self.publisher.publish(SectionName::HostState, key, change_of(&value));
+        let (key, value) = decode::<HostStateSetParams>(req)?.into_parts();
+        self.publisher.publish(
+            SectionName::HostState,
+            Some(key.to_owned()),
+            change_of(&value),
+        );
         Ok(json!({}))
     }
 
@@ -107,7 +115,9 @@ impl HostService {
 
 /// A `ws://` URL on the loopback interface with a port: the SSH port forward.
 fn is_tunnel_endpoint(endpoint: &str) -> bool {
-    let Ok(url) = Url::parse(endpoint) else { return false };
+    let Ok(url) = Url::parse(endpoint) else {
+        return false;
+    };
     let loopback = match url.host() {
         Some(Host::Ipv4(address)) => address.is_loopback(),
         Some(Host::Ipv6(address)) => address.is_loopback(),
@@ -128,6 +138,16 @@ impl DomainService for HostService {
         Ok(Reply::Value(value))
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "host/state/set",
+            "host/remoteTarget/set",
+            "host/power",
+            "host/update/report",
+            "host/notification/clicked",
+        ]
+    }
+
     fn notify(&self, method: Method, params: Value, _from: ConnectionId) -> Admit {
         // No reply carries a refusal: params that do not decode are dropped.
         match method.as_str() {
@@ -138,11 +158,14 @@ impl DomainService for HostService {
             }
             "host/update/report" => {
                 if let Ok(HostUpdateReportParams { state }) = serde_json::from_value(params) {
-                    self.publisher.publish(SectionName::Update, None, change_of(&state));
+                    self.publisher
+                        .publish(SectionName::Update, None, change_of(&state));
                 }
             }
             "host/notification/clicked" => {
-                if let Ok(HostNotificationClickedParams { thread_id }) = serde_json::from_value(params) {
+                if let Ok(HostNotificationClickedParams { thread_id }) =
+                    serde_json::from_value(params)
+                {
                     self.clicks.clicked(&thread_id);
                 }
             }

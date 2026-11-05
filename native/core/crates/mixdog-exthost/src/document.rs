@@ -46,7 +46,7 @@ fn map_error(error: ExtError) -> CoreError {
             CoreError::CapabilityUnavailable { capability: "extensionHost".into(), detail: reason.into() }
         }
         ExtError::UnknownWorker | ExtError::HostExited { .. } => {
-            CoreError::DomainError { domain: "document".into(), code: "HOST_EXITED".into(), detail: None }
+            CoreError::DomainError { domain: "document".into(), code: Some("HOST_EXITED".into()), detail: None }
         }
         ExtError::Failed { code, message } if code == "invalid_params" => invalid("params", &message),
         // The two codes whose text Node shows includes an external program's own message: the
@@ -55,11 +55,11 @@ fn map_error(error: ExtError) -> CoreError {
         // renderWithMicrosoftOffice, which throw uncoded).
         ExtError::Failed { code, message } if code == "install_failed" || code == "failed" => CoreError::DomainError {
             domain: "document".into(),
-            code: code.to_uppercase().into(),
+            code: Some(code.to_uppercase().into()),
             detail: Some(Box::new(DomainErrorDetail::ExternalFailure { message })),
         },
         ExtError::Failed { code, .. } => {
-            CoreError::DomainError { domain: "document".into(), code: code.to_uppercase().into(), detail: None }
+            CoreError::DomainError { domain: "document".into(), code: Some(code.to_uppercase().into()), detail: None }
         }
     }
 }
@@ -142,6 +142,15 @@ impl DocumentService {
 impl DomainService for DocumentService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         Ok(Reply::Value(self.dispatch(&req).await?))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "document/preview",
+            "document/previewPages",
+            "document/libreOfficeStatus",
+            "document/installLibreOffice",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
@@ -242,7 +251,7 @@ mod tests {
             .await
             .unwrap_err();
         let CoreError::DomainError { domain, code, .. } = error else { panic!("a coded error") };
-        assert_eq!((&*domain, &*code), ("document", "NO_PREVIEW_FOR_TYPE"));
+        assert_eq!((&*domain, code.as_deref()), ("document", Some("NO_PREVIEW_FOR_TYPE")));
     }
 
     #[tokio::test]
@@ -250,7 +259,7 @@ mod tests {
         let (service, _) = service_failing("install_failed");
         let error = service.call(request("document/installLibreOffice", json!({ "opId": "x" }))).await.unwrap_err();
         let CoreError::DomainError { code, detail, .. } = error else { panic!("a coded error") };
-        assert_eq!(&*code, "INSTALL_FAILED");
+        assert_eq!(code.as_deref(), Some("INSTALL_FAILED"));
         assert_eq!(detail.as_deref(), Some(&DomainErrorDetail::ExternalFailure { message: "m".into() }));
     }
 

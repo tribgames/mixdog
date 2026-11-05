@@ -1,5 +1,9 @@
 pub mod agent_mode;
+mod archive_index;
 pub mod blobs;
+pub mod compaction_view;
+pub mod context;
+pub mod message_facets;
 pub mod message_index;
 pub mod message_state;
 pub mod routine_result;
@@ -12,6 +16,7 @@ pub mod framing;
 pub mod fsio;
 pub mod log;
 pub mod projection;
+pub mod registry;
 pub mod schema;
 pub mod sqlite;
 pub mod state;

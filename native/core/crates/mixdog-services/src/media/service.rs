@@ -18,7 +18,7 @@ pub struct MediaService {
 }
 
 fn domain(code: &str) -> CoreError {
-    CoreError::DomainError { domain: "media".into(), code: code.into(), detail: None }
+    CoreError::DomainError { domain: "media".into(), code: Some(code.into()), detail: None }
 }
 
 impl From<MediaError> for CoreError {
@@ -108,6 +108,32 @@ impl MediaService {
 impl DomainService for MediaService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "media/getMediaDefault",
+            "media/getMediaPins",
+            "media/setMediaDefault",
+            "media/setMediaPin",
+            "media/getMediaJob",
+            "media/listMediaLanes",
+            "media/startMediaJob",
+            "media/cancelMediaJob",
+            "media/listMediaAssets",
+            "media/listMediaBoards",
+            "media/readMediaAsset",
+            "media/resolveMediaFile",
+            "media/deleteMediaAsset",
+            "media/deleteMediaAssets",
+            "media/createMediaBoard",
+            "media/renameMediaBoard",
+            "media/deleteMediaBoard",
+            "media/setMediaAssetBoard",
+            "media/cacheMediaThumbnail",
+            "media/openMediaAsset",
+            "media/openMediaFolder",
+        ]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

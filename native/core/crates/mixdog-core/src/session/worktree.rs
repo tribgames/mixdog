@@ -297,6 +297,9 @@ struct Inner {
     host: Arc<dyn WorkspaceHost>,
     gate: Arc<AdmissionGate>,
     intents: Mutex<HashMap<String, Intent>>,
+    /// Test seam at the step boundary just before the worktree is removed.
+    #[cfg(test)]
+    before_remove: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 /// The session workspaces of this runtime. Build one with [`SessionWorkspaces::new`], share the
@@ -322,6 +325,8 @@ impl SessionWorkspaces {
                 host,
                 gate,
                 intents: Mutex::new(HashMap::new()),
+                #[cfg(test)]
+                before_remove: Mutex::new(None),
             }),
         }
     }
@@ -454,7 +459,7 @@ impl Inner {
 
     fn hosted(&self, session: &str) -> Result<SessionView, ScmFailure> {
         self.host.session(session).ok_or_else(|| {
-            let shown = if session.trim().is_empty() { "(none)" } else { session };
+            let shown = if mixdog_js::js_trim(session).is_empty() { "(none)" } else { session };
             plain(format!("workspace: session {shown} is not hosted by this runtime."))
         })
     }

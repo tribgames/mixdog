@@ -1,6 +1,6 @@
 // Records the golden transcripts of the Node agent loop.
 //
-//   node native/core/fixtures/agent/record.mjs [path-to-node-checkout]
+//   node native/core/fixtures/agent/record.mjs [--tree <node checkout with node_modules>]
 //
 // Each scenario is a scripted provider (the same script the Rust loop replays
 // in `crates/mixdog-agent/tests/golden.rs`). The Node loop runs it through the
@@ -11,9 +11,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const nodeRoot = resolve(process.argv[2] || process.env.MIXDOG_NODE_ROOT || 'C:/Project/mixdog');
+const nodeRoot = resolveTree(parseArgs());
+// The agent set is shared with the other recorders: stage a copy, replace only
+// the directories this recorder owns, re-list the manifest, then swap it in.
+const stage = stageSet(here, ['golden', 'scenarios']);
 const loopDir = join(nodeRoot, 'src/runtime/agent/orchestrator');
 const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-agent-golden-'));
 process.env.MIXDOG_DATA_DIR = dataRoot;
@@ -273,8 +277,8 @@ async function record(scenario) {
 }
 
 const out = (dir, name, value) => {
-  mkdirSync(join(here, dir), { recursive: true });
-  writeFileSync(join(here, dir, `${name}.json`), `${JSON.stringify(value, null, 2)}\n`);
+  mkdirSync(join(stage, dir), { recursive: true });
+  writeFileSync(join(stage, dir, `${name}.json`), `${JSON.stringify(value, null, 2)}\n`);
 };
 
 try {
@@ -286,4 +290,6 @@ try {
 } finally {
   rmSync(dataRoot, { recursive: true, force: true });
 }
+refreshSetManifest(stage, nodeRoot);
+commitStage(stage, here);
 process.exit(0);

@@ -9,7 +9,7 @@
 //! back).
 
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
+use mixdog_rt::CancelView;
 
 use super::attachments::{binary_parts, prompt_text};
 use super::host::ExecutorRun;
@@ -110,7 +110,7 @@ impl RoutineRuntime {
         skill_selection: &str,
         attachments: &Value,
         cwd: Option<&str>,
-        cancel: &CancellationToken,
+        cancel: &CancelView,
     ) -> Result<String, String> {
         if let Some(problem) = self.executor_problem(agent_id).await? {
             return Err(format!("{} \"{name}\" cannot run: {}", kind.word(), problem.message(agent_id)));
@@ -126,7 +126,7 @@ impl RoutineRuntime {
             cwd: cwd.filter(|c| !c.is_empty()).map(String::from),
             attachment_parts: binary_parts(attachments),
         };
-        match self.host.run_executor(run, cancel.clone()).await {
+        match self.host.run_executor(run, cancel.token().clone()).await {
             Ok(report) => Ok(mixdog_js::js_trim(&report).to_string()),
             // The caller's own cancellation stays as it is.
             Err(error) if cancel.is_cancelled() => Err(error),

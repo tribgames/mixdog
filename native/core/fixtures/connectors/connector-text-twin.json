@@ -1,0 +1,991 @@
+{
+  "accountCases": [
+    {
+      "accounts": [],
+      "instructions": null,
+      "parsed": []
+    },
+    {
+      "accounts": [
+        {
+          "email": ""
+        }
+      ],
+      "instructions": null,
+      "parsed": []
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com"
+        }
+      ],
+      "instructions": "Accounts: a@x.com. `account` may be left out.",
+      "parsed": [
+        "a@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com",
+          "note": ""
+        }
+      ],
+      "instructions": "Accounts: a@x.com. `account` may be left out.",
+      "parsed": [
+        "a@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com",
+          "note": "needs sign-in"
+        }
+      ],
+      "instructions": "Accounts: a@x.com (needs sign-in). `account` may be left out.",
+      "parsed": [
+        "a@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com"
+        },
+        {
+          "email": ""
+        },
+        {
+          "email": "b@x.com",
+          "note": "x"
+        }
+      ],
+      "instructions": "Accounts: a@x.com, b@x.com (x). `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a@x.com",
+        "b@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com"
+        },
+        {
+          "email": "b@x.com"
+        }
+      ],
+      "instructions": "Accounts: a@x.com, b@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a@x.com",
+        "b@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com",
+          "note": "a, b"
+        },
+        {
+          "email": "c@x.com"
+        }
+      ],
+      "instructions": "Accounts: a@x.com (a, b), c@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a@x.com (a",
+        "b)",
+        "c@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com",
+          "note": "n (m)"
+        },
+        {
+          "email": "c@x.com",
+          "note": "(z)"
+        }
+      ],
+      "instructions": "Accounts: a@x.com (n (m)), c@x.com ((z)). `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a@x.com",
+        "c@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": " a@x.com "
+        },
+        {
+          "email": "b@x.com"
+        }
+      ],
+      "instructions": "Accounts:  a@x.com , b@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a@x.com",
+        "b@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a é@x.com",
+          "note": "né"
+        }
+      ],
+      "instructions": "Accounts: a é@x.com (né). `account` may be left out.",
+      "parsed": [
+        "a é@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com\nb"
+        },
+        {
+          "email": "c@x.com"
+        }
+      ],
+      "instructions": "Accounts: a@x.com\nb, c@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": []
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com",
+          "note": "multi\nline"
+        },
+        {
+          "email": "c@x.com"
+        }
+      ],
+      "instructions": "Accounts: a@x.com (multi\nline), c@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": []
+    },
+    {
+      "accounts": [
+        {
+          "email": "a (b@x.com"
+        },
+        {
+          "email": "c)@x.com"
+        }
+      ],
+      "instructions": "Accounts: a (b@x.com, c)@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a (b@x.com",
+        "c)@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a @x.com"
+        },
+        {
+          "email": " b@x.com"
+        }
+      ],
+      "instructions": "Accounts: a @x.com,  b@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a @x.com",
+        "b@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        {
+          "email": "a@x.com. `account`"
+        },
+        {
+          "email": "b@x.com"
+        }
+      ],
+      "instructions": "Accounts: a@x.com. `account`, b@x.com. `account` picks one; left out, a call uses the account used last, and its result names it.",
+      "parsed": [
+        "a@x.com"
+      ]
+    },
+    {
+      "accounts": [
+        null,
+        {
+          "email": "a@x.com"
+        },
+        null,
+        {}
+      ],
+      "instructions": "Accounts: a@x.com. `account` may be left out.",
+      "parsed": [
+        "a@x.com"
+      ]
+    },
+    {
+      "accounts": "not a list",
+      "instructions": null,
+      "parsed": []
+    },
+    {
+      "accounts": null,
+      "instructions": null,
+      "parsed": []
+    },
+    {
+      "accounts": {
+        "absent": true
+      },
+      "instructions": null,
+      "parsed": []
+    }
+  ],
+  "domain": "connector-text-twin",
+  "maxChars": 100,
+  "rawCases": [
+    {
+      "parsed": [],
+      "text": "nothing"
+    },
+    {
+      "parsed": [],
+      "text": ""
+    },
+    {
+      "parsed": [
+        "a@x.com"
+      ],
+      "text": "Accounts: a@x.com. `account` may be left out."
+    },
+    {
+      "parsed": [
+        "a@x.com"
+      ],
+      "text": "Accounts: a@x.com (n). `account` picks one"
+    },
+    {
+      "parsed": [
+        "a@x.com",
+        "b@x.com"
+      ],
+      "text": "Accounts: a@x.com (n), b@x.com. `account` x. `account` y"
+    },
+    {
+      "parsed": [],
+      "text": "Accounts: . `account`"
+    },
+    {
+      "parsed": [
+        "a"
+      ],
+      "text": "Accounts: a. `account`"
+    },
+    {
+      "parsed": [],
+      "text": "Accounts: a\nb. `account` x"
+    },
+    {
+      "parsed": [],
+      "text": "Accounts: a\r. `account` x"
+    },
+    {
+      "parsed": [],
+      "text": "Accounts: a b. `account` x"
+    },
+    {
+      "parsed": [],
+      "text": "Accounts: a (x\ny). `account` x"
+    },
+    {
+      "parsed": [
+        "a",
+        "b"
+      ],
+      "text": "Accounts: a (x), b (y (z)). `account` x"
+    },
+    {
+      "parsed": [
+        "a",
+        "b"
+      ],
+      "text": "Accounts:  a ,  b . `account` x"
+    },
+    {
+      "parsed": [
+        "a",
+        "b"
+      ],
+      "text": "Accounts:  a , ﻿b. `account` x"
+    },
+    {
+      "parsed": [
+        "a"
+      ],
+      "text": "Accounts: a ( ). `account` x"
+    },
+    {
+      "parsed": [
+        "(x)"
+      ],
+      "text": "Accounts: (x). `account` x"
+    },
+    {
+      "parsed": [
+        "a (x)",
+        "b"
+      ],
+      "text": "Accounts: a (x) , b. `account` x"
+    },
+    {
+      "parsed": [],
+      "text": "x Accounts: a. `account`"
+    },
+    {
+      "parsed": [
+        "a,b",
+        "c"
+      ],
+      "text": "Accounts: a,b, c. `account` x"
+    },
+    {
+      "parsed": [
+        "a"
+      ],
+      "text": "Accounts: a (x)(y). `account` x"
+    },
+    {
+      "parsed": [],
+      "text": {
+        "absent": true
+      }
+    },
+    {
+      "parsed": [],
+      "text": {
+        "number": 42
+      }
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-connectors.mjs",
+  "triggerCases": [
+    {
+      "id": "",
+      "trigger": ""
+    },
+    {
+      "id": "unknown",
+      "trigger": ""
+    },
+    {
+      "id": "github-",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "-2",
+      "trigger": ""
+    },
+    {
+      "id": "github--2",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "x-2",
+      "trigger": ""
+    },
+    {
+      "id": "github-2-3",
+      "trigger": ""
+    },
+    {
+      "id": "github_12",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "github-2a",
+      "trigger": ""
+    },
+    {
+      "id": "github-٣",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "Gmail ",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": " gmail",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "ｇithub",
+      "trigger": ""
+    },
+    {
+      "id": "lİnear",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "LİNEAR-2",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "ſentry",
+      "trigger": ""
+    },
+    {
+      "id": "ſtripe",
+      "trigger": ""
+    },
+    {
+      "id": "sentrY",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "googlecalendar",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "GOOGLE_CALENDAR",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "google calendar 2",
+      "trigger": ""
+    },
+    {
+      "id": "hugging_face-3",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "huggingface-0",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "github",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "GITHUB",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "github-2",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "github_3",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "github-10",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "github ",
+      "trigger": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history."
+    },
+    {
+      "id": "xgithub",
+      "trigger": ""
+    },
+    {
+      "id": "notion",
+      "trigger": "Finding, reading or updating Notion pages, databases and team notes."
+    },
+    {
+      "id": "NOTION",
+      "trigger": "Finding, reading or updating Notion pages, databases and team notes."
+    },
+    {
+      "id": "notion-2",
+      "trigger": "Finding, reading or updating Notion pages, databases and team notes."
+    },
+    {
+      "id": "notion_3",
+      "trigger": "Finding, reading or updating Notion pages, databases and team notes."
+    },
+    {
+      "id": "notion-10",
+      "trigger": "Finding, reading or updating Notion pages, databases and team notes."
+    },
+    {
+      "id": "notion ",
+      "trigger": "Finding, reading or updating Notion pages, databases and team notes."
+    },
+    {
+      "id": "xnotion",
+      "trigger": ""
+    },
+    {
+      "id": "linear",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "LINEAR",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "linear-2",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "linear_3",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "linear-10",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "linear ",
+      "trigger": "Looking up, creating or triaging Linear issues, projects and cycles."
+    },
+    {
+      "id": "xlinear",
+      "trigger": ""
+    },
+    {
+      "id": "sentry",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "SENTRY",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "sentry-2",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "sentry_3",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "sentry-10",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "sentry ",
+      "trigger": "Investigating production errors, stack traces and releases in Sentry."
+    },
+    {
+      "id": "xsentry",
+      "trigger": ""
+    },
+    {
+      "id": "gmail",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "GMAIL",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "gmail-2",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "gmail_3",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "gmail-10",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "gmail ",
+      "trigger": "Gmail email: sending, reading, searching or organizing mail."
+    },
+    {
+      "id": "xgmail",
+      "trigger": ""
+    },
+    {
+      "id": "google-calendar",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "GOOGLE-CALENDAR",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "google_calendar",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "google-calendar-2",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "google-calendar_3",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "google-calendar-10",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "google-calendar ",
+      "trigger": "Google Calendar: checking, creating or editing events."
+    },
+    {
+      "id": "xgoogle-calendar",
+      "trigger": ""
+    },
+    {
+      "id": "google-drive",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "GOOGLE-DRIVE",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "google_drive",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "googledrive",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "google-drive-2",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "google-drive_3",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "google-drive-10",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "google-drive ",
+      "trigger": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files."
+    },
+    {
+      "id": "xgoogle-drive",
+      "trigger": ""
+    },
+    {
+      "id": "jira",
+      "trigger": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches."
+    },
+    {
+      "id": "JIRA",
+      "trigger": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches."
+    },
+    {
+      "id": "jira-2",
+      "trigger": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches."
+    },
+    {
+      "id": "jira_3",
+      "trigger": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches."
+    },
+    {
+      "id": "jira-10",
+      "trigger": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches."
+    },
+    {
+      "id": "jira ",
+      "trigger": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches."
+    },
+    {
+      "id": "xjira",
+      "trigger": ""
+    },
+    {
+      "id": "confluence",
+      "trigger": "Searching, reading or editing Confluence wiki pages; not Jira tickets."
+    },
+    {
+      "id": "CONFLUENCE",
+      "trigger": "Searching, reading or editing Confluence wiki pages; not Jira tickets."
+    },
+    {
+      "id": "confluence-2",
+      "trigger": "Searching, reading or editing Confluence wiki pages; not Jira tickets."
+    },
+    {
+      "id": "confluence_3",
+      "trigger": "Searching, reading or editing Confluence wiki pages; not Jira tickets."
+    },
+    {
+      "id": "confluence-10",
+      "trigger": "Searching, reading or editing Confluence wiki pages; not Jira tickets."
+    },
+    {
+      "id": "confluence ",
+      "trigger": "Searching, reading or editing Confluence wiki pages; not Jira tickets."
+    },
+    {
+      "id": "xconfluence",
+      "trigger": ""
+    },
+    {
+      "id": "dropbox",
+      "trigger": "Finding, reading, uploading or sharing Dropbox files; not local files."
+    },
+    {
+      "id": "DROPBOX",
+      "trigger": "Finding, reading, uploading or sharing Dropbox files; not local files."
+    },
+    {
+      "id": "dropbox-2",
+      "trigger": "Finding, reading, uploading or sharing Dropbox files; not local files."
+    },
+    {
+      "id": "dropbox_3",
+      "trigger": "Finding, reading, uploading or sharing Dropbox files; not local files."
+    },
+    {
+      "id": "dropbox-10",
+      "trigger": "Finding, reading, uploading or sharing Dropbox files; not local files."
+    },
+    {
+      "id": "dropbox ",
+      "trigger": "Finding, reading, uploading or sharing Dropbox files; not local files."
+    },
+    {
+      "id": "xdropbox",
+      "trigger": ""
+    },
+    {
+      "id": "trello",
+      "trigger": "Viewing, creating or moving Trello boards, lists and cards."
+    },
+    {
+      "id": "TRELLO",
+      "trigger": "Viewing, creating or moving Trello boards, lists and cards."
+    },
+    {
+      "id": "trello-2",
+      "trigger": "Viewing, creating or moving Trello boards, lists and cards."
+    },
+    {
+      "id": "trello_3",
+      "trigger": "Viewing, creating or moving Trello boards, lists and cards."
+    },
+    {
+      "id": "trello-10",
+      "trigger": "Viewing, creating or moving Trello boards, lists and cards."
+    },
+    {
+      "id": "trello ",
+      "trigger": "Viewing, creating or moving Trello boards, lists and cards."
+    },
+    {
+      "id": "xtrello",
+      "trigger": ""
+    },
+    {
+      "id": "airtable",
+      "trigger": "Querying or updating Airtable bases, tables and records."
+    },
+    {
+      "id": "AIRTABLE",
+      "trigger": "Querying or updating Airtable bases, tables and records."
+    },
+    {
+      "id": "airtable-2",
+      "trigger": "Querying or updating Airtable bases, tables and records."
+    },
+    {
+      "id": "airtable_3",
+      "trigger": "Querying or updating Airtable bases, tables and records."
+    },
+    {
+      "id": "airtable-10",
+      "trigger": "Querying or updating Airtable bases, tables and records."
+    },
+    {
+      "id": "airtable ",
+      "trigger": "Querying or updating Airtable bases, tables and records."
+    },
+    {
+      "id": "xairtable",
+      "trigger": ""
+    },
+    {
+      "id": "stripe",
+      "trigger": "Checking or acting on Stripe payments, invoices, subscriptions and refunds."
+    },
+    {
+      "id": "STRIPE",
+      "trigger": "Checking or acting on Stripe payments, invoices, subscriptions and refunds."
+    },
+    {
+      "id": "stripe-2",
+      "trigger": "Checking or acting on Stripe payments, invoices, subscriptions and refunds."
+    },
+    {
+      "id": "stripe_3",
+      "trigger": "Checking or acting on Stripe payments, invoices, subscriptions and refunds."
+    },
+    {
+      "id": "stripe-10",
+      "trigger": "Checking or acting on Stripe payments, invoices, subscriptions and refunds."
+    },
+    {
+      "id": "stripe ",
+      "trigger": "Checking or acting on Stripe payments, invoices, subscriptions and refunds."
+    },
+    {
+      "id": "xstripe",
+      "trigger": ""
+    },
+    {
+      "id": "vercel",
+      "trigger": "Checking Vercel deployments, domains, logs and build errors."
+    },
+    {
+      "id": "VERCEL",
+      "trigger": "Checking Vercel deployments, domains, logs and build errors."
+    },
+    {
+      "id": "vercel-2",
+      "trigger": "Checking Vercel deployments, domains, logs and build errors."
+    },
+    {
+      "id": "vercel_3",
+      "trigger": "Checking Vercel deployments, domains, logs and build errors."
+    },
+    {
+      "id": "vercel-10",
+      "trigger": "Checking Vercel deployments, domains, logs and build errors."
+    },
+    {
+      "id": "vercel ",
+      "trigger": "Checking Vercel deployments, domains, logs and build errors."
+    },
+    {
+      "id": "xvercel",
+      "trigger": ""
+    },
+    {
+      "id": "supabase",
+      "trigger": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions."
+    },
+    {
+      "id": "SUPABASE",
+      "trigger": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions."
+    },
+    {
+      "id": "supabase-2",
+      "trigger": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions."
+    },
+    {
+      "id": "supabase_3",
+      "trigger": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions."
+    },
+    {
+      "id": "supabase-10",
+      "trigger": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions."
+    },
+    {
+      "id": "supabase ",
+      "trigger": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions."
+    },
+    {
+      "id": "xsupabase",
+      "trigger": ""
+    },
+    {
+      "id": "postgres",
+      "trigger": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files."
+    },
+    {
+      "id": "POSTGRES",
+      "trigger": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files."
+    },
+    {
+      "id": "postgres-2",
+      "trigger": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files."
+    },
+    {
+      "id": "postgres_3",
+      "trigger": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files."
+    },
+    {
+      "id": "postgres-10",
+      "trigger": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files."
+    },
+    {
+      "id": "postgres ",
+      "trigger": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files."
+    },
+    {
+      "id": "xpostgres",
+      "trigger": ""
+    },
+    {
+      "id": "hugging-face",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "HUGGING-FACE",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "hugging_face",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "huggingface",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "hugging-face-2",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "hugging-face_3",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "hugging-face-10",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "hugging-face ",
+      "trigger": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup."
+    },
+    {
+      "id": "xhugging-face",
+      "trigger": ""
+    },
+    {
+      "id": null,
+      "trigger": ""
+    },
+    {
+      "trigger": ""
+    }
+  ],
+  "triggers": {
+    "airtable": "Querying or updating Airtable bases, tables and records.",
+    "confluence": "Searching, reading or editing Confluence wiki pages; not Jira tickets.",
+    "dropbox": "Finding, reading, uploading or sharing Dropbox files; not local files.",
+    "github": "GitHub issues, pull requests, Actions runs and repo code search; not local Git history.",
+    "gmail": "Gmail email: sending, reading, searching or organizing mail.",
+    "google-calendar": "Google Calendar: checking, creating or editing events.",
+    "google-drive": "Google Drive: finding, reading or creating files Mixdog made or was given; not local files.",
+    "hugging-face": "Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup.",
+    "jira": "Looking up, creating or transitioning Jira tickets, sprints and JQL searches.",
+    "linear": "Looking up, creating or triaging Linear issues, projects and cycles.",
+    "notion": "Finding, reading or updating Notion pages, databases and team notes.",
+    "postgres": "Running SQL or inspecting schemas on a connected PostgreSQL database; not local files.",
+    "sentry": "Investigating production errors, stack traces and releases in Sentry.",
+    "stripe": "Checking or acting on Stripe payments, invoices, subscriptions and refunds.",
+    "supabase": "Working with Supabase Postgres tables, SQL, auth, storage or edge functions.",
+    "trello": "Viewing, creating or moving Trello boards, lists and cards.",
+    "vercel": "Checking Vercel deployments, domains, logs and build errors."
+  }
+}

@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::catalog::engine_entry;
-use super::process::{RunOptions, map_limit, run_process, which};
+use super::process::{Processes, RunOptions, map_limit, which};
 use super::resolve::{Resolved, first_existing, parse_version_text};
 
 const NPX_CACHE_DIRS_MAX: usize = 40;
@@ -69,18 +69,18 @@ fn candidates_for(entry: &super::catalog::EngineEntry, engine: &Resolved, env: &
     found
 }
 
-async fn probe_binary_version(bin: &str) -> String {
+async fn probe_binary_version(processes: &Processes, bin: &str) -> String {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut options = RunOptions::new(&cwd);
     options.timeout = Duration::from_secs(5);
-    let r = run_process(bin, &["--version".to_owned()], options).await;
+    let r = processes.run(bin, &["--version".to_owned()], options).await;
     parse_version_text(&format!("{}\n{}", r.stdout, r.stderr))
 }
 
 /// Same-named binaries that are not the engine tidy uses. Missing engines still report shadows:
 /// "nothing tidy runs" is exactly when a stray binary of that name gets mistaken for the engine.
 /// `probe` replaces the `--version` spawn in tests.
-pub async fn detect_engine_shadows(engines: &[Resolved], env: &HashMap<String, String>, probe: Option<&(dyn Fn(&str) -> String + Sync)>) -> Vec<Value> {
+pub async fn detect_engine_shadows(processes: &Processes, engines: &[Resolved], env: &HashMap<String, String>, probe: Option<&(dyn Fn(&str) -> String + Sync)>) -> Vec<Value> {
     let npx_dirs = npx_cache_bin_dirs(env);
     let mut found: Vec<(String, String, &'static str, String, &Resolved)> = Vec::new();
     for engine in engines {
@@ -95,7 +95,7 @@ pub async fn detect_engine_shadows(engines: &[Resolved], env: &HashMap<String, S
     found.truncate(SHADOW_CAP);
     let versions = match probe {
         Some(p) => found.iter().map(|f| p(&f.3)).collect(),
-        None => map_limit(found.iter().map(|f| f.3.clone()).collect(), SHADOW_CAP, |p| async move { probe_binary_version(&p).await }).await,
+        None => map_limit(found.iter().map(|f| f.3.clone()).collect(), SHADOW_CAP, |p| async move { probe_binary_version(processes, &p).await }).await,
     };
     found
         .iter()
@@ -150,16 +150,16 @@ mod tests {
         let env = HashMap::from([("PATH".to_owned(), path_dir.path().to_string_lossy().into_owned())]);
         let managed = engine("biome", "managed", "/tools/biome/2.5.13/biome");
         let probe = |p: &str| if p.contains("biome") { "9.9.9".to_owned() } else { String::new() };
-        let rows = detect_engine_shadows(&[managed], &env, Some(&probe)).await;
+        let rows = detect_engine_shadows(&Processes::for_tests(), &[managed], &env, Some(&probe)).await;
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0]["via"].clone(), rows[0]["shadow"]["version"].clone()), (json!("path"), json!("9.9.9")));
         let note = shadow_note(&rows[0]);
         assert!(note.contains("biome on PATH is") && note.contains("tidy runs managed /tools/biome/2.5.13/biome (version unknown)"), "{note}");
         // The engine itself is never its own shadow.
         let own = path_dir.path().join(bin("biome")).to_string_lossy().into_owned();
-        assert!(detect_engine_shadows(&[engine("biome", "path", &own)], &env, Some(&probe)).await.is_empty());
+        assert!(detect_engine_shadows(&Processes::for_tests(), &[engine("biome", "path", &own)], &env, Some(&probe)).await.is_empty());
         // A missing engine still reports the stray binary.
-        let missing = detect_engine_shadows(&[Resolved { id: "biome".into(), source: "missing".into(), missing: true, ..Default::default() }], &env, Some(&probe)).await;
+        let missing = detect_engine_shadows(&Processes::for_tests(), &[Resolved { id: "biome".into(), source: "missing".into(), missing: true, ..Default::default() }], &env, Some(&probe)).await;
         assert!(shadow_note(&missing[0]).contains("tidy has no biome (missing)"));
     }
 
@@ -171,7 +171,7 @@ mod tests {
         std::fs::write(bin_dir.join(bin("biome")), "x").unwrap();
         let empty = tempfile::tempdir().unwrap();
         let env = HashMap::from([("PATH".to_owned(), empty.path().to_string_lossy().into_owned()), ("npm_config_cache".to_owned(), cache.path().to_string_lossy().into_owned())]);
-        let rows = detect_engine_shadows(&[engine("biome", "managed", "/m/biome")], &env, Some(&|_: &str| String::new())).await;
+        let rows = detect_engine_shadows(&Processes::for_tests(), &[engine("biome", "managed", "/m/biome")], &env, Some(&|_: &str| String::new())).await;
         assert_eq!(rows[0]["via"], "npx-cache");
         assert!(shadow_note(&rows[0]).contains("npx cache"));
         // PSScriptAnalyzer runs under pwsh: powershell on PATH does not shadow it.
@@ -180,6 +180,6 @@ mod tests {
         std::fs::write(ps_dir.path().join(bin("powershell")), "x").unwrap();
         let env = HashMap::from([("PATH".to_owned(), ps_dir.path().to_string_lossy().into_owned())]);
         let pwsh = ps_dir.path().join(bin("pwsh")).to_string_lossy().into_owned();
-        assert!(detect_engine_shadows(&[engine("psscriptanalyzer", "managed", &pwsh)], &env, Some(&|_: &str| String::new())).await.is_empty());
+        assert!(detect_engine_shadows(&Processes::for_tests(), &[engine("psscriptanalyzer", "managed", &pwsh)], &env, Some(&|_: &str| String::new())).await.is_empty());
     }
 }

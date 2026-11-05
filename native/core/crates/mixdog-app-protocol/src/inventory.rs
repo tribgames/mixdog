@@ -2368,7 +2368,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Actions,
         "getBotOrder",
-        Target::Section("botOrder"),
+        Target::Method("config/getBotOrder"),
     ),
     (
         InventoryList::Actions,
@@ -3422,7 +3422,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Actions,
         "setBotOrder",
-        Target::Method("agent/setBotOrder"),
+        Target::Method("config/setBotOrder"),
     ),
     (
         InventoryList::Actions,

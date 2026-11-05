@@ -35,7 +35,11 @@ impl NotificationClicks for Spy {
 fn rig() -> (Arc<HostService>, Arc<MockStatePublisher>, Arc<Spy>) {
     let publisher = Arc::new(MockStatePublisher::default());
     let spy = Arc::new(Spy::default());
-    (HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone()), publisher, spy)
+    (
+        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone()),
+        publisher,
+        spy,
+    )
 }
 
 fn set(change: &SectionChange) -> Value {
@@ -48,10 +52,18 @@ fn set(change: &SectionChange) -> Value {
 #[tokio::test]
 async fn desktop_state_is_published_under_its_key() {
     let (service, publisher, _) = rig();
-    let tabs = json!([{ "id": "t1", "title": "Docs", "url": "https://example.com", "loading": false }]);
-    let reply = value(&*service, request("host/state/set", json!({ "key": "browserTabs", "value": tabs }), None))
-        .await
-        .unwrap();
+    let tabs =
+        json!([{ "id": "t1", "title": "Docs", "url": "https://example.com", "loading": false }]);
+    let reply = value(
+        &*service,
+        request(
+            "host/state/set",
+            json!({ "key": "browserTabs", "value": tabs }),
+            None,
+        ),
+    )
+    .await
+    .unwrap();
     assert_eq!(reply, json!({}));
     let published = publisher.published();
     assert_eq!(published.len(), 1);
@@ -60,7 +72,13 @@ async fn desktop_state_is_published_under_its_key() {
     assert_eq!(set(&published[0].2), tabs);
     // A key outside the four is not a request.
     assert!(matches!(
-        service.call(request("host/state/set", json!({ "key": "other", "value": 1 }), None)).await,
+        service
+            .call(request(
+                "host/state/set",
+                json!({ "key": "other", "value": 1 }),
+                None
+            ))
+            .await,
         Err(CoreError::InvalidParams { .. })
     ));
 }
@@ -70,22 +88,42 @@ async fn the_remote_target_is_a_loopback_tunnel_or_absent() {
     let (service, _, spy) = rig();
     value(
         &*service,
-        request("host/remoteTarget/set", json!({ "endpoint": "ws://127.0.0.1:52100/rpc", "token": "t" }), None),
+        request(
+            "host/remoteTarget/set",
+            json!({ "endpoint": "ws://127.0.0.1:52100/rpc", "token": "t" }),
+            None,
+        ),
     )
     .await
     .unwrap();
-    value(&*service, request("host/remoteTarget/set", json!({}), None)).await.unwrap();
+    value(&*service, request("host/remoteTarget/set", json!({}), None))
+        .await
+        .unwrap();
     assert_eq!(
         *spy.targets.lock().unwrap(),
         vec![
-            Some(RemoteTarget { endpoint: "ws://127.0.0.1:52100/rpc".into(), token: Some("t".into()) }),
+            Some(RemoteTarget {
+                endpoint: "ws://127.0.0.1:52100/rpc".into(),
+                token: Some("t".into())
+            }),
             None
         ]
     );
-    for endpoint in ["wss://127.0.0.1:1/rpc", "ws://example.com:80/rpc", "ws://127.0.0.1/rpc", "nonsense"] {
+    for endpoint in [
+        "wss://127.0.0.1:1/rpc",
+        "ws://example.com:80/rpc",
+        "ws://127.0.0.1/rpc",
+        "nonsense",
+    ] {
         assert!(
             matches!(
-                service.call(request("host/remoteTarget/set", json!({ "endpoint": endpoint }), None)).await,
+                service
+                    .call(request(
+                        "host/remoteTarget/set",
+                        json!({ "endpoint": endpoint }),
+                        None
+                    ))
+                    .await,
                 Err(CoreError::InvalidParams { .. })
             ),
             "{endpoint}"
@@ -101,11 +139,28 @@ fn notifications_reach_their_consumers() {
     service.notify(Method("host/power"), json!({ "event": "suspend" }), from);
     service.notify(Method("host/power"), json!({ "event": "resume" }), from);
     service.notify(Method("host/power"), json!({ "event": "sleep" }), from);
-    service.notify(Method("host/notification/clicked"), json!({ "threadId": "th-1" }), from);
-    service.notify(Method("host/update/report"), json!({ "state": { "phase": "downloaded", "version": "1.4.6" } }), from);
-    assert_eq!(*spy.power.lock().unwrap(), vec![PowerEvent::Suspend, PowerEvent::Resume]);
+    service.notify(
+        Method("host/notification/clicked"),
+        json!({ "threadId": "th-1" }),
+        from,
+    );
+    service.notify(
+        Method("host/update/report"),
+        json!({ "state": { "phase": "downloaded", "version": "1.4.6" } }),
+        from,
+    );
+    assert_eq!(
+        *spy.power.lock().unwrap(),
+        vec![PowerEvent::Suspend, PowerEvent::Resume]
+    );
     assert_eq!(*spy.clicks.lock().unwrap(), vec!["th-1".to_owned()]);
     let published = publisher.published();
-    assert_eq!((published[0].0, published[0].1.as_deref()), (SectionName::Update, None));
-    assert_eq!(set(&published[0].2), json!({ "phase": "downloaded", "version": "1.4.6" }));
+    assert_eq!(
+        (published[0].0, published[0].1.as_deref()),
+        (SectionName::Update, None)
+    );
+    assert_eq!(
+        set(&published[0].2),
+        json!({ "phase": "downloaded", "version": "1.4.6" })
+    );
 }

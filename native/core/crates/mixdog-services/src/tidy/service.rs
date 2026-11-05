@@ -32,6 +32,10 @@ impl DomainService for TidyService {
         }
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["tidy/getTidyEngineStatus", "tidy/getTidyInstallStatus"]
+    }
+
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
     }

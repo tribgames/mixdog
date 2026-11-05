@@ -111,6 +111,10 @@ impl DomainService for ToolsService {
         }
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["tools/toolsStatus"]
+    }
+
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
     }

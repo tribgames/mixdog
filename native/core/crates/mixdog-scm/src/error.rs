@@ -55,6 +55,8 @@ pub enum ScmFailure {
         domain: &'static str,
         code: &'static str,
         detail: Option<Box<DomainErrorDetail>>,
+        /// Node's own text when one code has several messages; the display stays the code.
+        message: Option<Box<str>>,
     },
     #[error("io error {os_code:?}: {message}")]
     Io {
@@ -93,6 +95,7 @@ impl ScmFailure {
             domain: WORKTREE_DOMAIN,
             code,
             detail: Some(Box::new(detail)),
+            message: None,
         }
     }
 
@@ -101,6 +104,24 @@ impl ScmFailure {
             domain: WORKTREE_DOMAIN,
             code,
             detail: None,
+            message: None,
+        }
+    }
+
+    pub fn coded_with_message(code: &'static str, detail: DomainErrorDetail, message: impl Into<String>) -> Self {
+        Self::Coded {
+            domain: WORKTREE_DOMAIN,
+            code,
+            detail: Some(Box::new(detail)),
+            message: Some(message.into().into_boxed_str()),
+        }
+    }
+
+    /// The explicit text of a coded failure, when its producer set one.
+    pub fn message(&self) -> Option<&str> {
+        match self {
+            Self::Coded { message, .. } => message.as_deref(),
+            _ => None,
         }
     }
 
@@ -138,7 +159,7 @@ impl From<ScmFailure> for CoreError {
         match failure {
             ScmFailure::NotARepository => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: "NOT_A_REPOSITORY".into(),
+                code: Some("NOT_A_REPOSITORY".into()),
                 detail: None,
             },
             ScmFailure::Invalid { path, expected } => CoreError::InvalidParams {
@@ -147,7 +168,7 @@ impl From<ScmFailure> for CoreError {
             },
             ScmFailure::Command { domain, text } => CoreError::DomainError {
                 domain: domain.into(),
-                code: CODE_COMMAND_FAILED.into(),
+                code: Some(CODE_COMMAND_FAILED.into()),
                 detail: display(text),
             },
             ScmFailure::Unavailable { capability } => CoreError::CapabilityUnavailable {
@@ -156,12 +177,12 @@ impl From<ScmFailure> for CoreError {
             },
             ScmFailure::TimedOut => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: CODE_TIMED_OUT.into(),
+                code: Some(CODE_TIMED_OUT.into()),
                 detail: None,
             },
             ScmFailure::OutputTooLarge { limit } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: CODE_OUTPUT_TOO_LARGE.into(),
+                code: Some(CODE_OUTPUT_TOO_LARGE.into()),
                 detail: display(limit.to_string()),
             },
             ScmFailure::Cancelled => CoreError::Cancelled { by: "caller".into() },
@@ -174,26 +195,33 @@ impl From<ScmFailure> for CoreError {
                 message,
             } => CoreError::DomainError {
                 domain: domain.into(),
-                code: code.into(),
+                code: Some(code.into()),
                 detail: display(message),
             },
+            // Node sends `error.message` with the code to every client, and a code with
+            // several messages (`WORKTREE_BUSY_JOBS` transition) needs it: an explicit message
+            // travels as `ExternalFailure`, like the other services' failure text.
             ScmFailure::Coded {
                 domain,
                 code,
                 detail,
+                message,
             } => CoreError::DomainError {
                 domain: domain.into(),
-                code: code.into(),
-                detail,
+                code: Some(code.into()),
+                detail: match message {
+                    Some(message) => Some(Box::new(DomainErrorDetail::ExternalFailure { message: message.into_string() })),
+                    None => detail,
+                },
             },
             ScmFailure::Io { message, .. } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: CODE_IO.into(),
+                code: Some(CODE_IO.into()),
                 detail: display(message),
             },
             ScmFailure::ObjectMissing(id) => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: "OBJECT_MISSING".into(),
+                code: Some("OBJECT_MISSING".into()),
                 detail: display(id.0),
             },
         }
@@ -311,7 +339,7 @@ mod tests {
                 detail,
             } => {
                 assert_eq!(&*domain, "git");
-                assert_eq!(&*code, CODE_COMMAND_FAILED);
+                assert_eq!(code.as_deref(), Some(CODE_COMMAND_FAILED));
                 assert_eq!(
                     detail.as_deref(),
                     Some(&DomainErrorDetail::Display {

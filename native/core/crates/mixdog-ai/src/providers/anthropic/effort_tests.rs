@@ -42,7 +42,7 @@ fn cases() -> Vec<Value> {
     document["cases"].as_array().expect("cases").clone()
 }
 
-fn message_of(recorded: &Value) -> Message {
+pub(super) fn message_of(recorded: &Value) -> Message {
     let role = match recorded["role"].as_str().expect("role") {
         "system" => Role::System,
         "user" => Role::User,
@@ -181,7 +181,7 @@ fn lowered_messages_equal_the_recorded_request_messages() {
 
 /// The model's capabilities as the recorded body shows Node saw them (catalog
 /// data, an input of the codec): adaptive thinking, effort levels, display.
-fn caps_of(body: &Value) -> Option<ModelCaps> {
+pub(super) fn caps_of(body: &Value) -> Option<ModelCaps> {
     let adaptive = body["thinking"]["type"] == "adaptive";
     let effort = !body["output_config"].is_null();
     (adaptive || effort).then(|| ModelCaps {
@@ -194,7 +194,7 @@ fn caps_of(body: &Value) -> Option<ModelCaps> {
     })
 }
 
-fn tool_of(recorded: &Value) -> ToolDefinition {
+pub(super) fn tool_of(recorded: &Value) -> ToolDefinition {
     ToolDefinition {
         name: recorded["name"].as_str().expect("name").into(),
         description: recorded["description"].as_str().expect("description").into(),

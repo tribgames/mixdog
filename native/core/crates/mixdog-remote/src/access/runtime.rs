@@ -31,6 +31,8 @@ use crate::leg::inbound::Inbound;
 use crate::leg::socket::{LegConfig, LegEvent, Outgoing, run_leg, validated_relay_url};
 use crate::leg::{MAX_WS_PAYLOAD_BYTES, open_envelopes};
 use crate::pair_code::{PairCode, PairCodeEffects, PairCodeView};
+use crate::push::native_crypto::{NativePushContent, Reason, collapse_key, encrypt_native_push_fresh};
+use crate::push::web::{RelayWebPush, WebPushTarget, encrypt_for_target};
 use crate::push::native::{NativePushInput, NativePushStore, NativePushSubscription, bind_envelope, invalid_token_of, unbind_envelope};
 use crate::registry::DeviceRegistry;
 use crate::section::{RemoteSection, claim_value};
@@ -41,6 +43,23 @@ const RETRY_BASE: Duration = Duration::from_secs(5);
 const RETRY_MAX: Duration = Duration::from_secs(300);
 const HOST_NAME_MAX: usize = 80;
 const OUT_QUEUE: usize = 256;
+
+const RELAY_UNAVAILABLE: &str = "The relay is not connected right now.";
+/// The body of an error notification when the PC gives no words of its own
+/// (desktop-turn-notifier.ts `TURN_FAILED_TEXT`).
+const TURN_FAILED_TEXT: &str = "The turn stopped with an error.";
+
+/// One decided notification for one paired device.
+#[derive(Clone, Debug)]
+pub struct PushDelivery {
+    pub device_id: String,
+    pub session_id: String,
+    pub title: String,
+    pub body: String,
+    pub reason: Reason,
+    /// This PC's relay device id: the phone opens the session on the PC that sent it.
+    pub host_id: String,
+}
 
 /// Writes a frame to the open relay leg; false when there is none.
 pub type LegSend = Box<dyn FnMut(Value) -> bool + Send>;
@@ -170,6 +189,8 @@ struct State {
     pair_code: PairCode,
     pair_effects: Box<dyn PairCodeEffects + Send>,
     native: Option<NativePushStore>,
+    /// Relay-owned Web Push targets of the current leg; `None` while the relay is off.
+    web: Option<RelayWebPush>,
     retry: Duration,
     retry_cancel: Option<CancellationToken>,
 }
@@ -349,6 +370,7 @@ impl RemoteRuntime {
                     pair_code: PairCode::new(),
                     pair_effects,
                     native: None,
+                    web: None,
                     retry: Duration::ZERO,
                     retry_cancel: None,
                 }),
@@ -507,9 +529,10 @@ impl RemoteRuntime {
             let mut state = self.inner.state();
             state.live = Some(live.clone());
             state.native = Some(native);
+            state.web = Some(RelayWebPush::new((*live.identity).clone()));
         }
         self.inner.cfg.link.set(Some(out_tx));
-        let config = LegConfig { relay_url, identity: device, max_payload: MAX_WS_PAYLOAD_BYTES as usize };
+        let config = LegConfig::desktop(relay_url, device, MAX_WS_PAYLOAD_BYTES as usize);
         tokio::spawn(run_leg(config, events_tx, out_rx, cancel.clone()));
         let runtime = self.clone();
         tokio::spawn(async move { runtime.serve(live, events_rx).await });
@@ -945,6 +968,160 @@ impl RemoteRuntime {
         Ok(!removed.is_empty())
     }
 
+    // ---- delivery (push-notifier.ts sendPush) ------------------------------------------------
+
+    /// Whether this PC has an open relay leg.
+    pub fn is_connected(&self) -> bool {
+        self.inner.state().connected
+    }
+
+    /// This PC's relay device id (the `/d/<deviceId>/` route); empty while the relay is off.
+    pub fn host_id(&self) -> String {
+        self.inner.state().live.as_ref().map(|live| live.device.device_id.clone()).unwrap_or_default()
+    }
+
+    /// Delivers one notification the engine decided on to one paired device, over every path
+    /// that device registered: relay-owned Web Push, native push, and the PC-signed legacy
+    /// subscription (only for a browser that holds no relay association). `Err` is the sentence
+    /// shown to the user when nothing was handed over.
+    pub async fn deliver_push(&self, push: &PushDelivery) -> Result<(), String> {
+        let (host_id, reason) = (mixdog_js::slice_utf16(&push.host_id, 64), push.reason);
+        let mut data = serde_json::Map::new();
+        data.insert("sessionId".into(), json!(push.session_id));
+        data.insert("reason".into(), json!(reason.name()));
+        let mut payload = serde_json::Map::new();
+        if !host_id.is_empty() {
+            payload.insert("hostId".into(), json!(host_id));
+            data.insert("hostId".into(), json!(host_id));
+        }
+        payload.insert("sessionId".into(), json!(push.session_id));
+        payload.insert("title".into(), json!(push.title));
+        payload.insert("body".into(), json!(push.body));
+        payload.insert("reason".into(), json!(reason.name()));
+        payload.insert("data".into(), Value::Object(data));
+        let payload = mixdog_js::json_stringify(&Value::Object(payload));
+
+        let mut sent = 0usize;
+        let mut failures: Vec<String> = Vec::new();
+        let (relay_targets, all_targets, native_rows, connected) = {
+            let state = self.inner.state();
+            let web = state.web.as_ref().filter(|_| state.caps.web_push());
+            let all: Vec<WebPushTarget> = web.map(|w| w.targets().to_vec()).unwrap_or_default();
+            let mine = all.iter().filter(|t| t.client_id == push.device_id).cloned().collect::<Vec<_>>();
+            let native = state.native.as_ref().map(|s| s.list().to_vec()).unwrap_or_default();
+            (mine, all, native, state.connected)
+        };
+        for target in &relay_targets {
+            match encrypt_for_target(target, payload.as_bytes()) {
+                Err(_) => failures.push("The browser’s subscription keys are invalid.".into()),
+                Ok(body) => {
+                    if self.inner.cfg.link.send(&RelayWebPush::send_envelope(target, &body)) {
+                        sent += 1;
+                    } else {
+                        failures.push(RELAY_UNAVAILABLE.into());
+                    }
+                }
+            }
+        }
+        for row in native_rows.iter().filter(|row| row.client_id == push.device_id) {
+            let body = if reason == Reason::TurnFailed && push.body.is_empty() { TURN_FAILED_TEXT } else { push.body.as_str() };
+            let (title, body) = NativePushContent::clip(&push.title, body);
+            let content = NativePushContent {
+                title,
+                body,
+                session_id: push.session_id.clone(),
+                reason,
+                approval_id: None,
+                allow_once: None,
+                host_id: (!host_id.is_empty()).then(|| host_id.clone()),
+            };
+            let Ok(mx) = encrypt_native_push_fresh(&row.public_key, &content) else { continue };
+            let message = json!({
+                "platform": row.platform, "token": row.token, "sandbox": row.sandbox, "mx": mx,
+                "reason": reason.for_relay(), "collapseKey": collapse_key(&push.session_id, reason),
+            });
+            let envelope = {
+                let state = self.inner.state();
+                crate::push::native::send_envelope(&row.platform, &message, &state.caps, connected)
+            };
+            if envelope.is_some_and(|envelope| self.inner.cfg.link.send(&envelope)) {
+                sent += 1;
+            } else {
+                failures.push(RELAY_UNAVAILABLE.into());
+            }
+        }
+        // The legacy subscription is dropped from the direct path once that same browser holds a
+        // relay association, or its endpoint is one.
+        if self.legacy_push().is_ok() {
+            let listed = self.inner.durable({
+                let store = crate::push::legacy::LegacyPushStore::new(&self.inner.cfg.dir);
+                move |lane| store.list(lane).and_then(|rows| store.keys(lane).map(|keys| (rows, keys)))
+            });
+            if let Ok(Ok((rows, keys))) = listed.await {
+                let browsers: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.client_id.as_str()).collect();
+                let endpoints: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.endpoint.as_str()).collect();
+                let poster = crate::push::legacy::ReqwestPoster::new();
+                for row in rows.iter().filter(|row| row.client_id == push.device_id) {
+                    if endpoints.contains(row.endpoint.as_str()) || (!row.client_id.is_empty() && browsers.contains(row.client_id.as_str())) {
+                        continue;
+                    }
+                    let result = crate::push::legacy::send_web_push(&poster, row, &payload, &keys, now_ms()).await;
+                    if result.expired {
+                        failures.push("The push service no longer accepts this browser’s subscription.".into());
+                        let (store, endpoint) = (crate::push::legacy::LegacyPushStore::new(&self.inner.cfg.dir), row.endpoint.clone());
+                        let _ = self.inner.durable(move |lane| store.remove(lane, &endpoint)).await;
+                    } else if result.status_code >= 400 || result.error.is_some() {
+                        let why = result.error.unwrap_or_else(|| result.status_code.to_string());
+                        failures.push(format!("The push service refused it ({why})."));
+                    } else {
+                        sent += 1;
+                    }
+                }
+            }
+        }
+        match (sent, failures.into_iter().next()) {
+            (0, Some(first)) => Err(first),
+            _ => Ok(()),
+        }
+    }
+
+    // ---- PC-signed Web Push (remote-push-methods.ts) ---------------------------------------
+
+    /// The store of this PC's own VAPID identity and browsers; present while the relay runs
+    /// (`requiredPush()` throws otherwise).
+    fn legacy_push(&self) -> Result<crate::push::legacy::LegacyPushStore, RemoteError> {
+        if self.inner.state().live.is_none() {
+            return Err(RemoteError::Invalid("Push notifications are unavailable on this connection.".into()));
+        }
+        Ok(crate::push::legacy::LegacyPushStore::new(&self.inner.cfg.dir))
+    }
+
+    fn legacy_error(error: crate::push::legacy::LegacyPushError) -> RemoteError {
+        match error {
+            crate::push::legacy::LegacyPushError::Invalid(message) => RemoteError::Invalid(message),
+            crate::push::legacy::LegacyPushError::Store(error) => RemoteError::Failed(error.to_string()),
+        }
+    }
+
+    /// The applicationServerKey a browser subscribes with; minted on first ask.
+    pub async fn push_public_key(&self) -> Result<String, RemoteError> {
+        let store = self.legacy_push()?;
+        self.inner.durable(move |lane| store.public_key(lane)).await?.map_err(|e| RemoteError::Failed(e.to_string()))
+    }
+
+    pub async fn register_push_subscription(&self, input: &Value) -> Result<bool, RemoteError> {
+        let store = self.legacy_push()?;
+        let input = input.clone();
+        self.inner.durable(move |lane| store.register(lane, &input, now_ms())).await?.map_err(Self::legacy_error)?;
+        Ok(true)
+    }
+
+    pub async fn remove_push_subscription(&self, endpoint: &Value) -> Result<bool, RemoteError> {
+        let store = self.legacy_push()?;
+        let endpoint = crate::push::legacy::required_string(Some(endpoint), "endpoint").map_err(Self::legacy_error)?;
+        self.inner.durable(move |lane| store.remove(lane, &endpoint)).await?.map_err(|e| RemoteError::Failed(e.to_string()))
+    }
+
     // ---- the leg's event loop ---------------------------------------------------------------
 
     async fn serve(&self, live: Arc<Live>, mut events: mpsc::Receiver<LegEvent>) {
@@ -956,6 +1133,7 @@ impl RemoteRuntime {
             match event {
                 LegEvent::Open => self.on_open(&live).await,
                 LegEvent::Lost { .. } => self.on_lost(&live),
+                LegEvent::Raw(_) => {}
                 LegEvent::Inbound(inbound) => self.on_inbound(&live, inbound).await,
             }
         }
@@ -968,6 +1146,9 @@ impl RemoteRuntime {
             // Nothing the previous leg declared survives into this one.
             state.caps.reset();
             state.connected = true;
+            if let Some(web) = state.web.as_mut() {
+                web.reset();
+            }
         }
         let version = self.inner.cfg.app_version.as_ref().map(|(v, r)| (v.as_str(), r.as_deref()));
         for frame in open_envelopes(&name, version, &live.pairing_token) {
@@ -1067,9 +1248,19 @@ impl RemoteRuntime {
                     }
                 }
             }
-            // Relay-owned Web Push, media and the phone ICE are served by their own modules over
-            // the same leg; the envelopes are theirs.
-            Inbound::WebPushSubscriptions(_) | Inbound::WebPushResult(_) | Inbound::Media(_) | Inbound::Ignored => {}
+            Inbound::WebPushSubscriptions(envelope) => {
+                let replies = {
+                    let mut state = self.inner.state();
+                    let offers = state.caps.web_push();
+                    state.web.as_mut().map(|web| web.update(&envelope, offers).0).unwrap_or_default()
+                };
+                for reply in replies {
+                    self.inner.cfg.link.send(&reply);
+                }
+            }
+            // Media and the phone ICE are served by their own modules over the same leg; the
+            // envelopes are theirs. A Web Push result only feeds diagnostics, which are not shown.
+            Inbound::WebPushResult(_) | Inbound::Media(_) | Inbound::Ignored => {}
         }
     }
 
@@ -1126,14 +1317,21 @@ impl RemoteRuntime {
         }
     }
 
-    /// Names the paired device behind an established channel for the approvals' device stamp.
+    /// Names the paired device behind an established channel for the approvals' device stamp:
+    /// `deviceNameFor` (remote-relay-device-methods.ts:47) — the local alias, else the name the
+    /// relay lists for the credential (trimmed, 80 units); empty falls to `connectionDevice`'s
+    /// 'Web app' (remote-session-methods.ts:42).
     async fn attach_peer(&self, client_id: &str) {
         let credential = self.inner.state().table.credential_of(client_id).map(str::to_owned).unwrap_or_default();
-        let browser = match self.inner.roster().await {
-            Ok(roster) => lock(&roster).list().into_iter().find(|row| row.id == credential).map(|row| row.browser).unwrap_or_default(),
-            Err(_) => String::new(),
+        let row = match self.inner.roster().await {
+            Ok(roster) => lock(&roster).list().into_iter().find(|row| row.id == credential),
+            Err(_) => None,
         };
-        self.inner.cfg.registry.attach_peer(client_id, &credential, &browser);
+        let browser = row.as_ref().map(|row| row.browser.clone()).unwrap_or_default();
+        let alias = self.inner.cfg.settings.device_aliases().get(&credential).cloned().unwrap_or_default();
+        let listed = row.map(|row| mixdog_js::slice_utf16(&mixdog_js::js_trim(&row.name), 80)).unwrap_or_default();
+        let name = if !alias.is_empty() { alias } else { listed };
+        self.inner.cfg.registry.attach_peer(client_id, if name.is_empty() { crate::registry::DEFAULT_DEVICE_NAME } else { &name }, &browser);
     }
 
     fn close_client(&self, client_id: &str, reason: &str) {

@@ -1,11 +1,35 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>",
-  "fileCount": 53,
+  "externalFixtures": [
+    "gemini-explicit-cache/cases.json (WP-AI-GOOGLE)",
+    "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)"
+  ],
+  "fileCount": 60,
   "files": [
     {
       "bytes": 309490,
       "path": "anthropic-effort/cases.json",
       "sha256": "d1d052f5bbb7cd697e731e9c8306cb9e1751342f3a6de6160600e766403f6b7a"
+    },
+    {
+      "bytes": 55483,
+      "path": "anthropic-shared-prefix/cases.json",
+      "sha256": "fc3d3affb28583fabbed031639f421a9cce39b6e4854dbdb6c12954b901d6106"
+    },
+    {
+      "bytes": 3500,
+      "path": "anthropic/cache-write-1h/request.json",
+      "sha256": "42ea8f7c58724bcfb41831968b5a88ed712cac7888783b7249fde05d650c22df"
+    },
+    {
+      "bytes": 827,
+      "path": "anthropic/cache-write-1h/response.sse",
+      "sha256": "171ed08b0387c954cda609bb720de4ba3e03028e211e6fcc8b4f6692bfcaed18"
+    },
+    {
+      "bytes": 597,
+      "path": "anthropic/cache-write-1h/result.json",
+      "sha256": "48bec7324e5ad349a7cd3c7014685350a9d775b90668cfee4b4680a33fde81aa"
     },
     {
       "bytes": 3290,
@@ -81,6 +105,11 @@
       "bytes": 190,
       "path": "anthropic/truncated-no-terminal/result.json",
       "sha256": "182ca0d9cd4db663d4164edc3b6ced2a3f30187451e40ed93482b1be840583b8"
+    },
+    {
+      "bytes": 83030,
+      "path": "gemini-explicit-cache/cases.json",
+      "sha256": "270e08303f3d0cb1d176bf44bd1946be02bd373a7c6e571cac680fb71455eb32"
     },
     {
       "bytes": 3162,
@@ -243,9 +272,19 @@
       "sha256": "d05d0561408cd2300bbadb5638ef5dc1dcb402747eac8dea6fa7eaa9d319f485"
     },
     {
+      "bytes": 14030,
+      "path": "oracles/openai-reasoning-replay-golden.json",
+      "sha256": "58196169050769dbb2e7b40b8aa6c4f8a05c5365e7e9ea563f4770d66f66c748"
+    },
+    {
       "bytes": 6529,
       "path": "oracles/openai-responses-payload-parity.fixture.json",
       "sha256": "7461a562bcc4cd0af15406312ac18dc3a3127959b6b9fea97bbf99461b0d1fd2"
+    },
+    {
+      "bytes": 8990,
+      "path": "oracles/xai-responses-continuation.json",
+      "sha256": "fbe1042ca88838bc036235bbf5bf052d2f966ded4a19bedcb8590a22a1c0479c"
     },
     {
       "bytes": 24344,
@@ -269,23 +308,24 @@
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
+    "appsSha256": "b66a4bd6f8a15d621316e91b15fa61c129a258907e14a9d12e0fed0754f1e809",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 9233,
     "refComparison": {
-      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
+      "closestCommit": "eb47a6b01ea242286619aab7475bd4ba94ec7880",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 29
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
   "scenarios": [
+    "anthropic/cache-write-1h",
     "anthropic/error-400",
     "anthropic/text",
     "anthropic/tool-call",
@@ -303,5 +343,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 748812
+  "totalBytes": 915269
 }

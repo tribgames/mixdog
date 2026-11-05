@@ -20,11 +20,14 @@ use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
 
+pub mod cancel;
 pub mod exec;
 pub mod lanes;
 pub mod ticker;
 pub mod tokens;
 
+pub use cancel::CancelSource;
+pub use cancel::CancelView;
 pub use ticker::Ticker;
 pub use ticker::TimerHandle;
 pub use ticker::ticker;

@@ -219,6 +219,42 @@ async fn armed_cron_fires_on_time() {
     f.sched.stop();
 }
 
+/// Tokio time plus a settable jump, like a suspend or a forward clock change.
+struct JumpClock {
+    base: DateTime<Utc>,
+    start: tokio::time::Instant,
+    jump: Mutex<Duration>,
+}
+impl Clock for JumpClock {
+    fn now(&self) -> DateTime<Utc> {
+        self.base + Duration::from_std(self.start.elapsed()).unwrap() + *self.jump.lock().unwrap()
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn slots_missed_by_a_clock_jump_are_not_replayed() {
+    let clock = Arc::new(JumpClock {
+        base: at("2025-01-01T08:59:00Z"),
+        start: tokio::time::Instant::now(),
+        jump: Mutex::new(Duration::zero()),
+    });
+    let f = fixture_clock(vec![cron_row("daily")], Script::default(), clock.clone());
+    f.sched.start();
+    tokio::task::yield_now().await; // the job is now waiting for the 09:00 slot
+    *clock.jump.lock().unwrap() = Duration::days(2) + Duration::minutes(30);
+    tokio::time::sleep(std::time::Duration::from_secs(61)).await;
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    // Three slots (Jan 1, 2, 3 at 09:00) elapsed unseen: none of them runs.
+    assert_eq!(f.runner.runs.load(Ordering::SeqCst), 0);
+    // The next slot is computed from now and fires once, on time.
+    tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+    f.runner.started.notified().await;
+    assert_eq!(f.runner.runs.load(Ordering::SeqCst), 1);
+    f.sched.stop();
+}
+
 #[tokio::test(start_paused = true)]
 async fn armed_one_shot_fires_and_completes() {
     let clock = Arc::new(TokioClock { base: at("2025-01-01T08:00:00Z"), start: tokio::time::Instant::now() });

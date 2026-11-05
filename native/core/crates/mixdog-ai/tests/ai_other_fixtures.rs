@@ -432,7 +432,7 @@ fn grok_recordings() {
         if result.get("ok").is_none() {
             continue; // recorder-aborted truncations carry no terminal to compare
         }
-        let decoder = &mut codec.decoder();
+        let decoder = &mut codec.decoder(&request("fixture-model"));
         let mut got = Outcome::default();
         for chunk in served.as_bytes().chunks(11) {
             for event in decoder.feed(chunk).unwrap() {

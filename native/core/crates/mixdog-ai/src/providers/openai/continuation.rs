@@ -1,13 +1,19 @@
-//! Stateless continuation of a Responses conversation. The provider state is
-//! a JSON slot the agent persists between turns (`providerState[state_key]`);
-//! it records which messages the previous request already covered and the
-//! encrypted reasoning of earlier responses. [`resume`] reads it into what the
-//! next request needs, [`next_slot`] writes the slot after a response. The
-//! slot's field names are the persisted shape and do not change.
+//! Stateless continuation of a Responses conversation. The route's slot lives
+//! in the session's [`ProviderState`] (`rest[state_key]`, the one provider-state
+//! mechanism: `RequestOptions.provider_state` in, `StreamEvent::ProviderState`
+//! out, persisted by the session). It records which messages the previous
+//! request already covered and the encrypted reasoning of earlier responses.
+//! [`resume`] reads it into what the next request needs, [`next_slot`] and
+//! [`with_slot`] write it after a response. The slot's field names are the
+//! persisted shape and do not change.
 
 use std::collections::BTreeMap;
 
+use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::Role;
 use serde_json::Map;
 use serde_json::Value;
@@ -62,6 +68,15 @@ impl std::fmt::Display for StatelessOnly {
 }
 
 impl std::error::Error for StatelessOnly {}
+
+/// Refused before anything is sent: the request itself is the problem.
+impl From<StatelessOnly> for ProviderError {
+    fn from(refused: StatelessOnly) -> Self {
+        let mut err = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
+        err.message = refused.to_string();
+        err
+    }
+}
 
 /// What the next request resumes from.
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -119,17 +134,22 @@ fn history(slot: &Value, seen: Option<i64>, replay_owner: &str) -> BTreeMap<usiz
     by_index
 }
 
+/// The route's slot in the session's provider state.
+pub fn slot<'a>(state: Option<&'a ProviderState>, spec: &ContinuationSpec) -> Option<&'a Value> {
+    state.and_then(|s| s.rest.get(&spec.state_key)).filter(|slot| !slot.is_null())
+}
+
 /// Reads the route's slot against the transcript about to be sent. A slot that
 /// no longer fits (another model, a message count the transcript cannot
 /// match) is dropped, and the whole transcript goes out again.
 pub fn resume(
     spec: &ContinuationSpec,
     replay_owner: &str,
-    slot: Option<&Value>,
+    state: Option<&ProviderState>,
     model: &str,
     messages: &[Message],
 ) -> Result<Continuation, StatelessOnly> {
-    let Some(slot) = slot.filter(|s| !s.is_null()) else {
+    let Some(slot) = slot(state, spec) else {
         return Ok(Continuation::default());
     };
     let mut previous = slot
@@ -206,9 +226,14 @@ pub fn encrypted_reasoning_items(output: &[Value]) -> Vec<Value> {
 
 /// The route's slot after `turn`: earlier history carried forward, this
 /// turn's encrypted reasoning appended at the turn's message index.
-pub fn next_slot(spec: &ContinuationSpec, replay_owner: &str, prior: Option<&Value>, turn: &TurnResult<'_>) -> Value {
+pub fn next_slot(
+    spec: &ContinuationSpec,
+    replay_owner: &str,
+    prior: Option<&ProviderState>,
+    turn: &TurnResult<'_>,
+) -> Value {
     let items = encrypted_reasoning_items(turn.output);
-    let mut history: Vec<Value> = prior
+    let mut history: Vec<Value> = slot(prior, spec)
         .and_then(|slot| slot.get("encryptedReasoningHistory"))
         .and_then(Value::as_array)
         .cloned()
@@ -240,9 +265,11 @@ pub fn next_slot(spec: &ContinuationSpec, replay_owner: &str, prior: Option<&Val
     Value::Object(slot)
 }
 
-/// `provider_state` with the route's slot replaced.
-pub fn with_slot(provider_state: Option<&Value>, spec: &ContinuationSpec, slot: Value) -> Value {
-    let mut state = provider_state.and_then(Value::as_object).cloned().unwrap_or_default();
-    state.insert(spec.state_key.clone(), slot);
-    Value::Object(state)
+/// The session's provider state with the route's slot replaced and every
+/// other key (Gemini's cache, other routes' slots) kept (Node
+/// `{...opts.providerState, [stateKey]: slot}`).
+pub fn with_slot(state: Option<&ProviderState>, spec: &ContinuationSpec, slot: Value) -> ProviderState {
+    let mut state = state.cloned().unwrap_or_default();
+    state.rest.insert(spec.state_key.clone(), slot);
+    state
 }

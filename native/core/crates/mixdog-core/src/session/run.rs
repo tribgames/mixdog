@@ -19,8 +19,62 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
 
+use std::sync::Arc;
+
+use mixdog_core_api::CoreError;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
+
+use super::SessionLanes;
 use super::frames::encode;
+use super::seams::ContextStep;
+use super::seams::ThreadStore;
 use super::state::Section;
+
+/// A run's read of its thread's model context (`mixdog_store::context`).
+#[derive(Clone)]
+pub struct ModelContext {
+    pub(crate) store: Arc<dyn ThreadStore>,
+    pub(crate) lanes: SessionLanes,
+    pub(crate) thread: ThreadId,
+    /// The run's input row, which the read leaves out.
+    pub(crate) input: ItemId,
+}
+
+impl ModelContext {
+    /// The lineage's model rows since its last compaction, oldest first, before the run's input
+    /// row (today's `session.messages` at ask start). Read once the input row is durable.
+    pub async fn read(&self) -> Result<Vec<(ItemId, Value)>, CoreError> {
+        let token = CancellationToken::new();
+        let dropped = || CoreError::Internal {
+            incident_id: "session-context-job-dropped".into(),
+        };
+        let mut read = None;
+        loop {
+            let (store, thread) = (self.store.clone(), self.thread.clone());
+            let page = self
+                .lanes
+                .io
+                .submit(&token, move |lane| store.context_io(lane, &thread, read))?
+                .await
+                .map_err(|_| dropped())??;
+            let store = self.store.clone();
+            let step = self
+                .lanes
+                .cpu
+                .submit(&token, move |lane| store.context_cpu(lane, page))?
+                .await
+                .map_err(|_| dropped())??;
+            match step {
+                ContextStep::More(next) => read = Some(next),
+                ContextStep::Done(mut rows) => {
+                    rows.retain(|(iid, _)| *iid != self.input);
+                    return Ok(rows);
+                }
+            }
+        }
+    }
+}
 
 /// The run's input rows: pending until their records are acked (the first model call waits,
 /// RL §5.4), then durable, or failed with the barrier error.

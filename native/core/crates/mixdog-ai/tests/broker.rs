@@ -25,6 +25,7 @@ use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
+use mixdog_core_api::domain::provider::Usage;
 use mixdog_protocol::JsonValue;
 use tokio_util::sync::CancellationToken;
 
@@ -32,6 +33,7 @@ use tokio_util::sync::CancellationToken;
 struct Sink {
     events: Vec<StreamEvent>,
     discards: u32,
+    abandoned: Vec<(u64, u64, String)>,
 }
 
 impl AttemptSink for Sink {
@@ -41,6 +43,9 @@ impl AttemptSink for Sink {
     fn discard(&mut self) {
         self.discards += 1;
         self.events.clear();
+    }
+    fn abandoned(&mut self, usage: &Usage, model: &str) {
+        self.abandoned.push((usage.input_tokens, usage.output_tokens, model.to_owned()));
     }
 }
 
@@ -93,6 +98,19 @@ async fn retries_through_failures_and_discards_each_failed_attempt() {
     assert_eq!(sink.discards, 2);
     assert!(matches!(sink.events.last(), Some(StreamEvent::Completed { .. })));
     assert_eq!(provider.attempts.load(Ordering::Relaxed), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_retried_attempt_that_reported_usage_is_handed_to_the_sink_once() {
+    let (broker, send) = setup();
+    let provider = MockProvider::new([
+        MockAttempt::Body(b"u:10,5\n".to_vec()),
+        MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
+    ]);
+    let mut sink = Sink::default();
+    let attempts = broker.send(&provider, send, &mut sink, &CancellationToken::new()).await.unwrap();
+    assert_eq!(attempts, 2);
+    assert_eq!(sink.abandoned, vec![(10, 5, "m".to_owned())]);
 }
 
 #[tokio::test(start_paused = true)]

@@ -11,12 +11,12 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { deriveRemoteRoots, trimManifest } from './remote-js-roots.mjs';
+import { deriveRemoteRoots, pruneInapplicable, trimManifest, verifyInstalledTree } from './remote-js-roots.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,19 +47,25 @@ export async function fetchPinnedNode(key, cacheDir, { pin, fetchImpl = fetch } 
   const dir = join(cacheDir, name);
   const node = join(dir, 'node');
   const license = join(dir, 'LICENSE');
+  const archive = join(cacheDir, `${name}.tar.gz`);
+  await mkdir(cacheDir, { recursive: true });
+  // Only the release tarball has a pin, so it is what gets verified, every time; the files bundled are
+  // always extracted from a tarball that matched, never taken from a previous extraction on trust.
+  let cached = null;
   try {
-    if ((await sha256File(node)) && (await sha256File(license))) return { node, license, version: wanted.version };
+    cached = await sha256File(archive);
   } catch {
     // not cached
   }
-  const archive = join(cacheDir, `${name}.tar.gz`);
-  await mkdir(cacheDir, { recursive: true });
-  const response = await fetchImpl(`https://nodejs.org/dist/v${wanted.version}/${name}.tar.gz`);
-  if (!response.ok) throw new Error(`Node ${wanted.version} for ${key}: HTTP ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const actual = createHash('sha256').update(bytes).digest('hex');
-  if (actual !== sha256) throw new Error(`Node ${wanted.version} for ${key} does not match its pin (got ${actual})`);
-  await writeFile(archive, bytes);
+  if (cached !== sha256) {
+    await rm(archive, { force: true });
+    const response = await fetchImpl(`https://nodejs.org/dist/v${wanted.version}/${name}.tar.gz`);
+    if (!response.ok) throw new Error(`Node ${wanted.version} for ${key}: HTTP ${response.status}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const actual = createHash('sha256').update(bytes).digest('hex');
+    if (actual !== sha256) throw new Error(`Node ${wanted.version} for ${key} does not match its pin (got ${actual})`);
+    await writeFile(archive, bytes);
+  }
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
   await execFileAsync('tar', ['-xzf', archive, '-C', dir, '--strip-components=1', `${name}/bin/node`, `${name}/LICENSE`]);
@@ -81,11 +87,12 @@ const npm = (args, cwd) =>
 export async function installProductionModules(pkgDir, key, { packageRootDir = rootDir } = {}) {
   const { platform, arch } = splitKey(key);
   const { roots } = deriveRemoteRoots({ packageRootDir });
+  const target = { os: platform, cpu: arch, libc: platform === 'linux' ? 'glibc' : undefined };
   const trimmed = trimManifest({
     manifest: JSON.parse(await readFile(join(packageRootDir, 'package.json'), 'utf8')),
     lock: JSON.parse(await readFile(join(packageRootDir, 'package-lock.json'), 'utf8')),
     roots: roots.keys(),
-    target: { os: platform, cpu: arch, libc: platform === 'linux' ? 'glibc' : undefined },
+    target,
   });
   await mkdir(pkgDir, { recursive: true });
   await writeFile(join(pkgDir, 'package.json'), `${JSON.stringify(trimmed.manifest, null, 2)}\n`);
@@ -103,9 +110,13 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
     ],
     pkgDir
   );
+  // npm installs platform variants whose libc the lockfile does not record, so each package's own
+  // package.json decides; then the whole reached tree, not just the roots, must be there.
+  const inapplicable = new Set([...trimmed.inapplicable, ...pruneInapplicable(join(pkgDir, 'node_modules'), target)]);
   for (const name of roots.keys()) {
     if (!existsSync(join(pkgDir, 'node_modules', name, 'package.json'))) throw new Error(`${name} is reached from the remote entry points but was not installed`);
   }
+  verifyInstalledTree(pkgDir, inapplicable);
   await rm(join(pkgDir, 'node_modules', '.bin'), { recursive: true, force: true });
   await rm(join(pkgDir, 'package-lock.json'), { force: true });
 }
@@ -147,7 +158,7 @@ export async function buildJsPayload({
 /** A digest of a tree's relative paths and file bytes: the same inputs give the same digest, which the
  *  archive's own (timestamped) sha256 does not. */
 export async function treeDigest(dir) {
-  const hash = createHash('sha256');
+  const files = [];
   const walk = async (relative) => {
     const entries = (await readdir(join(dir, relative), { withFileTypes: true })).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0
@@ -155,24 +166,43 @@ export async function treeDigest(dir) {
     for (const entry of entries) {
       const path = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) await walk(path);
-      else hash.update(`${path}\0${await sha256File(join(dir, path))}\n`);
+      else files.push(path);
     }
   };
   await walk('');
+  // A production tree is tens of thousands of small files, and opening each costs a fixed delay (virus
+  // scanners make it tens of ms on Windows), so reading them one after another takes tens of minutes.
+  // The hashes are read with overlap and combined in path order, which keeps the digest the same.
+  const hashes = new Array(files.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: 32 }, async () => {
+      while (next < files.length) {
+        const at = next++;
+        hashes[at] = await sha256File(join(dir, files[at]));
+      }
+    })
+  );
+  const hash = createHash('sha256');
+  files.forEach((path, at) => hash.update(`${path}\0${hashes[at]}\n`));
   return hash.digest('hex');
 }
 
 /** `bundle.tgz`: `mixdogd` and `payload/` — what the bootstrap unpacks on the server. `content` identifies
  *  what is inside (the binary and the payload tree), whatever the archive's timestamps. */
 export async function createBundleArchive({ binary, payloadDir, out }) {
-  const assembly = `${out}.assembly`;
+  const assembly = `${payloadDir}.assembly`; // beside the payload, so moving it in is a rename
   await rm(assembly, { recursive: true, force: true });
   await mkdir(assembly, { recursive: true });
   await cp(binary, join(assembly, 'mixdogd'));
-  await cp(payloadDir, join(assembly, 'payload'), { recursive: true });
+  // The payload is moved in and back, not copied: copying the tree file by file doubles the time of the
+  // build for nothing, and the move is a rename on the same volume.
+  const moved = join(assembly, 'payload');
+  await rename(payloadDir, moved);
   try {
     await execFileAsync('tar', ['-czf', out, '-C', assembly, 'mixdogd', 'payload'], { maxBuffer: 16 * 1024 * 1024 });
   } finally {
+    await rename(moved, payloadDir);
     await rm(assembly, { recursive: true, force: true });
   }
   const bytes = await readFile(out);

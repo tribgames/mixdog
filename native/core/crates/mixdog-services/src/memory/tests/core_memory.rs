@@ -22,6 +22,7 @@ fn scrub(text: &str) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn memory_tool_matches_recorded_goldens() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -49,6 +50,7 @@ async fn memory_tool_matches_recorded_goldens() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn edit_and_delete_follow_the_listed_revision() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;

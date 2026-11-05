@@ -7,6 +7,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 const FILE_BATCH: usize = 200;
 const LONGEST_COUNT: usize = 5;
@@ -14,7 +15,8 @@ const LONGEST_COUNT: usize = 5;
 #[async_trait]
 pub trait OutlineSource: Send + Sync {
     /// Outline records (`{rel, lang, symbols:[{kind,name,startLine,endLine}]}`) for the files.
-    async fn outline(&self, cwd: &Path, rels: &[String]) -> Result<Vec<Value>, String>;
+    /// A cancelled `cancel` stops the work and answers an error.
+    async fn outline(&self, cwd: &Path, rels: &[String], cancel: &CancellationToken) -> Result<Vec<Value>, String>;
 }
 
 fn has_span(symbol: &Value) -> bool {
@@ -27,12 +29,12 @@ fn extension(rel: &str) -> String {
 
 /// Counts functions over 50/100/150 lines in `files` (project-relative). Files whose language
 /// emits no spans are listed under `notMeasured`, never counted as short.
-pub async fn summarize_function_lengths(source: &dyn OutlineSource, cwd: &Path, files: &[String]) -> Value {
+pub async fn summarize_function_lengths(source: &dyn OutlineSource, cwd: &Path, files: &[String], cancel: &CancellationToken) -> Value {
     let mut functions: Vec<(String, String, i64)> = Vec::new();
     let mut spanned = std::collections::HashSet::new();
     let mut seen: HashMap<String, String> = HashMap::new();
     for chunk in files.chunks(FILE_BATCH) {
-        let records = match source.outline(cwd, chunk).await {
+        let records = match source.outline(cwd, chunk, cancel).await {
             Ok(r) => r,
             Err(e) => return json!({"measured": false, "note": format!("function lengths not measured: {e}")}),
         };
@@ -76,7 +78,7 @@ mod tests {
     struct Fixed(Result<Vec<Value>, String>);
     #[async_trait]
     impl OutlineSource for Fixed {
-        async fn outline(&self, _: &Path, _: &[String]) -> Result<Vec<Value>, String> {
+        async fn outline(&self, _: &Path, _: &[String], _: &CancellationToken) -> Result<Vec<Value>, String> {
             self.0.clone()
         }
     }
@@ -88,7 +90,7 @@ mod tests {
             json!({"rel": "a.ts", "lang": "typescript", "symbols": [sym("big", 1, 160), sym("mid", 1, 60), sym("tiny", 1, 3), {"kind": "class", "name": "C", "startLine": 1, "endLine": 999}]}),
             json!({"rel": "b.sol", "lang": "solidity", "symbols": [{"kind": "function", "name": "f"}]}),
         ];
-        let out = summarize_function_lengths(&Fixed(Ok(records)), Path::new("/r"), &["a.ts".into(), "b.sol".into(), "c.txt".into()]).await;
+        let out = summarize_function_lengths(&Fixed(Ok(records)), Path::new("/r"), &["a.ts".into(), "b.sol".into(), "c.txt".into()], &CancellationToken::new()).await;
         assert_eq!((out["functions"].clone(), out["over50"].clone(), out["over100"].clone(), out["over150"].clone()), (json!(3), json!(2), json!(1), json!(1)));
         assert_eq!(out["longest"][0], json!({"path": "a.ts", "name": "big", "lines": 160}));
         assert_eq!(out["notMeasured"], json!([".txt", "solidity"]));
@@ -96,7 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_graph_is_reported_not_thrown() {
-        let out = summarize_function_lengths(&Fixed(Err("no graph".into())), Path::new("/r"), &["a.ts".into()]).await;
+        let out = summarize_function_lengths(&Fixed(Err("no graph".into())), Path::new("/r"), &["a.ts".into()], &CancellationToken::new()).await;
         assert_eq!(out, json!({"measured": false, "note": "function lengths not measured: no graph"}));
     }
 }

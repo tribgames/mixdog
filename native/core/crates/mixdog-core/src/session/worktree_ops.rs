@@ -117,7 +117,7 @@ impl Ops {
 
     /// The managed worktree whose checkout is `path` or contains it.
     pub async fn worktree_containing(&self, path: &str, cancel: &CancellationToken) -> Result<Option<WorktreeRecord>, ScmFailure> {
-        if path.trim().is_empty() {
+        if mixdog_js::js_trim(path).is_empty() {
             return Ok(None);
         }
         match self.records(cancel).await?.into_iter().find(|r| is_within(&r.path, path)) {
@@ -207,7 +207,7 @@ impl Ops {
         confirm_large: bool,
         cancel: &CancellationToken,
     ) -> Result<Created, ScmFailure> {
-        if tx_id.trim().is_empty() {
+        if mixdog_js::js_trim(tx_id).is_empty() {
             return Err(plain("txId must be a non-empty string."));
         }
         let common = text(&project.common_dir);
@@ -287,7 +287,7 @@ impl Ops {
         confirm_large: bool,
         cancel: &CancellationToken,
     ) -> Result<Resolved, ScmFailure> {
-        if branch.trim().is_empty() {
+        if mixdog_js::js_trim(branch).is_empty() {
             return Err(plain("branch must be a non-empty string."));
         }
         let repo = self.inspect(project_path, cancel).await?;

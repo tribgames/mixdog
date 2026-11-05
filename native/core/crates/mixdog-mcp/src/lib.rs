@@ -6,6 +6,7 @@
 
 pub mod admission;
 pub mod config;
+pub mod connector_accounts;
 mod containment;
 pub mod declaration_cache;
 pub mod hook_bus;
@@ -19,10 +20,9 @@ pub mod naming;
 pub mod oauth;
 pub mod outbound;
 pub mod permissions;
+pub mod plugin_admin;
 pub mod plugins;
-#[cfg(feature = "policy")]
 pub mod policy;
-#[cfg(feature = "policy")]
 pub mod pre_tool;
 pub mod result;
 pub mod rpc;
@@ -30,12 +30,12 @@ pub mod server;
 pub mod scopes;
 pub mod skill_catalog;
 pub mod skill_deps;
-#[cfg(feature = "policy")]
 pub mod skill_port;
 pub mod skill_state;
 pub mod skills;
 pub mod skills_watch;
 pub mod sse;
+mod state_file;
 pub mod stdio;
 pub mod tools;
 pub mod transport;

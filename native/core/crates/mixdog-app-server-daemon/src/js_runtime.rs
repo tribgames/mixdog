@@ -9,8 +9,8 @@
 //!
 //! Relative paths are taken from the manifest's directory. A `program` without a path separator
 //! (`"node"`) is searched on `PATH`. The desktop writes the manifest when it stages the core
-//! (`apps/desktop/scripts/stage-core.mjs`); a server install has none until it ships a JS bundle,
-//! and then [`resolve`] is `Ok(None)`: no skill launchers, no extension host.
+//! (`apps/desktop/scripts/stage-core.mjs`); every product install ships it, desktop and remote
+//! alike, so a missing manifest is as much a startup error as a broken one.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -25,6 +25,8 @@ const SKILL_ENTRY: &str = "src/skill-script-entry.mjs";
 
 #[derive(Debug, thiserror::Error)]
 pub enum JsRuntimeError {
+    #[error("the install has no JS runtime manifest {}", .manifest.display())]
+    NotInstalled { manifest: PathBuf },
     #[error("reading {}: {source}", .path.display())]
     Read { path: PathBuf, source: std::io::Error },
     #[error("{} is not a JS runtime manifest: {source}", .path.display())]
@@ -45,14 +47,17 @@ struct Manifest {
 }
 
 /// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
-/// searched on. `Ok(None)`: this install ships no manifest. A manifest that names something
-/// missing is an error, never a silent `None`.
-pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<Option<JsRuntime>, JsRuntimeError> {
-    let Some(dir) = exe.parent() else { return Ok(None) };
+/// searched on. A missing manifest, or one that names something missing, is an error.
+pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
+    let Some(dir) = exe.parent() else {
+        return Err(JsRuntimeError::NotInstalled { manifest: PathBuf::from(MANIFEST_FILE) });
+    };
     let manifest_path = dir.join(MANIFEST_FILE);
     let text = match std::fs::read_to_string(&manifest_path) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(JsRuntimeError::NotInstalled { manifest: manifest_path });
+        }
         Err(source) => return Err(JsRuntimeError::Read { path: manifest_path, source }),
     };
     let manifest: Manifest =
@@ -69,11 +74,11 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<Option<JsRuntime>, Js
     if !package_present(&package_root) {
         return Err(JsRuntimeError::MissingPackage { root: package_root, manifest: manifest_path });
     }
-    Ok(Some(JsRuntime { program, package_root, electron: manifest.electron }))
+    Ok(JsRuntime { program, package_root, electron: manifest.electron })
 }
 
 /// The runtime of the running binary's install.
-pub fn resolve_current() -> Result<Option<JsRuntime>, JsRuntimeError> {
+pub fn resolve_current() -> Result<JsRuntime, JsRuntimeError> {
     let exe = std::env::current_exe().map_err(|source| JsRuntimeError::Read { path: PathBuf::from("<current exe>"), source })?;
     resolve(&exe, std::env::var_os("PATH").as_deref())
 }
@@ -94,6 +99,20 @@ fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// A test install under `root`: a manifest, an interpreter file and a package root holding the
+/// skill entry, resolved through [`resolve`] as a product install is.
+#[cfg(test)]
+pub(crate) fn fixture(root: &Path) -> JsRuntime {
+    let core = root.join("core");
+    let package = root.join("js");
+    std::fs::create_dir_all(&core).unwrap();
+    std::fs::create_dir_all(package.join("src")).unwrap();
+    std::fs::write(core.join("node"), "").unwrap();
+    std::fs::write(package.join(SKILL_ENTRY), "").unwrap();
+    std::fs::write(core.join(MANIFEST_FILE), r#"{"program":"./node","packageRoot":"../js"}"#).unwrap();
+    resolve(&core.join("mixdogd"), None).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,10 +128,16 @@ mod tests {
     }
 
     #[test]
-    fn no_manifest_is_no_runtime() {
+    fn no_manifest_is_an_error() {
         let (root, exe) = install("{}");
         std::fs::remove_file(root.path().join("core").join(MANIFEST_FILE)).unwrap();
-        assert!(resolve(&exe, None).unwrap().is_none());
+        assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::NotInstalled { .. })));
+    }
+
+    #[test]
+    fn the_fixture_install_resolves() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!fixture(root.path()).electron);
     }
 
     #[test]
@@ -125,7 +150,7 @@ mod tests {
         // Inside an archive only the archive file can be checked.
         assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::MissingPackage { .. })));
         std::fs::write(root.path().join("runtime.asar"), "").unwrap();
-        let js = resolve(&exe, None).unwrap().unwrap();
+        let js = resolve(&exe, None).unwrap();
         assert!(js.electron);
         assert!(js.program.ends_with("app/Mixdog") || js.program.ends_with("app\\Mixdog"));
         assert!(js.package_root.ends_with("node_modules/mixdog") || js.package_root.ends_with("node_modules\\mixdog"));
@@ -142,7 +167,7 @@ mod tests {
         assert!(matches!(resolve(&exe, Some(&path)), Err(JsRuntimeError::MissingPackage { .. })));
         std::fs::create_dir_all(root.path().join("js/src")).unwrap();
         std::fs::write(root.path().join("js").join(SKILL_ENTRY), "").unwrap();
-        let js = resolve(&exe, Some(&path)).unwrap().unwrap();
+        let js = resolve(&exe, Some(&path)).unwrap();
         assert!(!js.electron);
         assert_eq!(js.program, bin.join(name));
         assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::MissingProgram { .. })));

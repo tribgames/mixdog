@@ -396,7 +396,7 @@ mod tests {
         match error {
             CoreError::DomainError { domain, code, detail } => {
                 assert_eq!(&*domain, "worktree");
-                assert_eq!(&*code, WORKTREE_TARGET_MISMATCH);
+                assert_eq!(code.as_deref(), Some(WORKTREE_TARGET_MISMATCH));
                 assert_eq!(
                     detail.as_deref(),
                     Some(&DomainErrorDetail::WorktreeTargetMismatch {

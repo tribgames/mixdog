@@ -4,6 +4,7 @@
 //! `failure_text` is the desktop's translation of the same failures and words several of them
 //! differently, so the two are not interchangeable.
 
+use mixdog_protocol::DomainErrorDetail;
 use mixdog_scm::error::ScmFailure;
 
 /// What the turn-start gate throws for a session whose worktree folder is gone
@@ -50,9 +51,29 @@ const DEFAULTS: [(&str, &str); 23] = [
     ("MERGE_FAILED", "The merge failed; the project folder is unchanged."),
 ];
 
+/// `WORKTREE_BUSY_JOBS` texts by `reason`: the shared `WORKTREE_REFUSAL_REASONS`, plus the texts
+/// Node's guards throw (`activity-guards.mjs`, `admission-gate.mjs`). The three `transition`
+/// texts travel on the failure itself (`ScmFailure::message`).
+const REASONS: [(&str, &str); 6] = [
+    ("workspace-retained", "Sessions still retain this folder. Close or remove those sessions before cleaning it up."),
+    ("workspace-lease", "A runtime still holds this folder. Stop its work and release the workspace first."),
+    ("folder-in-use", "Sessions or workers still use an affected folder. Finish or move them before continuing."),
+    ("folder-shell-jobs", "Background commands still use an affected folder. Wait for them or stop them first."),
+    ("workspace-admission-unreadable", "Workspace activity cannot be verified. Nothing was changed."),
+    ("turn", "The session is running a turn; wait for it to finish."),
+];
+
 /// Node's thrown `message`: the contract default of a coded failure, else the failure's own text
 /// (a plain error is thrown with its message as is).
 pub fn thrown_message(failure: &ScmFailure) -> String {
+    if let Some(message) = failure.message() {
+        return message.to_owned();
+    }
+    if let Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) = failure.detail() {
+        if let Some((_, text)) = REASONS.iter().find(|(known, _)| known == reason) {
+            return (*text).to_owned();
+        }
+    }
     match failure.code() {
         Some(code) => DEFAULTS.iter().find(|(known, _)| *known == code).map_or_else(|| code.to_owned(), |(_, text)| (*text).to_owned()),
         None => failure.to_string(),

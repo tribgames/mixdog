@@ -52,6 +52,7 @@ fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
         antigravity_client_version: "1.0.0".into(),
         env,
         home_dir: dir.path().to_path_buf(),
+        io: CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         gated_off: Arc::new(|name| name == "gated"),
     })
 }

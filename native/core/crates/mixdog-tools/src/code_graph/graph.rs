@@ -17,7 +17,9 @@ use mixdog_graph::scan_lang::{ScanLang, scan_lang_for_path};
 use mixdog_graph::{MAX_FILE_BYTES, walk_classified_files};
 use rayon::prelude::*;
 
+use super::cache::{CachedFile, GraphCache};
 use super::resolve::resolve_imports;
+use super::roots::path_key;
 
 /// Files indexed per graph; the files after the cut are not part of any answer.
 pub(super) const MAX_FILES: usize = 10_000;
@@ -35,7 +37,21 @@ pub(super) struct Node {
     pub tokens: Vec<String>,
     /// `None`: no call extraction ran for this file (unknown, not "no calls").
     pub calls: Option<Vec<CallInfo>>,
+    /// Size and modification time (ns since the epoch) the node was parsed from: the cache's
+    /// signature for reusing it.
+    pub fingerprint: Option<(u64, u64)>,
     lines: OnceLock<Vec<String>>,
+}
+
+/// `(size, mtime_ns)` of a file.
+fn fingerprint_of(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let nanos = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some((meta.len(), u64::try_from(nanos).ok()?))
+}
+
+fn rel_of(root: &Path, path: &Path) -> Option<String> {
+    Some(path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/"))
 }
 
 impl Node {
@@ -48,13 +64,6 @@ impl Node {
     }
 }
 
-/// A path as a comparable key: forward slashes, no trailing slash, lowercase on Windows.
-fn path_key(path: &Path) -> String {
-    let text = path.to_string_lossy().replace('\\', "/");
-    let text = text.trim_start_matches("//?/").trim_end_matches('/').to_owned();
-    if cfg!(windows) { text.to_lowercase() } else { text }
-}
-
 pub(super) fn split_lines(text: &str) -> Vec<String> {
     text.split('\n')
         .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
@@ -62,7 +71,6 @@ pub(super) fn split_lines(text: &str) -> Vec<String> {
 }
 
 pub(super) struct Graph {
-    pub cwd: PathBuf,
     pub nodes: Vec<Node>,
     index: HashMap<String, usize>,
     /// rel -> sorted rels of the files that import it.
@@ -82,14 +90,6 @@ impl Graph {
             .unwrap_or_default()
     }
 
-    pub fn has_native_symbols(&self) -> bool {
-        self.nodes.iter().any(|n| !n.symbols.is_empty())
-    }
-
-    pub fn has_ast_calls(&self) -> bool {
-        self.nodes.iter().any(|n| n.calls.is_some())
-    }
-
     /// Candidate files of a name: the ones whose tokens contain it.
     pub fn token_candidates<'a>(
         &'a self,
@@ -103,7 +103,10 @@ impl Graph {
 
     /// The whole project under `root`, minus the nested project roots in `excluded` (a federated
     /// child never re-indexes a sibling that owns its own graph).
-    pub fn build(root: &Path, excluded: &[PathBuf]) -> Result<Graph, String> {
+    ///
+    /// Files whose size and modification time match the cache's copy are not parsed again; a
+    /// whole-tree build that changed anything is staged for the cache's next flush.
+    pub fn build(root: &Path, excluded: &[PathBuf], cache: &GraphCache) -> Result<Graph, String> {
         let mut candidates = walk_classified_files(root, |p| {
             p.extension().and_then(|s| s.to_str()).and_then(lang_for)
         })?;
@@ -126,11 +129,37 @@ impl Graph {
             .collect();
         let truncated = sized.len() > MAX_FILES;
         let sized = &sized[..sized.len().min(MAX_FILES)];
+        let whole_tree = excluded.is_empty();
+        // Each cached file is taken at most once, by the worker whose file still matches it.
+        let previous: HashMap<String, std::sync::Mutex<Option<CachedFile>>> = if whole_tree { cache.load(root) } else { None }
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(rel, file)| (rel, std::sync::Mutex::new(Some(file))))
+            .collect();
+        let reused = std::sync::atomic::AtomicUsize::new(0);
+        let previous_len = previous.len();
         let mut nodes = sized
             .par_iter()
-            .map(|(path, lang)| parse_node(root, path, lang))
+            .map(|(path, lang)| {
+                let stamp = fingerprint_of(path);
+                let hit = rel_of(root, path).and_then(|rel| previous.get(&rel)).and_then(|slot| {
+                    let mut slot = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if slot.as_ref().is_some_and(|file| Some((file.size, file.mtime_ns)) == stamp) { slot.take() } else { None }
+                });
+                match hit {
+                    Some(file) => {
+                        reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        Ok(Node::from_cache(file, path, lang))
+                    }
+                    None => parse_node(root, path, lang),
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
         link(&mut nodes);
+        // Nothing to write when every file came from the cache and none went away.
+        if whole_tree && (reused.into_inner() != nodes.len() || previous_len != nodes.len()) {
+            cache.stage(root, nodes.iter().filter_map(CachedFile::of).collect());
+        }
         Ok(Self::assemble(root, nodes, truncated))
     }
 
@@ -151,7 +180,7 @@ impl Graph {
         Ok(Some(Self::assemble(root, vec![node], false)))
     }
 
-    fn assemble(root: &Path, nodes: Vec<Node>, truncated: bool) -> Graph {
+    fn assemble(_root: &Path, nodes: Vec<Node>, truncated: bool) -> Graph {
         let index = nodes
             .iter()
             .enumerate()
@@ -169,7 +198,6 @@ impl Graph {
             }
         }
         Graph {
-            cwd: root.to_path_buf(),
             nodes,
             index,
             reverse,
@@ -193,6 +221,7 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
             "unsupported source encoding; file not indexed".to_string(),
         ),
     };
+    let fingerprint = fingerprint_of(path);
     let scan_lang = scan_lang_for_path(path);
     let extraction = match (scan_lang, parse_error.is_empty()) {
         (Some(scan), true) => outline::extract(&text, lang, scan),
@@ -213,8 +242,28 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
         resolved_imports: Vec::new(),
         tokens: extraction.tokens,
         calls,
+        fingerprint,
         lines: OnceLock::new(),
     })
+}
+
+impl Node {
+    /// A node rebuilt from the cache's copy of the file.
+    pub(super) fn from_cache(file: CachedFile, path: &Path, lang: &'static str) -> Node {
+        Node {
+            rel: file.rel,
+            lang,
+            scan_lang: scan_lang_for_path(path),
+            text: file.text,
+            symbols: file.symbols.into_iter().map(super::cache::CachedSymbol::into_symbol).collect(),
+            raw_imports: file.raw_imports,
+            resolved_imports: Vec::new(),
+            tokens: file.tokens,
+            calls: file.calls.map(|calls| calls.into_iter().map(super::cache::CachedCall::into_call).collect()),
+            fingerprint: Some((file.size, file.mtime_ns)),
+            lines: OnceLock::new(),
+        }
+    }
 }
 
 fn link(nodes: &mut [Node]) {

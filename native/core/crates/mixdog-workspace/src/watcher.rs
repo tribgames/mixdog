@@ -258,12 +258,49 @@ fn route(state: &State, event: &notify::Event, pending: &mut Pending) {
     }
 }
 
+type Batch = Vec<((String, ChangeKind), BTreeSet<String>)>;
+
+/// The fixed trailing window: the first event of a burst fixes the deadline, later events join
+/// the same batch without moving it. Time is an argument, so the window is testable without a
+/// clock.
+#[derive(Default)]
+struct Batcher {
+    pending: Pending,
+    flush_at: Option<Instant>,
+}
+
+impl Batcher {
+    fn event(&mut self, state: &State, event: &notify::Event, now: Instant) {
+        route(state, event, &mut self.pending);
+        if self.flush_at.is_none() && !self.pending.is_empty() {
+            self.flush_at = Some(now + Duration::from_millis(BATCH_WINDOW_MS));
+        }
+    }
+
+    /// The backend lost events: every watch re-reads.
+    fn lost(&mut self, state: &State, now: Instant) {
+        for id in state.subs.keys() {
+            self.pending.entry((id.clone(), ChangeKind::Overflow)).or_default();
+        }
+        self.flush_at.get_or_insert(now + Duration::from_millis(BATCH_WINDOW_MS));
+    }
+
+    fn deadline(&self) -> Option<Instant> {
+        self.flush_at
+    }
+
+    fn flush(&mut self) -> Batch {
+        self.flush_at = None;
+        let mut batch: Batch = self.pending.drain().collect();
+        batch.sort_by(|a, b| a.0.cmp(&b.0));
+        batch
+    }
+}
+
 fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink>) {
-    let window = Duration::from_millis(BATCH_WINDOW_MS);
-    let mut pending: Pending = HashMap::new();
-    let mut flush_at: Option<Instant> = None;
+    let mut batcher = Batcher::default();
     loop {
-        let message = match flush_at {
+        let message = match batcher.deadline() {
             Some(deadline) => match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(m) => Some(m),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
@@ -276,26 +313,10 @@ fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink
         };
         match message {
             Some(Message::Stop) => return,
-            Some(Message::Event(Ok(event))) => {
-                let before = pending.len();
-                route(&state.lock().expect("watcher state"), &event, &mut pending);
-                if flush_at.is_none() && (pending.len() > before || !pending.is_empty()) {
-                    flush_at = Some(Instant::now() + window);
-                }
-            }
-            Some(Message::Event(Err(_))) => {
-                // The backend lost events: every watch re-reads.
-                let state = state.lock().expect("watcher state");
-                for id in state.subs.keys() {
-                    pending.entry((id.clone(), ChangeKind::Overflow)).or_default();
-                }
-                flush_at.get_or_insert(Instant::now() + window);
-            }
+            Some(Message::Event(Ok(event))) => batcher.event(&state.lock().expect("watcher state"), &event, Instant::now()),
+            Some(Message::Event(Err(_))) => batcher.lost(&state.lock().expect("watcher state"), Instant::now()),
             None => {
-                flush_at = None;
-                let mut batch: Vec<_> = pending.drain().collect();
-                batch.sort_by(|a, b| a.0.cmp(&b.0));
-                for ((id, kind), paths) in batch {
+                for ((id, kind), paths) in batcher.flush() {
                     sink.changed(&id, paths.into_iter().collect(), kind);
                 }
             }
@@ -328,20 +349,28 @@ mod tests {
         watcher.watch("w1", &root, true).unwrap();
         watcher.watch("w2", &root, true).unwrap();
         assert_eq!(watcher.open_watches(), 1);
-        for i in 0..200 {
-            std::fs::write(root.join(format!("f{i}.txt")), "x").unwrap();
-        }
-        std::thread::sleep(Duration::from_millis(900));
-        let mut notifications = 0;
-        let mut seen = BTreeSet::new();
-        while let Ok((id, paths, _)) = rx.try_recv() {
-            if id == "w1" {
-                notifications += 1;
-                seen.extend(paths);
+        // Synthetic backend events and synthetic instants: the window is a function of the first
+        // event's time alone, so no clock or OS timing is involved.
+        let start = Instant::now();
+        let mut batcher = Batcher::default();
+        {
+            let state = watcher.lock();
+            for i in 0..200u32 {
+                let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join(format!("f{i}.txt")));
+                batcher.event(&state, &event, start + Duration::from_millis(u64::from(i)));
             }
         }
-        assert!(notifications >= 1 && notifications <= 5, "{notifications}");
-        assert_eq!(seen.iter().filter(|p| p.ends_with(".txt")).count(), 200);
+        assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(BATCH_WINDOW_MS)), "later events must not move the window");
+        let batch = batcher.flush();
+        assert!(batcher.deadline().is_none());
+        // One notification per watch, each covering every path.
+        assert_eq!(batch.len(), 2);
+        for ((id, kind), paths) in &batch {
+            assert!(id == "w1" || id == "w2");
+            assert_eq!(*kind, ChangeKind::Modified);
+            assert_eq!(paths.iter().filter(|p| p.ends_with(".txt")).count(), 200);
+        }
+        drop(rx);
         watcher.unwatch("w1");
         watcher.unwatch("w2");
         assert_eq!(watcher.open_watches(), 0);

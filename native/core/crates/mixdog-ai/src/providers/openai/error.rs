@@ -126,8 +126,7 @@ fn retry_after(headers: &[(String, String)], now_ms: u64) -> Option<Duration> {
     if let Ok(seconds) = value.parse::<f64>() {
         return positive(seconds * 1000.0);
     }
-    let at = chrono::DateTime::parse_from_rfc2822(value).ok()?;
-    positive((at.timestamp_millis() - now_ms as i64) as f64)
+    positive(mixdog_js::time::date_parse(value) - now_ms as f64)
 }
 
 /// Quota window reset: an absolute epoch (seconds or ms) or a delay.

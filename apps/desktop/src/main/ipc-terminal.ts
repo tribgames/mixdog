@@ -1,4 +1,5 @@
 import type { BrowserWindow, IpcMainEvent } from 'electron';
+import type { UiTerminalRunClaimedParams } from '../../../../packages/protocol/src/index.ts';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
 import type { TerminalActivityEvent } from '../shared/terminal-activity';
@@ -38,16 +39,19 @@ interface TerminalIpcOptions {
   ipcMain: Pick<DesktopIpcMain, 'on' | 'removeListener'>;
   handle: Handle;
   terminals?: DesktopTerminalHost;
-  terminalRuns?: { claim(requestId: string): boolean };
+  /** A client notification to the core, over this window's protocol link. */
+  notify?: (method: typeof UI_TERMINAL_RUN_CLAIMED, params: UiTerminalRunClaimedParams) => void;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
 }
+
+export const UI_TERMINAL_RUN_CLAIMED = 'ui/terminalRun/claimed';
 
 export function registerTerminalIpc({
   window,
   ipcMain,
   handle,
   terminals,
-  terminalRuns,
+  notify,
   invokeDesktopOperation,
 }: TerminalIpcOptions): () => void {
   const validSender = (event: IpcMainEvent): boolean =>
@@ -86,10 +90,15 @@ export function registerTerminalIpc({
     });
   }
 
-  handle(
-    DESKTOP_IPC.terminalRunClaim,
-    (_event, requestId) => terminalRuns?.claim(requiredString(requestId, 'terminal run request id', 128)) ?? false
-  );
+  // The core waits on the claim; true means it was sent (the core settles the run once, an unknown id is a no-op).
+  handle(DESKTOP_IPC.terminalRunClaim, (_event, requestId) => {
+    const claimed: UiTerminalRunClaimedParams = {
+      requestId: requiredString(requestId, 'terminal run request id', 128),
+    };
+    if (!notify) return false;
+    notify(UI_TERMINAL_RUN_CLAIMED, claimed);
+    return true;
+  });
 
   const onWrite = (event: IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validSender(event)) return;

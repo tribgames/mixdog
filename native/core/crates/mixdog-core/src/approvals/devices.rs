@@ -9,8 +9,9 @@ use mixdog_remote::registry::{DeviceRegistry, LinkKind, LocalKind};
 use super::{DeviceInfo, Devices};
 
 /// Stamped on a decision from a connection the registry does not know (never registered, or a
-/// relay peer that was unpaired meanwhile): the least privileged label, no device name.
-pub const UNKNOWN_DEVICE: &str = "unknown";
+/// relay peer that was unpaired meanwhile): Node's fallback for a connection with no device
+/// name (remote-session-methods.ts:42).
+pub const UNKNOWN_DEVICE: &str = mixdog_remote::registry::DEFAULT_DEVICE_NAME;
 
 pub struct RegistryDevices(Arc<DeviceRegistry>);
 
@@ -48,11 +49,11 @@ mod tests {
         registry.connect_local(1, "desktop-1", LocalKind::Desktop);
         registry.connect_relay(2, "peer-a");
         registry.connect_relay(3, "peer-b");
-        registry.attach_peer("peer-a", "cred-a", "Safari");
+        registry.attach_peer("peer-a", "Pixel", "Safari");
         registry.attach_peer("peer-b", "cred-b", "Mixdog Desktop");
         let info = |id| devices.describe(ConnectionId(id));
         assert_eq!(info(1), DeviceInfo { device: "desktop-1".into(), kind: ConnectionKind::Desktop });
-        assert_eq!(info(2), DeviceInfo { device: "cred-a".into(), kind: ConnectionKind::Phone });
+        assert_eq!(info(2), DeviceInfo { device: "Pixel".into(), kind: ConnectionKind::Phone });
         assert_eq!(info(3).kind, ConnectionKind::RemoteDesktop);
         assert_eq!(info(9).device, UNKNOWN_DEVICE);
         // Unpairing detaches the peer: its late decision is stamped unknown, not as the old device.

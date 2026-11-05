@@ -3,6 +3,7 @@
  * message of the protocol connection. It replaces the loopback bridges and
  * their discovery files; there is no listener, token or heartbeat here.
  */
+import type { HostClaimParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
 import { createBrowserCommandHost, type BrowserCommandRunner, type BrowserInputControl } from './browser-command';
 import { type BrowserTabsControl, createBrowserTabsReporter } from './browser-tabs';
@@ -31,6 +32,8 @@ export interface DesktopHostOptions {
   files: () => FilesControl;
   /** The claim-time visualize snapshot failed to reach the core: report it (diagnostics). */
   onVisualizePublishFailed: (error: unknown) => void;
+  /** `host/browser/viewFrames` is a notification: a live view that failed to start is reported (diagnostics). */
+  onBrowserViewFailed: (error: unknown) => void;
   resolveProxy: (url: string) => Promise<string>;
   notifications: NotificationPresenter;
   updater?: HostUpdater;
@@ -51,9 +54,14 @@ export function createDesktopHost(options: DesktopHostOptions) {
     remoteBrowserControl: (sessionId, control) => options.browser().view.remoteBrowserControl(sessionId, control),
     remote: (method, args) => options.browser().remote(method, args),
   });
-  const view = createBrowserView(connection, {
-    remoteBrowserStream: (sessionId, streamOptions) => options.browser().view.remoteBrowserStream(sessionId, streamOptions),
-  });
+  const view = createBrowserView(
+    connection,
+    {
+      remoteBrowserStream: (sessionId, streamOptions) =>
+        options.browser().view.remoteBrowserStream(sessionId, streamOptions),
+    },
+    options.onBrowserViewFailed
+  );
   const tabs = createBrowserTabsReporter(connection, () => options.browser().tabs);
   const visualize = createVisualizeHost(connection, options.visualize, options.onVisualizePublishFailed);
   registerFilesHost(connection, options.files);
@@ -72,7 +80,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
     reports,
     /** Claims the host role; commands are served from here on. */
     async claim(): Promise<void> {
-      await connection.request(HOST_METHOD.claim, { hostId: options.hostId });
+      await connection.request(HOST_METHOD.claim, { hostId: options.hostId } satisfies HostClaimParams);
       claimed = true;
       commands.start();
       tabs.start();

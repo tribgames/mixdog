@@ -197,6 +197,10 @@ test('the renderer watches for a pane for the shared wait that main also counts 
     handleTerminalRunRequest({ sessionId: 'sess-wait', terminalId: sessionTerminalId('sess-wait'), requestId: 'r' });
     assert.deepEqual(delays, [TERMINAL_SHOWN_WAIT_MS]);
     assert.equal(TERMINAL_SHOWN_WAIT_MS > 1000, true, 'a pane appearing after one second still counts');
+    // End the wait while the stubbed window exists: its timer would otherwise fire after the stub is gone.
+    const unmark = markTerminalShown(sessionTerminalId('sess-wait'));
+    await settle();
+    unmark();
   } finally {
     restore();
     stopReveal();

@@ -72,6 +72,10 @@ impl DomainService for ClientService {
         Err(wrong_method("client", req.method.as_str()))
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["client/activity", "client/perfLog"]
+    }
+
     fn notify(&self, method: Method, params: Value, _from: ConnectionId) -> Admit {
         // A notification has no reply to carry a refusal: params that do not decode, and a
         // time that is not positive (`ipc-validation.ts`), are dropped.

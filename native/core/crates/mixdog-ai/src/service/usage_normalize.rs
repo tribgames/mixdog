@@ -75,31 +75,12 @@ fn opt_str(s: Option<String>) -> Value {
     s.map_or(Value::Null, Value::String)
 }
 
-/// `Date.parse` of the ISO shapes providers send (an offset-less date-time or
-/// a bare date reads as UTC).
-fn parse_date_ms(text: &str) -> Option<f64> {
-    use chrono::NaiveDate;
-    use chrono::NaiveDateTime;
-    let t = text.trim();
-    if let Ok(d) = chrono::DateTime::parse_from_rfc3339(t) {
-        return Some(d.timestamp_millis() as f64);
-    }
-    for fmt in ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M"] {
-        if let Ok(d) = NaiveDateTime::parse_from_str(t, fmt) {
-            return Some(d.and_utc().timestamp_millis() as f64);
-        }
-    }
-    NaiveDate::parse_from_str(t, "%Y-%m-%d")
-        .ok()
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .map(|d| d.and_utc().timestamp_millis() as f64)
-}
-
-/// A reset moment as epoch ms: an ISO string, epoch seconds or ms, else
+/// A reset moment as epoch ms: a `Date.parse`-able string, epoch seconds or ms, else
 /// `now + fallback_seconds`.
 pub fn reset_at_ms(value: Option<&Value>, fallback_seconds: Option<&Value>, now_ms: i64) -> Option<f64> {
     if let Some(Value::String(s)) = value {
-        if let Some(ms) = parse_date_ms(s) {
+        let ms = mixdog_js::time::date_parse(s);
+        if ms.is_finite() {
             return Some(ms);
         }
     }

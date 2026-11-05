@@ -17,6 +17,7 @@ use mixdog_js::{JsRegex, js_trim, js_words, json_stringify, slice_utf16, to_numb
 use serde_json::{Map, Value, json};
 
 use crate::memory::core::action::{CoreContext, run};
+use crate::memory::ingest::SessionIngest;
 use crate::memory::pg::db::Db;
 use crate::memory::recall::Recall;
 
@@ -48,25 +49,28 @@ pub trait MemoryModule: Send + Sync {
 }
 
 /// The memory runtime over the local Postgres. `memory` serves the curated
-/// core-memory actions; the `ingest_session` action (storing a live transcript
-/// as recall entries) is not part of this port yet and answers as an unknown
-/// action, which recall ignores.
+/// core-memory actions; `ingest_session` stores a live transcript as recall
+/// entries through the session ingest it is built with.
 pub struct LocalMemory {
     db: Db,
     data_dir: PathBuf,
     revision: AtomicU64,
     recall: Recall,
+    ingest: SessionIngest,
 }
 
 impl LocalMemory {
-    pub fn new(db: Db, data_dir: PathBuf, recall: Recall) -> Self {
-        Self { db, data_dir, revision: AtomicU64::new(0), recall }
+    pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest) -> Self {
+        Self { db, data_dir, revision: AtomicU64::new(0), recall, ingest }
     }
 }
 
 #[async_trait]
 impl MemoryModule for LocalMemory {
     async fn memory(&self, args: Value) -> String {
+        if args.get("action").and_then(Value::as_str) == Some("ingest_session") {
+            return self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message());
+        }
         let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision };
         run(&ctx, &args).await.text
     }
@@ -284,6 +288,10 @@ impl DomainService for MemoryService {
             "memory/recall" => Ok(Reply::Value(self.recall(&req.params).await)),
             _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "memory/*".into() }),
         }
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &["memory/memoryControl", "memory/recall"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

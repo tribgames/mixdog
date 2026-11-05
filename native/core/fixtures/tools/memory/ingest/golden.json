@@ -1,0 +1,2738 @@
+{
+ "now": 1773543600000,
+ "cases": [
+  {
+   "name": "fresh",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "user",
+      "content": "# Session\nCwd: /w\nModel: m\nWorkflow: w\n\n# Task\nplease deploy the staging cluster",
+      "ts": 1773000000
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Deploying the staging cluster now."
+       }
+      ],
+      "toolCalls": [
+       {
+        "id": "call-1",
+        "name": "bash",
+        "args": {
+         "cmd": "x"
+        }
+       }
+      ],
+      "ts": "2026-03-15T02:00:05.000Z"
+     },
+     {
+      "role": "tool",
+      "toolCallId": "call-1",
+      "content": "ok exit 0"
+     },
+     {
+      "role": "system",
+      "content": "hidden system prompt"
+     },
+     {
+      "role": "user",
+      "content": "Reference files: a.txt b.txt"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "."
+     },
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "ai",
+      "content": [
+       {
+        "type": "text",
+        "text": "first"
+       },
+       {
+        "type": "text",
+        "text": "second block"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "   "
+     },
+     {
+      "role": "user",
+      "content": "see https://example.com/x only"
+     },
+     "not an object",
+     null
+    ]
+   },
+   "text": "ingest_session: considered=8 inserted=8 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 2
+    }
+   }
+  },
+  {
+   "name": "re-ingest-same",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "user",
+      "content": "# Session\nCwd: /w\nModel: m\nWorkflow: w\n\n# Task\nplease deploy the staging cluster",
+      "ts": 1773000000
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Deploying the staging cluster now."
+       }
+      ],
+      "toolCalls": [
+       {
+        "id": "call-1",
+        "name": "bash",
+        "args": {
+         "cmd": "x"
+        }
+       }
+      ],
+      "ts": "2026-03-15T02:00:05.000Z"
+     },
+     {
+      "role": "tool",
+      "toolCallId": "call-1",
+      "content": "ok exit 0"
+     },
+     {
+      "role": "system",
+      "content": "hidden system prompt"
+     },
+     {
+      "role": "user",
+      "content": "Reference files: a.txt b.txt"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "."
+     },
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "ai",
+      "content": [
+       {
+        "type": "text",
+        "text": "first"
+       },
+       {
+        "type": "text",
+        "text": "second block"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "   "
+     },
+     {
+      "role": "user",
+      "content": "see https://example.com/x only"
+     },
+     "not an object",
+     null
+    ]
+   },
+   "text": "ingest_session: considered=8 inserted=0 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 2
+    }
+   }
+  },
+  {
+   "name": "append-genuine-repeat",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "user",
+      "content": "# Session\nCwd: /w\nModel: m\nWorkflow: w\n\n# Task\nplease deploy the staging cluster",
+      "ts": 1773000000
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Deploying the staging cluster now."
+       }
+      ],
+      "toolCalls": [
+       {
+        "id": "call-1",
+        "name": "bash",
+        "args": {
+         "cmd": "x"
+        }
+       }
+      ],
+      "ts": "2026-03-15T02:00:05.000Z"
+     },
+     {
+      "role": "tool",
+      "toolCallId": "call-1",
+      "content": "ok exit 0"
+     },
+     {
+      "role": "system",
+      "content": "hidden system prompt"
+     },
+     {
+      "role": "user",
+      "content": "Reference files: a.txt b.txt"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "."
+     },
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "ai",
+      "content": [
+       {
+        "type": "text",
+        "text": "first"
+       },
+       {
+        "type": "text",
+        "text": "second block"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "   "
+     },
+     {
+      "role": "user",
+      "content": "see https://example.com/x only"
+     },
+     "not an object",
+     null,
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "You are welcome."
+     }
+    ]
+   },
+   "text": "ingest_session: considered=10 inserted=2 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 3
+    }
+   }
+  },
+  {
+   "name": "compacted-with-new-tail",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "You are welcome."
+     },
+     {
+      "role": "user",
+      "content": "new question after compaction"
+     }
+    ]
+   },
+   "text": "ingest_session: considered=5 inserted=1 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 3
+    }
+   }
+  },
+  {
+   "name": "limit-two",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "user",
+      "content": "# Session\nCwd: /w\nModel: m\nWorkflow: w\n\n# Task\nplease deploy the staging cluster",
+      "ts": 1773000000
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Deploying the staging cluster now."
+       }
+      ],
+      "toolCalls": [
+       {
+        "id": "call-1",
+        "name": "bash",
+        "args": {
+         "cmd": "x"
+        }
+       }
+      ],
+      "ts": "2026-03-15T02:00:05.000Z"
+     },
+     {
+      "role": "tool",
+      "toolCallId": "call-1",
+      "content": "ok exit 0"
+     },
+     {
+      "role": "system",
+      "content": "hidden system prompt"
+     },
+     {
+      "role": "user",
+      "content": "Reference files: a.txt b.txt"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "."
+     },
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "ai",
+      "content": [
+       {
+        "type": "text",
+        "text": "first"
+       },
+       {
+        "type": "text",
+        "text": "second block"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "   "
+     },
+     {
+      "role": "user",
+      "content": "see https://example.com/x only"
+     },
+     "not an object",
+     null,
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "You are welcome."
+     },
+     {
+      "role": "user",
+      "content": "extra a"
+     },
+     {
+      "role": "assistant",
+      "content": "extra b"
+     },
+     {
+      "role": "user",
+      "content": "extra c"
+     }
+    ],
+    "limit": 2
+   },
+   "text": "ingest_session: considered=2 inserted=2 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 32,
+     "ts": 1773543599998,
+     "role": "assistant",
+     "content": "extra b",
+     "source_ref": "session:ing-sess-0001:d127e514ed584a3792d1eaf9",
+     "session_id": "ing-sess-0001",
+     "source_turn": 12,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 33,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra c",
+     "source_ref": "session:ing-sess-0001:6ae24dc3790b7e4647821126",
+     "session_id": "ing-sess-0001",
+     "source_turn": 13,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 5,
+     "347b94c1b70a1601dc61ed6a": 2,
+     "513aa07fcbc0f6cf888b3d83": 2,
+     "5ccfdc1405c3a7a0345d5c4a": 2
+    }
+   }
+  },
+  {
+   "name": "full-transcript",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "user",
+      "content": "# Session\nCwd: /w\nModel: m\nWorkflow: w\n\n# Task\nplease deploy the staging cluster",
+      "ts": 1773000000
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Deploying the staging cluster now."
+       }
+      ],
+      "toolCalls": [
+       {
+        "id": "call-1",
+        "name": "bash",
+        "args": {
+         "cmd": "x"
+        }
+       }
+      ],
+      "ts": "2026-03-15T02:00:05.000Z"
+     },
+     {
+      "role": "tool",
+      "toolCallId": "call-1",
+      "content": "ok exit 0"
+     },
+     {
+      "role": "system",
+      "content": "hidden system prompt"
+     },
+     {
+      "role": "user",
+      "content": "Reference files: a.txt b.txt"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "."
+     },
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "ai",
+      "content": [
+       {
+        "type": "text",
+        "text": "first"
+       },
+       {
+        "type": "text",
+        "text": "second block"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "   "
+     },
+     {
+      "role": "user",
+      "content": "see https://example.com/x only"
+     },
+     "not an object",
+     null,
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "You are welcome."
+     },
+     {
+      "role": "user",
+      "content": "extra a"
+     },
+     {
+      "role": "assistant",
+      "content": "extra b"
+     },
+     {
+      "role": "user",
+      "content": "extra c"
+     },
+     {
+      "role": "user",
+      "content": "extra d"
+     }
+    ],
+    "limit": 1,
+    "fullTranscript": true
+   },
+   "text": "ingest_session: considered=14 inserted=7 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 32,
+     "ts": 1773543599998,
+     "role": "assistant",
+     "content": "extra b",
+     "source_ref": "session:ing-sess-0001:d127e514ed584a3792d1eaf9",
+     "session_id": "ing-sess-0001",
+     "source_turn": 12,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 33,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra c",
+     "source_ref": "session:ing-sess-0001:6ae24dc3790b7e4647821126",
+     "session_id": "ing-sess-0001",
+     "source_turn": 13,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 37,
+     "ts": 1773543599985,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:303b4edce9cf4c674a10cde0",
+     "session_id": "ing-sess-0001",
+     "source_turn": 14,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 39,
+     "ts": 1773543599988,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:db8e8f95fecd957506d86b6b",
+     "session_id": "ing-sess-0001",
+     "source_turn": 15,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 40,
+     "ts": 1773543599989,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:5bf8104f0312153983970e68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 16,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 41,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:aa82d59d1e447c7f22dc99eb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 17,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 42,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:1daa940a0ea307faa54a8c68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 18,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 44,
+     "ts": 1773543599996,
+     "role": "user",
+     "content": "extra a",
+     "source_ref": "session:ing-sess-0001:65070579aad80268d30ada81",
+     "session_id": "ing-sess-0001",
+     "source_turn": 19,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 47,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra d",
+     "source_ref": "session:ing-sess-0001:e0b7991a9fc9ef8a5c5ee43d",
+     "session_id": "ing-sess-0001",
+     "source_turn": 20,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 5,
+     "347b94c1b70a1601dc61ed6a": 2,
+     "513aa07fcbc0f6cf888b3d83": 2,
+     "5ccfdc1405c3a7a0345d5c4a": 2
+    }
+   }
+  },
+  {
+   "name": "no-embed-wait",
+   "args": {
+    "sessionId": "ing-sess-0002",
+    "messages": [
+     {
+      "role": "user",
+      "content": "a second session row"
+     },
+     {
+      "role": "assistant",
+      "content": "reply in second session"
+     }
+    ],
+    "embedWait": false
+   },
+   "text": "ingest_session: considered=2 inserted=2 session=ing-sess-0002",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 32,
+     "ts": 1773543599998,
+     "role": "assistant",
+     "content": "extra b",
+     "source_ref": "session:ing-sess-0001:d127e514ed584a3792d1eaf9",
+     "session_id": "ing-sess-0001",
+     "source_turn": 12,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 33,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra c",
+     "source_ref": "session:ing-sess-0001:6ae24dc3790b7e4647821126",
+     "session_id": "ing-sess-0001",
+     "source_turn": 13,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 37,
+     "ts": 1773543599985,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:303b4edce9cf4c674a10cde0",
+     "session_id": "ing-sess-0001",
+     "source_turn": 14,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 39,
+     "ts": 1773543599988,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:db8e8f95fecd957506d86b6b",
+     "session_id": "ing-sess-0001",
+     "source_turn": 15,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 40,
+     "ts": 1773543599989,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:5bf8104f0312153983970e68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 16,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 41,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:aa82d59d1e447c7f22dc99eb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 17,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 42,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:1daa940a0ea307faa54a8c68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 18,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 44,
+     "ts": 1773543599996,
+     "role": "user",
+     "content": "extra a",
+     "source_ref": "session:ing-sess-0001:65070579aad80268d30ada81",
+     "session_id": "ing-sess-0001",
+     "source_turn": 19,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 47,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra d",
+     "source_ref": "session:ing-sess-0001:e0b7991a9fc9ef8a5c5ee43d",
+     "session_id": "ing-sess-0001",
+     "source_turn": 20,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 48,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "a second session row",
+     "source_ref": "session:ing-sess-0002:fcc5a2b41af0d923d05a756a",
+     "session_id": "ing-sess-0002",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 49,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "reply in second session",
+     "source_ref": "session:ing-sess-0002:dc6d68e5b7c811f2f5980380",
+     "session_id": "ing-sess-0002",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 5,
+     "347b94c1b70a1601dc61ed6a": 2,
+     "513aa07fcbc0f6cf888b3d83": 2,
+     "5ccfdc1405c3a7a0345d5c4a": 2
+    }
+   }
+  },
+  {
+   "name": "second-session-same-text",
+   "args": {
+    "sessionId": "ing-sess-0002",
+    "messages": [
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     }
+    ]
+   },
+   "text": "ingest_session: considered=2 inserted=2 session=ing-sess-0002",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 32,
+     "ts": 1773543599998,
+     "role": "assistant",
+     "content": "extra b",
+     "source_ref": "session:ing-sess-0001:d127e514ed584a3792d1eaf9",
+     "session_id": "ing-sess-0001",
+     "source_turn": 12,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 33,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra c",
+     "source_ref": "session:ing-sess-0001:6ae24dc3790b7e4647821126",
+     "session_id": "ing-sess-0001",
+     "source_turn": 13,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 37,
+     "ts": 1773543599985,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:303b4edce9cf4c674a10cde0",
+     "session_id": "ing-sess-0001",
+     "source_turn": 14,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 39,
+     "ts": 1773543599988,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:db8e8f95fecd957506d86b6b",
+     "session_id": "ing-sess-0001",
+     "source_turn": 15,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 40,
+     "ts": 1773543599989,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:5bf8104f0312153983970e68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 16,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 41,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:aa82d59d1e447c7f22dc99eb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 17,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 42,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:1daa940a0ea307faa54a8c68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 18,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 44,
+     "ts": 1773543599996,
+     "role": "user",
+     "content": "extra a",
+     "source_ref": "session:ing-sess-0001:65070579aad80268d30ada81",
+     "session_id": "ing-sess-0001",
+     "source_turn": 19,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 47,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra d",
+     "source_ref": "session:ing-sess-0001:e0b7991a9fc9ef8a5c5ee43d",
+     "session_id": "ing-sess-0001",
+     "source_turn": 20,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 48,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "a second session row",
+     "source_ref": "session:ing-sess-0002:fcc5a2b41af0d923d05a756a",
+     "session_id": "ing-sess-0002",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 49,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "reply in second session",
+     "source_ref": "session:ing-sess-0002:dc6d68e5b7c811f2f5980380",
+     "session_id": "ing-sess-0002",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 50,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0002:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0002",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 51,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0002:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0002",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 5,
+     "347b94c1b70a1601dc61ed6a": 2,
+     "513aa07fcbc0f6cf888b3d83": 2,
+     "5ccfdc1405c3a7a0345d5c4a": 2
+    },
+    "state.session_ingest_ordinals.ing-sess-0002": {
+     "17fdafa31533d4949ce03469": 2
+    }
+   }
+  },
+  {
+   "name": "no-messages",
+   "args": {
+    "sessionId": "ing-sess-0002"
+   },
+   "text": "ingest_session: considered=0 inserted=0 session=ing-sess-0002",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 32,
+     "ts": 1773543599998,
+     "role": "assistant",
+     "content": "extra b",
+     "source_ref": "session:ing-sess-0001:d127e514ed584a3792d1eaf9",
+     "session_id": "ing-sess-0001",
+     "source_turn": 12,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 33,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra c",
+     "source_ref": "session:ing-sess-0001:6ae24dc3790b7e4647821126",
+     "session_id": "ing-sess-0001",
+     "source_turn": 13,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 37,
+     "ts": 1773543599985,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:303b4edce9cf4c674a10cde0",
+     "session_id": "ing-sess-0001",
+     "source_turn": 14,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 39,
+     "ts": 1773543599988,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:db8e8f95fecd957506d86b6b",
+     "session_id": "ing-sess-0001",
+     "source_turn": 15,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 40,
+     "ts": 1773543599989,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:5bf8104f0312153983970e68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 16,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 41,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:aa82d59d1e447c7f22dc99eb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 17,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 42,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:1daa940a0ea307faa54a8c68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 18,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 44,
+     "ts": 1773543599996,
+     "role": "user",
+     "content": "extra a",
+     "source_ref": "session:ing-sess-0001:65070579aad80268d30ada81",
+     "session_id": "ing-sess-0001",
+     "source_turn": 19,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 47,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra d",
+     "source_ref": "session:ing-sess-0001:e0b7991a9fc9ef8a5c5ee43d",
+     "session_id": "ing-sess-0001",
+     "source_turn": 20,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 48,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "a second session row",
+     "source_ref": "session:ing-sess-0002:fcc5a2b41af0d923d05a756a",
+     "session_id": "ing-sess-0002",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 49,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "reply in second session",
+     "source_ref": "session:ing-sess-0002:dc6d68e5b7c811f2f5980380",
+     "session_id": "ing-sess-0002",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 50,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0002:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0002",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 51,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0002:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0002",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 5,
+     "347b94c1b70a1601dc61ed6a": 2,
+     "513aa07fcbc0f6cf888b3d83": 2,
+     "5ccfdc1405c3a7a0345d5c4a": 2
+    },
+    "state.session_ingest_ordinals.ing-sess-0002": {
+     "17fdafa31533d4949ce03469": 2
+    }
+   }
+  },
+  {
+   "name": "limit-string-and-zero",
+   "args": {
+    "sessionId": "ing-sess-0001",
+    "messages": [
+     {
+      "role": "user",
+      "content": "# Session\nCwd: /w\nModel: m\nWorkflow: w\n\n# Task\nplease deploy the staging cluster",
+      "ts": 1773000000
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Deploying the staging cluster now."
+       }
+      ],
+      "toolCalls": [
+       {
+        "id": "call-1",
+        "name": "bash",
+        "args": {
+         "cmd": "x"
+        }
+       }
+      ],
+      "ts": "2026-03-15T02:00:05.000Z"
+     },
+     {
+      "role": "tool",
+      "toolCallId": "call-1",
+      "content": "ok exit 0"
+     },
+     {
+      "role": "system",
+      "content": "hidden system prompt"
+     },
+     {
+      "role": "user",
+      "content": "Reference files: a.txt b.txt"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "user",
+      "content": "thanks"
+     },
+     {
+      "role": "assistant",
+      "content": "."
+     },
+     {
+      "role": "assistant",
+      "content": "The cluster is healthy.",
+      "timestamp": 1773000100000
+     },
+     {
+      "role": "human",
+      "content": "한국어 질문입니다 배포 상태는?"
+     },
+     {
+      "role": "ai",
+      "content": [
+       {
+        "type": "text",
+        "text": "first"
+       },
+       {
+        "type": "text",
+        "text": "second block"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "   "
+     },
+     {
+      "role": "user",
+      "content": "see https://example.com/x only"
+     },
+     "not an object",
+     null
+    ],
+    "limit": "0"
+   },
+   "text": "ingest_session: considered=8 inserted=0 session=ing-sess-0001",
+   "rows": [
+    {
+     "id": 1,
+     "ts": 1773000000000,
+     "role": "user",
+     "content": "please deploy the staging cluster",
+     "source_ref": "session:ing-sess-0001:6c2287714a0f1449c996bae2",
+     "session_id": "ing-sess-0001",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 2,
+     "ts": 1773540005000,
+     "role": "assistant",
+     "content": "Deploying the staging cluster now.",
+     "source_ref": "session:ing-sess-0001:6aa598c2ccb8c843a912052a",
+     "session_id": "ing-sess-0001",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 3,
+     "ts": 1773543599990,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0001",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 4,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0001",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 5,
+     "ts": 1773000100000,
+     "role": "assistant",
+     "content": "The cluster is healthy.",
+     "source_ref": "session:ing-sess-0001:087ff48c568cb8d034e7dfbb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 5,
+     "project_id": null,
+     "time_source": "recorded",
+     "embedded": true
+    },
+    {
+     "id": 6,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:46247689ae380262a5223831",
+     "session_id": "ing-sess-0001",
+     "source_turn": 6,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 7,
+     "ts": 1773543599995,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:89edace75c78493d22be08ad",
+     "session_id": "ing-sess-0001",
+     "source_turn": 7,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 8,
+     "ts": 1773543599997,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:982c0ae128d51950359828bc",
+     "session_id": "ing-sess-0001",
+     "source_turn": 8,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 25,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:efc8cd35a12d5e69b30f21ed",
+     "session_id": "ing-sess-0001",
+     "source_turn": 9,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 26,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "You are welcome.",
+     "source_ref": "session:ing-sess-0001:dbfbc9951658a3636035e35c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 10,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 31,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "new question after compaction",
+     "source_ref": "session:ing-sess-0001:6caa8826290ceb4e6ecccc5c",
+     "session_id": "ing-sess-0001",
+     "source_turn": 11,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 32,
+     "ts": 1773543599998,
+     "role": "assistant",
+     "content": "extra b",
+     "source_ref": "session:ing-sess-0001:d127e514ed584a3792d1eaf9",
+     "session_id": "ing-sess-0001",
+     "source_turn": 12,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 33,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra c",
+     "source_ref": "session:ing-sess-0001:6ae24dc3790b7e4647821126",
+     "session_id": "ing-sess-0001",
+     "source_turn": 13,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 37,
+     "ts": 1773543599985,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:303b4edce9cf4c674a10cde0",
+     "session_id": "ing-sess-0001",
+     "source_turn": 14,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 39,
+     "ts": 1773543599988,
+     "role": "user",
+     "content": "한국어 질문입니다 배포 상태는?",
+     "source_ref": "session:ing-sess-0001:db8e8f95fecd957506d86b6b",
+     "session_id": "ing-sess-0001",
+     "source_turn": 15,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 40,
+     "ts": 1773543599989,
+     "role": "assistant",
+     "content": "first\nsecond block",
+     "source_ref": "session:ing-sess-0001:5bf8104f0312153983970e68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 16,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 41,
+     "ts": 1773543599991,
+     "role": "user",
+     "content": "see https://example.com/x only",
+     "source_ref": "session:ing-sess-0001:aa82d59d1e447c7f22dc99eb",
+     "session_id": "ing-sess-0001",
+     "source_turn": 17,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 42,
+     "ts": 1773543599994,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0001:1daa940a0ea307faa54a8c68",
+     "session_id": "ing-sess-0001",
+     "source_turn": 18,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 44,
+     "ts": 1773543599996,
+     "role": "user",
+     "content": "extra a",
+     "source_ref": "session:ing-sess-0001:65070579aad80268d30ada81",
+     "session_id": "ing-sess-0001",
+     "source_turn": 19,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 47,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "extra d",
+     "source_ref": "session:ing-sess-0001:e0b7991a9fc9ef8a5c5ee43d",
+     "session_id": "ing-sess-0001",
+     "source_turn": 20,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 48,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "a second session row",
+     "source_ref": "session:ing-sess-0002:fcc5a2b41af0d923d05a756a",
+     "session_id": "ing-sess-0002",
+     "source_turn": 1,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 49,
+     "ts": 1773543599999,
+     "role": "assistant",
+     "content": "reply in second session",
+     "source_ref": "session:ing-sess-0002:dc6d68e5b7c811f2f5980380",
+     "session_id": "ing-sess-0002",
+     "source_turn": 2,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 50,
+     "ts": 1773543599998,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0002:de982ed68e17193cbe3ea069",
+     "session_id": "ing-sess-0002",
+     "source_turn": 3,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    },
+    {
+     "id": 51,
+     "ts": 1773543599999,
+     "role": "user",
+     "content": "thanks",
+     "source_ref": "session:ing-sess-0002:56c10bd8e7e8192b81a7c8ab",
+     "session_id": "ing-sess-0002",
+     "source_turn": 4,
+     "project_id": null,
+     "time_source": "collected",
+     "embedded": true
+    }
+   ],
+   "ordinals": {
+    "state.session_ingest_ordinals.ing-sess-0001": {
+     "17fdafa31533d4949ce03469": 5,
+     "347b94c1b70a1601dc61ed6a": 2,
+     "513aa07fcbc0f6cf888b3d83": 2,
+     "5ccfdc1405c3a7a0345d5c4a": 2
+    },
+    "state.session_ingest_ordinals.ing-sess-0002": {
+     "17fdafa31533d4949ce03469": 2
+    }
+   }
+  }
+ ]
+}

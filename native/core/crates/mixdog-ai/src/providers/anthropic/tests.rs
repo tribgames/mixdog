@@ -190,7 +190,7 @@ fn fold(events: &[StreamEvent]) -> Folded {
 }
 
 fn decode_all(codec: &AnthropicCodec, body: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
-    let mut decoder = codec.decoder();
+    let mut decoder = codec.decoder(&request(Vec::new(), RequestOptions::default()));
     let mut events = decoder.feed(body)?;
     events.extend(decoder.finish()?);
     Ok(events)
@@ -641,7 +641,7 @@ fn error_results_keep_only_text_and_hoist_media() {
 
 #[test]
 fn recorded_streams_fold_to_the_recorded_results() {
-    for scenario in ["text", "tool-call", "tool-result-followup"] {
+    for scenario in ["text", "tool-call", "tool-result-followup", "cache-write-1h"] {
         let body = read_text(&api(scenario, "response.sse"));
         let result = read_json(&api(scenario, "result.json"));
         let events = decode_all(&api_codec(), body.as_bytes()).expect("decodes");
@@ -661,10 +661,17 @@ fn recorded_streams_fold_to_the_recorded_results() {
         };
         assert_eq!(folded.stop, Some(stop), "{scenario}");
         let usage = folded.usage.expect("usage");
-        assert_eq!(usage.input_tokens, ok["usage"]["inputTokens"].as_u64().expect("in"));
+        // Mixdog input is Node's `promptTokens`: fresh input plus cache read and write.
+        assert_eq!(usage.input_tokens, ok["usage"]["promptTokens"].as_u64().expect("in"), "{scenario}");
         assert_eq!(usage.output_tokens, ok["usage"]["outputTokens"].as_u64().expect("out"));
         assert_eq!(usage.cache_read_tokens, ok["usage"]["cachedTokens"].as_u64().expect("cached"));
         assert_eq!(usage.cache_write_tokens, ok["usage"]["cacheWriteTokens"].as_u64().expect("write"));
+        // Node reports `cacheWrite1hTokens` only when positive.
+        assert_eq!(
+            usage.cache_write_1h_tokens,
+            ok["usage"]["cacheWrite1hTokens"].as_u64().unwrap_or(0),
+            "{scenario} 1h cache write"
+        );
         assert_eq!(usage.raw, Some(ok["usage"]["raw"].clone()), "{scenario} raw usage");
         assert!(matches!(events.last(), Some(StreamEvent::Completed { .. })));
     }
@@ -691,7 +698,7 @@ fn recorded_stream_satisfies_the_codec_conformance() {
     let complete = read_text(&api("text", "response.sse"));
     let truncated = read_text(&api("truncated-no-terminal", "response.sse"));
     for split_at in [0, 7, 100, complete.len() / 2, complete.len()] {
-        check_wire_codec(&api_codec(), complete.as_bytes(), truncated.as_bytes(), split_at);
+        check_wire_codec(&api_codec(), &request(Vec::new(), RequestOptions::default()), complete.as_bytes(), truncated.as_bytes(), split_at);
     }
 }
 

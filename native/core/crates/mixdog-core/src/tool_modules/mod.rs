@@ -184,7 +184,7 @@ impl ToolModules {
     /// `getToolModuleSettings()`.
     pub async fn settings(&self) -> Value {
         let external = self.host.external().await;
-        value::tool_module_settings(&self.config.full(), &external, &*self.env)
+        value::tool_module_settings(&self.config.agent(), &external, &*self.env)
     }
 
     /// Has the publishing task recompute and publish if the value changed; answers the
@@ -204,7 +204,7 @@ impl ToolModules {
         change: impl FnOnce(&mut value::Doc) + Send + 'static,
     ) -> Result<(), ToolModulesError> {
         self.config
-            .update(move |doc| {
+            .update_agent(move |doc| {
                 change(doc);
                 Ok(())
             })

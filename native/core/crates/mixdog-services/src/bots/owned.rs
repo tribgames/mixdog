@@ -8,7 +8,7 @@
 
 use std::future::Future;
 
-use tokio_util::sync::CancellationToken;
+use mixdog_rt::{CancelSource, CancelView};
 
 use super::host::OwnerProblem;
 use super::routine::RoutineKind;
@@ -50,13 +50,25 @@ pub enum OwnedOutcome {
     Skipped(Skip),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct RunOpts {
     /// A person asked for it: no failure backoff and no switched-off check.
     pub attended: bool,
     /// The caller already holds `kind:name` (`AutomationRuns::begin`) and releases it itself.
     pub reserved: bool,
-    pub cancel: CancellationToken,
+    /// The caller's cancellation, with the reason it was given (`signal` of the Node run).
+    pub cancel: CancelView,
+}
+
+/// The view of a cancellation nobody holds the source of: it never fires.
+pub fn never_cancelled() -> CancelView {
+    CancelSource::new().view()
+}
+
+impl Default for RunOpts {
+    fn default() -> Self {
+        Self { attended: false, reserved: false, cancel: never_cancelled() }
+    }
 }
 
 impl RoutineRuntime {
@@ -70,7 +82,7 @@ impl RoutineRuntime {
         run: F,
     ) -> Result<OwnedOutcome, String>
     where
-        F: FnOnce(CancellationToken) -> Fut,
+        F: FnOnce(CancelView) -> Fut,
         Fut: Future<Output = Result<RoutineRun, String>>,
     {
         if name.is_empty() {

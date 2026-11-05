@@ -21,6 +21,10 @@ use crate::identity::DeviceIdentity;
 /// Idle NAT paths silently kill this leg; protocol pings keep it warm and detect a half-dead
 /// socket. Any traffic counts as proof of life.
 pub const HEARTBEAT: Duration = Duration::from_secs(10);
+/// The webhook tunnel leg's heartbeat (`relay-tunnel/leg-heartbeat.mjs`).
+pub const HOOK_HEARTBEAT: Duration = Duration::from_secs(25);
+pub const DESKTOP_PATH: &str = "/desktop";
+pub const HOOK_PATH: &str = "/hookleg";
 
 #[derive(Debug, thiserror::Error)]
 pub enum RelayUrlError {
@@ -30,6 +34,18 @@ pub enum RelayUrlError {
     Insecure,
     #[error("MIXDOG_RELAY_URL must not contain credentials.")]
     Credentials,
+}
+
+impl RelayUrlError {
+    /// The text of the webhook tunnel's own check (`relay-tunnel.mjs` `resolveHookRelayUrl`): the
+    /// same sentences without the closing period. `Display` is the desktop leg's text.
+    pub fn hook_text(&self) -> &'static str {
+        match self {
+            Self::Invalid => "MIXDOG_RELAY_URL is invalid",
+            Self::Insecure => "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development",
+            Self::Credentials => "MIXDOG_RELAY_URL must not contain credentials",
+        }
+    }
 }
 
 /// `wss://`, or `ws://` for loopback development, with no credentials in the URL.
@@ -49,8 +65,17 @@ pub fn validated_relay_url(raw: &str) -> Result<Url, RelayUrlError> {
 
 /// The leg's URL (`/desktop`) and its Basic credential.
 pub fn device_socket_request(relay_url: &str, identity: &DeviceIdentity) -> Result<(Url, String), RelayUrlError> {
+    leg_socket_request(relay_url, DESKTOP_PATH, identity)
+}
+
+/// A leg's URL on `path` and its Basic credential.
+pub fn leg_socket_request(
+    relay_url: &str,
+    path: &str,
+    identity: &DeviceIdentity,
+) -> Result<(Url, String), RelayUrlError> {
     let mut url = validated_relay_url(relay_url)?;
-    url.set_path("/desktop");
+    url.set_path(path);
     url.set_query(None);
     url.set_fragment(None);
     let pair = format!("{}:{}", identity.device_id, identity.device_secret);
@@ -80,8 +105,19 @@ pub enum LegEvent {
     /// Every open, including each redial.
     Open,
     Inbound(Inbound),
+    /// A text message of a [`Framing::Raw`] leg, undecoded.
+    Raw(String),
     /// The current leg closed while the client still runs; a redial follows.
     Lost { code: Option<u16> },
+}
+
+/// What the leg's messages are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Framing {
+    /// The desktop protocol: classified into [`Inbound`].
+    Desktop,
+    /// The caller's own protocol: text messages arrive as [`LegEvent::Raw`], binary is dropped.
+    Raw,
 }
 
 pub struct LegConfig {
@@ -89,6 +125,41 @@ pub struct LegConfig {
     pub identity: DeviceIdentity,
     /// Transport cap for one message on this leg.
     pub max_payload: usize,
+    /// The relay endpoint: [`DESKTOP_PATH`] or [`HOOK_PATH`].
+    pub path: String,
+    pub heartbeat: Duration,
+    /// A leg that holds this long restarts the redial backoff and clears the stalled-handshake
+    /// streak; `None` for a leg whose backoff restarts on every open.
+    pub stable_reset: Option<Duration>,
+    pub framing: Framing,
+}
+
+impl LegConfig {
+    /// The phone-facing desktop leg: `/desktop`, 10 s heartbeat, 30 s stable reset.
+    pub fn desktop(relay_url: String, identity: DeviceIdentity, max_payload: usize) -> Self {
+        Self {
+            relay_url,
+            identity,
+            max_payload,
+            path: DESKTOP_PATH.to_owned(),
+            heartbeat: HEARTBEAT,
+            stable_reset: Some(STABLE_LEG),
+            framing: Framing::Desktop,
+        }
+    }
+
+    /// The webhook tunnel leg: `/hookleg`, 25 s heartbeat, backoff reset on open, raw frames.
+    pub fn hook(relay_url: String, identity: DeviceIdentity, max_payload: usize) -> Self {
+        Self {
+            relay_url,
+            identity,
+            max_payload,
+            path: HOOK_PATH.to_owned(),
+            heartbeat: HOOK_HEARTBEAT,
+            stable_reset: None,
+            framing: Framing::Raw,
+        }
+    }
 }
 
 enum Ended {
@@ -103,7 +174,7 @@ async fn serve_leg(
     redial: &mut Redial,
     cancel: &CancellationToken,
 ) -> Result<Ended, ()> {
-    let (url, authorization) = device_socket_request(&config.relay_url, &config.identity).map_err(|_| ())?;
+    let (url, authorization) = leg_socket_request(&config.relay_url, &config.path, &config.identity).map_err(|_| ())?;
     let mut request = url.as_str().into_client_request().map_err(|_| ())?;
     request
         .headers_mut()
@@ -118,13 +189,13 @@ async fn serve_leg(
     let (socket, _) = connected.map_err(|_| ())?;
     let (mut sink, mut stream) = socket.split();
     redial.on_open();
-    let stable = tokio::time::sleep(STABLE_LEG);
+    let stable = tokio::time::sleep(config.stable_reset.unwrap_or(Duration::MAX / 4));
     tokio::pin!(stable);
-    let mut stable_done = false;
+    let mut stable_done = config.stable_reset.is_none();
     if events.send(LegEvent::Open).await.is_err() {
         return Ok(Ended::Cancelled);
     }
-    let mut beat = tokio::time::interval(HEARTBEAT);
+    let mut beat = tokio::time::interval(config.heartbeat);
     beat.tick().await;
     let mut alive = true;
     loop {
@@ -158,17 +229,22 @@ async fn serve_leg(
             }
             received = stream.next() => {
                 alive = true;
-                let inbound = match received {
+                let event = match received {
                     None | Some(Err(_)) => return Ok(Ended::Closed(None)),
                     Some(Ok(Message::Close(frame))) => {
                         return Ok(Ended::Closed(frame.map(|f| u16::from(f.code))));
                     }
-                    Some(Ok(Message::Text(text))) => read_message(Some(text.as_str()), None),
-                    Some(Ok(Message::Binary(bytes))) => read_message(None, Some(&bytes)),
+                    Some(Ok(Message::Text(text))) => match config.framing {
+                        Framing::Desktop => read_message(Some(text.as_str()), None).map(LegEvent::Inbound),
+                        Framing::Raw => Some(LegEvent::Raw(text.as_str().to_owned())),
+                    },
+                    Some(Ok(Message::Binary(bytes))) if config.framing == Framing::Desktop => {
+                        read_message(None, Some(&bytes)).map(LegEvent::Inbound)
+                    }
                     Some(Ok(_)) => None,
                 };
-                if let Some(inbound) = inbound
-                    && events.send(LegEvent::Inbound(inbound)).await.is_err()
+                if let Some(event) = event
+                    && events.send(event).await.is_err()
                 {
                     return Ok(Ended::Cancelled);
                 }

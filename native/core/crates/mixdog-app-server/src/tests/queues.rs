@@ -149,7 +149,9 @@ async fn a_slow_cleanup_of_one_key_does_not_hold_up_a_key_in_the_same_shard() {
     // blocking thread so that a held lock would show as a missed deadline, not a hung test.
     let (done_b, finished_b) = oneshot::channel::<()>();
     let other = queues.clone();
-    let enqueue_b = tokio::task::spawn_blocking(move || {
+    let runtime = tokio::runtime::Handle::current();
+    let enqueue_b = std::thread::spawn(move || {
+        let _entered = runtime.enter();
         other.enqueue(
             global("b"),
             Access::Exclusive,
@@ -163,7 +165,7 @@ async fn a_slow_cleanup_of_one_key_does_not_hold_up_a_key_in_the_same_shard() {
         .await
         .is_ok();
     unblock.send(()).unwrap();
-    enqueue_b.await.unwrap();
+    enqueue_b.join().unwrap();
     assert!(b_ran, "key b waited for the cleanup of key a");
 
     // And `a` carries on once its cleanup returns.
@@ -185,10 +187,13 @@ async fn keys_that_keep_going_idle_lose_no_request_under_concurrent_enqueues() {
     const PER_THREAD: usize = 400;
     let queues = colliding();
     let (ran, mut receipts) = tokio::sync::mpsc::unbounded_channel::<()>();
-    let producers: Vec<_> = (0..THREADS)
-        .map(|thread| {
-            let (queues, ran) = (queues.clone(), ran.clone());
-            tokio::task::spawn_blocking(move || {
+    let runtime = tokio::runtime::Handle::current();
+    for thread in 0..THREADS {
+        let (queues, ran, runtime) = (queues.clone(), ran.clone(), runtime.clone());
+        // Each producer's `ran` clone drops when it finishes, so the receipts end after the last.
+        std::thread::spawn(move || {
+            let _entered = runtime.enter();
+            {
                 for n in 0..PER_THREAD {
                     let ran = ran.clone();
                     // Three keys, so that each is idle between most requests.
@@ -202,13 +207,10 @@ async fn keys_that_keep_going_idle_lose_no_request_under_concurrent_enqueues() {
                         }),
                     );
                 }
-            })
-        })
-        .collect();
-    drop(ran);
-    for producer in producers {
-        producer.await.unwrap();
+            }
+        });
     }
+    drop(ran);
     let mut count = 0;
     let all = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         while receipts.recv().await.is_some() {

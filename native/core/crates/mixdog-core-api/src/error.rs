@@ -132,11 +132,12 @@ pub enum CoreError {
     BlobCorrupt {
         digest: BlobDigest,
     },
-    /// A coded failure of a domain operation; `code` is the domain's stable code (for example
-    /// `WORKTREE_DIRTY`) and `detail` its optional structured hint, never message text.
+    /// A failure of a domain operation; `code` is the domain's stable code (for example
+    /// `WORKTREE_DIRTY`), absent when the failure has none (Node's plain `Error`), and `detail`
+    /// its optional structured hint, never message text.
     DomainError {
         domain: Arc<str>,
-        code: Arc<str>,
+        code: Option<Arc<str>>,
         detail: Option<Box<DomainErrorDetail>>,
     },
     InvalidServerRequestResponse {

@@ -153,7 +153,7 @@ pub struct ExecConfig {
     /// `&&`, PowerShell 7 does.
     pub shell_name: String,
     /// Tells whether a Node script body compiles as CommonJS (see [`super::hoist::ScriptSyntax`]).
-    pub script_syntax: Option<Arc<dyn super::hoist::ScriptSyntax>>,
+    pub script_syntax: Arc<dyn super::hoist::ScriptSyntax>,
     /// The host is Windows (PowerShell hints, `Path` casing, UTF-8 Python variables).
     pub windows: bool,
     /// The default shell is PowerShell (the wmic rewrite applies).

@@ -330,6 +330,57 @@ mod tests {
         assert!(c.turns.is_empty() && c.message_count == 0);
     }
 
+    fn twin() -> Value {
+        let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
+        serde_json::from_str(&std::fs::read_to_string(format!("{root}/services/import-convert-twin.json")).unwrap()).unwrap()
+    }
+
+    /// Node-recorded twin `fixtures/services/import-convert-twin.json`
+    /// (`benchmarks/rust-core/recorders/record-import-convert.mjs`); `MIXDOG_FIXTURES_ROOT` overrides the location.
+    #[test]
+    fn conversions_match_the_node_recorded_results() {
+        let twin = twin();
+        let cases = twin["conversions"].as_array().unwrap();
+        assert!(cases.len() > 60);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let source = Source::parse(case["source"].as_str().unwrap()).unwrap();
+            let mut limits = Limits::default();
+            let set = &case["limits"];
+            if let Some(v) = set["maxTranscriptChars"].as_u64() { limits.max_transcript_chars = v as usize }
+            if let Some(v) = set["maxRetainedEntries"].as_u64() { limits.max_retained_entries = v as usize }
+            if let Some(v) = set["maxMetadataBytes"].as_u64() { limits.max_metadata_bytes = v as usize }
+            let got = convert_conversation_text(source, case["text"].as_str().unwrap(), case["complete"].as_bool().unwrap(), limits);
+            let want = &case["result"];
+            let got_json = serde_json::json!({
+                "source": got.source.as_str(),
+                "errorCode": got.error_code,
+                "foreignSessionId": got.foreign_session_id,
+                "cwd": got.cwd,
+                "internalKind": got.internal_kind,
+                "historyBase": got.history_base.clone().unwrap_or(Value::Null),
+                "turns": got.turns,
+                "title": got.title,
+                "messageCount": got.message_count,
+                "warnings": got.warnings,
+            });
+            assert_eq!(&got_json, want, "scenario {name}");
+        }
+    }
+
+    #[test]
+    fn paste_unwrapping_and_truncated_meta_match_the_node_recorded_results() {
+        let twin = twin();
+        for case in twin["pastes"].as_array().unwrap() {
+            assert_eq!(super::super::claude::unwrap_claude_pastes(case["input"].as_str().unwrap()), case["output"].as_str().unwrap(), "paste {:?}", case["input"]);
+        }
+        for case in twin["truncated"].as_array().unwrap() {
+            let got = super::super::codex::codex_meta_from_truncated_line(case["input"].as_str().unwrap())
+                .map_or(Value::Null, |m| serde_json::json!({"foreignSessionId": m.foreign_session_id, "cwd": m.cwd, "internalKind": m.internal_kind}));
+            assert_eq!(got, case["output"], "truncated {:?}", case["input"]);
+        }
+    }
+
     #[test]
     fn incomplete_text_drops_the_trailing_partial_line() {
         let c = convert_conversation_text(Source::Codex, &format!("{CODEX}{{\"type\":\"resp"), false, Limits::default());

@@ -47,7 +47,11 @@ impl DoctorSources for Scripted {
         self.probe("providerSetup").await
     }
     fn active_provider(&self) -> Option<String> {
-        self.fixture.get("provider").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
+        self.fixture
+            .get("provider")
+            .and_then(Value::as_str)
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned)
     }
     async fn mcp_status(&self) -> Probe {
         self.probe("mcpStatus").await
@@ -86,7 +90,10 @@ impl DoctorSources for Scripted {
         self.bridges[id].as_bool().unwrap()
     }
     async fn notice(&self, thread: Option<&ThreadId>, text: &str) {
-        self.notices.lock().unwrap().push((thread.cloned(), text.to_owned()));
+        self.notices
+            .lock()
+            .unwrap()
+            .push((thread.cloned(), text.to_owned()));
     }
 }
 
@@ -139,13 +146,21 @@ async fn rig(golden: &Value, case: &Value) -> Rig {
         scopes(state.path(), "diagnostics").await,
         &mixdog_rt::testing::tokens(),
     );
-    Rig { service, sources, data, state }
+    Rig {
+        service,
+        sources,
+        data,
+        state,
+    }
 }
 
 /// `<DATA>` for the data folder, no `checkedAt`, `/` separators as the golden normalizes them.
 fn normal(mut result: Value, data: &std::path::Path) -> Value {
     result.as_object_mut().unwrap().remove("checkedAt");
-    let text = result.to_string().replace(&data.to_string_lossy().replace('\\', "\\\\"), "<DATA>").replace("\\\\", "/");
+    let text = result
+        .to_string()
+        .replace(&data.to_string_lossy().replace('\\', "\\\\"), "<DATA>")
+        .replace("\\\\", "/");
     serde_json::from_str(&text).unwrap()
 }
 
@@ -155,11 +170,20 @@ async fn every_case_answers_what_the_node_doctor_answered() {
     for case in golden["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let rig = rig(&golden, case).await;
-        let got = value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1))).await.unwrap();
+        let got = value(
+            &*rig.service,
+            request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1)),
+        )
+        .await
+        .unwrap();
         let want = normal(case["result"].clone(), std::path::Path::new("<none>"));
         let got = normal(got, rig.data.path());
         assert_eq!(got, want, "case {name}");
-        assert_eq!(format_report(&got), case["report"].as_str().unwrap(), "report of {name}");
+        assert_eq!(
+            format_report(&got),
+            case["report"].as_str().unwrap(),
+            "report of {name}"
+        );
         let _ = &rig.state;
     }
 }
@@ -169,19 +193,42 @@ async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() 
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let case = &golden["cases"][0];
     let rig = rig(&golden, case).await;
-    value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1))).await.unwrap();
+    value(
+        &*rig.service,
+        request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1)),
+    )
+    .await
+    .unwrap();
     assert!(rig.sources.notices.lock().unwrap().is_empty());
-    let params = with_op(json!({ "threadId": "th-1", "options": { "notice": true } }), 2);
-    value(&*rig.service, request("diagnostics/runDoctor", params, Some(2))).await.unwrap();
+    let params = with_op(
+        json!({ "threadId": "th-1", "options": { "notice": true } }),
+        2,
+    );
+    value(
+        &*rig.service,
+        request("diagnostics/runDoctor", params, Some(2)),
+    )
+    .await
+    .unwrap();
     {
         let notices = rig.sources.notices.lock().unwrap();
         assert_eq!(notices.len(), 1);
         assert_eq!(notices[0].0, Some(ThreadId::from("th-1")));
-        assert_eq!(notices[0].1.replace(&*rig.data.path().to_string_lossy(), "<DATA>"), case["report"].as_str().unwrap());
+        assert_eq!(
+            notices[0]
+                .1
+                .replace(&*rig.data.path().to_string_lossy(), "<DATA>"),
+            case["report"].as_str().unwrap()
+        );
     }
 
     rig.service.running.store(true, AtomicOrdering::SeqCst);
-    let busy = value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 3), Some(3))).await.unwrap();
+    let busy = value(
+        &*rig.service,
+        request("diagnostics/runDoctor", with_op(json!({}), 3), Some(3)),
+    )
+    .await
+    .unwrap();
     assert_eq!(busy, json!({ "busy": true }));
 }
 
@@ -190,8 +237,18 @@ async fn a_repeated_op_runs_the_checks_once() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let rig = rig(&golden, &golden["cases"][0]).await;
     let params = with_op(json!({ "options": { "notice": true } }), 5);
-    let first = value(&*rig.service, request("diagnostics/runDoctor", params.clone(), Some(5))).await.unwrap();
-    let again = value(&*rig.service, request("diagnostics/runDoctor", params, Some(5))).await.unwrap();
+    let first = value(
+        &*rig.service,
+        request("diagnostics/runDoctor", params.clone(), Some(5)),
+    )
+    .await
+    .unwrap();
+    let again = value(
+        &*rig.service,
+        request("diagnostics/runDoctor", params, Some(5)),
+    )
+    .await
+    .unwrap();
     assert_eq!(first, again);
     assert_eq!(rig.sources.notices.lock().unwrap().len(), 1);
 }

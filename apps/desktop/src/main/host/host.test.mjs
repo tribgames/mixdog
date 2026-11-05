@@ -21,7 +21,7 @@ function pair() {
   const connection = {
     request: async (method, params) => {
       sent.requests.push([method, params]);
-      if (params?.section === 'visualize' && sent.failVisualize) throw new Error('core refused the state');
+      if (params?.key === 'visualize' && sent.failVisualize) throw new Error('core refused the state');
       return {};
     },
     notify: (method, params) => sent.notifications.push([method, params]),
@@ -58,9 +58,11 @@ function updaterFixture(calls) {
   return updater;
 }
 
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
 function build(overrides = {}) {
   const wire = pair();
-  const calls = { installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], lifecycle: [], toasts: [], sounds: 0, activations: 0 };
+  const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], lifecycle: [], toasts: [], sounds: 0, activations: 0 };
   const clicks = [];
   const host = createDesktopHost({
     connection: wire.connection,
@@ -79,7 +81,10 @@ function build(overrides = {}) {
         end: () => calls.lifecycle.push('end'),
       },
       view: {
-        remoteBrowserStream: async (id, options) => calls.stream.push([id, options]),
+        remoteBrowserStream: async (id, options) => {
+          if (calls.failStream) throw new Error('no page');
+          calls.stream.push([id, options]);
+        },
         remoteBrowserControl: async (id, control) => {
           calls.controls.push([id, control]);
           if (control.type === 'navigate') throw new Error('refused https://u:secret@x.test/');
@@ -98,10 +103,11 @@ function build(overrides = {}) {
       },
     }),
     onVisualizePublishFailed: (error) => calls.publishFailures.push(error.message),
+    onBrowserViewFailed: (error) => calls.viewFailures.push(error.message),
     onUpdaterInstallFailed: (error) => calls.installFailures.push(error.message),
     visualize: () => ({
       execute: async (command) => ({ text: 'ran', command }),
-      snapshot: () => ({ sessions: [{ sessionId: 's1' }] }),
+      snapshot: () => [{ sessionId: 's1', tabs: [], active: null }],
     }),
     files: () => ({
       captureFileSnapshot: async (root, rel, grant) => ({ root, rel, grant }),
@@ -146,11 +152,11 @@ test('an abandoned command aborts and a closed claimed connection stops the brow
   assert.deepEqual(calls.lifecycle, ['begin', 'ready', 'watch:true']);
   assert.deepEqual(wire.sent.requests[1], [
     'host/state/set',
-    { section: 'browserTabs', value: { tabs: [{ id: 'main-browser-1', title: 'T', url: 'https://a.test/', loading: false }] } },
+    { key: 'browserTabs', value: { tabs: [{ id: 'main-browser-1', title: 'T', url: 'https://a.test/', loading: false }] } },
   ]);
   await host.publishRemoteTabs([]);
-  assert.equal(wire.sent.requests[2][1].section, 'visualize', 'the visualize state follows the claim');
-  assert.deepEqual(wire.sent.requests[3], ['host/state/set', { section: 'browserTabs', value: { tabs: [] } }]);
+  assert.equal(wire.sent.requests[2][1].key, 'visualize', 'the visualize state follows the claim');
+  assert.deepEqual(wire.sent.requests[3], ['host/state/set', { key: 'browserTabs', value: { tabs: [] } }]);
   const abort = new AbortController();
   const pending = wire.call('host/browser/command', { action: 'wait', threadId: 't' }, abort.signal);
   abort.abort();
@@ -162,7 +168,9 @@ test('an abandoned command aborts and a closed claimed connection stops the brow
 test('view frames start the lease, send X17 JPEG frames only while viewed, and stop on off', async () => {
   const { wire, host, calls } = build();
   const request = { maxWidth: 800, maxHeight: 600 };
-  await wire.call('host/browser/viewFrames', { tabId: 's1', streamId: 7, on: true, request });
+  // A notification in the protocol (server → host): pushed, never answered.
+  wire.push('host/browser/viewFrames', { tabId: 's1', streamId: 7, on: true, request });
+  await flush();
   assert.deepEqual(calls.stream, [['s1', request]]);
   const frame = (sessionId, extra = {}) => ({
     sessionId,
@@ -179,10 +187,21 @@ test('view frames start the lease, send X17 JPEG frames only while viewed, and s
     [...encodeMediaFrame({ flags: 1, streamId: 7, width: 640, height: 480 }, Uint8Array.of(1, 2, 3))]
   );
   assert.deepEqual([...wire.sent.binary[0].slice(0, 16)], [1, 1, 0, 0, 0, 7, 2, 128, 1, 224, 1, 0, 0, 0, 0, 0]);
-  await wire.call('host/browser/viewFrames', { tabId: 's1', streamId: 7, on: false });
+  wire.push('host/browser/viewFrames', { tabId: 's1', streamId: 7, on: false });
+  await flush();
   assert.deepEqual(calls.stream.at(-1), ['s1', null]);
   await host.publishRemoteFrame(frame('s1'));
   assert.equal(wire.sent.binary.length, 1);
+  // An invalid notification throws at the handler; a stream that cannot start is reported.
+  assert.throws(() => wire.push('host/browser/viewFrames', { tabId: 's1', on: true }), (e) => e.code === -32602);
+});
+
+test('a live view that cannot start is reported, as nothing answers the notification', async () => {
+  const { wire, calls } = build();
+  calls.failStream = true;
+  wire.push('host/browser/viewFrames', { tabId: 's9', streamId: 1, on: true, request: { maxWidth: 10, maxHeight: 10 } });
+  await flush();
+  assert.deepEqual(calls.viewFailures, ['no page']);
 });
 
 test('system proxy answers rules for http(s) origins and a failure by name only', async () => {
@@ -269,8 +288,11 @@ test('non-tool browser requests get Node\'s argument checks, and a malformed one
 test('visualize state is sent on a claim and on each change, and its commands and the file methods are served', async () => {
   const { wire, host } = build();
   await host.claim();
-  const states = () => wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.section === 'visualize');
-  assert.deepEqual(states(), [['host/state/set', { section: 'visualize', value: { sessions: [{ sessionId: 's1' }] } }]]);
+  const states = () => wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.key === 'visualize');
+  // The claim sends the list `hostSnapshot()` returns, `active: null` included.
+  assert.deepEqual(states(), [
+    ['host/state/set', { key: 'visualize', value: [{ sessionId: 's1', tabs: [], active: null }] }],
+  ]);
   await host.publishVisualize({ sessionId: 's1', reveal: true });
   assert.deepEqual(states()[1][1].value, { sessionId: 's1', reveal: true });
   assert.deepEqual(await wire.call('host/visualize/command', { sessionId: 's1', action: 'open' }), {

@@ -69,7 +69,7 @@ fn array_index(key: &str) -> Option<u32> {
 }
 
 /// The keys in the order a JavaScript object enumerates them.
-fn ordered_keys(map: &Map<String, Value>) -> Vec<&String> {
+pub fn ordered_keys(map: &Map<String, Value>) -> Vec<&String> {
     let mut indexed: Vec<(u32, &String)> = Vec::new();
     let mut named: Vec<&String> = Vec::new();
     for key in map.keys() {

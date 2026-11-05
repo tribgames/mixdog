@@ -36,10 +36,10 @@ pub use wait::Wake;
 use crate::barrier;
 use crate::barrier::BarrierRecord;
 use crate::barrier::ClaimLock;
-use crate::barrier::Install;
-use crate::barrier::InstallStep;
 use crate::barrier::RECORD_FILE;
+use crate::barrier::Step;
 use crate::barrier::Take;
+use crate::barrier::Taken;
 use crate::ownership::CoreOwnership;
 
 /// The `undecidable` decision journal, `<data>/migration/ownership-decisions.jsonl`.
@@ -56,17 +56,19 @@ pub fn wait_for_exit(identity: ProcessIdentity) -> io::Result<()> {
     wait::wait(&Interrupt::new()?, None, Some(&exit)).map(drop)
 }
 
-/// What one verdict run reads (`R`, the legacy discovery, `B`).
-pub(crate) struct Facts {
-    pub(crate) record: Option<Vec<u8>>,
-    pub(crate) discovery: Option<Vec<u8>>,
-    pub(crate) claim: ClaimLock,
+/// What `B` alone decides (the claim-lock rows of LR §3.1).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ClaimJudgement {
+    /// The barrier is installed: clear.
+    Barrier,
+    /// `B` may be taken this way once the owner rows are judged `clear`.
+    Free(Take),
+    Blocked(Verdict),
 }
 
+/// A verdict other than `clear`.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Verdict {
-    /// No prior owner can write. `None`: the barrier is already installed.
-    Clear(Option<Take>),
     /// A 1.4.5 daemon must exit first. `proven`: it owns the LISTEN socket it
     /// published; otherwise it may be a reused pid, which the user may release.
     WaitExit {
@@ -111,75 +113,89 @@ fn legacy_discovery(bytes: &[u8]) -> Option<(u64, Option<u16>)> {
     Some((pid, session.and_then(port)))
 }
 
-/// LR §3.1. `released` are identities the user released; this core's own pid
-/// is never a prior owner.
-pub(crate) fn decide(
-    facts: &Facts,
+/// `pid` as a running prior owner: never this core, never a released identity.
+fn running(
     procs: &dyn ProcessTable,
     released: &[ProcessIdentity],
-) -> io::Result<Verdict> {
-    let own_pid = u64::from(std::process::id());
-    let running = |pid: u64| -> io::Result<Option<ProcessInfo>> {
-        if pid == own_pid {
-            return Ok(None);
-        }
-        Ok(procs
-            .query(pid)?
-            .filter(|info| !released.contains(&info.identity)))
-    };
+    pid: u64,
+) -> io::Result<Option<ProcessInfo>> {
+    if pid == u64::from(std::process::id()) {
+        return Ok(None);
+    }
+    Ok(procs
+        .query(pid)?
+        .filter(|info| !released.contains(&info.identity)))
+}
 
-    let take = match &facts.claim {
-        ClaimLock::Barrier => return Ok(Verdict::Clear(None)),
+/// LR §3.1, the rows on `B`, judged first.
+pub(crate) fn judge_claim(
+    claim: &ClaimLock,
+    procs: &dyn ProcessTable,
+    released: &[ProcessIdentity],
+) -> io::Result<ClaimJudgement> {
+    Ok(match claim {
+        ClaimLock::Barrier => ClaimJudgement::Barrier,
         ClaimLock::Held(owner) => {
             if let Some(pid) = owner.pid
-                && let Some(info) = running(pid)?
+                && let Some(info) = running(procs, released, pid)?
             {
                 // Started after it acquired B: not its writer, whose pid was reused.
                 let reused = owner
                     .acquired_ms
                     .is_some_and(|ms| info.identity.start_ms > ms);
-                return Ok(if reused {
+                return Ok(ClaimJudgement::Blocked(if reused {
                     Verdict::Undecidable(info)
                 } else {
                     Verdict::WaitClaim(info)
-                });
+                }));
             }
-            Take::DeadHolder(owner.bytes.clone())
+            ClaimJudgement::Free(Take::DeadHolder(owner.bytes.clone()))
         }
-        ClaimLock::Absent => Take::Absent,
-        ClaimLock::Dir { empty: true } => Take::EmptyDir,
-        ClaimLock::Dir { empty: false } | ClaimLock::Other => return Ok(Verdict::Unusable),
-    };
+        ClaimLock::Absent => ClaimJudgement::Free(Take::Absent),
+        ClaimLock::Dir { empty: true } => ClaimJudgement::Free(Take::EmptyDir),
+        ClaimLock::Dir { empty: false } | ClaimLock::Other => {
+            ClaimJudgement::Blocked(Verdict::Unusable)
+        }
+    })
+}
 
-    if let Some((pid, liveness_port)) = facts.record.as_deref().and_then(record_owner) {
-        let Some(info) = running(pid)? else {
-            return Ok(Verdict::Clear(Some(take)));
+/// LR §3.1, the rows on `R` and the legacy discovery, judged without `B`;
+/// `None` is `clear`. `released` are identities the user released.
+pub(crate) fn judge_owner(
+    record: Option<&[u8]>,
+    discovery: Option<&[u8]>,
+    procs: &dyn ProcessTable,
+    released: &[ProcessIdentity],
+) -> io::Result<Option<Verdict>> {
+    if let Some((pid, liveness_port)) = record.and_then(record_owner) {
+        let Some(info) = running(procs, released, pid)? else {
+            return Ok(None);
         };
         return Ok(match liveness_port {
             // The writer binds its liveness listener before it writes the record and
             // closes it only by exiting; sockets are not inherited.
-            Some(port) if procs.listens(info.identity.pid, port)? => Verdict::WaitExit {
+            Some(port) if procs.listens(info.identity.pid, port)? => Some(Verdict::WaitExit {
                 process: info,
                 proven: true,
-            },
-            Some(_) => Verdict::Clear(Some(take)),
-            None => Verdict::Undecidable(info),
+            }),
+            Some(_) => None,
+            None => Some(Verdict::Undecidable(info)),
         });
     }
 
-    if let Some((pid, session_port)) = facts.discovery.as_deref().and_then(legacy_discovery)
-        && let Some(info) = running(pid)?
+    if let Some((pid, session_port)) = discovery.and_then(legacy_discovery)
+        && let Some(info) = running(procs, released, pid)?
     {
         let proven = match session_port {
             Some(port) => procs.listens(info.identity.pid, port)?,
             None => false,
         };
-        return Ok(Verdict::WaitExit {
+        return Ok(Some(Verdict::WaitExit {
             process: info,
             proven,
-        });
+        }));
     }
-    Ok(Verdict::Clear(Some(take)))
+    Ok(None)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -299,9 +315,11 @@ struct ReleaseEntry<'a> {
     command_line: Option<&'a str>,
 }
 
-/// LR §3 steps 3–4 under the OS lock: verdict, then barrier installation,
-/// repeated until clear. Construct it right after the lock is taken, before
-/// discovery is first published: it keeps the legacy discovery found then.
+/// LR §3 steps 3–4 under the OS lock: judge the prior owner without `B`; only
+/// on `clear` take `B`, re-read `R` under it and install the barrier, else give
+/// `B` back at once and judge again. Construct it right after the lock is
+/// taken, before discovery is first published: it keeps the legacy discovery
+/// found then.
 pub struct Gate {
     ownership: Arc<CoreOwnership>,
     record: BarrierRecord,
@@ -355,66 +373,66 @@ impl Gate {
         Ok(())
     }
 
-    fn facts(&mut self) -> io::Result<Facts> {
+    /// The owner rows for `record`, judged without `B`.
+    fn judge_owner(&mut self, record: Option<&[u8]>) -> io::Result<Option<Verdict>> {
         self.refresh_discovery()?;
-        let dir = self.ownership.data_dir();
-        Ok(Facts {
-            record: dir.read(RECORD_FILE)?,
-            discovery: self.discovery.clone(),
-            claim: ClaimLock::read(dir)?,
-        })
+        judge_owner(
+            record,
+            self.discovery.as_deref(),
+            &*self.procs,
+            &self.released,
+        )
     }
 
     pub fn step(&mut self) -> Result<GateStep, GateError> {
-        self.step_observed(&mut |_| {})
-    }
-
-    /// [`Gate::step`] with every completed installation step reported.
-    pub(crate) fn step_observed(
-        &mut self,
-        observe: &mut dyn FnMut(InstallStep),
-    ) -> Result<GateStep, GateError> {
         self.blocked = None;
         loop {
             let dir_watch = DirWatch::arm(self.ownership.data_dir())?;
-            let facts = self.facts()?;
-            let (kind, process, releasable, dir) =
-                match decide(&facts, &*self.procs, &self.released)? {
-                    Verdict::Clear(None) => {
-                        self.ownership.pin_barrier()?;
-                        return Ok(GateStep::Clear);
-                    }
-                    Verdict::Clear(Some(take)) => {
-                        let installed = barrier::install(
-                            &self.ownership,
-                            take,
-                            facts.record.as_deref(),
-                            &self.record,
-                            &*self.procs,
-                            observe,
-                        )?;
-                        match installed {
-                            Install::Done => return Ok(GateStep::Clear),
-                            Install::Raced => continue,
-                            Install::GuardHeld(pid) => {
-                                let Some(process) = self.procs.query(pid)? else {
-                                    continue;
-                                };
-                                (BlockedKind::WaitClaim, process, false, Some(dir_watch))
+            let claim = ClaimLock::read(self.ownership.data_dir())?;
+            let verdict = match judge_claim(&claim, &*self.procs, &self.released)? {
+                ClaimJudgement::Barrier => {
+                    self.ownership.pin_barrier()?;
+                    return Ok(GateStep::Clear);
+                }
+                ClaimJudgement::Blocked(verdict) => verdict,
+                // A live 1.4.5 owner refreshes its heartbeat under B, so B is
+                // touched only after a `clear` verdict judged without it.
+                ClaimJudgement::Free(take) => {
+                    let record = self.ownership.data_dir().read(RECORD_FILE)?;
+                    if let Some(verdict) = self.judge_owner(record.as_deref())? {
+                        verdict
+                    } else {
+                        barrier::hook(Step::Judged);
+                        // Narrows the gap a 1.4.5 claim could land in before B is taken.
+                        if self.ownership.data_dir().read(RECORD_FILE)? != record {
+                            continue;
+                        }
+                        barrier::hook(Step::Linking);
+                        match barrier::take(&self.ownership, take, record.as_deref(), &*self.procs)?
+                        {
+                            Taken::Held(held) => {
+                                held.install(&self.record)?;
+                                return Ok(GateStep::Clear);
                             }
+                            Taken::Raced | Taken::RecordChanged => continue,
+                            Taken::GuardHeld(pid) => match self.procs.query(pid)? {
+                                Some(process) => Verdict::WaitClaim(process),
+                                None => continue,
+                            },
                         }
                     }
-                    Verdict::WaitExit { process, proven } => {
-                        (BlockedKind::WaitExit, process, !proven, None)
-                    }
-                    Verdict::WaitClaim(process) => {
-                        (BlockedKind::WaitClaim, process, false, Some(dir_watch))
-                    }
-                    Verdict::Undecidable(process) => {
-                        (BlockedKind::Undecidable, process, true, None)
-                    }
-                    Verdict::Unusable => return Err(GateError::ClaimLockUnusable),
-                };
+                }
+            };
+            let (kind, process, releasable, dir) = match verdict {
+                Verdict::WaitExit { process, proven } => {
+                    (BlockedKind::WaitExit, process, !proven, None)
+                }
+                Verdict::WaitClaim(process) => {
+                    (BlockedKind::WaitClaim, process, false, Some(dir_watch))
+                }
+                Verdict::Undecidable(process) => (BlockedKind::Undecidable, process, true, None),
+                Verdict::Unusable => return Err(GateError::ClaimLockUnusable),
+            };
             // The process's exit always changes the facts; a process that already
             // exited sends the verdict around again.
             let exit = match ExitWatch::open(process.identity) {

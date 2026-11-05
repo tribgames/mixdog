@@ -520,6 +520,80 @@ fn product_state_shapes_on_the_wire() {
     );
 }
 
+/// `host/state/set` `visualize`: Node's change event and claim snapshot, byte for byte, with the
+/// explicit `null`s (`active`, a live tab's `version`) kept.
+#[test]
+fn host_state_set_visualize_on_the_wire() {
+    use mixdog_app_protocol::v2::host::HostStateSetParams;
+    let tab = json!({
+        "id": "t1", "label": "Mock", "remoteLabel": "mock.html", "revision": 2, "cwd": "/p",
+        "panes": [{"kind": "html", "label": "mock.html", "target": "mock.html", "path": "/p/mock.html",
+                   "remoteTarget": "mock.html", "root": "/p"},
+                  {"kind": "inline", "label": "g", "target": "g", "path": "", "remoteTarget": "g",
+                   "inline": {"kind": "mermaid", "source": "graph TD", "deferred": true}}],
+        "networkAllowed": true, "version": null,
+        "problems": [{"kind": "asset-failed", "message": "m", "source": "a.js", "line": 0, "count": 1, "pane": 0}],
+    });
+    let state = json!({"sessionId": "s", "tabs": [tab], "active": null,
+                       "history": [{"id": "h", "label": "l", "kind": "split", "versions": 1, "at": 5, "open": true}]});
+    for value in [
+        json!([state.clone()]),
+        json!({"sessionId": "s", "state": state, "reveal": true, "tab": "t1", "heldSince": 9}),
+    ] {
+        let wire = json!({"key": "visualize", "value": value});
+        let params: HostStateSetParams = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&params).unwrap(), wire);
+    }
+    assert!(serde_json::from_value::<HostStateSetParams>(json!({"key": "visualize", "value": {"state": {}}})).is_err());
+    assert!(serde_json::from_value::<HostStateSetParams>(json!({"key": "other", "value": 1})).is_err());
+}
+
+/// Node's wire error carries `code` only when the error has one: a plain `Error` is
+/// `{domain, detail}` with no `code` key, and it reads back as `None`.
+#[test]
+fn domain_error_without_a_code_has_no_code_key() {
+    let plain = json!({"reason": "domainError", "domain": "workspace"});
+    let data: ErrorData = serde_json::from_value(plain.clone()).unwrap();
+    assert!(matches!(&data, ErrorData::DomainError { code: None, .. }));
+    assert_eq!(serde_json::to_value(&data).unwrap(), plain);
+    let coded = json!({"reason": "domainError", "domain": "git", "code": "WORKTREE_DIRTY"});
+    assert_eq!(serde_json::to_value(serde_json::from_value::<ErrorData>(coded.clone()).unwrap()).unwrap(), coded);
+}
+
+/// `core/drain`, `ui/openRequested` per kind and `ui/newTab/created`, as they travel.
+#[test]
+fn drain_open_requested_and_new_tab_on_the_wire() {
+    use mixdog_app_protocol::ClientNotification;
+    use mixdog_app_protocol::ServerNotification;
+    let decode = |value: Value| serde_json::from_value::<ServerNotification>(value).unwrap();
+    let drain = json!({"method": "core/drain", "params": {
+        "drainId": "d1", "confirmToken": "tok",
+        "running": [{"threadId": "t", "turnId": "u", "kind": "turn", "title": "Fix"},
+                    {"threadId": null, "turnId": null, "kind": "backgroundShell", "title": "npm test"}]}});
+    assert_eq!(serde_json::to_value(decode(drain.clone())).unwrap(), drain);
+    for params in [
+        json!({"kind": "browser", "sessionId": "s", "handoff": true, "tabId": "p1"}),
+        json!({"kind": "terminal", "sessionId": "s", "terminalId": "x",
+               "tabs": [{"id": "x", "tab": 1, "cwd": null}, {"id": "y", "tab": 2}], "requestId": "r"}),
+        json!({"kind": "visualize", "sessionId": "s", "openUrl": "https://a.test/", "openRequestId": "o"}),
+    ] {
+        let wire = json!({"method": "ui/openRequested", "params": params});
+        assert_eq!(serde_json::to_value(decode(wire.clone())).unwrap(), wire);
+    }
+    let created = ClientNotification::from_jsonrpc(
+        serde_json::from_value(json!({"jsonrpc": "2.0", "method": "ui/newTab/created",
+            "params": {"sessionId": "s", "openRequestId": "o", "pageId": "p3"}}))
+        .unwrap(),
+    );
+    assert!(created.is_ok());
+    let claimed = ClientNotification::from_jsonrpc(
+        serde_json::from_value(json!({"jsonrpc": "2.0", "method": "ui/terminalRun/claimed",
+            "params": {"requestId": "r"}}))
+        .unwrap(),
+    );
+    assert!(claimed.is_ok());
+}
+
 /// CCR settlements visible on the wire.
 #[test]
 fn ccr_shapes() {

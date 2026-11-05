@@ -1,0 +1,370 @@
+//! Provider readiness, as Node's `createProviderReadiness`
+//! (`session-runtime/provider-readiness.mjs`) runs it: provider initialization
+//! is a single flight per normalized provider config, and its settled result
+//! is kept, so a repeat call with the same config starts nothing. A change
+//! that invalidates the caches clears the flights and supersedes any
+//! initialization still running: that one never writes the registry, and its
+//! callers are answered by a replay on the latest config (with the providers
+//! the superseded request turned on). Keychain prewarming belongs to the
+//! registry's key store, which the builder reads.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
+
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
+use serde_json::Map;
+use serde_json::Value;
+
+use super::service::CatalogService;
+use crate::registry::providers::ProviderRegistry;
+use crate::registry::providers::RegistryError;
+use crate::registry::providers::config_signature;
+
+type Flight = Shared<BoxFuture<'static, Result<(), RegistryError>>>;
+
+#[derive(Default)]
+struct Gate {
+    flights: HashMap<String, Flight>,
+    /// Advances whenever the flights are cleared.
+    generation: u64,
+    /// Whether this runtime has started its providers.
+    started: bool,
+    closed: bool,
+    /// The runtime's own `config.providers`.
+    providers: Map<String, Value>,
+}
+
+/// What a ready call leaves to its caller.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Ready {
+    /// Some registered provider's catalog has not been fetched for its
+    /// current config: run [`ProviderReadiness::refresh_catalogs`] in the
+    /// background (`refreshProviderCatalogsOnStartup`).
+    pub catalogs_due: bool,
+}
+
+pub struct ProviderReadiness {
+    registry: Arc<ProviderRegistry>,
+    catalog: Arc<CatalogService>,
+    gate: Mutex<Gate>,
+}
+
+fn closing() -> RegistryError {
+    RegistryError { message: "runtime is closing".into(), code: None }
+}
+
+/// The providers a request turned on that the runtime's config has off.
+fn forced_providers(requested: &Map<String, Value>, base: &Map<String, Value>) -> Vec<String> {
+    let enabled = |entry: Option<&Value>| entry.and_then(|e| e.get("enabled")) == Some(&Value::Bool(true));
+    requested.iter().filter(|(name, entry)| enabled(Some(entry)) && !enabled(base.get(*name))).map(|(n, _)| n.clone()).collect()
+}
+
+impl ProviderReadiness {
+    pub fn new(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Arc<Self> {
+        Arc::new(Self { registry, catalog, gate: Mutex::new(Gate::default()) })
+    }
+
+    fn gate(&self) -> MutexGuard<'_, Gate> {
+        self.gate.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The runtime's `config.providers`, the default of a ready call and the
+    /// base a replay is built on.
+    pub fn set_providers(&self, providers: Map<String, Value>) {
+        self.gate().providers = providers;
+    }
+
+    /// The runtime is closing: every later call fails.
+    pub fn close(&self) {
+        self.gate().closed = true;
+    }
+
+    /// `ensureProvidersReady(providerConfig)`; `None` is the runtime's config.
+    pub async fn ensure_providers_ready(
+        self: &Arc<Self>,
+        providers: Option<Map<String, Value>>,
+    ) -> Result<Ready, RegistryError> {
+        let providers = providers.unwrap_or_else(|| self.gate().providers.clone());
+        self.clone().init(providers).await?;
+        let closed = self.gate().closed;
+        // Every registered name claims its refresh; none is skipped.
+        let due = if closed { Vec::new() } else { self.registry.names().iter().map(|n| self.registry.claim_catalog_refresh(n)).collect() };
+        Ok(Ready { catalogs_due: due.contains(&true) })
+    }
+
+    /// One keyed initialization: the settled flight of an equal config, or a new one.
+    fn init(self: Arc<Self>, providers: Map<String, Value>) -> BoxFuture<'static, Result<(), RegistryError>> {
+        Box::pin(async move {
+            let key = config_signature(&Value::Object(providers.clone()));
+            let flight = {
+                let mut gate = self.gate();
+                if gate.closed {
+                    return Err(closing());
+                }
+                gate.started = true;
+                let generation = gate.generation;
+                let forced = forced_providers(&providers, &gate.providers);
+                gate.flights
+                    .entry(key.clone())
+                    .or_insert_with(|| self.clone().initialize(providers, generation, forced).shared())
+                    .clone()
+            };
+            let result = flight.clone().await;
+            if result.is_err() {
+                let mut gate = self.gate();
+                if gate.flights.get(&key).is_some_and(|held| held.ptr_eq(&flight)) {
+                    gate.flights.remove(&key);
+                }
+            }
+            result
+        })
+    }
+
+    fn initialize(
+        self: Arc<Self>,
+        providers: Map<String, Value>,
+        generation: u64,
+        forced: Vec<String>,
+    ) -> BoxFuture<'static, Result<(), RegistryError>> {
+        Box::pin(async move {
+            let (closed, current, mut latest) = {
+                let gate = self.gate();
+                (gate.closed, gate.generation, gate.providers.clone())
+            };
+            if closed {
+                return Err(closing());
+            }
+            if generation == current {
+                return self.registry.init_providers(&providers).await;
+            }
+            // Superseded: the latest config wins, with the providers this request turned on.
+            for name in forced {
+                let mut entry = match latest.remove(&name) {
+                    Some(Value::Object(entry)) => entry,
+                    _ => Map::new(),
+                };
+                entry.insert("enabled".into(), Value::Bool(true));
+                latest.insert(name, Value::Object(entry));
+            }
+            self.init(latest).await
+        })
+    }
+
+    /// `invalidateProviderCaches`: the catalog's consumers start a new
+    /// revision, and unless `preserve_init` the init flights are dropped and
+    /// any running initialization is superseded.
+    pub fn invalidate_provider_caches(&self, preserve_init: bool) {
+        self.registry.bump_catalog_revision();
+        if !preserve_init {
+            let mut gate = self.gate();
+            gate.flights.clear();
+            gate.generation += 1;
+        }
+    }
+
+    /// `reinitProviders`: provider config or secrets changed; the registry is
+    /// rebuilt from the reloaded config when this runtime had started it.
+    pub async fn reinit_providers(self: &Arc<Self>) -> Result<(), RegistryError> {
+        self.invalidate_provider_caches(false);
+        let (started, closed) = {
+            let gate = self.gate();
+            (gate.started, gate.closed)
+        };
+        if !started || closed {
+            return Ok(());
+        }
+        self.ensure_providers_ready(None).await.map(|_| ())
+    }
+
+    /// The background half of a ready call whose `catalogs_due` was set: the
+    /// catalog refreshes, then the model-derived caches drop while the
+    /// initialized registry stays.
+    pub async fn refresh_catalogs(&self) {
+        self.catalog.refresh().await;
+        if !self.gate().closed {
+            self.invalidate_provider_caches(true);
+        }
+    }
+}
+
+const API_PROVIDER_IDS: [&str; 8] = ["openrouter", "openai", "anthropic", "gemini", "vertex-ai", "deepseek", "xai", "mixdog-local"];
+
+const OAUTH_PROVIDER_IDS: [&str; 10] = [
+    "openai-oauth",
+    "anthropic-oauth",
+    "grok-oauth",
+    "muse-code-oauth",
+    "command-code-oauth",
+    "opencode-go-oauth",
+    "mimo-oauth",
+    "cursor-oauth",
+    "devin-oauth",
+    "antigravity-oauth",
+];
+
+/// `custom-` and a lowercase UUID.
+fn is_custom_provider_id(id: &str) -> bool {
+    let Some(uuid) = id.strip_prefix("custom-") else { return false };
+    let groups: Vec<&str> = uuid.split('-').collect();
+    groups.len() == 5
+        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// `isKnownProvider(provider, config)`: a built-in API provider, `mixdog-local`,
+/// an OAuth provider (a dev-gated one only while `available` says it is on),
+/// or an enabled custom provider the config defines.
+pub fn is_known_provider(provider: &str, config: &Value, available: &dyn Fn(&str) -> bool) -> bool {
+    let id = mixdog_js::js_trim(provider);
+    if id.is_empty() {
+        return false;
+    }
+    if API_PROVIDER_IDS.contains(&id) || (OAUTH_PROVIDER_IDS.contains(&id) && available(id)) {
+        return true;
+    }
+    let entry = config.get("providers").and_then(|p| p.get(id));
+    is_custom_provider_id(id)
+        && entry.is_some_and(|e| e.get("type").and_then(Value::as_str) == Some("custom"))
+        && entry.and_then(|e| e.get("enabled")) != Some(&Value::Bool(false))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::mock::MockProvider;
+    use mixdog_core_api::domain::provider::ProviderAdapter;
+    use serde_json::json;
+
+    use super::*;
+    use crate::catalog::CatalogSnapshot;
+    use crate::catalog::ModelsDevSource;
+    use crate::registry::providers::ProviderBuilder;
+    use crate::transport::http::HttpResponse;
+    use crate::transport::http::HttpSend;
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_core_api::domain::provider::ProviderError;
+    use mixdog_core_api::domain::provider::WireRequest;
+
+    struct Offline;
+    #[async_trait]
+    impl HttpSend for Offline {
+        async fn send(&self, _: WireRequest) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
+        }
+    }
+
+    #[derive(Default)]
+    struct Counting {
+        builds: AtomicUsize,
+        fail: Mutex<bool>,
+    }
+    #[async_trait]
+    impl ProviderBuilder for Counting {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            self.builds.fetch_add(1, Ordering::SeqCst);
+            if *self.fail.lock().unwrap() {
+                return Err("boom".into());
+            }
+            Ok(Arc::new(MockProvider::new([])))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> bool {
+            true
+        }
+    }
+
+    async fn readiness() -> (Arc<ProviderReadiness>, Arc<Counting>) {
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let io = crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        let builder = Arc::new(Counting::default());
+        (ProviderReadiness::new(Arc::new(ProviderRegistry::new(builder.clone())), catalog), builder)
+    }
+
+    fn config(value: Value) -> Map<String, Value> {
+        value.as_object().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn an_equal_config_initializes_once_whatever_its_key_order() {
+        let (ready, builder) = readiness().await;
+        let a = config(json!({"anthropic": {"enabled": true, "k": 1, "j": 2}}));
+        let b = config(json!({"anthropic": {"j": 2, "k": 1, "enabled": true}}));
+        let first = ready.ensure_providers_ready(Some(a)).await.unwrap();
+        assert!(first.catalogs_due);
+        // The settled flight is kept; the catalog claim is spent.
+        let second = ready.ensure_providers_ready(Some(b)).await.unwrap();
+        assert!(!second.catalogs_due);
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_init_is_not_kept() {
+        let (ready, builder) = readiness().await;
+        *builder.fail.lock().unwrap() = true;
+        let cfg = config(json!({"anthropic": {"enabled": true}}));
+        let err = ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap_err();
+        assert!(err.message.contains("boom"));
+        *builder.fail.lock().unwrap() = false;
+        ready.ensure_providers_ready(Some(cfg)).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn invalidation_drops_the_flights_and_close_refuses() {
+        let (ready, builder) = readiness().await;
+        let cfg = config(json!({"anthropic": {"enabled": true}}));
+        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
+        ready.invalidate_provider_caches(true);
+        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
+        // A rebuilt flight finds the provider already registered: no second build.
+        ready.invalidate_provider_caches(false);
+        ready.ensure_providers_ready(Some(cfg.clone())).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
+        ready.close();
+        assert_eq!(ready.ensure_providers_ready(Some(cfg)).await.unwrap_err().message, "runtime is closing");
+    }
+
+    #[test]
+    fn forced_providers_are_those_the_request_turned_on() {
+        let requested = config(json!({"a": {"enabled": true}, "b": {"enabled": true}, "c": {"enabled": false}}));
+        let base = config(json!({"a": {"enabled": true}}));
+        assert_eq!(forced_providers(&requested, &base), vec!["b".to_owned()]);
+    }
+
+    #[test]
+    fn known_providers_follow_node() {
+        let uuid = "custom-0123abcd-0123-4567-89ab-0123456789ab";
+        let config = json!({"providers": {
+            uuid: {"type": "custom", "enabled": true},
+            "custom-ffffffff-ffff-ffff-ffff-ffffffffffff": {"type": "custom", "enabled": false},
+            "custom-00000000-0000-0000-0000-000000000000": {"type": "api"}
+        }});
+        let on = |_: &str| true;
+        let off = |_: &str| false;
+        for id in ["openai", "xai", "vertex-ai", "mixdog-local", " anthropic ", "anthropic-oauth", "cursor-oauth", uuid] {
+            assert!(is_known_provider(id, &config, &on), "{id}");
+        }
+        assert!(!is_known_provider("cursor-oauth", &config, &off));
+        assert!(is_known_provider("openai", &config, &off));
+        for id in ["", "  ", "nope", "custom-ffffffff-ffff-ffff-ffff-ffffffffffff", "custom-00000000-0000-0000-0000-000000000000", "custom-0123ABCD-0123-4567-89ab-0123456789ab"] {
+            assert!(!is_known_provider(id, &config, &on), "{id}");
+        }
+    }
+}

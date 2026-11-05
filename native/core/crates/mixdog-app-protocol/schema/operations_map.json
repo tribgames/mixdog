@@ -3764,8 +3764,8 @@
       "list": "actions",
       "name": "getBotOrder",
       "target": {
-        "kind": "section",
-        "target": "botOrder"
+        "kind": "method",
+        "target": "config/getBotOrder"
       }
     },
     {
@@ -5449,7 +5449,7 @@
       "name": "setBotOrder",
       "target": {
         "kind": "method",
-        "target": "agent/setBotOrder"
+        "target": "config/setBotOrder"
       }
     },
     {

@@ -100,7 +100,7 @@ impl Stamp {
     pub fn millis(&self) -> Option<i64> {
         let ms = match self {
             Self::Number(n) => *n,
-            Self::Text(s) => chrono::DateTime::parse_from_rfc3339(s).ok()?.timestamp_millis() as f64,
+            Self::Text(s) => mixdog_js::time::date_parse(s),
         };
         (ms.is_finite() && ms > 0.0).then_some(ms as i64)
     }
@@ -317,8 +317,9 @@ fn text_lines(text: &str) -> Vec<String> {
 /// First non-empty line of a title text, whitespace-normalized, at most 100 characters.
 pub fn title_from_text(text: &str) -> Option<String> {
     let line = text_lines(text).into_iter().next()?;
-    let title = mixdog_js::slice_utf16(&line, TITLE_MAX_CHARS);
-    let title = mixdog_js::js_trim(&title);
+    // `Array.from(line).slice(0, 100)`: code points, not UTF-16 units.
+    let capped: String = line.chars().take(TITLE_MAX_CHARS).collect();
+    let title = mixdog_js::js_trim(&capped);
     (!title.is_empty()).then(|| title.to_owned())
 }
 

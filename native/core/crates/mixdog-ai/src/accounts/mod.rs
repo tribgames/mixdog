@@ -8,6 +8,7 @@
 //! `updateProviderAccounts` of the protocol, Command Code's `isFirstSignIn`);
 //! [`policy`] holds the pure rotation decisions.
 
+mod binding;
 mod file;
 mod model;
 pub mod policy;
@@ -17,6 +18,9 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub use binding::has_explicit_provider_auth_binding;
+pub use binding::replace_provider_auth_bindings;
+pub use binding::with_provider_account;
 pub use model::Account;
 pub use model::Block;
 pub use model::Policy;
@@ -31,6 +35,8 @@ use serde_json::Value;
 use crate::oauth::CredentialFile;
 use crate::oauth::CredentialIo;
 use crate::oauth::Probe;
+use crate::oauth::pace::Pace;
+use crate::oauth::pace::SystemPace;
 
 pub const ACCOUNT_PROVIDERS: [&str; 10] = [
     "openai-oauth",
@@ -110,10 +116,6 @@ fn uuid_v4() -> String {
     b[8] = (b[8] & 0x3f) | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
-}
-
-fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
 }
 
 /// Labels an earlier build assigned automatically map to the fixed
@@ -206,6 +208,8 @@ pub struct AccountStore {
     dir: PathBuf,
     io: CredentialIo,
     on_selection_change: Option<SelectionHook>,
+    /// The service clock: stored cooldowns and rotation waits read this one.
+    clock: Arc<dyn Pace>,
 }
 
 impl AccountStore {
@@ -214,7 +218,19 @@ impl AccountStore {
             dir,
             io,
             on_selection_change: None,
+            clock: Arc::new(SystemPace),
         }
+    }
+
+    /// Replaces the system clock (a rotation built over a [`Pace`] installs its own).
+    pub fn with_clock(mut self, clock: Arc<dyn Pace>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// Unix ms on the service clock.
+    pub(crate) fn now_ms(&self) -> i64 {
+        i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX)
     }
 
     /// Called after a write moved a provider's selected account: the selection
@@ -478,13 +494,14 @@ impl AccountStore {
                 }
             })
             .collect();
+        let clock = self.clock.clone();
         self.update(provider, move |pool| {
             let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
                 return Ok(());
             };
             row.usage = Some(Usage {
                 windows,
-                checked_at: now_ms(),
+                checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
             });
             let usage = row.usage.clone();
             let kept: Vec<Block> = row
@@ -518,11 +535,12 @@ impl AccountStore {
         options: BlockOptions,
     ) -> Result<Pool, AccountError> {
         let (id, scope) = (id.to_owned(), js_trim(model).to_owned());
+        let clock = self.clock.clone();
         self.update(provider, move |pool| {
             let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
                 return Ok(());
             };
-            let now = now_ms();
+            let now = i64::try_from(clock.now_ms()).unwrap_or(i64::MAX);
             let limit = js_trim(&options.limit).to_owned();
             let block = Block {
                 blocked_until: if options.reset { until } else { until.min(now + MAX_BLOCK_MS) },

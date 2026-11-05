@@ -34,7 +34,7 @@ impl Inner {
             return self.select_branch(target, input, own_turn, cancel).await;
         }
         // A valid slug names the worktree; any other text is a hint the slug is made from.
-        let name = name.unwrap_or_default().trim().to_owned();
+        let name = mixdog_js::js_trim(&name.unwrap_or_default()).to_owned();
         let slug = (!name.is_empty() && names::name_error(&name).is_none()).then(|| name.clone());
         let input = RequestWorktree {
             prompt: if slug.is_some() { String::new() } else { name },

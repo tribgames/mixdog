@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods, reason = "test fixtures on a scratch directory")]
+
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
@@ -101,6 +103,7 @@ async fn rig() -> Rig {
         grok: Arc::new(NoGrok),
         history: history.clone(),
         store: store.clone(),
+        io: CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         log: Arc::new(|_| {}),
         data_dir: dir.path().join("data"),
     });
@@ -131,7 +134,7 @@ async fn a_reading_is_recorded_cached_and_served_without_a_second_request() {
     assert_eq!(again["quotaWindows"][0]["usedPct"], 40);
     assert_eq!(r.http.urls(), vec![ANTHROPIC_URL]);
     // The disk cache serves a fresh process.
-    let cached = r.usage.read_cached(&RouteInfo { model: String::new(), ..route() }, false).unwrap();
+    let cached = r.usage.read_cached(&RouteInfo { model: String::new(), ..route() }, false).await.unwrap();
     assert_eq!(cached["quotaWindows"][0]["usedPct"], 40);
     assert!(r.dir.path().join("data/gateway-oauth-usage-cache.json").exists());
 }
@@ -193,12 +196,17 @@ fn scratch_dir(tag: &str) -> PathBuf {
 fn concurrent_cache_updates_all_land() {
     let dir = scratch_dir("lost");
     let path = dir.join("oauth-usage-cache.json");
+    let start = Arc::new(std::sync::Barrier::new(4));
     let writers: Vec<_> = (0..4)
         .map(|w| {
             let path = path.clone();
+            let start = Arc::clone(&start);
             std::thread::spawn(move || {
+                start.wait();
                 for i in 0..15 {
                     update_disk_cache(&path, |routes| {
+                        // Holds the read-modify-write open so unlocked writers overlap.
+                        std::thread::sleep(Duration::from_millis(2));
                         routes.insert(format!("w{w}-{i}"), Value::from(i));
                     })
                     .unwrap();
@@ -241,5 +249,25 @@ fn a_damaged_cache_is_kept_aside_and_an_unreadable_one_is_an_error() {
     let blocked = dir.join("blocked.json");
     std::fs::create_dir(&blocked).unwrap();
     assert!(update_disk_cache(&blocked, |_| {}).is_err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_damaged_cache_is_replaced_by_its_valid_backup() {
+    let dir = scratch_dir("backup");
+    let path = dir.join("oauth-usage-cache.json");
+    std::fs::write(&path, "{ not json").unwrap();
+    std::fs::write(dir.join("oauth-usage-cache.json.bak"), r#"{"version":1,"routes":{"old":{"x":1}}}"#).unwrap();
+    update_disk_cache(&path, |routes| {
+        routes.insert("new".into(), Value::from(2));
+    })
+    .unwrap();
+    let routes = read_json_file(&path).unwrap()["routes"].as_object().unwrap().clone();
+    assert_eq!(routes.keys().cloned().collect::<Vec<_>>(), ["old", "new"]);
+    // An unparsable backup restores nothing.
+    std::fs::write(&path, "{ not json").unwrap();
+    std::fs::write(dir.join("oauth-usage-cache.json.bak"), "also bad").unwrap();
+    update_disk_cache(&path, |_| {}).unwrap();
+    assert!(read_json_file(&path).unwrap()["routes"].as_object().unwrap().is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }

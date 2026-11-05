@@ -29,7 +29,8 @@ pub const CONNECTOR_TRIGGERS: [(&str, &str); 17] = [
 
 /// Server ids differ only in separators and case (google_calendar, huggingface).
 fn trigger_key(id: &str) -> String {
-    id.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect()
+    // Lowercase first, as JS does: `İ` lowercases to `i` plus a combining dot, which then drops.
+    id.to_lowercase().chars().filter(|c| matches!(c, 'a'..='z' | '0'..='9')).collect()
 }
 
 fn lookup(id: &str) -> Option<&'static str> {

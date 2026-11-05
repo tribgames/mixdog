@@ -1,0 +1,42 @@
+[package]
+name = "mixdog-secrets"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The lane executors the tests run blocking keychain work on.
+test-support = ["mixdog-rt/test-support"]
+
+[dependencies]
+mixdog-rt = { workspace = true }
+mixdog-js = { workspace = true }
+async-trait = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+base64 = { workspace = true }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Pure Rust (zbus): no system libdbus, so the core starts on a minimal server.
+secret-service = { workspace = true, features = ["rt-async-io-crypto-rust"] }
+zbus = { workspace = true }
+
+[dev-dependencies]
+mixdog-secrets = { path = ".", features = ["test-support"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

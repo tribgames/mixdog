@@ -6,18 +6,35 @@
 //! is a different type that cannot be turned into sources, so a provider that
 //! needs its key to list models can never be built without it.
 
+mod facts;
+mod lookup;
 mod modelsdev;
 mod modelsdev_source;
+mod pricing;
+mod readiness;
 mod record;
+mod rosters;
 mod service;
 mod sources;
 mod store;
 mod traits;
 
 pub use modelsdev::ModelsDev;
+pub use modelsdev_source::LITELLM_CACHE_FILE;
+pub use modelsdev_source::MODELS_DEV_CACHE_FILE;
 pub use modelsdev_source::ModelsDevSource;
 pub use modelsdev_source::REFRESH_AFTER;
+pub use pricing::ColdCatalog;
+pub use pricing::Media;
+pub use pricing::PricedUsage;
+pub use pricing::PricingCatalog;
+pub use pricing::UsageArgs;
+pub use readiness::ProviderReadiness;
+pub use readiness::Ready;
+pub use readiness::is_known_provider;
 pub use record::BudgetSpec;
+pub use rosters::CachedWindows;
+pub use rosters::RosterSnapshot;
 pub use record::Thinking;
 pub use traits::CatalogTraits;
 pub use traits::ModelTraits;

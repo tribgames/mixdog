@@ -106,8 +106,21 @@ pub(super) fn folder_in_use(sessions: Vec<String>) -> ScmFailure {
 }
 
 fn key(session_id: &str) -> String {
-    session_id.trim().to_owned()
+    mixdog_js::js_trim(session_id).to_owned()
 }
+
+/// Node's three `reason: 'transition'` refusals share a detail and differ in their text.
+fn transition_refused(text: &str) -> ScmFailure {
+    let refused = errors::busy_with("transition", None, None, None);
+    match refused.detail().cloned() {
+        Some(detail) => ScmFailure::coded_with_message(errors::WORKTREE_BUSY_JOBS, detail, text),
+        None => refused,
+    }
+}
+
+const SESSION_TRANSITION: &str = "Another workspace change is in progress for this session.";
+const FOLDER_TRANSITION: &str = "Another branch change is in progress in the project folder.";
+const SPAWN_TRANSITION: &str = "The Lead workspace is changing; spawn the worker after it settles.";
 
 fn norm(path: &str) -> String {
     mixdog_scm::locks::path_key(std::path::Path::new(path))
@@ -162,7 +175,7 @@ impl AdmissionGate {
         }
         let mut state = self.state();
         if state.transitions.contains_key(&id) {
-            return Err(errors::busy_with("transition", None, None, None));
+            return Err(transition_refused(SESSION_TRANSITION));
         }
         if let Some(starting) = state.spawns.get(&id).copied().filter(|n| *n > 0) {
             return Err(busy("workers", |d| {
@@ -197,7 +210,7 @@ impl AdmissionGate {
             return Ok(FolderGuard { gate: self.clone(), token: None });
         }
         if state.folder_holds.values().any(|h| overlaps(&h.folder, folder)) {
-            return Err(errors::busy_with("transition", None, None, None));
+            return Err(transition_refused(FOLDER_TRANSITION));
         }
         let token = self.id();
         state.folder_holds.insert(token, Hold { session: id, folder: folder.to_owned() });
@@ -315,7 +328,7 @@ impl AdmissionGate {
         ids.dedup();
         let mut state = self.state();
         if ids.iter().any(|id| state.transitions.contains_key(id)) {
-            return Err(errors::busy_with("transition", None, None, None));
+            return Err(transition_refused(SPAWN_TRANSITION));
         }
         for id in &ids {
             *state.spawns.entry(id.clone()).or_default() += 1;

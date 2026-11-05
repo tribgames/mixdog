@@ -196,6 +196,10 @@ impl DomainService for ProcessService {
         }
     }
 
+    fn methods(&self) -> &'static [&'static str] {
+        &["process/spawn", "process/kill", "process/resizePty", "process/writeStdin", "process/input"]
+    }
+
     fn notify(&self, method: Method, params: Value, _from: ConnectionId) -> Admit {
         if method.as_str() != "process/input" {
             return Admit::Accepted;

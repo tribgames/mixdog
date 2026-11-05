@@ -5,7 +5,16 @@ use mixdog_js::value_to_string;
 use serde_json::Map;
 use serde_json::Value;
 
-pub use crate::json::js_truthy as truthy;
+/// JavaScript truthiness of a JSON value.
+pub fn truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(_) => true,
+    }
+}
 
 pub fn re(pattern: &str, flags: &str) -> JsRegex {
     JsRegex::new_static(pattern, flags)
@@ -32,7 +41,7 @@ pub fn str_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-pub use mixdog_protocol::text_class::split_lines;
+pub use crate::text_class::split_lines;
 
 /// `value.replace(/\s+/g, ' ')`.
 pub fn collapse_spaces(value: &str) -> String {

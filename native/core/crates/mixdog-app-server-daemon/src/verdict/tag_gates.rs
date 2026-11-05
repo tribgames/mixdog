@@ -223,14 +223,32 @@ fn gate_2_real_daemon_start_exits_with_and_without_a_serving_core() {
 // Core child process (gates 3 and 4)
 // ---------------------------------------------------------------------------
 
+/// The pid `R` names, or `-`.
+fn record_pid(data: &Path) -> String {
+    std::fs::read(data.join(RECORD_FILE))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("pid").and_then(serde_json::Value::as_u64))
+        .map_or_else(|| "-".to_string(), |pid| pid.to_string())
+}
+
 /// Child entry: one core on `MIXDOG_OWN_CORE_DATA`. Reports `LOCKED_OUT`,
-/// each `BLOCKED <kind> <pid>`, then `SERVING`; answers `REVALIDATE` lines.
+/// each `BLOCKED <kind> <pid> HELD <pid R named when this core first held B>`,
+/// then `SERVING`; answers `REVALIDATE` lines.
 #[test]
 #[ignore = "child process entry for the tag gates"]
 fn core_child() {
     let Some(data) = std::env::var_os("MIXDOG_OWN_CORE_DATA") else {
         return;
     };
+    let data_path = PathBuf::from(&data);
+    let first_held = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+    let sink = first_held.clone();
+    let _hook = crate::barrier::tests::set_hook(move |step| {
+        if step == Step::Held && sink.borrow().is_none() {
+            *sink.borrow_mut() = Some(record_pid(&data_path));
+        }
+    });
     let runtime = PathBuf::from(std::env::var_os("MIXDOG_OWN_CORE_RUNTIME").expect("runtime"));
     let own = match ownership::acquire(Path::new(&data)) {
         Ok(own) => Arc::new(own),
@@ -245,8 +263,10 @@ fn core_child() {
             GateStep::Clear => break,
             GateStep::Blocked(blocked) => {
                 marker(&format!(
-                    "BLOCKED {:?} {}",
-                    blocked.kind, blocked.process.identity.pid
+                    "BLOCKED {:?} {} HELD {}",
+                    blocked.kind,
+                    blocked.process.identity.pid,
+                    first_held.borrow().as_deref().unwrap_or("never")
                 ));
                 blocked.wait(&interrupt).expect("wait");
             }
@@ -325,12 +345,12 @@ fn settled_core(
     }
 }
 
-fn simultaneous(prepare: fn(&TempData), tag_dir_case: bool) {
+fn simultaneous(prepare: fn(&TempData)) {
     let reps: usize = std::env::var("MIXDOG_TAG_GATE_REPS")
         .ok()
         .map_or(200, |n| n.parse().expect("reps"));
     let mut daemon_won = 0;
-    let mut fresh_dir_wins = Vec::new();
+    let mut late_claims = Vec::new();
     for rep in 0..reps {
         let temp = TempData::new();
         std::fs::create_dir_all(temp.data()).unwrap();
@@ -400,7 +420,11 @@ fn simultaneous(prepare: fn(&TempData), tag_dir_case: bool) {
             )
         };
         if owners[0] == "SERVING" {
-            assert!(has_barrier(&temp), "rep {rep}: {}", diagnostics(&mut daemons));
+            assert!(
+                has_barrier(&temp),
+                "rep {rep}: {}",
+                diagnostics(&mut daemons)
+            );
             // Every 1.4.5 daemon honours the barrier and exits 0.
             for daemon in &mut daemons {
                 let pid = daemon.id();
@@ -412,18 +436,25 @@ fn simultaneous(prepare: fn(&TempData), tag_dir_case: bool) {
                     }
                 }
             }
-        } else if let Some(pid) = owners[0].strip_prefix("BLOCKED WaitExit ") {
+        } else if let Some(rest) = owners[0].strip_prefix("BLOCKED WaitExit ") {
             let state = diagnostics(&mut daemons);
-            // Recorded, not asserted here, so one run lists every such rep; the
-            // rest of the rep (single owner, no barrier) is still checked.
-            if !tag_dir_case {
-                fresh_dir_wins.push(rep);
+            let (pid, held) = rest.split_once(" HELD ").expect("HELD");
+            // LR §11.3: no 1.4.5 claim lands after a core first held B, so the
+            // daemon that serves is the one R named then (1.4.5 writes R only
+            // under B). Recorded, not asserted here, so one run lists every such
+            // rep; the rest of the rep is still checked.
+            // "never": the core judged that daemon live without ever taking B.
+            if held != pid && held != "never" {
+                late_claims.push((rep, held.to_string()));
             }
             let pid: u32 = pid.parse().expect("pid");
             for daemon in &mut daemons {
                 let live = daemon.try_wait().unwrap().is_none();
                 if daemon.id() == pid {
-                    assert!(live, "rep {rep}: the core waits on an exited daemon: {state}");
+                    assert!(
+                        live,
+                        "rep {rep}: the core waits on an exited daemon: {state}"
+                    );
                 } else {
                     assert!(
                         wait_bounded(daemon, until.saturating_duration_since(Instant::now()))
@@ -439,7 +470,10 @@ fn simultaneous(prepare: fn(&TempData), tag_dir_case: bool) {
             eprintln!("rep {rep}: 1.4.5 daemon {pid} served; {state}");
             daemon_won += 1;
         } else {
-            panic!("rep {rep}: unexpected core state: {}", diagnostics(&mut daemons));
+            panic!(
+                "rep {rep}: unexpected core state: {}",
+                diagnostics(&mut daemons)
+            );
         }
         for daemon in &mut daemons {
             kill_tree(daemon);
@@ -448,21 +482,21 @@ fn simultaneous(prepare: fn(&TempData), tag_dir_case: bool) {
     }
     eprintln!("simultaneous starts: {reps} reps, a 1.4.5 daemon served in {daemon_won}");
     assert!(
-        fresh_dir_wins.is_empty(),
-        "a 1.4.5 daemon served a fresh dir in reps {fresh_dir_wins:?}"
+        late_claims.is_empty(),
+        "a 1.4.5 claim landed after the core first held B (rep, pid R named then): {late_claims:?}"
     );
 }
 
 #[test]
 #[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
 fn gate_3a_simultaneous_starts_on_a_fresh_dir() {
-    simultaneous(|_| {}, false);
+    simultaneous(|_| {});
 }
 
 #[test]
 #[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
 fn gate_3b_simultaneous_starts_on_a_1_4_5_dir() {
-    simultaneous(tag_dir, true);
+    simultaneous(tag_dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +590,78 @@ fn gate_4_contenders_against_a_suspended_core_all_exit() {
 // §11.5 prior owner: blocked until the OS confirms the 1.4.5 daemon's exit
 // ---------------------------------------------------------------------------
 
+/// `R` while it names `pid`.
+fn owner_record(temp: &TempData, pid: u32) -> Option<serde_json::Value> {
+    temp.file(barrier::RECORD_FILE)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .filter(|v| v["pid"] == pid)
+}
+
+/// Settles until the real 1.4.5 daemon `child` published its record and owns
+/// the liveness socket that record names; its pid.
+fn await_published(temp: &TempData, child: &mut Child) -> u32 {
+    let pid = child.id();
+    let until = Instant::now() + SETTLE;
+    loop {
+        let port = owner_record(temp, pid).and_then(|v| v["livenessPort"].as_u64());
+        if let Some(port) = port
+            && OsProcessTable.listens(pid, port as u16).unwrap()
+        {
+            return pid;
+        }
+        if Instant::now() >= until {
+            kill_tree(child);
+            panic!("1.4.5 daemon never published");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_5_live_1_4_5_heartbeat_is_never_starved_by_booting_cores() {
+    let temp = TempData::new();
+    // The default 60 s lease: the daemon refreshes every 10 s under B and
+    // fences itself after 40 s without a refresh. (A shorter lease fences an
+    // undisturbed daemon on a loaded host: its own lock waits exceed it.)
+    let mut tag_daemon = daemon(&temp)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("daemon");
+    let pid = await_published(&temp, &mut tag_daemon);
+    let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
+    let mut gate = Gate::new(own, crate::discovery::path(&temp.runtime()), record()).expect("gate");
+    // Core boots back to back for longer than the fence period: each takes B,
+    // judges the owner and gives B back.
+    let until = Instant::now() + Duration::from_secs(45);
+    let mut boots = 0;
+    while Instant::now() < until {
+        let GateStep::Blocked(blocked) = gate.step().unwrap() else {
+            panic!("a live 1.4.5 owner must block")
+        };
+        // WaitClaim: the boot found the daemon itself holding B mid-refresh.
+        assert!(
+            matches!(blocked.kind, BlockedKind::WaitExit | BlockedKind::WaitClaim)
+                && blocked.process.identity.pid == pid,
+            "{blocked:?}"
+        );
+        boots += 1;
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        tag_daemon.try_wait().unwrap().is_none(),
+        "the 1.4.5 owner exited during {boots} boots"
+    );
+    // A fenced daemon stops refreshing: the heartbeat must still advance.
+    let before = owner_record(&temp, pid).expect("R names the daemon")["heartbeatAt"].clone();
+    std::thread::sleep(Duration::from_secs(12));
+    let after = owner_record(&temp, pid).expect("R still names the daemon")["heartbeatAt"].clone();
+    assert_ne!(before, after, "heartbeat refreshed after {boots} boots");
+    assert!(!has_barrier(&temp));
+    kill_tree(&mut tag_daemon);
+}
+
 #[test]
 #[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
 fn gate_5_live_1_4_5_daemon_blocks_until_its_os_exit() {
@@ -565,26 +671,7 @@ fn gate_5_live_1_4_5_daemon_blocks_until_its_os_exit() {
         .stderr(Stdio::null())
         .spawn()
         .expect("daemon");
-    let pid = tag_daemon.id();
-    // Settle until the daemon published its record and owns its liveness socket.
-    let until = Instant::now() + SETTLE;
-    loop {
-        let port = temp
-            .file(barrier::RECORD_FILE)
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|v| {
-                (v["pid"] == pid)
-                    .then(|| v["livenessPort"].as_u64())
-                    .flatten()
-            });
-        if let Some(port) = port
-            && OsProcessTable.listens(pid, port as u16).unwrap()
-        {
-            break;
-        }
-        assert!(Instant::now() < until, "1.4.5 daemon never published");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let pid = await_published(&temp, &mut tag_daemon);
 
     let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
     let mut gate = Gate::new(

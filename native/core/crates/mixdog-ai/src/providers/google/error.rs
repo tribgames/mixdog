@@ -153,9 +153,10 @@ fn read_details(list: &[Value]) -> Details {
             }
             if out.reset_at.is_none()
                 && let Some(stamp) = meta_str("quotaResetTimeStamp")
-                && let Ok(at) = chrono::DateTime::parse_from_rfc3339(stamp)
+                && let at = mixdog_js::time::date_parse(stamp)
+                && at.is_finite()
             {
-                out.reset_at = Some(SystemTime::from(at));
+                out.reset_at = Some(SystemTime::UNIX_EPOCH + Duration::from_millis(at.max(0.0) as u64));
             }
             let joined: Vec<&str> = ["quotaId", "quota_limit", "quota_metric"]
                 .iter()

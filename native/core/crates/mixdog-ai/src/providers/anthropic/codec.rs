@@ -157,7 +157,7 @@ impl WireCodec for AnthropicCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         Box::new(AnthropicDecoder::new(self.owner.clone()))
     }
 

@@ -222,7 +222,8 @@ pub fn find_preset<'a>(config: &'a Obj, key: Option<&Value>) -> Option<&'a Value
     })
 }
 
-fn fast_preference_for(config: &Obj, provider: &str, model: &str) -> bool {
+/// `fastPreferenceFor(config, provider, model)`.
+pub fn fast_preference_for(config: &Obj, provider: &str, model: &str) -> bool {
     let key = route_fast_key(Some(&Value::from(provider)), Some(&Value::from(model)));
     !key.is_empty()
         && config
@@ -698,3 +699,123 @@ pub fn persist_lead_route(config: &mut Obj, route: &Value) -> Result<Option<Valu
     config.insert("default".into(), Value::String(workflow_preset_id("lead")));
     Ok(Some(lead))
 }
+
+// -- selection fast clamp, chain entries, Lead persistence -----------------------------
+/// `selectionFastCapable(provider, meta, effort, params)`: placeholder metadata is unknown,
+/// not "no Fast". `catalog_capable` is `fastCapableFor(...)`, asked only for resolved rows.
+pub fn selection_fast_capable(meta: Option<&Value>, catalog_capable: impl FnOnce() -> bool) -> bool {
+    !model_meta_looks_resolved(meta) || catalog_capable()
+}
+
+fn put(map: &mut Obj, key: &str, value: Option<Value>) {
+    match value {
+        Some(v) => {
+            map.insert(key.to_owned(), v);
+        }
+        None => {
+            map.shift_remove(key);
+        }
+    }
+}
+
+/// `resolveChainEntry`, first half: the route the entry selects, with what it inherits from
+/// the `stored` entry of the same model. The caller then readies the provider and looks up
+/// the model row, and calls [`finish_chain_entry`].
+pub fn start_chain_entry(
+    config: &Obj,
+    requested: &Obj,
+    stored: &Obj,
+    is_known: &dyn Fn(&str, &Obj) -> bool,
+) -> Result<Obj, String> {
+    let mut selected = resolve_route(config, requested, is_known)?;
+    let same_model = clean(selected.get("provider")) == clean(stored.get("provider"))
+        && clean(selected.get("model")) == clean(stored.get("model"));
+    let defined = |k: &str| requested.contains_key(k);
+    let stored_truthy = |k: &str| stored.get(k).filter(|v| truthy(Some(*v))).cloned();
+    let requests_percent = defined("contextPercent");
+    let requests_tokens = defined("contextTokens");
+    let effort = if defined("effort") {
+        selected.get("effort").cloned()
+    } else {
+        Some(if same_model { stored_truthy("effort").unwrap_or(Value::Null) } else { Value::Null })
+    };
+    let fast = if defined("fast") {
+        selected.get("fast") == Some(&Value::Bool(true))
+    } else {
+        same_model && stored.get("fast") == Some(&Value::Bool(true))
+    };
+    let auto_effort = if defined("autoEffort") {
+        requested.get("autoEffort") != Some(&Value::Bool(false))
+    } else {
+        !same_model || stored.get("autoEffort") != Some(&Value::Bool(false))
+    };
+    let model_parameters = if defined("modelParameters") {
+        selected.get("modelParameters").cloned()
+    } else {
+        Some(if same_model { stored_truthy("modelParameters").unwrap_or(Value::Object(Obj::new())) } else { Value::Object(Obj::new()) })
+    };
+    let percent = if requests_percent {
+        requested.get("contextPercent").cloned()
+    } else if same_model && !requests_tokens {
+        stored.get("contextPercent").cloned()
+    } else {
+        None
+    };
+    let tokens = if requests_tokens {
+        requested.get("contextTokens").cloned()
+    } else if same_model && !requests_percent {
+        stored.get("contextTokens").cloned()
+    } else {
+        None
+    };
+    put(&mut selected, "effort", effort);
+    put(&mut selected, "fast", Some(Value::Bool(fast)));
+    put(&mut selected, "autoEffort", Some(Value::Bool(auto_effort)));
+    put(&mut selected, "modelParameters", model_parameters);
+    put(&mut selected, "contextPercent", percent);
+    put(&mut selected, "contextTokens", tokens);
+    Ok(selected)
+}
+
+/// `resolveChainEntry`, second half: the window clamp and the Fast clamp against the model
+/// row. `window_meta` is [`window_meta_of`]; `fast_catalog` is `fastCapableFor(...)`.
+pub fn finish_chain_entry(
+    mut selected: Obj,
+    meta: Option<&Value>,
+    window_meta: Option<&Value>,
+    fast_catalog: impl FnOnce(&Obj) -> bool,
+) -> Obj {
+    let state = resolve_route_context_state(&selected, window_meta);
+    if state.context_default_percent.is_some() {
+        put(&mut selected, "contextTokens", state.context_tokens.map(jnum));
+    }
+    let capable = selection_fast_capable(meta, || fast_catalog(&selected));
+    let fast = capable && selected.get("fast") == Some(&Value::Bool(true));
+    selected.insert("fast".into(), Value::Bool(fast));
+    selected
+}
+
+/// `persistAdoptedModelSettings(route, { keepMainModel })` (route-persist.mjs) on `config`:
+/// the Lead preset is written unless the selection keeps the Main model, or only re-tunes the
+/// live model that is not Main. Returns the Lead route written.
+pub fn persist_adopted_model_settings(
+    config: &mut Obj,
+    live: &Obj,
+    route: &Obj,
+    keep_main_model: Option<bool>,
+    is_known: &dyn Fn(&str, &Obj) -> bool,
+) -> Result<Option<Value>, String> {
+    let keeps = match keep_main_model {
+        Some(true) => true,
+        Some(false) => false,
+        None => {
+            let main = resolve_route(config, &Obj::new(), is_known)?;
+            tunes_non_main_model(live, route, &main)
+        }
+    };
+    if keeps {
+        return Ok(None);
+    }
+    persist_lead_route(config, &Value::Object(route.clone()))
+}
+

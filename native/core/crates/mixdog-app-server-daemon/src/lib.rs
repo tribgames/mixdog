@@ -15,6 +15,7 @@ pub mod lifecycle;
 pub mod exec;
 pub mod ownership;
 pub mod pair_code;
+pub mod server;
 pub mod server_ensure;
 pub mod shell_name;
 pub mod verdict;
@@ -42,14 +43,10 @@ pub async fn serve() -> Result<(), ServeError> {
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
         data_dir,
-        // A missing manifest is `None` (no launchers, no extension host); a broken one is a
-        // startup error.
+        // Every install ships the manifest: a missing or broken one is a startup error.
         js_runtime: js_runtime::resolve_current()?,
         // Likewise the ONNX Runtime library comes from the install layout.
         ort_library: None,
-        // Fail closed until the connection hub exposes a connection's origin: every connection is
-        // held to the relay's project boundary.
-        origin_of: std::sync::Arc::new(|_| mixdog_protocol::Origin::Relay),
     };
     let core = compose::compose(&tokens, config).await?;
     tracing::info!(mocked = core.mocked_domains().len(), "core composed against mocks");
@@ -57,7 +54,7 @@ pub async fn serve() -> Result<(), ServeError> {
     core.set_state(CoreState::Draining {
         reason: DrainReason::Quit,
     });
-    core.close_ext_host().await;
+    core.stop().await;
     core.set_state(CoreState::Stopped);
     Ok(())
 }

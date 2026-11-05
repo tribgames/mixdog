@@ -75,14 +75,14 @@ pub struct MockCore {
     threads: MockDirectory,
     app_feed: Arc<MockFeed>,
     ops: MockOpIndex,
-    domains: HashMap<String, Arc<MockDomain>>,
+    domain: Arc<MockDomain>,
     media: MockHostMedia,
     lifecycle: watch::Sender<CoreState>,
 }
 
 impl MockCore {
-    /// A serving core with an empty directory and one [`MockDomain`] per namespace.
-    pub fn new(namespaces: &[&str], limits: MockLimits) -> Self {
+    /// A serving core with an empty directory and one [`MockDomain`] serving `methods`.
+    pub fn new(methods: &'static [&'static str], limits: MockLimits) -> Self {
         Self {
             threads: MockDirectory::new(limits),
             app_feed: Arc::new(MockFeed::new(
@@ -92,10 +92,7 @@ impl MockCore {
                 limits,
             )),
             ops: MockOpIndex::default(),
-            domains: namespaces
-                .iter()
-                .map(|ns| (ns.to_string(), Arc::new(MockDomain::default())))
-                .collect(),
+            domain: Arc::new(MockDomain::serving(methods)),
             media: MockHostMedia::default(),
             lifecycle: watch::Sender::new(CoreState::Serving),
         }
@@ -113,8 +110,8 @@ impl MockCore {
         &self.ops
     }
 
-    pub fn mock_domain(&self, namespace: &str) -> Option<&Arc<MockDomain>> {
-        self.domains.get(namespace)
+    pub fn mock_domain(&self) -> &Arc<MockDomain> {
+        &self.domain
     }
 
     pub fn media(&self) -> &MockHostMedia {
@@ -139,10 +136,11 @@ impl CoreHandle for MockCore {
         &self.ops
     }
 
-    fn domain(&self, namespace: &str) -> Option<&dyn DomainService> {
-        self.domains
-            .get(namespace)
-            .map(|d| d.as_ref() as &dyn DomainService)
+    fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        self.domain
+            .methods()
+            .contains(&method)
+            .then(|| self.domain.as_ref() as &dyn DomainService)
     }
 
     fn host_media(&self) -> &dyn HostMediaSink {
@@ -361,20 +359,27 @@ impl OpIndex for MockOpIndex {
 
 /// A domain that answers with its handler (echo by default) and records notifications.
 pub struct MockDomain {
+    methods: &'static [&'static str],
     handler: Mutex<Handler>,
     notifications: Mutex<Vec<(Method, Value, ConnectionId)>>,
 }
 
 impl Default for MockDomain {
+    /// Serves no method.
     fn default() -> Self {
-        Self {
-            handler: Mutex::new(echo()),
-            notifications: Mutex::new(Vec::new()),
-        }
+        Self::serving(&[])
     }
 }
 
 impl MockDomain {
+    pub fn serving(methods: &'static [&'static str]) -> Self {
+        Self {
+            methods,
+            handler: Mutex::new(echo()),
+            notifications: Mutex::new(Vec::new()),
+        }
+    }
+
     pub fn set_handler(&self, handler: Handler) {
         *lock(&self.handler) = handler;
     }
@@ -386,6 +391,10 @@ impl MockDomain {
 
 #[async_trait]
 impl DomainService for MockDomain {
+    fn methods(&self) -> &'static [&'static str] {
+        self.methods
+    }
+
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let handler = lock(&self.handler).clone();
         handler(&req)

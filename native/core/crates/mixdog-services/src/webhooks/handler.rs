@@ -29,6 +29,36 @@ impl HttpReply {
     }
 }
 
+/// The transport's body reader (`collectRawBody`): feed it each wire chunk as it arrives.
+/// The first chunk that takes the total past the cap yields the 413 reply, once; the
+/// transport sends it and drops the connection. Later chunks are discarded, so the buffer
+/// never holds more than `MAX_BODY_BYTES`.
+#[derive(Default)]
+pub struct BodyCollector {
+    bytes: Vec<u8>,
+    too_large: bool,
+}
+
+impl BodyCollector {
+    pub fn push(&mut self, chunk: &[u8]) -> Result<(), HttpReply> {
+        if self.too_large {
+            return Ok(());
+        }
+        if self.bytes.len() + chunk.len() > MAX_BODY_BYTES {
+            self.too_large = true;
+            self.bytes = Vec::new();
+            return Err(WebhookService::body_too_large(MAX_BODY_BYTES + 1).expect("over the cap"));
+        }
+        self.bytes.extend_from_slice(chunk);
+        Ok(())
+    }
+
+    /// The whole body at the end of the stream; None when it overflowed.
+    pub fn finish(self) -> Option<Vec<u8>> {
+        (!self.too_large).then_some(self.bytes)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Endpoint {

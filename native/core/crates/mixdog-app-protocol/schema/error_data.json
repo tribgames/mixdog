@@ -21,7 +21,7 @@
       "description": "Structured detail of a coded domain failure, one variant per code that carries details today (worktree, merge, room and schedule refusals). Fields and their optionality are the union over every producer of that code. Shared by core-api and the wire.",
       "oneOf": [
         {
-          "description": "An external tool's or host's failure message, for codes whose Node-visible text includes it (for example the LibreOffice install failure).",
+          "description": "An external tool's or host's failure message, for codes whose Node-visible text includes it. The codes: `INSTALL_FAILED` and `FAILED` (document worker: package manager and conversion engine), `HOST_COMMAND_FAILED` (a command the desktop host answered with a JSON-RPC error). With `code: None` it carries the text of a plain Node `Error` (one that has no `code`), so the message reaches the user unchanged.",
           "properties": {
             "message": {
               "type": "string"
@@ -882,7 +882,83 @@
           "type": "object"
         },
         {
-          "description": "Room and schedule refusals: the public display param.",
+          "description": "`ROOM_MEMBER_SWITCHED_OFF`: a message names a room member whose bot is switched off (Node `details: {name}`, the member's display name).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "roomMemberSwitchedOff"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`SCHEDULE_NAME_TAKEN`: another schedule has the name (`name` is the name asked for).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "scheduleNameTaken"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`SCHEDULE_RENAME_RUNNING`: a run of the schedule, or another rename of it, is in flight.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "scheduleRenameRunning"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`SCHEDULE_RENAME_RELOAD_FAILED`: the row moved but the scheduler did not reload (`name` is the new name). `SCHEDULE_RENAME_UNCERTAIN` carries no detail.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "scheduleRenameReloadFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A failure whose only structured part is a text shown as is; the SCM engine puts the git or gh text of a code that has no fields of its own here, in `name`.",
           "properties": {
             "name": {
               "type": "string"
@@ -1472,10 +1548,13 @@
       "type": "object"
     },
     {
-      "description": "A coded failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`); `code` is the domain's stable code, never message text.",
+      "description": "A failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`); `code` is the domain's stable code, never message text. Absent when the failure has none, as Node's plain `Error` answers.",
       "properties": {
         "code": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "detail": {
           "anyOf": [
@@ -1498,7 +1577,6 @@
         }
       },
       "required": [
-        "code",
         "domain",
         "reason"
       ],

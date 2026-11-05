@@ -208,7 +208,7 @@ fn python_imports_outside_stdlib(body: &str) -> bool {
 /// `node -e` accepts ESM syntax and top-level `await`; the `.cjs` file a hoist writes does not.
 async fn node_body_needs_module_syntax(
     body: &str,
-    syntax: Option<&dyn ScriptSyntax>,
+    syntax: &dyn ScriptSyntax,
     thread: &ThreadId,
 ) -> Result<bool, ExtError> {
     if lazy_re!(r#"(?:^|[;{}\n])[ \t]*(?:import[ \t]*[\w$*{'"]|export[ \t])"#, "").is_match(body) {
@@ -217,12 +217,8 @@ async fn node_body_needs_module_syntax(
     if !lazy_re!(r"\bawait\b", "").is_match(body) {
         return Ok(false);
     }
-    // An `await` is top-level exactly when the body no longer compiles as CommonJS. Without a
-    // checker wired the body stays inline (the hoist is an optimisation, never required).
-    match syntax {
-        Some(s) => Ok(!s.compiles_as_commonjs(thread, body).await?),
-        None => Ok(true),
-    }
+    // An `await` is top-level exactly when the body no longer compiles as CommonJS.
+    Ok(!syntax.compiles_as_commonjs(thread, body).await?)
 }
 
 /// Posix: is `index` in live shell code — not inside a quote, `$'…'`, comment, or a heredoc body
@@ -322,7 +318,7 @@ fn byte_to_char(s: &str, byte: usize) -> usize {
 pub async fn plan_inline_script_hoist(
     command: &str,
     powershell: bool,
-    syntax: Option<&dyn ScriptSyntax>,
+    syntax: &dyn ScriptSyntax,
     thread: &ThreadId,
 ) -> Result<Option<Hoist>, ExtError> {
     if mixdog_js::js_trim(command).is_empty() {
@@ -457,7 +453,7 @@ pub async fn plan_hoist(
     command: &str,
     windows: bool,
     powershell: bool,
-    syntax: Option<&dyn ScriptSyntax>,
+    syntax: &dyn ScriptSyntax,
     thread: &ThreadId,
 ) -> Result<Option<Hoist>, ExtError> {
     if let Some(plan) = plan_inline_script_hoist(command, powershell, syntax, thread).await? {
@@ -491,7 +487,7 @@ mod tests {
         for v in &vectors {
             let command = v["command"].as_str().unwrap();
             let powershell = v["shellType"] == "powershell";
-            let got = plan_inline_script_hoist(command, powershell, Some(&AsyncOnly), &ThreadId::from("t"))
+            let got = plan_inline_script_hoist(command, powershell, &AsyncOnly, &ThreadId::from("t"))
                 .await
                 .unwrap();
             match (&v["result"], got) {

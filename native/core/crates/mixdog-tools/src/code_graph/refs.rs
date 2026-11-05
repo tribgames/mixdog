@@ -12,7 +12,6 @@ use super::outline::{parent_index, symbol_path};
 use super::util::{head_chars, identifier_occurrences, name_cmp};
 
 const REFERENCE_HIT_CAP: usize = 200;
-const REFERENCE_LINE_CAP: usize = 80;
 const TARGET_RELS_MAX: usize = 16;
 const FORWARD_HOP_MAX: usize = 32;
 const SELF_RECEIVERS: [&str; 7] = ["", "this", "self", "super", "Self", "cls", "me"];
@@ -44,7 +43,6 @@ pub(super) struct RefEntry {
     pub file: String,
     pub line: u32,
     pub col: u32,
-    pub text: String,
 }
 
 /// Identifier mentions of `symbol` (declarations and imports included), capped.
@@ -59,18 +57,11 @@ pub(super) fn reference_entries(
         .token_candidates(symbol, language)
         .filter(|n| scope.contains(&n.rel))
     {
-        let lines = node.lines();
         for (line, col) in occurrences(node, symbol) {
             if out.len() >= REFERENCE_HIT_CAP {
                 return (out, true);
             }
-            let raw = lines.get(line as usize - 1).map_or("", |s| s.trim());
-            out.push(RefEntry {
-                file: node.rel.clone(),
-                line,
-                col,
-                text: head_chars(raw, REFERENCE_LINE_CAP).to_string(),
-            });
+            out.push(RefEntry { file: node.rel.clone(), line, col });
         }
     }
     (out, false)

@@ -166,7 +166,7 @@ impl WireCodec for CompatChatCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         Box::new(ChatDecoder::new(self.profile.clone(), self.provider.clone()))
     }
 

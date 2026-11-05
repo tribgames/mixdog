@@ -4,7 +4,6 @@
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 
 use rusqlite::types::Value as Sql;
 use serde::Deserialize;
@@ -16,7 +15,6 @@ use crate::db::OptionalExtension;
 use crate::db::params_from_iter;
 use crate::error::Result;
 use crate::measure::js_number;
-use crate::measure::locale_key;
 
 pub const REQUEST_STATUSES: [&str; 4] = ["completed", "substituted", "retried", "failed"];
 const DEFAULT_PAGE: i64 = 50;
@@ -34,7 +32,7 @@ const COMPLETED: &str = "(r.status IS NULL OR r.status='completed')";
 const LISTED: &str = "(r.status IS NULL OR r.status<>'cancelled')";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Source {
+pub enum Source {
     Time,
     Status,
     Route,
@@ -106,7 +104,7 @@ struct Row {
     requested_provider: Option<String>,
 }
 
-fn page_sql(source: Source, cursor: bool, completed: bool, routes: usize) -> String {
+pub fn page_sql(source: Source, cursor: bool, completed: bool, routes: usize) -> String {
     let alias = if source == Source::Status { "r" } else { "e" };
     let from = match source {
         Source::Status => "usage_requests r INDEXED BY usage_requests_status_time CROSS JOIN usage_events e ON e.id=r.id".to_string(),
@@ -178,8 +176,58 @@ fn text(value: Option<String>) -> Value {
     Value::from(value.unwrap_or_default())
 }
 
-/// `{requests, nextCursor, models}` for one page. `models` comes with the first page only.
-pub fn read_usage_requests(conn: &Connection, query: &RequestQuery) -> Result<Value> {
+pub const MODEL_ROUTES_SQL: &str =
+    "SELECT id FROM usage_routes WHERE json_extract(signature,'$[1]')=?";
+pub const ROUTE_INFO_SQL: &str =
+    "SELECT json_extract(signature,'$[0]'),json_extract(signature,'$[1]'),json_extract(signature,'$[2]'),
+                        json_extract(signature,'$[3]'),json_extract(signature,'$[4]') FROM usage_routes WHERE id=?";
+pub const SESSION_SQL: &str = "SELECT value FROM usage_sessions WHERE id=?";
+pub const OWNER_SQL: &str = "SELECT s.value FROM usage_session_owners o JOIN usage_sessions s ON s.id=o.owner WHERE o.session=?";
+/// Every route: the models list visits all of them, so it is not a bounded read.
+pub const MODELS_ROUTES_SQL: &str = "SELECT id,json_extract(signature,'$[1]') FROM usage_routes";
+
+/// One indexed probe per route: does any request of it fall in the period?
+pub fn models_probe_sql() -> String {
+    format!(
+        "SELECT 1 FROM usage_events e INDEXED BY usage_events_route_time LEFT JOIN usage_requests r ON r.id=e.id
+             WHERE e.route=? AND e.ts>=? AND e.ts<=? AND {NOT_ABANDONED} AND {LISTED} LIMIT 1"
+    )
+}
+
+impl RequestQuery {
+    /// The first page (no usable cursor) also carries the models list.
+    pub fn is_first_page(&self) -> bool {
+        decode_cursor(self.cursor.as_deref()).is_none()
+    }
+}
+
+/// Every model that answered within the period. It visits every route and probes the events
+/// of each (a route whose requests are all abandoned or cancelled is skipped row by row), so
+/// its cost grows with the ledger: the reader runs it on the maintenance lane.
+pub(crate) fn read_request_models(conn: &Connection, from_ms: i64, to_ms: i64) -> Result<Value> {
+    let mut probe = conn.prepare(&models_probe_sql())?;
+    let mut found: Vec<String> = Vec::new();
+    let mut routes = conn.prepare(MODELS_ROUTES_SQL)?;
+    let list: Vec<(i64, Option<String>)> = routes
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    for (id, model) in list {
+        let Some(model) = model.filter(|m| !m.is_empty()) else {
+            continue;
+        };
+        if !found.contains(&model)
+            && probe.exists([Sql::Integer(id), Sql::Integer(from_ms), Sql::Integer(to_ms)])?
+        {
+            found.push(model);
+        }
+    }
+    found.sort_by(|a, b| mixdog_js::locale_compare(a, b));
+    Ok(Value::from(found))
+}
+
+/// `{requests, nextCursor}` for one page, read through the time-ordered indexes and stopping
+/// after the page: bounded by the page size, whatever the ledger holds.
+pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Result<Value> {
     let limit = if query.limit > 0 {
         query.limit.min(MAX_PAGE)
     } else {
@@ -205,7 +253,7 @@ pub fn read_usage_requests(conn: &Connection, query: &RequestQuery) -> Result<Va
     }
     let model_routes: Option<Vec<i64>> = match query.model.as_deref().filter(|m| !m.is_empty()) {
         Some(model) => Some(
-            conn.prepare("SELECT id FROM usage_routes WHERE json_extract(signature,'$[1]')=?")?
+            conn.prepare(MODEL_ROUTES_SQL)?
                 .query_map([model], |r| r.get(0))?
                 .collect::<std::result::Result<_, _>>()?,
         ),
@@ -256,10 +304,7 @@ pub fn read_usage_requests(conn: &Connection, query: &RequestQuery) -> Result<Va
     for row in &rows {
         if let std::collections::btree_map::Entry::Vacant(slot) = route_cache.entry(row.route) {
             let info = conn
-                .prepare_cached(
-                    "SELECT json_extract(signature,'$[0]'),json_extract(signature,'$[1]'),json_extract(signature,'$[2]'),
-                        json_extract(signature,'$[3]'),json_extract(signature,'$[4]') FROM usage_routes WHERE id=?",
-                )?
+                .prepare_cached(ROUTE_INFO_SQL)?
                 .query_row([row.route], |r| {
                     Ok(RouteInfo {
                         provider: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
@@ -275,11 +320,11 @@ pub fn read_usage_requests(conn: &Connection, query: &RequestQuery) -> Result<Va
         }
         let route = &route_cache[&row.route];
         let session: Option<String> = conn
-            .prepare_cached("SELECT value FROM usage_sessions WHERE id=?")?
+            .prepare_cached(SESSION_SQL)?
             .query_row([row.session], |r| r.get(0))
             .optional()?;
         let owner: Option<String> = conn
-            .prepare_cached("SELECT s.value FROM usage_session_owners o JOIN usage_sessions s ON s.id=o.owner WHERE o.session=?")?
+            .prepare_cached(OWNER_SQL)?
             .query_row([row.session], |r| r.get(0))
             .optional()?;
         let non_empty = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
@@ -334,38 +379,6 @@ pub fn read_usage_requests(conn: &Connection, query: &RequestQuery) -> Result<Va
         requests.push(Value::Object(out));
     }
 
-    let models = if has_cursor {
-        Value::Null
-    } else {
-        // One indexed probe per route: does any request of it fall in the period?
-        let mut probe = conn.prepare(&format!(
-            "SELECT 1 FROM usage_events e INDEXED BY usage_events_route_time LEFT JOIN usage_requests r ON r.id=e.id
-             WHERE e.route=? AND e.ts>=? AND e.ts<=? AND {NOT_ABANDONED} AND {LISTED} LIMIT 1"
-        ))?;
-        let mut found = BTreeSet::new();
-        let mut routes =
-            conn.prepare("SELECT id,json_extract(signature,'$[1]') FROM usage_routes")?;
-        let list: Vec<(i64, Option<String>)> = routes
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<std::result::Result<_, _>>()?;
-        for (id, model) in list {
-            let Some(model) = model.filter(|m| !m.is_empty()) else {
-                continue;
-            };
-            if !found.contains(&model)
-                && probe.exists([
-                    Sql::Integer(id),
-                    Sql::Integer(query.from_ms),
-                    Sql::Integer(query.to_ms),
-                ])?
-            {
-                found.insert(model);
-            }
-        }
-        let mut sorted: Vec<String> = found.into_iter().collect();
-        sorted.sort_by_key(|m| locale_key(m));
-        Value::from(sorted)
-    };
     let next = match rows.last() {
         Some(last) if more => Value::from(format!("{}:{}", last.ts, hex(&last.id))),
         _ => Value::Null,
@@ -373,6 +386,5 @@ pub fn read_usage_requests(conn: &Connection, query: &RequestQuery) -> Result<Va
     let mut out = Map::new();
     out.insert("requests".into(), Value::Array(requests));
     out.insert("nextCursor".into(), next);
-    out.insert("models".into(), models);
     Ok(Value::Object(out))
 }

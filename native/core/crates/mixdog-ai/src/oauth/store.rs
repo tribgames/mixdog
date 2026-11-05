@@ -148,6 +148,50 @@ pub(crate) fn with_lock<R>(path: &Path, body: impl FnOnce() -> io::Result<R>) ->
     result
 }
 
+/// Node's lock wait (`file-lock.mjs` `DEFAULT_LOCK_TIMEOUT_MS`).
+pub(crate) const LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// `DEFAULT_BACKOFFS_MS`: 25, 50, 100, then 200 ms.
+fn backoff_ms(attempt: u32) -> u64 {
+    [25, 50, 100].get(attempt as usize).copied().unwrap_or(200)
+}
+
+/// [`with_lock`] with Node's acquisition: poll with jittered backoff until
+/// `timeout`, then give up (`ELOCKTIMEOUT`). `None` is a lock another holder
+/// kept for the whole wait; `body` did not run. Call it from a lane job,
+/// which is where the waiting sleeps.
+pub(crate) fn with_lock_within<R>(
+    path: &Path,
+    timeout: std::time::Duration,
+    body: impl FnOnce() -> io::Result<R>,
+) -> io::Result<Option<R>> {
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path(path))?;
+    let deadline = std::time::Instant::now() + timeout;
+    let mut attempt = 0;
+    loop {
+        match lock.try_lock() {
+            Ok(()) => break,
+            Err(fs::TryLockError::WouldBlock) => {}
+            Err(fs::TryLockError::Error(err)) => return Err(err),
+        }
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Ok(None);
+        }
+        let base = backoff_ms(attempt);
+        let jitter = rand::random::<u64>() % base.min(75);
+        std::thread::sleep(left.min(std::time::Duration::from_millis(base + jitter)));
+        attempt += 1;
+    }
+    let result = body();
+    let _ = lock.unlock();
+    result.map(Some)
+}
+
 /// The merged document: `update`'s fields over what is stored, so fields this
 /// code does not know stay.
 fn merged(path: &Path, update: Document) -> Document {

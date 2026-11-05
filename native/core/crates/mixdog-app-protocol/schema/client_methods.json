@@ -1063,32 +1063,6 @@
       ],
       "type": "object"
     },
-    "AgentSetBotOrderParams": {
-      "additionalProperties": false,
-      "description": "Params of `agent/setBotOrder`.",
-      "properties": {
-        "opId": {
-          "type": "string"
-        },
-        "order": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "threadId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "opId",
-        "order"
-      ],
-      "type": "object"
-    },
     "AgentSetLeadAppearanceParams": {
       "additionalProperties": false,
       "description": "Params of `agent/setLeadAppearance`.",
@@ -1206,6 +1180,13 @@
         "subscription"
       ],
       "type": "object"
+    },
+    "ApprovalMode": {
+      "description": "Node accepts only `implicit`; anything else means none.",
+      "enum": [
+        "implicit"
+      ],
+      "type": "string"
     },
     "ApprovalProvideSecretParams": {
       "description": "Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`); never part of a decision or a log record.",
@@ -1390,6 +1371,21 @@
       },
       "required": [
         "blob"
+      ],
+      "type": "object"
+    },
+    "BotOrder": {
+      "description": "The one bot order (Lead and Sessions bot lists): trimmed, de-duplicated agent ids, at most 500. Mixy is pinned first by the UI and is not part of it. Empty means no stored order. Result of `config/getBotOrder` and `config/setBotOrder`.",
+      "properties": {
+        "order": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "order"
       ],
       "type": "object"
     },
@@ -1990,6 +1986,18 @@
       },
       "type": "object"
     },
+    "ConfigGetBotOrderParams": {
+      "description": "Params of `config/getBotOrder`.",
+      "properties": {
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ConfigGetCacheWarmingSettingsParams": {
       "description": "Params of `config/getCacheWarmingSettings`.",
       "properties": {
@@ -2419,6 +2427,32 @@
       "required": [
         "enabled",
         "opId"
+      ],
+      "type": "object"
+    },
+    "ConfigSetBotOrderParams": {
+      "additionalProperties": false,
+      "description": "Params of `config/setBotOrder`. Node rejects more than 500 ids, or an id that is empty after trimming or longer than 128, with `usage: setBotOrder(an array of agent ids)`; an empty list clears the stored order.",
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "order": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "opId",
+        "order"
       ],
       "type": "object"
     },
@@ -4709,28 +4743,76 @@
       },
       "type": "object"
     },
-    "HostStateKey": {
-      "enum": [
-        "browserTabs",
-        "browserImport",
-        "visualize",
-        "displayPreferences"
-      ],
-      "type": "string"
-    },
     "HostStateSetParams": {
-      "description": "Publishes desktop-owned state into section `hostState`.",
-      "properties": {
-        "key": {
-          "$ref": "#/definitions/HostStateKey"
+      "description": "Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape picked by the key. Only `visualize` is typed; the others stay the desktop's own JSON.",
+      "oneOf": [
+        {
+          "properties": {
+            "key": {
+              "enum": [
+                "browserTabs"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
         },
-        "value": true
-      },
-      "required": [
-        "key",
-        "value"
-      ],
-      "type": "object"
+        {
+          "properties": {
+            "key": {
+              "enum": [
+                "browserImport"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "key": {
+              "enum": [
+                "visualize"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/VisualizeHostValue"
+            }
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "key": {
+              "enum": [
+                "displayPreferences"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ImageChip": {
       "description": "Byte-free image metadata of a user row (`images`): its chip.",
@@ -10168,6 +10250,15 @@
       ],
       "type": "object"
     },
+    "SessionToolMode": {
+      "description": "Node's `TOOL_MODES`.",
+      "enum": [
+        "full",
+        "readonly",
+        "lead"
+      ],
+      "type": "string"
+    },
     "SkillsAddSkillParams": {
       "description": "Params of `skills/addSkill`.",
       "properties": {
@@ -12270,6 +12361,73 @@
       ],
       "type": "object"
     },
+    "ThreadSessionOptions": {
+      "description": "The session options Node's `createMixdogSessionRuntime` takes (headless exec sets all of them, `headless-exec.mjs` `createHeadlessSessionRuntime`). Stored in the thread's header.",
+      "properties": {
+        "approvalMode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Node default none: approvals go to a person. Under `implicit` every approval ask is denied at once with Node's text, as when no approval UI is wired."
+        },
+        "autoWakeCompletions": {
+          "description": "Node default `true`: finished background work wakes the session.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "disallowDelegation": {
+          "description": "Node default `false`: the session may not delegate to agents.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "memory": {
+          "description": "The memory feature switch for this session (`MIXDOG_FEATURE_MEMORY`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "toolMode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SessionToolMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Node default `full`."
+        },
+        "toolProfile": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolProfile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Node default `interactive`."
+        },
+        "webSearch": {
+          "description": "The web-search feature switch for this session (`MIXDOG_FEATURE_WEB_SEARCH`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ThreadSetCwdParams": {
       "additionalProperties": false,
       "description": "Params of `thread/setCwd`.",
@@ -12490,6 +12648,17 @@
             "string",
             "null"
           ]
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadSessionOptions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How the session runs; absent is an interactive session (Node's defaults)."
         }
       },
       "required": [
@@ -13253,6 +13422,15 @@
       ],
       "type": "object"
     },
+    "ToolProfile": {
+      "description": "`normalizeToolProfile`'s value set.",
+      "enum": [
+        "interactive",
+        "headless",
+        "heartbeat"
+      ],
+      "type": "string"
+    },
     "ToolRun": {
       "description": "The facts of a tool row shared by every tool-backed item variant (today's `kind: 'tool'` row). `args`, `result` and `rawResult` are the row's display values; the variant's own fields stay the typed call.",
       "properties": {
@@ -13709,6 +13887,20 @@
         },
         "status": {
           "$ref": "#/definitions/TurnStatus"
+        },
+        "stopReason": {
+          "description": "The model's stop reason of the turn's final answer (Node `result.stopReason`, a provider string such as `end_turn`); on a completed turn only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terminationReason": {
+          "description": "Why the turn ended where it did (Node `result.terminationReason`; `refusal` is the one the headless result treats as an error); on a completed turn only.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -14273,6 +14465,30 @@
       },
       "type": "object"
     },
+    "VisualizeAnnotation": {
+      "description": "The agent's mark on displayed pane `pane` (selectors and labels only).",
+      "properties": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pane": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "selector": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pane",
+        "selector"
+      ],
+      "type": "object"
+    },
     "VisualizeCommandParams": {
       "description": "Params of `visualize/command`.",
       "properties": {
@@ -14283,6 +14499,543 @@
       },
       "required": [
         "action"
+      ],
+      "type": "object"
+    },
+    "VisualizeGoneOpen": {
+      "description": "An open of a finished turn whose tab had nothing left to show.",
+      "properties": {
+        "call": {
+          "type": "string"
+        },
+        "tab": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "tab"
+      ],
+      "type": "object"
+    },
+    "VisualizeHistoryItem": {
+      "description": "One thing opened in a session (open or since closed); path-free.",
+      "properties": {
+        "at": {
+          "description": "When it was last opened (ms since epoch).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/VisualizeHistoryKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "versions": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "id",
+        "kind",
+        "label",
+        "open",
+        "versions"
+      ],
+      "type": "object"
+    },
+    "VisualizeHistoryKind": {
+      "description": "The pane kinds and inline kinds a history entry can show, or a `split` of several.",
+      "enum": [
+        "html",
+        "document",
+        "pdf",
+        "image",
+        "audio",
+        "video",
+        "inline",
+        "mermaid",
+        "svg",
+        "chart",
+        "markdown",
+        "split"
+      ],
+      "type": "string"
+    },
+    "VisualizeHostEvent": {
+      "description": "`VisualizeHostEvent` (`apps/desktop/src/shared/visualize.ts`), main → core: the change `DesktopVisualizeEvent` carries, with host paths.",
+      "properties": {
+        "held": {
+          "description": "Sent while the session's agent turn runs.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "heldSince": {
+          "description": "With `held`: when the turn started (ms).",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "openUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reveal": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VisualizeHostState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tab": {
+          "description": "With `reveal`: the tab the open or update was for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated": {
+          "description": "A content update of this tab.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "VisualizeHostPane": {
+      "description": "A pane with the symlink-resolved file it shows.",
+      "properties": {
+        "inline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VisualizeInlineContent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/VisualizePaneKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "path": {
+          "description": "`\"\"` for an `inline` pane, which has no file.",
+          "type": "string"
+        },
+        "remoteRenderId": {
+          "description": "Inline panes: the render id a remote client's report must carry.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remoteTarget": {
+          "description": "What a remote client is told the target is.",
+          "type": "string"
+        },
+        "root": {
+          "description": "The folder this pane's file and page assets must stay inside.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "path",
+        "remoteTarget",
+        "target"
+      ],
+      "type": "object"
+    },
+    "VisualizeHostState": {
+      "description": "One session's tabs with their resolved files.",
+      "properties": {
+        "active": {
+          "description": "Always written; `null` when no tab is active.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "goneOpens": {
+          "items": {
+            "$ref": "#/definitions/VisualizeGoneOpen"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "history": {
+          "items": {
+            "$ref": "#/definitions/VisualizeHistoryItem"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "tabs": {
+          "items": {
+            "$ref": "#/definitions/VisualizeHostTab"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessionId",
+        "tabs"
+      ],
+      "type": "object"
+    },
+    "VisualizeHostTab": {
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/definitions/VisualizeAnnotation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "compare": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "cwd": {
+          "description": "The working directory every pane and page asset must stay inside.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "missing": {
+          "description": "Always `true` when present.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "networkAllowed": {
+          "description": "Always `true` when present.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "panes": {
+          "items": {
+            "$ref": "#/definitions/VisualizeHostPane"
+          },
+          "type": "array"
+        },
+        "problems": {
+          "items": {
+            "$ref": "#/definitions/VisualizeProblem"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "remoteLabel": {
+          "description": "The label a remote client sees.",
+          "type": "string"
+        },
+        "restoreAssets": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "revision": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "thumbnail": {
+          "description": "A data URL.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "thumbnailVersion": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "The version shown instead of the live files; `null` = live.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/definitions/VisualizeVersionView"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cwd",
+        "id",
+        "label",
+        "panes",
+        "remoteLabel",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "VisualizeHostValue": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/definitions/VisualizeHostState"
+          },
+          "type": "array"
+        },
+        {
+          "$ref": "#/definitions/VisualizeHostEvent"
+        }
+      ],
+      "description": "What the desktop publishes under `visualize`: the visualize service's `hostSnapshot()` (every session's state, sent again on each claim) or one `publishRemote` change event."
+    },
+    "VisualizeInlineContent": {
+      "properties": {
+        "deferred": {
+          "description": "Always `true` when present: a device's snapshot left the source out.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/VisualizeInlineKind"
+        },
+        "source": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "source"
+      ],
+      "type": "object"
+    },
+    "VisualizeInlineKind": {
+      "description": "What `open` can render straight from `input.content`.",
+      "enum": [
+        "mermaid",
+        "svg",
+        "chart",
+        "html",
+        "markdown"
+      ],
+      "type": "string"
+    },
+    "VisualizePaneKind": {
+      "enum": [
+        "html",
+        "document",
+        "pdf",
+        "image",
+        "audio",
+        "video",
+        "inline"
+      ],
+      "type": "string"
+    },
+    "VisualizeProblem": {
+      "description": "One distinct runtime problem of a tab's HTML pane; `source` is project-relative.",
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/definitions/VisualizeProblemKind"
+        },
+        "line": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "pane": {
+          "description": "Index of the pane (in the tab's displayed panes) it came from.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "kind",
+        "line",
+        "message",
+        "pane",
+        "source"
+      ],
+      "type": "object"
+    },
+    "VisualizeProblemKind": {
+      "enum": [
+        "exception",
+        "rejection",
+        "csp",
+        "asset-failed",
+        "blocked-network",
+        "blocked-navigation",
+        "load",
+        "console-error",
+        "console-warn",
+        "render"
+      ],
+      "type": "string"
+    },
+    "VisualizeVersionTurn": {
+      "description": "One agent turn's span (ms since epoch).",
+      "properties": {
+        "end": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "since": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "end",
+        "since"
+      ],
+      "type": "object"
+    },
+    "VisualizeVersionView": {
+      "description": "One kept version of a tab's files (`n` counts up per tab from 1).",
+      "properties": {
+        "at": {
+          "description": "When it was kept (ms since epoch).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "n": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/definitions/VisualizeVersionTurn"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "n"
       ],
       "type": "object"
     },
@@ -14668,12 +15421,6 @@
       },
       "result": true
     },
-    "agent/setBotOrder": {
-      "params": {
-        "$ref": "#/definitions/AgentSetBotOrderParams"
-      },
-      "result": true
-    },
     "agent/setLeadAppearance": {
       "params": {
         "$ref": "#/definitions/AgentSetLeadAppearanceParams"
@@ -14858,6 +15605,14 @@
       },
       "result": true
     },
+    "config/getBotOrder": {
+      "params": {
+        "$ref": "#/definitions/ConfigGetBotOrderParams"
+      },
+      "result": {
+        "$ref": "#/definitions/BotOrder"
+      }
+    },
     "config/getCacheWarmingSettings": {
       "params": {
         "$ref": "#/definitions/ConfigGetCacheWarmingSettingsParams"
@@ -15029,6 +15784,14 @@
         "$ref": "#/definitions/ConfigSetAutoUpdateParams"
       },
       "result": true
+    },
+    "config/setBotOrder": {
+      "params": {
+        "$ref": "#/definitions/ConfigSetBotOrderParams"
+      },
+      "result": {
+        "$ref": "#/definitions/BotOrder"
+      }
     },
     "config/setBuiltinToolEnabled": {
       "params": {

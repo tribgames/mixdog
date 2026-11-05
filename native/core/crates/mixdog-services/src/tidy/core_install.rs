@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use super::catalog::{engine_entry, engines};
 use super::install::{OnProgress, install_engines, managed_engine_dir, managed_tools_dir, manifest_asset, read_engines_manifest};
 use super::install_job::{InstallJob, TIDY_CORE_ENGINE_IDS};
-use super::process::which;
+use super::process::{Processes, which};
 use super::resolve::{HostModuleProbe, ResolveOptions, Resolved, probe_host_managed_module, resolve_engines};
 use super::status::{EngineResolver, ResolvedEngine, ResolvedSource};
 use crate::local_provider::assets::Fetcher;
@@ -56,6 +56,7 @@ fn core_installable(id: &str, manifest: &Value, env: Option<&HashMap<String, Str
 /// PATH and the managed tools dir. The PowerShell module probe needs a host (~700ms), so a poll
 /// never waits for it: the cached value is served and refreshed in the background once stale.
 pub struct SystemEngineResolver {
+    processes: Processes,
     plugin_data: PathBuf,
     manifest: Value,
     env: Option<HashMap<String, String>>,
@@ -63,8 +64,8 @@ pub struct SystemEngineResolver {
 }
 
 impl SystemEngineResolver {
-    pub fn new(plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {
-        Self { plugin_data: plugin_data.to_owned(), manifest: manifest.unwrap_or_else(read_engines_manifest), env, host_modules: Arc::default() }
+    pub fn new(processes: Processes, plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {
+        Self { processes, plugin_data: plugin_data.to_owned(), manifest: manifest.unwrap_or_else(read_engines_manifest), env, host_modules: Arc::default() }
     }
 
     /// Status/install resolution is project-free: the managed tools dir holds no config,
@@ -75,8 +76,10 @@ impl SystemEngineResolver {
 
     fn cached_probe(&self) -> HostModuleProbe {
         let cache = self.host_modules.clone();
+        let processes = self.processes.clone();
         Arc::new(move |engine: Resolved| {
             let cache = cache.clone();
+            let processes = processes.clone();
             Box::pin(async move {
                 let key = engine.command.clone();
                 if key.is_empty() {
@@ -94,7 +97,7 @@ impl SystemEngineResolver {
                 if stale {
                     // The caller's request is long gone by then; publish for the next poll.
                     tokio::spawn(async move {
-                        let version = probe_host_managed_module(&engine, None).await;
+                        let version = probe_host_managed_module(&processes, &engine, None).await;
                         cache.lock().unwrap().insert(key, (version, Some(Instant::now()), false));
                     });
                 }
@@ -115,7 +118,7 @@ impl EngineResolver for SystemEngineResolver {
     }
 
     async fn resolve_all(&self) -> Vec<ResolvedEngine> {
-        let resolution = resolve_engines(&self.scope(), ResolveOptions {
+        let resolution = resolve_engines(&self.processes, &self.scope(), ResolveOptions {
             engine_ids: engines().iter().map(|e| e.id.clone()).collect(),
             plugin_data: self.plugin_data.clone(),
             manifest: Some(self.manifest.clone()),
@@ -163,6 +166,7 @@ fn engine_result(e: &super::install_job::EngineProgress) -> Value {
 }
 
 pub struct CoreInstall<'a> {
+    pub processes: Processes,
     pub plugin_data: &'a Path,
     pub manifest: Option<Value>,
     pub env: Option<HashMap<String, String>>,
@@ -186,8 +190,8 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
         // Another install is running: callers observe the same job.
         return json!({"toolsDir": tools_dir, "shared": true, "engines": []});
     }
-    let resolver = SystemEngineResolver::new(options.plugin_data, Some(manifest.clone()), options.env.clone());
-    let resolved = resolve_engines(&resolver.scope(), ResolveOptions {
+    let resolver = SystemEngineResolver::new(options.processes.clone(), options.plugin_data, Some(manifest.clone()), options.env.clone());
+    let resolved = resolve_engines(&options.processes, &resolver.scope(), ResolveOptions {
         engine_ids: wanted.iter().map(|s| (*s).to_owned()).collect(),
         plugin_data: options.plugin_data.to_owned(),
         manifest: Some(manifest.clone()),
@@ -236,7 +240,7 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
         };
         // An explicit Install is the approval: policy gating exists for the model-driven tool
         // path, not for a button the user just pressed.
-        let outcome = install_engines(&pending, Some(&manifest), options.plugin_data, "auto", true, options.fetcher, &options.cancel, Some(progress), None).await;
+        let outcome = install_engines(&options.processes, &pending, Some(&manifest), options.plugin_data, "auto", true, options.fetcher, &options.cancel, Some(progress), None).await;
         for item in outcome["installed"].as_array().into_iter().flatten() {
             let id = item["id"].as_str().unwrap_or("");
             let version = item["version"].as_str().unwrap_or("").to_owned();
@@ -313,7 +317,7 @@ mod tests {
         // ruff's bytes differ from its pinned digest; shfmt/shellcheck have no asset; PowerShell is absent.
         let fetcher = ByUrl(HashMap::from([("https://x/biome".to_owned(), b"biome-bin".to_vec()), ("https://x/ruff".to_owned(), b"tampered".to_vec())]));
         let job = Arc::new(InstallJob::default());
-        let out = run_core_install(&job, CoreInstall { plugin_data: data.path(), manifest: Some(manifest), env: Some(env), fetcher: &fetcher, cancel: CancellationToken::new(), only: None }).await;
+        let out = run_core_install(&job, CoreInstall { processes: Processes::for_tests(), plugin_data: data.path(), manifest: Some(manifest), env: Some(env), fetcher: &fetcher, cancel: CancellationToken::new(), only: None }).await;
         let status_of = |id: &str| out["engines"].as_array().unwrap().iter().find(|e| e["id"] == id).unwrap()["status"].as_str().unwrap().to_owned();
         assert_eq!(status_of("biome"), "installed");
         assert_eq!(status_of("ruff"), "failed");
@@ -332,7 +336,7 @@ mod tests {
         let dir = managed_engine_dir(data.path(), "biome", "1.0.0");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("tool-bin"), b"bin").unwrap();
-        let resolver = SystemEngineResolver::new(data.path(), Some(manifest), Some(env));
+        let resolver = SystemEngineResolver::new(Processes::for_tests(), data.path(), Some(manifest), Some(env));
         let all = resolver.resolve_all().await;
         let by = |id: &str| all.iter().find(|e| e.id == id).unwrap();
         assert_eq!((by("biome").source, by("biome").version.as_str(), by("biome").bytes > 0), (ResolvedSource::Managed, "1.0.0", true));

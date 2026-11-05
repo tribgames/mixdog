@@ -154,6 +154,33 @@ async fn the_latest_claim_of_a_capability_serves_it_and_an_earlier_one_takes_ove
 }
 
 #[tokio::test]
+async fn each_capability_goes_to_the_latest_claimant_that_declared_it() {
+    let rig = Rig::new();
+    let both = claimed_as(&rig, 1, "a", json!({ "browser": true, "visualize": true })).await;
+    let browser_only = claimed_as(&rig, 2, "b", json!({ "browser": true })).await;
+
+    let outgoing = rig.outgoing.clone();
+    let viz = tokio::spawn(async move {
+        outgoing
+            .request(HostCapability::Visualize, Method("host/visualize/command"), json!({}))
+            .await
+    });
+    let request = both.frames(1).await.remove(0).body;
+    assert!(browser_only.drain().is_empty(), "a later claimant without the capability is skipped");
+    both.send(json!({ "id": request["id"], "result": "viz" }));
+    assert_eq!(viz.await.unwrap(), Ok(json!("viz")));
+
+    let outgoing = rig.outgoing.clone();
+    let browser = tokio::spawn(async move {
+        outgoing.request(HostCapability::Browser, BROWSER, json!({})).await
+    });
+    let request = browser_only.frames(1).await.remove(0).body;
+    assert!(both.drain().is_empty());
+    browser_only.send(json!({ "id": request["id"], "result": "br" }));
+    assert_eq!(browser.await.unwrap(), Ok(json!("br")));
+}
+
+#[tokio::test]
 async fn a_reclaimed_host_id_replaces_its_stale_connection() {
     let rig = Rig::new();
     let stale = claimed_as(&rig, 1, "pc", json!({ "browser": true })).await;

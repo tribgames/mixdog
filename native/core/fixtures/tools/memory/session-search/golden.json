@@ -1,0 +1,4918 @@
+{
+ "secret": "682419",
+ "rows": [
+  {
+   "name": "roles",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "plain user"
+    },
+    {
+     "role": " USER ",
+     "content": "spaced upper user"
+    },
+    {
+     "role": "Human",
+     "content": "human"
+    },
+    {
+     "role": "ai",
+     "content": "ai"
+    },
+    {
+     "role": "MODEL",
+     "content": "model"
+    },
+    {
+     "role": "assistant",
+     "content": "assistant"
+    },
+    {
+     "role": "tool_result",
+     "content": "tool result"
+    },
+    {
+     "role": "function",
+     "content": "function"
+    },
+    {
+     "role": "tool-result",
+     "content": "tool-result"
+    },
+    {
+     "role": "tool",
+     "content": "tool"
+    },
+    {
+     "role": "system",
+     "content": "system"
+    },
+    {
+     "role": "developer",
+     "content": "developer"
+    },
+    {
+     "content": "no role"
+    },
+    {
+     "role": null,
+     "content": "null role"
+    },
+    {
+     "role": 5,
+     "content": "numeric role"
+    },
+    {
+     "role": [
+      "user"
+     ],
+     "content": "array role"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:04357b717af2dc4b62829a89",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "content": "plain user"
+    },
+    {
+     "ref": "session:s1:c101bcc9d48d6dbf62de2de9",
+     "ordinal": 1,
+     "role": "user",
+     "ts": null,
+     "content": "spaced upper user"
+    },
+    {
+     "ref": "session:s1:15c0857bc50de9b6fe6b9fea",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "human"
+    },
+    {
+     "ref": "session:s1:9dd5f976362b6915511f7a1c",
+     "ordinal": 3,
+     "role": "assistant",
+     "ts": null,
+     "content": "ai"
+    },
+    {
+     "ref": "session:s1:fed7314089f6a70e139f2f5b",
+     "ordinal": 4,
+     "role": "assistant",
+     "ts": null,
+     "content": "model"
+    },
+    {
+     "ref": "session:s1:e5102daf9b753055c213e270",
+     "ordinal": 5,
+     "role": "assistant",
+     "ts": null,
+     "content": "assistant"
+    },
+    {
+     "ref": "session:s1:4f075c87ecc3d2df19551aa1",
+     "ordinal": 15,
+     "role": "user",
+     "ts": null,
+     "content": "array role"
+    }
+   ]
+  },
+  {
+   "name": "content-shapes",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "part one"
+      },
+      {
+       "type": "image",
+       "url": "x"
+      },
+      {
+       "type": "text",
+       "text": "part two"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      "bare string",
+      {
+       "type": "text",
+       "text": "and text"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      "",
+      "[mixdog-runtime] hidden behind an empty first part"
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "image",
+       "url": "x"
+      },
+      {
+       "type": "text",
+       "text": "image first"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": 5
+      },
+      {
+       "type": "text",
+       "text": "numeric text part skipped"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "x"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": {
+      "text": "object content"
+     }
+    },
+    {
+     "role": "user",
+     "content": null
+    },
+    {
+     "role": "user",
+     "content": 12
+    },
+    {
+     "role": "user",
+     "content": ""
+    },
+    {
+     "role": "user",
+     "content": []
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "answer"
+      },
+      {
+       "type": "tool_use",
+       "id": "c1",
+       "name": "x"
+      }
+     ],
+     "toolCalls": [
+      {
+       "id": "c1"
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": null,
+     "toolCalls": [
+      {
+       "id": "c2"
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "   "
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:b17b61b440f074bb99d2bc2e",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "content": "part one\npart two"
+    },
+    {
+     "ref": "session:s1:f79239ec6bb4c2616f128d4b",
+     "ordinal": 1,
+     "role": "user",
+     "ts": null,
+     "content": "bare string\nand text"
+    },
+    {
+     "ref": "session:s1:d6a91b3e7146554cd5e5d7d6",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "[mixdog-runtime] hidden behind an empty first part"
+    },
+    {
+     "ref": "session:s1:863d6c3af259c5cf929f4660",
+     "ordinal": 3,
+     "role": "user",
+     "ts": null,
+     "content": "image first"
+    },
+    {
+     "ref": "session:s1:7dc7b231cbf69f4a069c0b0e",
+     "ordinal": 4,
+     "role": "user",
+     "ts": null,
+     "content": "numeric text part skipped"
+    },
+    {
+     "ref": "session:s1:b79ee275ee8095493ebf059f",
+     "ordinal": 11,
+     "role": "assistant",
+     "ts": null,
+     "content": "answer"
+    }
+   ]
+  },
+  {
+   "name": "exclusions-user",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Reference files: a.txt"
+    },
+    {
+     "role": "user",
+     "content": "  \n reference FILES:\nb.txt"
+    },
+    {
+     "role": "user",
+     "content": "Reference files"
+    },
+    {
+     "role": "user",
+     "content": "(attachment)"
+    },
+    {
+     "role": "user",
+     "content": "  (attachment)  "
+    },
+    {
+     "role": "user",
+     "content": "(attachment) with words"
+    },
+    {
+     "role": "user",
+     "content": "meta task notification",
+     "meta": {
+      "source": "task-notification"
+     }
+    },
+    {
+     "role": "user",
+     "content": "meta compact summary",
+     "meta": {
+      "source": "compact-summary"
+     }
+    },
+    {
+     "role": "user",
+     "content": "meta continuation",
+     "meta": {
+      "source": "compact-active-turn-continuation"
+     }
+    },
+    {
+     "role": "user",
+     "content": "meta recovery",
+     "meta": {
+      "source": "compact-execution-recovery"
+     }
+    },
+    {
+     "role": "user",
+     "content": "meta other source stays",
+     "meta": {
+      "source": "other"
+     }
+    },
+    {
+     "role": "user",
+     "content": "meta numeric source",
+     "meta": {
+      "source": 5
+     }
+    },
+    {
+     "role": "user",
+     "content": "skill body by meta",
+     "meta": "skill"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\nbody"
+    },
+    {
+     "role": "user",
+     "content": "   <skill>\nindented body"
+    },
+    {
+     "role": "user",
+     "content": "mentions <skill> mid text"
+    },
+    {
+     "role": "user",
+     "content": "text then <active-turn-continuation> marker"
+    },
+    {
+     "role": "user",
+     "content": "[mixdog-runtime] nudge"
+    },
+    {
+     "role": "user",
+     "content": "  [mixdog-runtime] indented nudge"
+    },
+    {
+     "role": "user",
+     "content": "mentions [mixdog-runtime] mid text"
+    },
+    {
+     "role": "user",
+     "content": "Async tool finished. rest"
+    },
+    {
+     "role": "user",
+     "content": "  async JOB finished. rest"
+    },
+    {
+     "role": "user",
+     "content": "Async  finished."
+    },
+    {
+     "role": "user",
+     "content": "Async finished."
+    },
+    {
+     "role": "user",
+     "content": "Async x finished"
+    },
+    {
+     "role": "user",
+     "content": "A previous model worked on this task and produced the compacted handoff summary below.\nmessages=12 sha256=abc"
+    },
+    {
+     "role": "user",
+     "content": "A previous model worked on this task and produced the compacted handoff summary below.\nmessages=3  compact_type=auto"
+    },
+    {
+     "role": "user",
+     "content": "A previous model worked on this task and produced the compacted handoff summary below.\nno header here"
+    },
+    {
+     "role": "user",
+     "content": " A previous model worked on this task and produced the compacted handoff summary below.\nmessages=12 sha256=abc"
+    },
+    {
+     "role": "user",
+     "content": "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Shell task completed</summary>\n</task-notification>"
+    },
+    {
+     "role": "user",
+     "content": "  <task-notification>\n<task-id>t1</task-id>\n<status>failed</status>\n<summary>Shell task failed</summary>\n</task-notification>  "
+    },
+    {
+     "role": "user",
+     "content": "<task-notification>\n<task-id>t1</task-id>\n<status>weird</status>\n<summary>Shell task weird</summary>\n</task-notification>"
+    },
+    {
+     "role": "user",
+     "content": "[task_id: abc]\n[status: running]"
+    },
+    {
+     "role": "user",
+     "content": "[task_id: abc]\nno status line"
+    },
+    {
+     "role": "user",
+     "content": "background task done\ntask_id: t1\nstatus: running"
+    },
+    {
+     "role": "user",
+     "content": "Background Task x\ntask_id: t1\nstatus: Completed\nmore"
+    },
+    {
+     "role": "user",
+     "content": "task_id: t1\nstatus: completed\nsurface: shell"
+    },
+    {
+     "role": "user",
+     "content": "task_id: t1\nstatus: completed"
+    },
+    {
+     "role": "user",
+     "content": "task_id: t1\nstatus: bogus\nsurface: shell"
+    },
+    {
+     "role": "user",
+     "content": "Async tool finished.\n\nResult:\n> task_id: t1\n> status: completed\n> surface: shell"
+    },
+    {
+     "role": "user",
+     "content": "Async tool finished.\n\nResult:\n> plain quoted words\n> more"
+    },
+    {
+     "role": "user",
+     "content": "Async tool finished.\n\nResult:\nunquoted words"
+    },
+    {
+     "role": "user",
+     "content": "Result:\n> task_id: t1\n> status: completed\n> surface: shell"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:2d34c6e21f5d8f7b24ab7658",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "Reference files"
+    },
+    {
+     "ref": "session:s1:381729be13691d362989d77b",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "content": "(attachment) with words"
+    },
+    {
+     "ref": "session:s1:c8e8a911a02515843c5dd06b",
+     "ordinal": 10,
+     "role": "user",
+     "ts": null,
+     "content": "meta other source stays"
+    },
+    {
+     "ref": "session:s1:d4fc6f60307f40e49ce9183f",
+     "ordinal": 11,
+     "role": "user",
+     "ts": null,
+     "content": "meta numeric source"
+    },
+    {
+     "ref": "session:s1:1e0e696e74a27ba1d3a3f40a",
+     "ordinal": 15,
+     "role": "user",
+     "ts": null,
+     "content": "mentions <skill> mid text"
+    },
+    {
+     "ref": "session:s1:ff9d2e12a489774838958694",
+     "ordinal": 19,
+     "role": "user",
+     "ts": null,
+     "content": "mentions [mixdog-runtime] mid text"
+    },
+    {
+     "ref": "session:s1:2690cee389ee1ac62f25a172",
+     "ordinal": 22,
+     "role": "user",
+     "ts": null,
+     "content": "Async  finished."
+    },
+    {
+     "ref": "session:s1:c39451c26069cf118849dcaf",
+     "ordinal": 23,
+     "role": "user",
+     "ts": null,
+     "content": "Async finished."
+    },
+    {
+     "ref": "session:s1:85fc15e43e1283276a7271e8",
+     "ordinal": 24,
+     "role": "user",
+     "ts": null,
+     "content": "Async x finished"
+    },
+    {
+     "ref": "session:s1:ac9cb4d8b72dbf7f68711050",
+     "ordinal": 27,
+     "role": "user",
+     "ts": null,
+     "content": "A previous model worked on this task and produced the compacted handoff summary below.\nno header here"
+    },
+    {
+     "ref": "session:s1:a86d0a5d0678191a91a61211",
+     "ordinal": 28,
+     "role": "user",
+     "ts": null,
+     "content": "A previous model worked on this task and produced the compacted handoff summary below.\nmessages=12 sha256=abc"
+    },
+    {
+     "ref": "session:s1:c9debed296d16bf3e4282168",
+     "ordinal": 31,
+     "role": "user",
+     "ts": null,
+     "content": "<task-notification>\n<task-id>t1</task-id>\n<status>weird</status>\n<summary>Shell task weird</summary>\n</task-notification>"
+    },
+    {
+     "ref": "session:s1:6d778df76716498eeab9fbc7",
+     "ordinal": 33,
+     "role": "user",
+     "ts": null,
+     "content": "[task_id: abc]\nno status line"
+    },
+    {
+     "ref": "session:s1:93cd211a54685fee55e10a5c",
+     "ordinal": 37,
+     "role": "user",
+     "ts": null,
+     "content": "task_id: t1\nstatus: completed"
+    },
+    {
+     "ref": "session:s1:7eecffcd7e0328d4775628fe",
+     "ordinal": 38,
+     "role": "user",
+     "ts": null,
+     "content": "task_id: t1\nstatus: bogus\nsurface: shell"
+    },
+    {
+     "ref": "session:s1:8e77779a5fdcf4611ca6b516",
+     "ordinal": 42,
+     "role": "user",
+     "ts": null,
+     "content": "Result:\n> task_id: t1\n> status: completed\n> surface: shell"
+    }
+   ]
+  },
+  {
+   "name": "exclusions-assistant",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "assistant",
+     "content": "."
+    },
+    {
+     "role": "assistant",
+     "content": " . "
+    },
+    {
+     "role": "assistant",
+     "content": ".\n"
+    },
+    {
+     "role": "assistant",
+     "content": ".."
+    },
+    {
+     "role": "assistant",
+     "content": ". more"
+    },
+    {
+     "role": "assistant",
+     "content": ".",
+     "toolCalls": []
+    },
+    {
+     "role": "assistant",
+     "content": ".",
+     "toolCalls": [
+      {
+       "id": "c1"
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": ".",
+     "toolCalls": null
+    },
+    {
+     "role": "assistant",
+     "content": ".",
+     "toolCalls": "x"
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "."
+      },
+      {
+       "type": "text",
+       "text": "second part"
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "first"
+      },
+      {
+       "type": "text",
+       "text": "."
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "[mixdog-runtime] assistants are not filtered"
+    },
+    {
+     "role": "assistant",
+     "content": "Reference files: neither"
+    },
+    {
+     "role": "assistant",
+     "content": "(attachment)"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:25c8274c9d15f2fa9940933c",
+     "ordinal": 3,
+     "role": "assistant",
+     "ts": null,
+     "content": ".."
+    },
+    {
+     "ref": "session:s1:2a3ee830bc69513c870fb009",
+     "ordinal": 4,
+     "role": "assistant",
+     "ts": null,
+     "content": ". more"
+    },
+    {
+     "ref": "session:s1:2b46b4e1460f68597f5ffba5",
+     "ordinal": 5,
+     "role": "assistant",
+     "ts": null,
+     "content": "."
+    },
+    {
+     "ref": "session:s1:8c3bf36048b066af747ec51d",
+     "ordinal": 6,
+     "role": "assistant",
+     "ts": null,
+     "content": "."
+    },
+    {
+     "ref": "session:s1:5f3db38c78e19b6a2340d21a",
+     "ordinal": 10,
+     "role": "assistant",
+     "ts": null,
+     "content": "first\n."
+    },
+    {
+     "ref": "session:s1:6ebb5886c99d90491dc3d626",
+     "ordinal": 11,
+     "role": "assistant",
+     "ts": null,
+     "content": "[mixdog-runtime] assistants are not filtered"
+    },
+    {
+     "ref": "session:s1:2cc26d62609741a176dd0b35",
+     "ordinal": 12,
+     "role": "assistant",
+     "ts": null,
+     "content": "Reference files: neither"
+    },
+    {
+     "ref": "session:s1:de183fd16ab4c8f7b5869c70",
+     "ordinal": 13,
+     "role": "assistant",
+     "ts": null,
+     "content": "(attachment)"
+    }
+   ]
+  },
+  {
+   "name": "envelopes",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\n\nhello there"
+    },
+    {
+     "role": "user",
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\n"
+    },
+    {
+     "role": "user",
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\nextra line\n\nhello"
+    },
+    {
+     "role": "user",
+     "content": "# Session\nCwd: /x\n\nbody"
+    },
+    {
+     "role": "user",
+     "content": "# Session\nmeeting notes about sessions"
+    },
+    {
+     "role": "user",
+     "content": "# Session\nCwd: /x"
+    },
+    {
+     "role": "user",
+     "content": "# Project Instructions\nfoo\nbar\n\n# Task\nreal prompt"
+    },
+    {
+     "role": "user",
+     "content": "# Project Instructions\nsingle"
+    },
+    {
+     "role": "user",
+     "content": "# Additional context\nx\n\n# Prefetch\ny\n# Task\nz"
+    },
+    {
+     "role": "user",
+     "content": "# Prefetch\nonly prefetch\n\n# Task\nafter"
+    },
+    {
+     "role": "user",
+     "content": "\n\n# Prefetch\nstuff\n\nreal"
+    },
+    {
+     "role": "user",
+     "content": "\n\nleading newlines only"
+    },
+    {
+     "role": "user",
+     "content": "# Task\nonly the marker follows"
+    },
+    {
+     "role": "user",
+     "content": "# Task\n"
+    },
+    {
+     "role": "user",
+     "content": "# Task"
+    },
+    {
+     "role": "user",
+     "content": "text\n# Task\nmid"
+    },
+    {
+     "role": "user",
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\n\n# Project Instructions\nrules\n# Additional context\nctx\n# Task\nreal"
+    },
+    {
+     "role": "user",
+     "content": "# Project Instructions\nrules\n# Session\nCwd: /x\nModel: m\nWorkflow: w\n\nreal"
+    },
+    {
+     "role": "assistant",
+     "content": "# Task\nassistants keep the marker"
+    },
+    {
+     "role": "assistant",
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\n\nassistants keep it"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:a80d449a1bdb8657db5ea537",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "content": "hello there"
+    },
+    {
+     "ref": "session:s1:68435983b00f548c4c3be49b",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\nextra line\n\nhello"
+    },
+    {
+     "ref": "session:s1:a3b04405e77e04c951df0fda",
+     "ordinal": 3,
+     "role": "user",
+     "ts": null,
+     "content": "body"
+    },
+    {
+     "ref": "session:s1:4c9eb163c2b1cf697b0fdf2f",
+     "ordinal": 4,
+     "role": "user",
+     "ts": null,
+     "content": "# Session\nmeeting notes about sessions"
+    },
+    {
+     "ref": "session:s1:90f5ff637a1d7ad696560b5f",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "content": "# Session\nCwd: /x"
+    },
+    {
+     "ref": "session:s1:964694617a82767be38fc0b6",
+     "ordinal": 6,
+     "role": "user",
+     "ts": null,
+     "content": "real prompt"
+    },
+    {
+     "ref": "session:s1:7d6e4411f17c79cf1ef271be",
+     "ordinal": 8,
+     "role": "user",
+     "ts": null,
+     "content": "z"
+    },
+    {
+     "ref": "session:s1:5230eeae1c91b4cca48181b9",
+     "ordinal": 9,
+     "role": "user",
+     "ts": null,
+     "content": "after"
+    },
+    {
+     "ref": "session:s1:bea9e10adc73c1d02ec1a3fb",
+     "ordinal": 11,
+     "role": "user",
+     "ts": null,
+     "content": "leading newlines only"
+    },
+    {
+     "ref": "session:s1:b9dc2d73d68944806b4e6a65",
+     "ordinal": 12,
+     "role": "user",
+     "ts": null,
+     "content": "only the marker follows"
+    },
+    {
+     "ref": "session:s1:741225c2d1a651fceccd7245",
+     "ordinal": 14,
+     "role": "user",
+     "ts": null,
+     "content": "# Task"
+    },
+    {
+     "ref": "session:s1:5b98b61c9d433257233fd685",
+     "ordinal": 15,
+     "role": "user",
+     "ts": null,
+     "content": "text\n# Task\nmid"
+    },
+    {
+     "ref": "session:s1:fb67702096c3c4ab5e2a741a",
+     "ordinal": 16,
+     "role": "user",
+     "ts": null,
+     "content": "real"
+    },
+    {
+     "ref": "session:s1:1ccc9ad7b62b1db70a1dc50a",
+     "ordinal": 17,
+     "role": "user",
+     "ts": null,
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\n\nreal"
+    },
+    {
+     "ref": "session:s1:a40de862dd68d0b3893ef0cd",
+     "ordinal": 18,
+     "role": "assistant",
+     "ts": null,
+     "content": "# Task\nassistants keep the marker"
+    },
+    {
+     "ref": "session:s1:320d9b1df06630353a2deada",
+     "ordinal": 19,
+     "role": "assistant",
+     "ts": null,
+     "content": "# Session\nCwd: /x\nModel: m\nWorkflow: w\n\nassistants keep it"
+    }
+   ]
+  },
+  {
+   "name": "reminders",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Fix the bug<system-reminder>internal</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<system-reminder>only a reminder</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "a<system-reminder>x</system-reminder>b<system-reminder>y</system-reminder>c"
+    },
+    {
+     "role": "user",
+     "content": "A<SYSTEM-REMINDER>upper</SYSTEM-REMINDER>B<System-Reminder>mixed</system-Reminder>C"
+    },
+    {
+     "role": "user",
+     "content": "multi\n<system-reminder>\nline one\nline two\n</system-reminder>\nline"
+    },
+    {
+     "role": "user",
+     "content": "unterminated <system-reminder>never closed and stays"
+    },
+    {
+     "role": "user",
+     "content": "stray </system-reminder> close stays"
+    },
+    {
+     "role": "user",
+     "content": "<system-reminder>outer <system-reminder>inner</system-reminder> tail</system-reminder> after"
+    },
+    {
+     "role": "user",
+     "content": "<system-reminder>x</system-reminder><system-reminder>y</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<system-reminder>x</system-reminder> kept <system-reminder>y</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "part <system-reminder>r</system-reminder> one"
+      },
+      {
+       "type": "text",
+       "text": "<system-reminder>r2</system-reminder>"
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "reply<system-reminder>r</system-reminder>"
+    },
+    {
+     "role": "assistant",
+     "content": "<system-reminder>r</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<system-reminder >not a tag</system-reminder >"
+    },
+    {
+     "role": "user",
+     "content": "text <system-reminder>1</system-reminder>\n\n<system-reminder>2</system-reminder>\ntext"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:7b2153e4fd13ae9f6ac1a6bf",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "content": "Fix the bug"
+    },
+    {
+     "ref": "session:s1:665bb275b5c7bdfee376b1e3",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "a b c"
+    },
+    {
+     "ref": "session:s1:3431d52c6c0e5bbaba42de89",
+     "ordinal": 3,
+     "role": "user",
+     "ts": null,
+     "content": "A B C"
+    },
+    {
+     "ref": "session:s1:892fb1aed97b2497089c4faa",
+     "ordinal": 4,
+     "role": "user",
+     "ts": null,
+     "content": "multi\n \nline"
+    },
+    {
+     "ref": "session:s1:e8737f03dd3e0ed6c3b431b3",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "content": "unterminated <system-reminder>never closed and stays"
+    },
+    {
+     "ref": "session:s1:0a62fe0b8ef17fd0941b61f5",
+     "ordinal": 6,
+     "role": "user",
+     "ts": null,
+     "content": "stray </system-reminder> close stays"
+    },
+    {
+     "ref": "session:s1:8b4f6c7cbcec27ba33403f44",
+     "ordinal": 7,
+     "role": "user",
+     "ts": null,
+     "content": "tail</system-reminder> after"
+    },
+    {
+     "ref": "session:s1:0f6faaebe5c2da66bca9b0e6",
+     "ordinal": 9,
+     "role": "user",
+     "ts": null,
+     "content": "kept"
+    },
+    {
+     "ref": "session:s1:e99dffa5d06bca2aec072570",
+     "ordinal": 10,
+     "role": "user",
+     "ts": null,
+     "content": "part   one"
+    },
+    {
+     "ref": "session:s1:9a7f55417fafc758685efa97",
+     "ordinal": 11,
+     "role": "assistant",
+     "ts": null,
+     "content": "reply"
+    },
+    {
+     "ref": "session:s1:1d69e894fc8cff27278da2a4",
+     "ordinal": 13,
+     "role": "user",
+     "ts": null,
+     "content": "<system-reminder >not a tag</system-reminder >"
+    },
+    {
+     "ref": "session:s1:a9992564f906b0b172846a3a",
+     "ordinal": 14,
+     "role": "user",
+     "ts": null,
+     "content": "text  \n\n \ntext"
+    }
+   ]
+  },
+  {
+   "name": "whitespace",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "   padded nbsp  "
+    },
+    {
+     "role": "user",
+     "content": "﻿bom both﻿"
+    },
+    {
+     "role": "user",
+     "content": "​zero width space kept​"
+    },
+    {
+     "role": "user",
+     "content": "᠎mongolian vowel separator kept᠎"
+    },
+    {
+     "role": "user",
+     "content": "next line kept"
+    },
+    {
+     "role": "user",
+     "content": " line sep "
+    },
+    {
+     "role": "user",
+     "content": "\t\r\n tabs and breaks \r\n\t"
+    },
+    {
+     "role": "user",
+     "content": "　ideographic　"
+    },
+    {
+     "role": "user",
+     "content": "       "
+    },
+    {
+     "role": "user",
+     "content": "inner   spaces   stay"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:b58afeec6979435fef375270",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "content": "padded nbsp"
+    },
+    {
+     "ref": "session:s1:6a345569380617686adf67b0",
+     "ordinal": 1,
+     "role": "user",
+     "ts": null,
+     "content": "bom both"
+    },
+    {
+     "ref": "session:s1:55f4bb83bb4de0ee3175ef96",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "​zero width space kept​"
+    },
+    {
+     "ref": "session:s1:0e4483267fdd8fbb0284020e",
+     "ordinal": 3,
+     "role": "user",
+     "ts": null,
+     "content": "᠎mongolian vowel separator kept᠎"
+    },
+    {
+     "ref": "session:s1:839693a3f8a4672a6cd37b49",
+     "ordinal": 4,
+     "role": "user",
+     "ts": null,
+     "content": "next line kept"
+    },
+    {
+     "ref": "session:s1:9a3251aa7220c6e29e3d0035",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "content": "line sep"
+    },
+    {
+     "ref": "session:s1:0d1837de72c65f091546d8b5",
+     "ordinal": 6,
+     "role": "user",
+     "ts": null,
+     "content": "tabs and breaks"
+    },
+    {
+     "ref": "session:s1:a8ea2ca7542761d6485d3426",
+     "ordinal": 7,
+     "role": "user",
+     "ts": null,
+     "content": "ideographic"
+    },
+    {
+     "ref": "session:s1:5010526769a14df73de6f82a",
+     "ordinal": 9,
+     "role": "user",
+     "ts": null,
+     "content": "inner   spaces   stay"
+    }
+   ]
+  },
+  {
+   "name": "timestamps",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "ts num",
+     "ts": 10
+    },
+    {
+     "role": "user",
+     "content": "ts epoch-ms",
+     "ts": 1700000000000
+    },
+    {
+     "role": "user",
+     "content": "ts epoch-s",
+     "ts": 1700000000
+    },
+    {
+     "role": "user",
+     "content": "ts float",
+     "ts": 1700000000.5
+    },
+    {
+     "role": "user",
+     "content": "ts float-small",
+     "ts": 1.9
+    },
+    {
+     "role": "user",
+     "content": "ts zero",
+     "ts": 0
+    },
+    {
+     "role": "user",
+     "content": "ts negative",
+     "ts": -5
+    },
+    {
+     "role": "user",
+     "content": "ts huge",
+     "ts": 8640000000000000
+    },
+    {
+     "role": "user",
+     "content": "ts numstr",
+     "ts": "20"
+    },
+    {
+     "role": "user",
+     "content": "ts numstr-padded",
+     "ts": " 30 "
+    },
+    {
+     "role": "user",
+     "content": "ts hex",
+     "ts": "0x10"
+    },
+    {
+     "role": "user",
+     "content": "ts exp",
+     "ts": "1e3"
+    },
+    {
+     "role": "user",
+     "content": "ts empty",
+     "ts": ""
+    },
+    {
+     "role": "user",
+     "content": "ts blank",
+     "ts": "  "
+    },
+    {
+     "role": "user",
+     "content": "ts iso-z",
+     "ts": "2024-05-06T07:08:09Z"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-ms-offset",
+     "ts": "2024-05-06T07:08:09.123+09:00"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-date",
+     "ts": "2024-05-06"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-month",
+     "ts": "2024-05"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-year",
+     "ts": "2024"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-local",
+     "ts": "2024-05-06T07:08:09"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-space",
+     "ts": "2024-05-06 07:08:09"
+    },
+    {
+     "role": "user",
+     "content": "ts iso-minutes",
+     "ts": "2024-05-06T07:08Z"
+    },
+    {
+     "role": "user",
+     "content": "ts rfc2822",
+     "ts": "Mon, 06 May 2024 07:08:09 GMT"
+    },
+    {
+     "role": "user",
+     "content": "ts month-name",
+     "ts": "May 6, 2024"
+    },
+    {
+     "role": "user",
+     "content": "ts month-name-time",
+     "ts": "May 6, 2024 07:08:09 UTC"
+    },
+    {
+     "role": "user",
+     "content": "ts slashes",
+     "ts": "2024/05/06"
+    },
+    {
+     "role": "user",
+     "content": "ts us-date",
+     "ts": "5/6/2024"
+    },
+    {
+     "role": "user",
+     "content": "ts garbage",
+     "ts": "garbage"
+    },
+    {
+     "role": "user",
+     "content": "ts nan",
+     "ts": "NaN"
+    },
+    {
+     "role": "user",
+     "content": "ts infinity",
+     "ts": "Infinity"
+    },
+    {
+     "role": "user",
+     "content": "ts true",
+     "ts": true
+    },
+    {
+     "role": "user",
+     "content": "ts false",
+     "ts": false
+    },
+    {
+     "role": "user",
+     "content": "ts array-one",
+     "ts": [
+      5
+     ]
+    },
+    {
+     "role": "user",
+     "content": "ts array-empty",
+     "ts": []
+    },
+    {
+     "role": "user",
+     "content": "ts array-two",
+     "ts": [
+      1,
+      2
+     ]
+    },
+    {
+     "role": "user",
+     "content": "ts object",
+     "ts": {}
+    },
+    {
+     "role": "user",
+     "content": "ts digit-string-zero",
+     "ts": "0"
+    },
+    {
+     "role": "user",
+     "content": "ts digit-string-one",
+     "ts": "1"
+    },
+    {
+     "role": "user",
+     "content": "ts digit-string-twelve",
+     "ts": "12"
+    },
+    {
+     "role": "user",
+     "content": "ts negative-string",
+     "ts": "-5"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:6ecdde1a6534cd88832a7ac6",
+     "ordinal": 0,
+     "role": "user",
+     "ts": 10,
+     "content": "ts num"
+    },
+    {
+     "ref": "session:s1:3abcaf8110f9386f8c2d07b0",
+     "ordinal": 1,
+     "role": "user",
+     "ts": 1700000000000,
+     "content": "ts epoch-ms"
+    },
+    {
+     "ref": "session:s1:22dbdcb5f1fd5b18e43e0167",
+     "ordinal": 2,
+     "role": "user",
+     "ts": 1700000000,
+     "content": "ts epoch-s"
+    },
+    {
+     "ref": "session:s1:c061da4d403009ca060d9c4f",
+     "ordinal": 3,
+     "role": "user",
+     "ts": 1700000000,
+     "content": "ts float"
+    },
+    {
+     "ref": "session:s1:2b7d8a58e62d5c7792eb211f",
+     "ordinal": 4,
+     "role": "user",
+     "ts": 1,
+     "content": "ts float-small"
+    },
+    {
+     "ref": "session:s1:247a2e4861c8e09b43e07b30",
+     "ordinal": 5,
+     "role": "user",
+     "ts": 946684800000,
+     "content": "ts zero"
+    },
+    {
+     "ref": "session:s1:bc911c8bf8b5ae1280422b5d",
+     "ordinal": 6,
+     "role": "user",
+     "ts": 988675200000,
+     "content": "ts negative"
+    },
+    {
+     "ref": "session:s1:f1d08fea736cbd2b42389781",
+     "ordinal": 7,
+     "role": "user",
+     "ts": 8640000000000000,
+     "content": "ts huge"
+    },
+    {
+     "ref": "session:s1:790ebcc8419fe49b72a2d42d",
+     "ordinal": 8,
+     "role": "user",
+     "ts": 20,
+     "content": "ts numstr"
+    },
+    {
+     "ref": "session:s1:a536ade391d1d4dfc5927b8f",
+     "ordinal": 9,
+     "role": "user",
+     "ts": 30,
+     "content": "ts numstr-padded"
+    },
+    {
+     "ref": "session:s1:6a6e4107f30cd20be5d7456a",
+     "ordinal": 10,
+     "role": "user",
+     "ts": 16,
+     "content": "ts hex"
+    },
+    {
+     "ref": "session:s1:57d632f44ae6baefcbf6f93a",
+     "ordinal": 11,
+     "role": "user",
+     "ts": 1000,
+     "content": "ts exp"
+    },
+    {
+     "ref": "session:s1:44e02655e8d2bd0a6318fc32",
+     "ordinal": 12,
+     "role": "user",
+     "ts": null,
+     "content": "ts empty"
+    },
+    {
+     "ref": "session:s1:a4a4e666616948cc82688086",
+     "ordinal": 13,
+     "role": "user",
+     "ts": null,
+     "content": "ts blank"
+    },
+    {
+     "ref": "session:s1:8a04fe7c7183620ad6038192",
+     "ordinal": 14,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "ts iso-z"
+    },
+    {
+     "ref": "session:s1:4d74e5b39fc25d91574b80f9",
+     "ordinal": 15,
+     "role": "user",
+     "ts": 1714946889123,
+     "content": "ts iso-ms-offset"
+    },
+    {
+     "ref": "session:s1:2ac67d7203b2faae8a23a792",
+     "ordinal": 16,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "ts iso-date"
+    },
+    {
+     "ref": "session:s1:7fc1ce3ec335fef5a16c045d",
+     "ordinal": 17,
+     "role": "user",
+     "ts": 1714521600000,
+     "content": "ts iso-month"
+    },
+    {
+     "ref": "session:s1:e8d9bc45fae219a0a4bed690",
+     "ordinal": 18,
+     "role": "user",
+     "ts": 2024,
+     "content": "ts iso-year"
+    },
+    {
+     "ref": "session:s1:a6c3f3988d8bc45e8a111773",
+     "ordinal": 19,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "ts iso-local"
+    },
+    {
+     "ref": "session:s1:58384a34fdea6d3afbb96ae7",
+     "ordinal": 20,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "ts iso-space"
+    },
+    {
+     "ref": "session:s1:1147e5c1ce67a98ea8749e56",
+     "ordinal": 21,
+     "role": "user",
+     "ts": 1714979280000,
+     "content": "ts iso-minutes"
+    },
+    {
+     "ref": "session:s1:e13fec8e0fa356c37b8844e7",
+     "ordinal": 22,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "ts rfc2822"
+    },
+    {
+     "ref": "session:s1:90af6e8c439a7262a0ba9872",
+     "ordinal": 23,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "ts month-name"
+    },
+    {
+     "ref": "session:s1:74fd3830c5fc73b5eabd2f09",
+     "ordinal": 24,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "ts month-name-time"
+    },
+    {
+     "ref": "session:s1:f6ae28050e3237bdd583e122",
+     "ordinal": 25,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "ts slashes"
+    },
+    {
+     "ref": "session:s1:f1accdd30f9e4317d35e0e20",
+     "ordinal": 26,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "ts us-date"
+    },
+    {
+     "ref": "session:s1:eee7f8a2c80f9e34515e505c",
+     "ordinal": 27,
+     "role": "user",
+     "ts": null,
+     "content": "ts garbage"
+    },
+    {
+     "ref": "session:s1:a50bab0114702d6baf879b03",
+     "ordinal": 28,
+     "role": "user",
+     "ts": null,
+     "content": "ts nan"
+    },
+    {
+     "ref": "session:s1:4e3c4bf88c589057b16dc8fa",
+     "ordinal": 29,
+     "role": "user",
+     "ts": null,
+     "content": "ts infinity"
+    },
+    {
+     "ref": "session:s1:7a1a500adea276388b463765",
+     "ordinal": 30,
+     "role": "user",
+     "ts": 1,
+     "content": "ts true"
+    },
+    {
+     "ref": "session:s1:9df37d0f51d8d55a72fe9ea3",
+     "ordinal": 31,
+     "role": "user",
+     "ts": null,
+     "content": "ts false"
+    },
+    {
+     "ref": "session:s1:ae44fdf746288a124e59205e",
+     "ordinal": 32,
+     "role": "user",
+     "ts": 5,
+     "content": "ts array-one"
+    },
+    {
+     "ref": "session:s1:5e0e9d8a860e3cc831bb9297",
+     "ordinal": 33,
+     "role": "user",
+     "ts": null,
+     "content": "ts array-empty"
+    },
+    {
+     "ref": "session:s1:02f00a5837c2a7425f052478",
+     "ordinal": 34,
+     "role": "user",
+     "ts": 978393600000,
+     "content": "ts array-two"
+    },
+    {
+     "ref": "session:s1:0dcf710a103b92ebc4189a9e",
+     "ordinal": 35,
+     "role": "user",
+     "ts": null,
+     "content": "ts object"
+    },
+    {
+     "ref": "session:s1:24da0e27dbf721138266b86e",
+     "ordinal": 36,
+     "role": "user",
+     "ts": 946684800000,
+     "content": "ts digit-string-zero"
+    },
+    {
+     "ref": "session:s1:415581fcd0220ec261e27327",
+     "ordinal": 37,
+     "role": "user",
+     "ts": 1,
+     "content": "ts digit-string-one"
+    },
+    {
+     "ref": "session:s1:343c10c76709d7378deccfe4",
+     "ordinal": 38,
+     "role": "user",
+     "ts": 12,
+     "content": "ts digit-string-twelve"
+    },
+    {
+     "ref": "session:s1:a90984117d3834cc3b1a1cc6",
+     "ordinal": 39,
+     "role": "user",
+     "ts": 988675200000,
+     "content": "ts negative-string"
+    }
+   ]
+  },
+  {
+   "name": "timestamp-field",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "timestamp num",
+     "timestamp": 10
+    },
+    {
+     "role": "user",
+     "content": "timestamp epoch-ms",
+     "timestamp": 1700000000000
+    },
+    {
+     "role": "user",
+     "content": "timestamp epoch-s",
+     "timestamp": 1700000000
+    },
+    {
+     "role": "user",
+     "content": "timestamp float",
+     "timestamp": 1700000000.5
+    },
+    {
+     "role": "user",
+     "content": "timestamp float-small",
+     "timestamp": 1.9
+    },
+    {
+     "role": "user",
+     "content": "timestamp zero",
+     "timestamp": 0
+    },
+    {
+     "role": "user",
+     "content": "timestamp negative",
+     "timestamp": -5
+    },
+    {
+     "role": "user",
+     "content": "timestamp huge",
+     "timestamp": 8640000000000000
+    },
+    {
+     "role": "user",
+     "content": "timestamp numstr",
+     "timestamp": "20"
+    },
+    {
+     "role": "user",
+     "content": "timestamp numstr-padded",
+     "timestamp": " 30 "
+    },
+    {
+     "role": "user",
+     "content": "timestamp hex",
+     "timestamp": "0x10"
+    },
+    {
+     "role": "user",
+     "content": "timestamp exp",
+     "timestamp": "1e3"
+    },
+    {
+     "role": "user",
+     "content": "timestamp empty",
+     "timestamp": ""
+    },
+    {
+     "role": "user",
+     "content": "timestamp blank",
+     "timestamp": "  "
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-z",
+     "timestamp": "2024-05-06T07:08:09Z"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-ms-offset",
+     "timestamp": "2024-05-06T07:08:09.123+09:00"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-date",
+     "timestamp": "2024-05-06"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-month",
+     "timestamp": "2024-05"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-year",
+     "timestamp": "2024"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-local",
+     "timestamp": "2024-05-06T07:08:09"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-space",
+     "timestamp": "2024-05-06 07:08:09"
+    },
+    {
+     "role": "user",
+     "content": "timestamp iso-minutes",
+     "timestamp": "2024-05-06T07:08Z"
+    },
+    {
+     "role": "user",
+     "content": "timestamp rfc2822",
+     "timestamp": "Mon, 06 May 2024 07:08:09 GMT"
+    },
+    {
+     "role": "user",
+     "content": "timestamp month-name",
+     "timestamp": "May 6, 2024"
+    },
+    {
+     "role": "user",
+     "content": "timestamp month-name-time",
+     "timestamp": "May 6, 2024 07:08:09 UTC"
+    },
+    {
+     "role": "user",
+     "content": "timestamp slashes",
+     "timestamp": "2024/05/06"
+    },
+    {
+     "role": "user",
+     "content": "timestamp us-date",
+     "timestamp": "5/6/2024"
+    },
+    {
+     "role": "user",
+     "content": "timestamp garbage",
+     "timestamp": "garbage"
+    },
+    {
+     "role": "user",
+     "content": "timestamp nan",
+     "timestamp": "NaN"
+    },
+    {
+     "role": "user",
+     "content": "timestamp infinity",
+     "timestamp": "Infinity"
+    },
+    {
+     "role": "user",
+     "content": "timestamp true",
+     "timestamp": true
+    },
+    {
+     "role": "user",
+     "content": "timestamp false",
+     "timestamp": false
+    },
+    {
+     "role": "user",
+     "content": "timestamp array-one",
+     "timestamp": [
+      5
+     ]
+    },
+    {
+     "role": "user",
+     "content": "timestamp array-empty",
+     "timestamp": []
+    },
+    {
+     "role": "user",
+     "content": "timestamp array-two",
+     "timestamp": [
+      1,
+      2
+     ]
+    },
+    {
+     "role": "user",
+     "content": "timestamp object",
+     "timestamp": {}
+    },
+    {
+     "role": "user",
+     "content": "timestamp digit-string-zero",
+     "timestamp": "0"
+    },
+    {
+     "role": "user",
+     "content": "timestamp digit-string-one",
+     "timestamp": "1"
+    },
+    {
+     "role": "user",
+     "content": "timestamp digit-string-twelve",
+     "timestamp": "12"
+    },
+    {
+     "role": "user",
+     "content": "timestamp negative-string",
+     "timestamp": "-5"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:58fd3a190f82e78534a9a26b",
+     "ordinal": 0,
+     "role": "user",
+     "ts": 10,
+     "content": "timestamp num"
+    },
+    {
+     "ref": "session:s1:a8948733ec4c2d5603354624",
+     "ordinal": 1,
+     "role": "user",
+     "ts": 1700000000000,
+     "content": "timestamp epoch-ms"
+    },
+    {
+     "ref": "session:s1:1c0ed9ca9dfb4d485ae361b5",
+     "ordinal": 2,
+     "role": "user",
+     "ts": 1700000000,
+     "content": "timestamp epoch-s"
+    },
+    {
+     "ref": "session:s1:22ff9475b66de9daae22c57f",
+     "ordinal": 3,
+     "role": "user",
+     "ts": 1700000000,
+     "content": "timestamp float"
+    },
+    {
+     "ref": "session:s1:ea544b83a846f2847c3f85f0",
+     "ordinal": 4,
+     "role": "user",
+     "ts": 1,
+     "content": "timestamp float-small"
+    },
+    {
+     "ref": "session:s1:b94cff4cc13b1bc1b3f9ca93",
+     "ordinal": 5,
+     "role": "user",
+     "ts": 946684800000,
+     "content": "timestamp zero"
+    },
+    {
+     "ref": "session:s1:a851361feb477912ce20326d",
+     "ordinal": 6,
+     "role": "user",
+     "ts": 988675200000,
+     "content": "timestamp negative"
+    },
+    {
+     "ref": "session:s1:afb86734d9540b5f92bdac70",
+     "ordinal": 7,
+     "role": "user",
+     "ts": 8640000000000000,
+     "content": "timestamp huge"
+    },
+    {
+     "ref": "session:s1:134344392bde25a362fde1b7",
+     "ordinal": 8,
+     "role": "user",
+     "ts": 20,
+     "content": "timestamp numstr"
+    },
+    {
+     "ref": "session:s1:961451c8948b30b10e87ba36",
+     "ordinal": 9,
+     "role": "user",
+     "ts": 30,
+     "content": "timestamp numstr-padded"
+    },
+    {
+     "ref": "session:s1:927271f3fa8be4ca85b79fbf",
+     "ordinal": 10,
+     "role": "user",
+     "ts": 16,
+     "content": "timestamp hex"
+    },
+    {
+     "ref": "session:s1:c4a67ec13860fed9eba32984",
+     "ordinal": 11,
+     "role": "user",
+     "ts": 1000,
+     "content": "timestamp exp"
+    },
+    {
+     "ref": "session:s1:58eee15c453e1921c1bbe4e8",
+     "ordinal": 12,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp empty"
+    },
+    {
+     "ref": "session:s1:6ae554f4c6907196f90c27c2",
+     "ordinal": 13,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp blank"
+    },
+    {
+     "ref": "session:s1:e93bf1e7a2de65aff5320a52",
+     "ordinal": 14,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "timestamp iso-z"
+    },
+    {
+     "ref": "session:s1:78dc0259dabda4a39d385468",
+     "ordinal": 15,
+     "role": "user",
+     "ts": 1714946889123,
+     "content": "timestamp iso-ms-offset"
+    },
+    {
+     "ref": "session:s1:43ccac6c9a006d418129a69b",
+     "ordinal": 16,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "timestamp iso-date"
+    },
+    {
+     "ref": "session:s1:9f9a254d13859b3642a67caf",
+     "ordinal": 17,
+     "role": "user",
+     "ts": 1714521600000,
+     "content": "timestamp iso-month"
+    },
+    {
+     "ref": "session:s1:0bdc2178468a199698761597",
+     "ordinal": 18,
+     "role": "user",
+     "ts": 2024,
+     "content": "timestamp iso-year"
+    },
+    {
+     "ref": "session:s1:e960408e074c90bb6fca41d3",
+     "ordinal": 19,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "timestamp iso-local"
+    },
+    {
+     "ref": "session:s1:ef5899f0a85483c9067e3d72",
+     "ordinal": 20,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "timestamp iso-space"
+    },
+    {
+     "ref": "session:s1:54ef1aa8bb151b3e4c55a27c",
+     "ordinal": 21,
+     "role": "user",
+     "ts": 1714979280000,
+     "content": "timestamp iso-minutes"
+    },
+    {
+     "ref": "session:s1:4453224f49532f27eac393b6",
+     "ordinal": 22,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "timestamp rfc2822"
+    },
+    {
+     "ref": "session:s1:4b5d0dce15a4b2cdc20af31b",
+     "ordinal": 23,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "timestamp month-name"
+    },
+    {
+     "ref": "session:s1:4c0a892daeffbc5e7e5229a0",
+     "ordinal": 24,
+     "role": "user",
+     "ts": 1714979289000,
+     "content": "timestamp month-name-time"
+    },
+    {
+     "ref": "session:s1:6287b7fea378bd4c91ba1af4",
+     "ordinal": 25,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "timestamp slashes"
+    },
+    {
+     "ref": "session:s1:1868f8737c2f60894c895e27",
+     "ordinal": 26,
+     "role": "user",
+     "ts": 1714953600000,
+     "content": "timestamp us-date"
+    },
+    {
+     "ref": "session:s1:6e88d4ac4336219608c13676",
+     "ordinal": 27,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp garbage"
+    },
+    {
+     "ref": "session:s1:bad3c2323be31ee297a0e6b0",
+     "ordinal": 28,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp nan"
+    },
+    {
+     "ref": "session:s1:37f08ce09b0464caed46e71f",
+     "ordinal": 29,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp infinity"
+    },
+    {
+     "ref": "session:s1:e055a31359cf148253d64096",
+     "ordinal": 30,
+     "role": "user",
+     "ts": 1,
+     "content": "timestamp true"
+    },
+    {
+     "ref": "session:s1:479ac6be2b3f9530a67b2ed6",
+     "ordinal": 31,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp false"
+    },
+    {
+     "ref": "session:s1:df5c24f4b2eb6a32f5a5b38e",
+     "ordinal": 32,
+     "role": "user",
+     "ts": 5,
+     "content": "timestamp array-one"
+    },
+    {
+     "ref": "session:s1:68bebe2ebdf30ff2f0d269fc",
+     "ordinal": 33,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp array-empty"
+    },
+    {
+     "ref": "session:s1:4d83394ba5d61eaa530aa63d",
+     "ordinal": 34,
+     "role": "user",
+     "ts": 978393600000,
+     "content": "timestamp array-two"
+    },
+    {
+     "ref": "session:s1:18fceba448fa486bbb232325",
+     "ordinal": 35,
+     "role": "user",
+     "ts": null,
+     "content": "timestamp object"
+    },
+    {
+     "ref": "session:s1:f2c180efe59c9411880cefd1",
+     "ordinal": 36,
+     "role": "user",
+     "ts": 946684800000,
+     "content": "timestamp digit-string-zero"
+    },
+    {
+     "ref": "session:s1:dff116dd9e206b71c91c1750",
+     "ordinal": 37,
+     "role": "user",
+     "ts": 1,
+     "content": "timestamp digit-string-one"
+    },
+    {
+     "ref": "session:s1:ca94e6b8c22f788abc0c9c8c",
+     "ordinal": 38,
+     "role": "user",
+     "ts": 12,
+     "content": "timestamp digit-string-twelve"
+    },
+    {
+     "ref": "session:s1:ec59d60cdc72d8d7145dad08",
+     "ordinal": 39,
+     "role": "user",
+     "ts": 988675200000,
+     "content": "timestamp negative-string"
+    }
+   ]
+  },
+  {
+   "name": "timestamp-fallbacks",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "ts null timestamp 77",
+     "ts": null,
+     "timestamp": 77
+    },
+    {
+     "role": "user",
+     "content": "ts undefined timestamp iso",
+     "timestamp": "2020-01-01T00:00:00Z"
+    },
+    {
+     "role": "user",
+     "content": "ts zero beats timestamp",
+     "ts": 0,
+     "timestamp": 88
+    },
+    {
+     "role": "user",
+     "content": "ts empty beats timestamp",
+     "ts": "",
+     "timestamp": 99
+    },
+    {
+     "role": "user",
+     "content": "both null",
+     "ts": null,
+     "timestamp": null
+    },
+    {
+     "role": "user",
+     "content": "neither"
+    },
+    {
+     "role": "user",
+     "content": "ts false",
+     "ts": false,
+     "timestamp": 5
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:d7ac508809216de2122aa7be",
+     "ordinal": 0,
+     "role": "user",
+     "ts": 77,
+     "content": "ts null timestamp 77"
+    },
+    {
+     "ref": "session:s1:a6df6df4f4eac85468afc93d",
+     "ordinal": 1,
+     "role": "user",
+     "ts": 1577836800000,
+     "content": "ts undefined timestamp iso"
+    },
+    {
+     "ref": "session:s1:bb29602e91ee29401faa3c16",
+     "ordinal": 2,
+     "role": "user",
+     "ts": 946684800000,
+     "content": "ts zero beats timestamp"
+    },
+    {
+     "ref": "session:s1:6cd8815c41110e975d0a13c3",
+     "ordinal": 3,
+     "role": "user",
+     "ts": null,
+     "content": "ts empty beats timestamp"
+    },
+    {
+     "ref": "session:s1:e5419e0e3faf72702b68e03a",
+     "ordinal": 4,
+     "role": "user",
+     "ts": null,
+     "content": "both null"
+    },
+    {
+     "ref": "session:s1:f5da9d54de0765282649fcb8",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "content": "neither"
+    },
+    {
+     "ref": "session:s1:ca5f40323cd03dd3053e7b7d",
+     "ordinal": 6,
+     "role": "user",
+     "ts": null,
+     "content": "ts false"
+    }
+   ]
+  },
+  {
+   "name": "identity",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "same words"
+    },
+    {
+     "role": "user",
+     "content": "same words"
+    },
+    {
+     "role": "user",
+     "content": "same words",
+     "ts": 5
+    },
+    {
+     "role": "user",
+     "content": "same words",
+     "ts": 5
+    },
+    {
+     "role": "user",
+     "content": "same words",
+     "ts": "5"
+    },
+    {
+     "role": "user",
+     "content": "same words",
+     "ts": "  "
+    },
+    {
+     "role": "assistant",
+     "content": "same words"
+    },
+    {
+     "role": "assistant",
+     "content": "with tool ids",
+     "toolCalls": [
+      {
+       "id": "c1"
+      },
+      {
+       "id": "c2"
+      },
+      {
+       "name": "noid"
+      },
+      {
+       "id": 0
+      },
+      {
+       "id": 7
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "with tool ids"
+    },
+    {
+     "role": "user",
+     "content": "with tool call id",
+     "toolCallId": "r1"
+    },
+    {
+     "role": "user",
+     "content": "with numeric tool call id",
+     "toolCallId": 9
+    },
+    {
+     "role": "user",
+     "content": "with zero tool call id",
+     "toolCallId": 0
+    },
+    {
+     "role": "user",
+     "content": "unicode 한글 😀 text"
+    },
+    {
+     "role": "user",
+     "content": "emoji only 😀"
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:a5efd3f51aa7b0820353a478",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:7637fa6a08cfdcdcb21265ea",
+     "ordinal": 1,
+     "role": "user",
+     "ts": null,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:cd08367f042c2a8dd8a94ac7",
+     "ordinal": 2,
+     "role": "user",
+     "ts": 5,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:cd08367f042c2a8dd8a94ac7",
+     "ordinal": 3,
+     "role": "user",
+     "ts": 5,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:cd08367f042c2a8dd8a94ac7",
+     "ordinal": 4,
+     "role": "user",
+     "ts": 5,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:8367b8b3543e6fc4ccb37b75",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:f1777160c0b92cff5f660def",
+     "ordinal": 6,
+     "role": "assistant",
+     "ts": null,
+     "content": "same words"
+    },
+    {
+     "ref": "session:s1:3f29e3af759ce06024243831",
+     "ordinal": 7,
+     "role": "assistant",
+     "ts": null,
+     "content": "with tool ids"
+    },
+    {
+     "ref": "session:s1:d980e1c3b8eedf3150892f96",
+     "ordinal": 8,
+     "role": "assistant",
+     "ts": null,
+     "content": "with tool ids"
+    },
+    {
+     "ref": "session:s1:bd7fc08d2d7cd41a365eef7f",
+     "ordinal": 9,
+     "role": "user",
+     "ts": null,
+     "content": "with tool call id"
+    },
+    {
+     "ref": "session:s1:5cc81da246804231efa377a8",
+     "ordinal": 10,
+     "role": "user",
+     "ts": null,
+     "content": "with numeric tool call id"
+    },
+    {
+     "ref": "session:s1:86b1105d1fe257d415f09aa3",
+     "ordinal": 11,
+     "role": "user",
+     "ts": null,
+     "content": "with zero tool call id"
+    },
+    {
+     "ref": "session:s1:75b414ec47e061ca96e9e633",
+     "ordinal": 12,
+     "role": "user",
+     "ts": null,
+     "content": "unicode 한글 😀 text"
+    },
+    {
+     "ref": "session:s1:e7d93a2dc12498185cf71194",
+     "ordinal": 13,
+     "role": "user",
+     "ts": null,
+     "content": "emoji only 😀"
+    }
+   ]
+  },
+  {
+   "name": "non-objects",
+   "sessionId": "s1",
+   "messages": [
+    null,
+    "string",
+    5,
+    true,
+    [],
+    [
+     "user"
+    ],
+    {
+     "role": "user",
+     "content": "kept after junk"
+    },
+    null
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:2a502a3c0aa06657308b0434",
+     "ordinal": 6,
+     "role": "user",
+     "ts": null,
+     "content": "kept after junk"
+    }
+   ]
+  },
+  {
+   "name": "no-session-id",
+   "sessionId": "",
+   "messages": [
+    {
+     "role": "user",
+     "content": "anything"
+    }
+   ],
+   "rows": []
+  },
+  {
+   "name": "long",
+   "sessionId": "s1",
+   "messages": [
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "x",
+       "times": 100001,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "a",
+       "times": 99999,
+       "suffix": "😀tail"
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "<system-reminder>",
+       "unit": "r",
+       "times": 150000,
+       "suffix": "</system-reminder>real"
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "          ",
+       "unit": "y",
+       "times": 100005,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "z",
+       "times": 100000,
+       "suffix": "   "
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "é",
+       "times": 100000,
+       "suffix": "x"
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "😀",
+       "times": 50000,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "😀",
+       "times": 50001,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "role": "assistant",
+     "content": {
+      "$gen": {
+       "prefix": "",
+       "unit": "b",
+       "times": 100000,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": {
+        "$gen": {
+         "prefix": "",
+         "unit": "p",
+         "times": 60000,
+         "suffix": ""
+        }
+       }
+      },
+      {
+       "type": "text",
+       "text": {
+        "$gen": {
+         "prefix": "",
+         "unit": "q",
+         "times": 60000,
+         "suffix": ""
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "rows": [
+    {
+     "ref": "session:s1:4e7d8c6cdb6c7a024129449d",
+     "ordinal": 0,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "d69e68988157833272305aaf21f453c800346e8a3640db6578e260215542e5d4"
+    },
+    {
+     "ref": "session:s1:d08f62834807def9c8c97340",
+     "ordinal": 1,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "9d14725b88a0275f92250fedad448b1797d93b168c452f71c6c8c323fa06fc5c"
+    },
+    {
+     "ref": "session:s1:11ca0218cd3015c049e42a74",
+     "ordinal": 2,
+     "role": "user",
+     "ts": null,
+     "content": "real"
+    },
+    {
+     "ref": "session:s1:f12735a27b0cb92dfceeeb68",
+     "ordinal": 3,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "24f3b78cabc6269dc973739ded3f476534d27689bd66157953563d328ce339e8"
+    },
+    {
+     "ref": "session:s1:810113fbb9e3cc08c6ac7443",
+     "ordinal": 4,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "7e9470bdc2048db4667681aed70b1dd034b5310feac2f34e96220565d47638b2"
+    },
+    {
+     "ref": "session:s1:76c8d361e4e199df1319bfa1",
+     "ordinal": 5,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "a5e9d89256f66adf101c4a92bf240ff33594e8c32a289edfd51c9f16a330db19"
+    },
+    {
+     "ref": "session:s1:970a008df15f6827d3c969d4",
+     "ordinal": 6,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "b847b097bebbf3bfa7ac5dabf161431ea81fb2caedc9e8354cc0331ba8afbb1f"
+    },
+    {
+     "ref": "session:s1:520308ae2fd526be0ab185fb",
+     "ordinal": 7,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "b847b097bebbf3bfa7ac5dabf161431ea81fb2caedc9e8354cc0331ba8afbb1f"
+    },
+    {
+     "ref": "session:s1:46ca28efa000e8c4f7d10f28",
+     "ordinal": 8,
+     "role": "assistant",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "768b54e315c41a8d1ae3a29f677bff3b327e238e98e644dc7d566442f5920f8d"
+    },
+    {
+     "ref": "session:s1:4363e1a9e36b3bfd7678cd3d",
+     "ordinal": 9,
+     "role": "user",
+     "ts": null,
+     "contentLen": 100000,
+     "contentSha": "35d504a0451123d4a4726b2a81932f2fef5ac4d0855241113834a8cd6ae551d6"
+    }
+   ]
+  }
+ ],
+ "replace": [
+  {
+   "name": "redacts-existing-rows",
+   "sessionId": "r1",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "inserted": 5,
+     "table": [
+      {
+       "ref": "session:r1:97006869a6781eecb80a6897",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is 682419"
+      },
+      {
+       "ref": "session:r1:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r1:ffa714b56259ce7ca0dfd571",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again 682419 and 682419"
+      },
+      {
+       "ref": "session:r1:8dcfa3e1f45aeaf1e4383a56",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo 682419 \nsecond part"
+      },
+      {
+       "ref": "session:r1:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "redacted": [
+      {
+       "role": "user",
+       "content": "my code is [redacted]",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo [redacted]<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "deleted": 3,
+     "table": [
+      {
+       "ref": "session:r1:d923055779be834f070ff943",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r1:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r1:f09034f9ddde4869f4981256",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": "session:r1:4d7874174ffe66934a34665d",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r1:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "redacted": [
+      {
+       "role": "user",
+       "content": "my code is [redacted]",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo [redacted]<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "deleted": 0,
+     "table": [
+      {
+       "ref": "session:r1:d923055779be834f070ff943",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r1:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r1:f09034f9ddde4869f4981256",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": "session:r1:4d7874174ffe66934a34665d",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r1:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "inserted": 3,
+     "table": [
+      {
+       "ref": "session:r1:97006869a6781eecb80a6897",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is 682419"
+      },
+      {
+       "ref": "session:r1:d923055779be834f070ff943",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r1:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r1:ffa714b56259ce7ca0dfd571",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again 682419 and 682419"
+      },
+      {
+       "ref": "session:r1:f09034f9ddde4869f4981256",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": "session:r1:8dcfa3e1f45aeaf1e4383a56",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo 682419 \nsecond part"
+      },
+      {
+       "ref": "session:r1:4d7874174ffe66934a34665d",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r1:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    }
+   ],
+   "others": []
+  },
+  {
+   "name": "compacted-away-rows-get-fresh-ids",
+   "sessionId": "r2",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "inserted": 5,
+     "table": [
+      {
+       "ref": "session:r2:97006869a6781eecb80a6897",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is 682419"
+      },
+      {
+       "ref": "session:r2:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r2:ffa714b56259ce7ca0dfd571",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again 682419 and 682419"
+      },
+      {
+       "ref": "session:r2:8dcfa3e1f45aeaf1e4383a56",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo 682419 \nsecond part"
+      },
+      {
+       "ref": "session:r2:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "redacted": [
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo [redacted]<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "deleted": 3,
+     "table": [
+      {
+       "ref": "session:r2:1cc66389b998058381662d0a",
+       "ordinal": 0,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": null,
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r2:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": null,
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": null,
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r2:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "redacted": [
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo [redacted]<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "deleted": 0,
+     "table": [
+      {
+       "ref": "session:r2:1cc66389b998058381662d0a",
+       "ordinal": 0,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": null,
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r2:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": null,
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": null,
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r2:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    }
+   ],
+   "others": []
+  },
+  {
+   "name": "null-ts-and-roles-survive",
+   "sessionId": "r3",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "s 682419"
+      },
+      {
+       "role": "assistant",
+       "content": "a 682419",
+       "ts": "2024-05-06T07:08:09Z"
+      },
+      {
+       "role": "user",
+       "content": "b 682419",
+       "ts": "garbage"
+      }
+     ],
+     "inserted": 3,
+     "table": [
+      {
+       "ref": "session:r3:85426f0b8b042473095857df",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "s 682419"
+      },
+      {
+       "ref": "session:r3:882304a4971ca8ab4097bb54",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": 1714979289000,
+       "content": "a 682419"
+      },
+      {
+       "ref": "session:r3:bb50bab1ea1578d7c1922f9b",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "b 682419"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [],
+     "redacted": [],
+     "deleted": 3,
+     "table": [
+      {
+       "ref": null,
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "s [redacted]"
+      },
+      {
+       "ref": null,
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": 1714979289000,
+       "content": "a [redacted]"
+      },
+      {
+       "ref": null,
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "b [redacted]"
+      }
+     ]
+    }
+   ],
+   "others": []
+  },
+  {
+   "name": "nothing-to-redact",
+   "sessionId": "r4",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "clean one"
+      },
+      {
+       "role": "assistant",
+       "content": "clean two"
+      }
+     ],
+     "inserted": 2,
+     "table": [
+      {
+       "ref": "session:r4:a10d05813f87fb835bab0f30",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "clean one"
+      },
+      {
+       "ref": "session:r4:7dbe824f6221e56476ea591a",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "clean two"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "user",
+       "content": "clean one"
+      },
+      {
+       "role": "assistant",
+       "content": "clean two"
+      },
+      {
+       "role": "user",
+       "content": "clean three"
+      }
+     ],
+     "redacted": [
+      {
+       "role": "user",
+       "content": "clean one"
+      },
+      {
+       "role": "assistant",
+       "content": "clean two"
+      },
+      {
+       "role": "user",
+       "content": "clean three"
+      }
+     ],
+     "deleted": 0,
+     "table": [
+      {
+       "ref": "session:r4:a10d05813f87fb835bab0f30",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "clean one"
+      },
+      {
+       "ref": "session:r4:7dbe824f6221e56476ea591a",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "clean two"
+      },
+      {
+       "ref": "session:r4:6fc47974d67cd5d1e05c8f4f",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "clean three"
+      }
+     ]
+    }
+   ],
+   "others": []
+  },
+  {
+   "name": "first-write-is-a-replace",
+   "sessionId": "r5",
+   "steps": [
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "redacted": [
+      {
+       "role": "user",
+       "content": "my code is [redacted]",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo [redacted]<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "deleted": 0,
+     "table": [
+      {
+       "ref": "session:r5:d923055779be834f070ff943",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r5:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r5:f09034f9ddde4869f4981256",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": "session:r5:4d7874174ffe66934a34665d",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r5:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    }
+   ],
+   "others": []
+  },
+  {
+   "name": "other-sessions-untouched",
+   "sessionId": "r6",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "inserted": 5,
+     "table": [
+      {
+       "ref": "session:r6:97006869a6781eecb80a6897",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is 682419"
+      },
+      {
+       "ref": "session:r6:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r6:ffa714b56259ce7ca0dfd571",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again 682419 and 682419"
+      },
+      {
+       "ref": "session:r6:8dcfa3e1f45aeaf1e4383a56",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo 682419 \nsecond part"
+      },
+      {
+       "ref": "session:r6:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "user",
+       "content": "my code is 682419",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again 682419 and 682419"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo 682419<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "redacted": [
+      {
+       "role": "user",
+       "content": "my code is [redacted]",
+       "ts": 1000
+      },
+      {
+       "role": "assistant",
+       "content": "nothing to hide here"
+      },
+      {
+       "role": "user",
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo [redacted]<system-reminder>r</system-reminder>"
+        },
+        {
+         "type": "text",
+         "text": "second part"
+        }
+       ]
+      },
+      {
+       "role": "user",
+       "content": "clean tail",
+       "ts": 5000
+      }
+     ],
+     "deleted": 3,
+     "table": [
+      {
+       "ref": "session:r6:d923055779be834f070ff943",
+       "ordinal": 0,
+       "role": "user",
+       "ts": 1000,
+       "content": "my code is [redacted]"
+      },
+      {
+       "ref": "session:r6:1b3522addd9549fa0da87d9c",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "nothing to hide here"
+      },
+      {
+       "ref": "session:r6:f09034f9ddde4869f4981256",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "again [redacted] and [redacted]"
+      },
+      {
+       "ref": "session:r6:4d7874174ffe66934a34665d",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "echo [redacted] \nsecond part"
+      },
+      {
+       "ref": "session:r6:931fe61b1cd27ef6ce9d637c",
+       "ordinal": 4,
+       "role": "user",
+       "ts": 5000,
+       "content": "clean tail"
+      }
+     ]
+    }
+   ],
+   "others": [
+    {
+     "sessionId": "r6-other",
+     "messages": [
+      {
+       "role": "user",
+       "content": "other 682419"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:r6-other:deb7a19220f3da7b265cedc8",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "other 682419"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "duplicates-stay-distinct",
+   "sessionId": "r7",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "dup 682419"
+      },
+      {
+       "role": "user",
+       "content": "dup 682419"
+      },
+      {
+       "role": "user",
+       "content": "dup 682419",
+       "ts": 3
+      },
+      {
+       "role": "user",
+       "content": "dup 682419",
+       "ts": 3
+      }
+     ],
+     "inserted": 3,
+     "table": [
+      {
+       "ref": "session:r7:780ada3a6c68d7293627317c",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "dup 682419"
+      },
+      {
+       "ref": "session:r7:63b5c21501a5847a5f9e0c76",
+       "ordinal": 1,
+       "role": "user",
+       "ts": null,
+       "content": "dup 682419"
+      },
+      {
+       "ref": "session:r7:863d4371aa5c73e7a5a14872",
+       "ordinal": 2,
+       "role": "user",
+       "ts": 3,
+       "content": "dup 682419"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "user",
+       "content": "dup 682419"
+      },
+      {
+       "role": "user",
+       "content": "dup 682419"
+      },
+      {
+       "role": "user",
+       "content": "dup 682419",
+       "ts": 3
+      },
+      {
+       "role": "user",
+       "content": "dup 682419",
+       "ts": 3
+      }
+     ],
+     "redacted": [
+      {
+       "role": "user",
+       "content": "dup [redacted]"
+      },
+      {
+       "role": "user",
+       "content": "dup [redacted]"
+      },
+      {
+       "role": "user",
+       "content": "dup [redacted]",
+       "ts": 3
+      },
+      {
+       "role": "user",
+       "content": "dup [redacted]",
+       "ts": 3
+      }
+     ],
+     "deleted": 3,
+     "table": [
+      {
+       "ref": "session:r7:6d7449ebc91b36fd8bbf4ff7",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "dup [redacted]"
+      },
+      {
+       "ref": "session:r7:d5b8a55486c6fe0bb09a4f4e",
+       "ordinal": 1,
+       "role": "user",
+       "ts": null,
+       "content": "dup [redacted]"
+      },
+      {
+       "ref": "session:r7:2ab3140efe21a1fcbb1058e5",
+       "ordinal": 2,
+       "role": "user",
+       "ts": 3,
+       "content": "dup [redacted]"
+      }
+     ]
+    }
+   ],
+   "others": []
+  },
+  {
+   "name": "reordered-transcript",
+   "sessionId": "r8",
+   "steps": [
+    {
+     "op": "append",
+     "messages": [
+      {
+       "role": "user",
+       "content": "x 682419"
+      },
+      {
+       "role": "assistant",
+       "content": "y"
+      },
+      {
+       "role": "user",
+       "content": "z 682419"
+      }
+     ],
+     "inserted": 3,
+     "table": [
+      {
+       "ref": "session:r8:f9165dcdb8390d1528f50782",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "x 682419"
+      },
+      {
+       "ref": "session:r8:de923a3a3c5ff60ab12ce562",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "y"
+      },
+      {
+       "ref": "session:r8:b7f9a67a159d36c8b55b130d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "z 682419"
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "plain": [
+      {
+       "role": "assistant",
+       "content": "y"
+      },
+      {
+       "role": "user",
+       "content": "x 682419"
+      }
+     ],
+     "redacted": [
+      {
+       "role": "assistant",
+       "content": "y"
+      },
+      {
+       "role": "user",
+       "content": "x [redacted]"
+      }
+     ],
+     "deleted": 2,
+     "table": [
+      {
+       "ref": null,
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "x [redacted]"
+      },
+      {
+       "ref": "session:r8:d192eb97535e1110e9abbfcf",
+       "ordinal": 0,
+       "role": "assistant",
+       "ts": null,
+       "content": "y"
+      },
+      {
+       "ref": "session:r8:dacd2a8e1eb1e386511ca608",
+       "ordinal": 1,
+       "role": "user",
+       "ts": null,
+       "content": "x [redacted]"
+      },
+      {
+       "ref": "session:r8:de923a3a3c5ff60ab12ce562",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "y"
+      },
+      {
+       "ref": null,
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "z [redacted]"
+      }
+     ]
+    }
+   ],
+   "others": []
+  }
+ ],
+ "turns": [
+  {
+   "name": "append-then-mark-then-replace",
+   "sessionId": "t1",
+   "steps": [
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      }
+     ]
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      }
+     ]
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t1:364fa7ed2c043368975d327c",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret 682419 typed"
+      },
+      {
+       "ref": "session:t1:7601207de4b7875ea9a020eb",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got 682419"
+      }
+     ]
+    },
+    {
+     "op": "remember",
+     "calls": [
+      {
+       "name": "browser",
+       "arguments": {
+        "action": "fill",
+        "input": {
+         "ref": "e1",
+         "text": "682419",
+         "sensitive": true,
+         "fields": []
+        }
+       }
+      }
+     ],
+     "marked": true,
+     "version": 1
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t1:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t1:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      }
+     ]
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      },
+      {
+       "role": "user",
+       "content": "later prompt"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t1:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t1:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      },
+      {
+       "ref": "session:t1:fc221c2ff2ad1451f192782e",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "later prompt"
+      }
+     ]
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      },
+      {
+       "role": "user",
+       "content": "same length, changed text"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t1:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t1:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      },
+      {
+       "ref": "session:t1:fc221c2ff2ad1451f192782e",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "later prompt"
+      }
+     ]
+    },
+    {
+     "op": "remember",
+     "calls": [
+      {
+       "name": "browser",
+       "arguments": {
+        "action": "fill",
+        "input": {
+         "ref": "e1",
+         "text": "later",
+         "sensitive": true,
+         "fields": [
+          {
+           "text": "prompt"
+          }
+         ]
+        }
+       }
+      }
+     ],
+     "marked": true,
+     "version": 2
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      },
+      {
+       "role": "user",
+       "content": "later prompt"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:dc1ccfcf02a3df46966eae53",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first [redacted]"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t1:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t1:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      },
+      {
+       "ref": "session:t1:d343e527f342e019f54d817f",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "[redacted] [redacted]"
+      }
+     ]
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      },
+      {
+       "role": "user",
+       "content": "later prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "after both marks"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t1:dc1ccfcf02a3df46966eae53",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first [redacted]"
+      },
+      {
+       "ref": "session:t1:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t1:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t1:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      },
+      {
+       "ref": "session:t1:d343e527f342e019f54d817f",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "[redacted] [redacted]"
+      },
+      {
+       "ref": "session:t1:48ec886505f1f4b8ecb6631b",
+       "ordinal": 5,
+       "role": "assistant",
+       "ts": null,
+       "content": "after both marks"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "marked-before-first-ingest",
+   "sessionId": "t2",
+   "steps": [
+    {
+     "op": "remember",
+     "calls": [
+      {
+       "name": "browser",
+       "arguments": {
+        "action": "fill",
+        "input": {
+         "ref": "e1",
+         "text": "682419",
+         "sensitive": true,
+         "fields": []
+        }
+       }
+      }
+     ],
+     "marked": true,
+     "version": 1
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t2:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t2:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t2:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t2:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      }
+     ]
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      },
+      {
+       "role": "user",
+       "content": "later prompt"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t2:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t2:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t2:df6af20496e638dd3c691c0d",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": "session:t2:0c62e8f1b7803b17b629edd8",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      },
+      {
+       "ref": "session:t2:fc221c2ff2ad1451f192782e",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "later prompt"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "compaction-shrinks-the-transcript",
+   "sessionId": "t3",
+   "steps": [
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "first prompt"
+      },
+      {
+       "role": "assistant",
+       "content": "first answer"
+      },
+      {
+       "role": "user",
+       "content": "secret 682419 typed"
+      },
+      {
+       "role": "assistant",
+       "content": "got 682419"
+      },
+      {
+       "role": "user",
+       "content": "later prompt"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t3:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t3:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t3:364fa7ed2c043368975d327c",
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret 682419 typed"
+      },
+      {
+       "ref": "session:t3:7601207de4b7875ea9a020eb",
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got 682419"
+      },
+      {
+       "ref": "session:t3:fc221c2ff2ad1451f192782e",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "later prompt"
+      }
+     ]
+    },
+    {
+     "op": "remember",
+     "calls": [
+      {
+       "name": "browser",
+       "arguments": {
+        "action": "fill",
+        "input": {
+         "ref": "e1",
+         "text": "682419",
+         "sensitive": true,
+         "fields": []
+        }
+       }
+      }
+     ],
+     "marked": true,
+     "version": 1
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "summary-ish prompt"
+      },
+      {
+       "role": "user",
+       "content": "kept 682419 tail"
+      },
+      {
+       "role": "assistant",
+       "content": "new reply"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t3:ca51a73e932836bc560d8743",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "first prompt"
+      },
+      {
+       "ref": "session:t3:254348a5c1f922c55cd9866f",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "summary-ish prompt"
+      },
+      {
+       "ref": "session:t3:b41e088eb938833b37ae9a07",
+       "ordinal": 1,
+       "role": "assistant",
+       "ts": null,
+       "content": "first answer"
+      },
+      {
+       "ref": "session:t3:51c8257973d4b40cdd771de9",
+       "ordinal": 1,
+       "role": "user",
+       "ts": null,
+       "content": "kept [redacted] tail"
+      },
+      {
+       "ref": "session:t3:2132e0798065aa06e7e51885",
+       "ordinal": 2,
+       "role": "assistant",
+       "ts": null,
+       "content": "new reply"
+      },
+      {
+       "ref": null,
+       "ordinal": 2,
+       "role": "user",
+       "ts": null,
+       "content": "secret [redacted] typed"
+      },
+      {
+       "ref": null,
+       "ordinal": 3,
+       "role": "assistant",
+       "ts": null,
+       "content": "got [redacted]"
+      },
+      {
+       "ref": "session:t3:fc221c2ff2ad1451f192782e",
+       "ordinal": 4,
+       "role": "user",
+       "ts": null,
+       "content": "later prompt"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "empty-transcript-is-ignored",
+   "sessionId": "t4",
+   "steps": [
+    {
+     "op": "ingest",
+     "messages": [],
+     "table": []
+    },
+    {
+     "op": "ingest",
+     "messages": [
+      {
+       "role": "user",
+       "content": "only message"
+      }
+     ],
+     "table": [
+      {
+       "ref": "session:t4:08205e26a744da4698437ad7",
+       "ordinal": 0,
+       "role": "user",
+       "ts": null,
+       "content": "only message"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

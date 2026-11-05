@@ -3,6 +3,7 @@
 //! derives the observable state. It never reads an old format. (Stand-in for the
 //! runtime store reader until WP-STORE lands; same frame and record rules.)
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -10,6 +11,8 @@ use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::frame::LOG_FILE_DIGITS;
 use mixdog_store::schema::frame::LOG_FILE_PREFIX;
 use mixdog_store::schema::frame::ScanEnd;
+use mixdog_store::schema::migration::MANIFEST_PATH;
+use mixdog_store::schema::migration::Manifest;
 use mixdog_store::schema::record::ArchiveTag;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
@@ -25,7 +28,9 @@ use super::observe::RunView;
 use super::observe::archive_view;
 use super::observe::statuses;
 use crate::durable;
+use crate::framework::BlobStatuses;
 use crate::framework::ItemContext;
+use crate::framework::MigrationRoots;
 
 pub struct FoldedRow {
     pub ordinal: u64,
@@ -158,12 +163,19 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                 }
                 Record::Item(item) => {
                     let (body, blob) = resolve(cx, item.body)?;
+                    let (prompt, prompt_blob) = match item.prompt {
+                        Some(slot) => {
+                            let (text, blob) = resolve(cx, slot)?;
+                            (Some(text), blob)
+                        }
+                        None => (None, None),
+                    };
                     let refs = item
                         .refs
                         .as_slice()
                         .iter()
                         .map(|d| d.as_str().trim_start_matches("sha256:").to_string())
-                        .filter(|h| Some(h) != blob.as_ref())
+                        .filter(|h| Some(h) != blob.as_ref() && Some(h) != prompt_blob.as_ref())
                         .collect();
                     folded.rows.push(FoldedRow {
                         ordinal: frame.ordinal,
@@ -173,7 +185,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                         model: item.model,
                         visible: item.visible,
                         archive: item.archive,
-                        prompt: item.prompt,
+                        prompt,
                         refs,
                         body,
                     });
@@ -215,6 +227,31 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
         }
     }
     Ok(folded)
+}
+
+/// Every published session of a completed migration of `roots`, folded, by id.
+pub fn read_sessions(roots: &MigrationRoots, manifest_sha256: &str) -> Result<BTreeMap<String, Folded>, String> {
+    let manifest = durable::read(&roots.data.join(MANIFEST_PATH)).map_err(|e| e.to_string())?;
+    let manifest: Manifest = serde_json::from_slice(&manifest).map_err(|e| format!("{MANIFEST_PATH}: {e}"))?;
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots,
+        manifest: &manifest,
+        manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let sessions = roots.data.join("sessions");
+    let mut out = BTreeMap::new();
+    for (id, is_dir) in durable::list_dir(&sessions).map_err(|e| e.to_string())? {
+        if is_dir {
+            let folded = read_session(&cx, &sessions.join(&id))?;
+            out.insert(id, folded);
+        }
+    }
+    Ok(out)
 }
 
 impl Folded {

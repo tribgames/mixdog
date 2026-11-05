@@ -2,6 +2,7 @@
 //! assistant messages committed from it, and the termination classification.
 
 use mixdog_core_api::domain::provider::ProviderReplay;
+use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -33,6 +34,10 @@ pub struct ModelResponse {
     /// The whole report when the ask carried earlier answers.
     pub report_content: Option<String>,
     pub max_output_recovery_attempts: Option<u32>,
+    /// The session's provider state as the provider left it (Node writes
+    /// `opts.providerState` back); `None` when the request did not change it.
+    /// The run stores it as the pending state for the next request.
+    pub provider_state: Option<ProviderState>,
 }
 
 impl ModelResponse {
@@ -77,6 +82,7 @@ impl ResponseBuilder {
                 response.tool_calls.push(call);
             }
             StreamEvent::Usage(usage) => response.usage = usage,
+            StreamEvent::ProviderState(state) => response.provider_state = Some(state),
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
             StreamEvent::Completed { stop } => {
                 response.stop = stop;

@@ -1,0 +1,40 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-workflow-config.mjs --tree <tree>",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 79131,
+      "path": "scenarios.json",
+      "sha256": "2cd38cf3ee179db54c269588e82c54fa709ccb0d270be8ec64b91549c9db2c7b"
+    },
+    {
+      "bytes": 732,
+      "path": "shipped/workflows/default/WORKFLOW.md",
+      "sha256": "de965c18698d67926c2195d25244ec1417b7714fdd3a913ccd3c7acea05581ce"
+    },
+    {
+      "bytes": 251,
+      "path": "shipped/workflows/headless/WORKFLOW.md",
+      "sha256": "b48911bc9051bdd3beb76868ee44613d8c926c3d73b5b2c14f8c027402cf8ddc"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43480,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34400
+    },
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-workflow-config.mjs",
+  "set": "workflow-config",
+  "totalBytes": 80114
+}

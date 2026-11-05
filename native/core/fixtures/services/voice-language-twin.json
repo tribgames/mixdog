@@ -1,0 +1,196 @@
+{
+  "cases": [
+    {
+      "input": "",
+      "output": null
+    },
+    {
+      "input": " ",
+      "output": null
+    },
+    {
+      "input": "auto",
+      "output": null
+    },
+    {
+      "input": "AUTO",
+      "output": null
+    },
+    {
+      "input": " Auto ",
+      "output": null
+    },
+    {
+      "input": "c",
+      "output": null
+    },
+    {
+      "input": "C",
+      "output": null
+    },
+    {
+      "input": "POSIX",
+      "output": null
+    },
+    {
+      "input": "posix",
+      "output": null
+    },
+    {
+      "input": "C.UTF-8",
+      "output": null
+    },
+    {
+      "input": "c.utf-8",
+      "output": null
+    },
+    {
+      "input": "POSIX.UTF-8",
+      "output": null
+    },
+    {
+      "input": "cs",
+      "output": "cs"
+    },
+    {
+      "input": "cs_CZ",
+      "output": "cs_cz"
+    },
+    {
+      "input": "ca",
+      "output": "ca"
+    },
+    {
+      "input": "ko",
+      "output": "ko"
+    },
+    {
+      "input": "ko-KR",
+      "output": "ko"
+    },
+    {
+      "input": " ko_KR.UTF-8 ",
+      "output": "ko"
+    },
+    {
+      "input": "KO",
+      "output": "ko"
+    },
+    {
+      "input": "ja_JP",
+      "output": "ja"
+    },
+    {
+      "input": "en",
+      "output": "en"
+    },
+    {
+      "input": "en_US.UTF-8",
+      "output": "en"
+    },
+    {
+      "input": "EN-gb",
+      "output": "en"
+    },
+    {
+      "input": "zh-CN",
+      "output": "zh"
+    },
+    {
+      "input": "zh_TW",
+      "output": "zh"
+    },
+    {
+      "input": "de_DE",
+      "output": "de"
+    },
+    {
+      "input": "fr",
+      "output": "fr"
+    },
+    {
+      "input": "es-419",
+      "output": "es"
+    },
+    {
+      "input": "it",
+      "output": "it"
+    },
+    {
+      "input": "pt-BR",
+      "output": "pt"
+    },
+    {
+      "input": "ru_RU",
+      "output": "ru"
+    },
+    {
+      "input": "sv-SE",
+      "output": "sv-se"
+    },
+    {
+      "input": "sv",
+      "output": "sv"
+    },
+    {
+      "input": "nl",
+      "output": "nl"
+    },
+    {
+      "input": "enx",
+      "output": "en"
+    },
+    {
+      "input": "ptolemaic",
+      "output": "pt"
+    },
+    {
+      "input": " ko ",
+      "output": "ko"
+    },
+    {
+      "input": "　ja　",
+      "output": "ja"
+    },
+    {
+      "input": "﻿en",
+      "output": "en"
+    },
+    {
+      "input": "İstanbul",
+      "output": "i̇stanbul"
+    },
+    {
+      "input": "ÇA",
+      "output": "ça"
+    },
+    {
+      "input": "ß",
+      "output": "ß"
+    },
+    {
+      "input": "x",
+      "output": "x"
+    },
+    {
+      "input": "C-UTF",
+      "output": "c-utf"
+    },
+    {
+      "input": "c_US",
+      "output": "c_us"
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": {
+        "absent": true
+      },
+      "output": null
+    }
+  ],
+  "domain": "voice-language-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-voice-language.mjs"
+}

@@ -1,6 +1,6 @@
 // Records Node's compaction outputs the Rust port is tested against.
 //
-//   node native/core/fixtures/agent/compact/record.mjs [path-to-node-checkout]
+//   node native/core/fixtures/agent/compact/record.mjs [--tree <node checkout with node_modules>]
 //
 // Each golden is `golden/<name>.json`: the Node-shaped input messages and the
 // value Node computed from them. Messages are plain Node transcript rows
@@ -10,15 +10,21 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const nodeRoot = resolve(process.argv[2] || process.env.MIXDOG_NODE_ROOT || 'C:/Project/mixdog');
+const nodeRoot = resolveTree(parseArgs());
 const sessionDir = join(nodeRoot, 'src/runtime/agent/orchestrator/session');
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-compact-golden-'));
-mkdirSync(join(here, 'golden'), { recursive: true });
+// The `agent` set is shared with the agent-loop recorders: stage a copy, overwrite only this recorder's goldens,
+// re-list the shared manifest, then swap the finished copy in.
+const agentDir = resolve(here, '..');
+const stage = stageSet(agentDir, []);
+const outDir = join(stage, 'compact');
+mkdirSync(join(outDir, 'golden'), { recursive: true });
 
 const load = (rel) => import(pathToFileURL(join(sessionDir, rel)).href);
-const write = (name, value) => writeFileSync(join(here, 'golden', `${name}.json`), `${JSON.stringify(value, null, 2)}\n`);
+const write = (name, value) => writeFileSync(join(outDir, 'golden', `${name}.json`), `${JSON.stringify(value, null, 2)}\n`);
 
 const { estimateMessageTokens, estimateMessagesTokens } = await load('context-utils.mjs');
 
@@ -296,7 +302,7 @@ const droppedCase = async (name, build) => {
     await prepared.durable;
     prepared.cancel();
   }
-  return { name, before, after, identities };
+  return { name, before, after, droppedMessages: prepared ? prepared.dropped : 0, identities };
 };
 const summaryRow = { role: 'user', content: 'A previous model worked on this task and produced the compacted handoff summary below.\n\n## Goal', meta: { source: 'compact-summary' } };
 write('dropped', {
@@ -318,3 +324,5 @@ write('dropped', {
     }),
   ],
 });
+refreshSetManifest(stage, nodeRoot);
+commitStage(stage, agentDir);

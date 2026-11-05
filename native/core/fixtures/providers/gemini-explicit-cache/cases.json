@@ -1,0 +1,426 @@
+{
+ "now": 1800000000000,
+ "model": "gemini-2.5-pro",
+ "apiKey": "gemini-test-key",
+ "tools": [
+  {
+   "functionDeclarations": [
+    {
+     "name": "read",
+     "description": "Read a file",
+     "parameters": {
+      "type": "OBJECT",
+      "properties": {
+       "path": {
+        "type": "STRING"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "toolConfig": {
+  "functionCallingConfig": {
+   "mode": "AUTO"
+  }
+ },
+ "contents": [
+  {
+   "role": "user",
+   "parts": [
+    {
+     "text": "Refactor the parser. é😀"
+    }
+   ]
+  },
+  {
+   "role": "model",
+   "parts": [
+    {
+     "text": "Reading."
+    },
+    {
+     "functionCall": {
+      "name": "read",
+      "args": {
+       "path": "a.rs",
+       "z": 1,
+       "b": [
+        1,
+        {
+         "y": 2,
+         "x": 3
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "function",
+   "parts": [
+    {
+     "functionResponse": {
+      "name": "read",
+      "response": {
+       "content": "fn main() {}"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "parts": [
+    {
+     "text": "<side-question>Where?</side-question>"
+    }
+   ]
+  }
+ ],
+ "cases": [
+  {
+   "name": "no_state",
+   "systemCase": 1,
+   "iteration": 1,
+   "fork": false,
+   "state": null,
+   "expect": {
+    "cacheName": "cachedContents/created-1",
+    "providerState": {
+     "gemini": {
+      "cacheName": "cachedContents/created-1",
+      "cacheCreatedAt": 1800000000000,
+      "cacheCreatedAtIter": 1,
+      "cacheExpiresAt": 1800000300000,
+      "cacheModel": "gemini-2.5-pro",
+      "cacheTokenSize": 5001,
+      "cachePrefixContentCount": 3,
+      "cachePrefixHash": "716e94dcc9f99077",
+      "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+     }
+    },
+    "posts": [
+     {
+      "url": "https://generativelanguage.googleapis.com/v1beta/cachedContents",
+      "headers": {
+       "Content-Type": "application/json",
+       "x-goog-api-key": "gemini-test-key"
+      },
+      "body": "{\"model\":\"models/gemini-2.5-pro\",\"ttl\":\"300s\",\"systemInstruction\":{\"parts\":[{\"text\":\"You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. case-1\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"path\":{\"type\":\"STRING\"}}}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"AUTO\"}},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Refactor the parser. é😀\"}]},{\"role\":\"model\",\"parts\":[{\"text\":\"Reading.\"},{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"a.rs\",\"z\":1,\"b\":[1,{\"y\":2,\"x\":3}]}}}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"read\",\"response\":{\"content\":\"fn main() {}\"}}}]}]}"
+     }
+    ],
+    "deleteCount": 0
+   }
+  },
+  {
+   "name": "live_state",
+   "systemCase": 2,
+   "iteration": 2,
+   "fork": false,
+   "state": {
+    "gemini": {
+     "cacheName": "cachedContents/session",
+     "cacheCreatedAt": 1799999999000,
+     "cacheCreatedAtIter": 1,
+     "cacheExpiresAt": 1800000600000,
+     "cacheModel": "gemini-2.5-pro",
+     "cacheTokenSize": 4321,
+     "cachePrefixContentCount": 3,
+     "cachePrefixHash": "f3b63163faaffb57",
+     "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+    }
+   },
+   "expect": {
+    "cacheName": "cachedContents/session",
+    "providerState": {
+     "gemini": {
+      "cacheName": "cachedContents/session",
+      "cacheCreatedAt": 1799999999000,
+      "cacheCreatedAtIter": 1,
+      "cacheExpiresAt": 1800000600000,
+      "cacheModel": "gemini-2.5-pro",
+      "cacheTokenSize": 4321,
+      "cachePrefixContentCount": 3,
+      "cachePrefixHash": "f3b63163faaffb57",
+      "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+     }
+    },
+    "posts": [],
+    "deleteCount": 0
+   }
+  },
+  {
+   "name": "expired_state",
+   "systemCase": 3,
+   "iteration": 2,
+   "fork": false,
+   "state": {
+    "gemini": {
+     "cacheName": "cachedContents/session",
+     "cacheCreatedAt": 1799999999000,
+     "cacheCreatedAtIter": 1,
+     "cacheExpiresAt": 1799999999000,
+     "cacheModel": "gemini-2.5-pro",
+     "cacheTokenSize": 4321,
+     "cachePrefixContentCount": 3,
+     "cachePrefixHash": "8935212f9400801e",
+     "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+    }
+   },
+   "expect": {
+    "cacheName": "cachedContents/created-3",
+    "providerState": {
+     "gemini": {
+      "cacheName": "cachedContents/created-3",
+      "cacheCreatedAt": 1800000000000,
+      "cacheCreatedAtIter": 2,
+      "cacheExpiresAt": 1800000300000,
+      "cacheModel": "gemini-2.5-pro",
+      "cacheTokenSize": 5003,
+      "cachePrefixContentCount": 3,
+      "cachePrefixHash": "8935212f9400801e",
+      "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+     }
+    },
+    "posts": [
+     {
+      "url": "https://generativelanguage.googleapis.com/v1beta/cachedContents",
+      "headers": {
+       "Content-Type": "application/json",
+       "x-goog-api-key": "gemini-test-key"
+      },
+      "body": "{\"model\":\"models/gemini-2.5-pro\",\"ttl\":\"300s\",\"systemInstruction\":{\"parts\":[{\"text\":\"You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. case-3\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"path\":{\"type\":\"STRING\"}}}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"AUTO\"}},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Refactor the parser. é😀\"}]},{\"role\":\"model\",\"parts\":[{\"text\":\"Reading.\"},{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"a.rs\",\"z\":1,\"b\":[1,{\"y\":2,\"x\":3}]}}}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"read\",\"response\":{\"content\":\"fn main() {}\"}}}]}]}"
+     }
+    ],
+    "deleteCount": 0
+   }
+  },
+  {
+   "name": "refresh_due",
+   "systemCase": 4,
+   "iteration": 6,
+   "fork": false,
+   "state": {
+    "gemini": {
+     "cacheName": "cachedContents/session",
+     "cacheCreatedAt": 1799999999000,
+     "cacheCreatedAtIter": 1,
+     "cacheExpiresAt": 1800000600000,
+     "cacheModel": "gemini-2.5-pro",
+     "cacheTokenSize": 4321,
+     "cachePrefixContentCount": 3,
+     "cachePrefixHash": "84f4dadd662806a9",
+     "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+    }
+   },
+   "expect": {
+    "cacheName": "cachedContents/created-4",
+    "providerState": {
+     "gemini": {
+      "cacheName": "cachedContents/created-4",
+      "cacheCreatedAt": 1800000000000,
+      "cacheCreatedAtIter": 6,
+      "cacheExpiresAt": 1800000300000,
+      "cacheModel": "gemini-2.5-pro",
+      "cacheTokenSize": 5004,
+      "cachePrefixContentCount": 3,
+      "cachePrefixHash": "84f4dadd662806a9",
+      "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+     }
+    },
+    "posts": [
+     {
+      "url": "https://generativelanguage.googleapis.com/v1beta/cachedContents",
+      "headers": {
+       "Content-Type": "application/json",
+       "x-goog-api-key": "gemini-test-key"
+      },
+      "body": "{\"model\":\"models/gemini-2.5-pro\",\"ttl\":\"300s\",\"systemInstruction\":{\"parts\":[{\"text\":\"You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. case-4\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"path\":{\"type\":\"STRING\"}}}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"AUTO\"}},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Refactor the parser. é😀\"}]},{\"role\":\"model\",\"parts\":[{\"text\":\"Reading.\"},{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"a.rs\",\"z\":1,\"b\":[1,{\"y\":2,\"x\":3}]}}}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"read\",\"response\":{\"content\":\"fn main() {}\"}}}]}]}"
+     }
+    ],
+    "deleteCount": 0
+   }
+  },
+  {
+   "name": "fork_live_state",
+   "systemCase": 5,
+   "iteration": 11,
+   "fork": true,
+   "state": {
+    "gemini": {
+     "cacheName": "cachedContents/session",
+     "cacheCreatedAt": 1799999999000,
+     "cacheCreatedAtIter": 1,
+     "cacheExpiresAt": 1800000600000,
+     "cacheModel": "gemini-2.5-pro",
+     "cacheTokenSize": 4321,
+     "cachePrefixContentCount": 3,
+     "cachePrefixHash": "6ca1303157ed8f3a",
+     "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+    }
+   },
+   "expect": {
+    "cacheName": "cachedContents/session",
+    "providerState": {
+     "gemini": {
+      "cacheName": "cachedContents/session",
+      "cacheCreatedAt": 1799999999000,
+      "cacheCreatedAtIter": 1,
+      "cacheExpiresAt": 1800000600000,
+      "cacheModel": "gemini-2.5-pro",
+      "cacheTokenSize": 4321,
+      "cachePrefixContentCount": 3,
+      "cachePrefixHash": "6ca1303157ed8f3a",
+      "cacheCredentialFingerprint": "4f8dee0f93cdec73"
+     }
+    },
+    "posts": [],
+    "deleteCount": 0
+   }
+  },
+  {
+   "name": "fork_no_state",
+   "systemCase": 6,
+   "iteration": 1,
+   "fork": true,
+   "state": null,
+   "expect": {
+    "cacheName": null,
+    "providerState": null,
+    "posts": [],
+    "deleteCount": 0
+   }
+  }
+ ],
+ "hashes": {
+  "systemCase": 0,
+  "prefixHash3": "ba2f24ccbe63142d",
+  "prefixHash0": "943a33e5841632ca",
+  "credential": "4f8dee0f93cdec73",
+  "globalKey": "f553ed81afacab1e",
+  "estimate": 4592,
+  "minTokens": {
+   "gemini-2.5-pro": 2048,
+   "models/Gemini-2.5-Flash": 2048,
+   "gemini-2.5-flash-lite": 4096,
+   "gemini-2.5-flash-preview": 2048,
+   "gemini-3.1-pro": 4096,
+   "gemini-4-argon": null,
+   "gemini-10-x": null,
+   "other-model": 4096
+  },
+  "createBody": {
+   "model": "models/gemini-2.5-pro",
+   "ttl": "300s",
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. You are the Lead. case-0"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "read",
+       "description": "Read a file",
+       "parameters": {
+        "type": "OBJECT",
+        "properties": {
+         "path": {
+          "type": "STRING"
+         }
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   },
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "Refactor the parser. é😀"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "Reading."
+      },
+      {
+       "functionCall": {
+        "name": "read",
+        "args": {
+         "path": "a.rs",
+         "z": 1,
+         "b": [
+          1,
+          {
+           "y": 2,
+           "x": 3
+          }
+         ]
+        }
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read",
+        "response": {
+         "content": "fn main() {}"
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "cachedBody": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "<side-question>Where?</side-question>"
+      }
+     ]
+    }
+   ],
+   "cachedContent": "cachedContents/session",
+   "generationConfig": {
+    "maxOutputTokens": 100
+   }
+  },
+  "cachedBodyAllCached": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "<side-question>Where?</side-question>"
+      }
+     ]
+    }
+   ],
+   "cachedContent": "cachedContents/session"
+  }
+ }
+}

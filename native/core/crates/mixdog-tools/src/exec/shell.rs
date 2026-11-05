@@ -614,7 +614,7 @@ impl Tool for ShellTool {
             &command,
             runtime.config.windows,
             runtime.config.powershell,
-            runtime.config.script_syntax.as_deref(),
+            runtime.config.script_syntax.as_ref(),
             &ctx.thread_id,
         )
         .await

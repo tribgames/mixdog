@@ -4,7 +4,7 @@
 //! user accepts the license against a pending preview.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -144,7 +144,7 @@ struct Preview {
 
 pub struct HuggingFaceCatalog {
     http: Box<dyn HfHttp>,
-    registry: RegisteredModels,
+    registry: Arc<RegisteredModels>,
     previews: Mutex<HashMap<String, Preview>>,
 }
 
@@ -154,7 +154,8 @@ fn repository_id(value: Option<&Value>) -> Result<&str, HfError> {
 }
 
 impl HuggingFaceCatalog {
-    pub fn new(http: Box<dyn HfHttp>, registry: RegisteredModels) -> Self {
+    /// `registry` is the catalog's own registry: both must see the same registered models.
+    pub fn new(http: Box<dyn HfHttp>, registry: Arc<RegisteredModels>) -> Self {
         Self { http, registry, previews: Mutex::default() }
     }
 
@@ -268,7 +269,7 @@ impl HuggingFaceCatalog {
         }))
     }
 
-    pub fn register(&self, preview_id: &str, license_accepted: bool) -> Result<Value, HfError> {
+    pub async fn register(&self, preview_id: &str, license_accepted: bool) -> Result<Value, HfError> {
         let model = {
             let previews = self.previews.lock().unwrap();
             previews.get(preview_id).filter(|p| p.expires_at >= now_ms()).map(|p| p.model.clone())
@@ -277,7 +278,7 @@ impl HuggingFaceCatalog {
         if !license_accepted {
             return invalid("Explicit license acceptance is required.");
         }
-        let registered = self.registry.register(&model)?;
+        let registered = self.registry.register(&model).await?;
         self.previews.lock().unwrap().remove(preview_id);
         Ok(json!({"model": registered, "registered": true, "downloadStarted": false}))
     }
@@ -341,7 +342,7 @@ mod tests {
             "sha": "c".repeat(40), "gated": gated, "cardData": {"license": "apache-2.0"},
             "siblings": [{"rfilename": "m.gguf", "size": size, "lfs": {"sha256": "d".repeat(64), "size": size}}, {"rfilename": "readme.md"}],
         });
-        HuggingFaceCatalog::new(Box::new(Fake { info, gguf }), RegisteredModels::new(dir))
+        HuggingFaceCatalog::new(Box::new(Fake { info, gguf }), Arc::new(RegisteredModels::new(dir, mixdog_rt::testing::tokens().durability_io)))
     }
 
     #[tokio::test]
@@ -367,11 +368,11 @@ mod tests {
         assert_eq!(model["contextWindow"], 16_384, "no GPU holds the default window");
         assert_eq!(model["supportsImages"], false);
         let id = preview["previewId"].as_str().unwrap();
-        assert!(matches!(c.register(id, false), Err(HfError::Invalid(_))));
-        let done = c.register(id, true).unwrap();
+        assert!(matches!(c.register(id, false).await, Err(HfError::Invalid(_))));
+        let done = c.register(id, true).await.unwrap();
         assert_eq!(done["registered"], true);
         assert_eq!(c.registry().list().len(), 1);
-        assert!(c.register(id, true).is_err(), "a used preview is consumed");
+        assert!(c.register(id, true).await.is_err(), "a used preview is consumed");
     }
 
     #[tokio::test]

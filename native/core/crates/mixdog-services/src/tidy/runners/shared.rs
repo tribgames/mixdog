@@ -12,7 +12,7 @@ use mixdog_js::{JsRegex, js_trim, utf16_len};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::tidy::process::{ProcessResult, RunOptions, run_process};
+use crate::tidy::process::{ProcessResult, Processes, RunOptions};
 
 pub const DEFAULT_ENGINE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Command lines are bounded (~32k on Windows); long file lists are chunked.
@@ -110,7 +110,7 @@ pub trait Spawn: Send + Sync {
     async fn run(&self, bin: &str, args: &[String], cwd: &Path, timeout: Duration, cancel: Option<&CancellationToken>, env: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> ProcessResult;
 }
 
-pub struct SystemSpawn;
+pub struct SystemSpawn(pub Processes);
 
 #[async_trait]
 impl Spawn for SystemSpawn {
@@ -120,7 +120,7 @@ impl Spawn for SystemSpawn {
         options.cancel = cancel;
         options.env = env;
         options.input = input;
-        run_process(bin, args, options).await
+        self.0.run(bin, args, options).await
     }
 }
 
@@ -137,8 +137,8 @@ pub struct RunRequest {
 }
 
 impl RunRequest {
-    pub fn new(cwd: &Path, bin: &str, files: Vec<String>) -> Self {
-        Self { files, cwd: cwd.to_owned(), bin: bin.to_owned(), args: Vec::new(), timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, module_path: None, spawn: Arc::new(SystemSpawn), files_per_spawn: FILES_PER_SPAWN }
+    pub fn new(cwd: &Path, bin: &str, files: Vec<String>, spawn: Arc<dyn Spawn>) -> Self {
+        Self { files, cwd: cwd.to_owned(), bin: bin.to_owned(), args: Vec::new(), timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, module_path: None, spawn, files_per_spawn: FILES_PER_SPAWN }
     }
 }
 
@@ -420,8 +420,7 @@ mod tests {
     #[tokio::test]
     async fn list_formatters_chunk_the_files_and_report_listed_ones_as_fixable() {
         let spawn = Arc::new(Scripted(Default::default(), ProcessResult { stdout: "a.sh\n".into(), ..Default::default() }));
-        let mut req = RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect());
-        req.spawn = spawn.clone();
+        let mut req = RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect(), spawn.clone());
         req.files_per_spawn = 2;
         let runner = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"] };
         let out = runner.check(&req).await;

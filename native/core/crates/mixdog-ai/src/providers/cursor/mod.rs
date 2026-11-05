@@ -148,7 +148,7 @@ impl WireCodec for CursorCodec {
         })
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         Box::new(self.cursor_decoder())
     }
 
@@ -323,7 +323,7 @@ impl WireCodec for CursorCodecStub {
         ))
     }
 
-    fn decoder(&self) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         Box::new(CursorDecoder::new(request::BlobStore::default(), Vec::new(), None))
     }
 

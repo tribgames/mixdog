@@ -1,22 +1,28 @@
 //! Registration of every [`DomainService`] (SPEC §3.2 `mixdog-core::domains`).
 //!
-//! A *slot* is a method-table namespace routed to a domain service
-//! (`CoreHandle::domain(namespace)`). The composition root fills every slot before the core
-//! is built: [`DomainsBuilder::build`] refuses an unfilled slot, so a namespace without an
-//! owner is a boot error, never a runtime `None`. One service may fill several slots
-//! (the workspace service owns both `project` and `projectFs`).
+//! The core routes by exact method name (`CoreHandle::domain_for(method)`). A service claims
+//! the methods it lists in [`DomainService::methods`]; [`DomainsBuilder::register`] builds the
+//! one method-to-service table and refuses a method that is not in the protocol's method table
+//! or that a service already claimed, so a bad claim is a boot error. A method nobody claims
+//! has no entry: the router answers it `capabilityUnavailable`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use mixdog_app_protocol::CLIENT_METHODS;
+use mixdog_app_protocol::CLIENT_NOTIFICATIONS;
 use mixdog_core_api::DomainService;
 
+pub mod ai_account;
+pub mod ai_admin;
 pub mod blob;
 pub mod client;
 pub mod diagnostics;
 pub mod feedback;
 pub mod host;
 pub mod instructions;
+pub mod remote_access;
+pub mod remote_push;
 pub(crate) mod support;
 pub mod update;
 
@@ -37,64 +43,20 @@ pub const CORE_NAMESPACES: &[&str] = &[
     "turn",
 ];
 
-/// Every domain slot, sorted. Checked against the method table by the daemon's
-/// `domain_slots_match_method_table` test, so a new method namespace cannot ship unowned.
-pub const DOMAIN_NAMESPACES: &[&str] = &[
-    "account",
-    "agent",
-    "blob",
-    "browser",
-    "channel",
-    "client",
-    "config",
-    "connector",
-    "diagnostics",
-    "document",
-    "fast",
-    "feedback",
-    "fs",
-    "git",
-    "github",
-    "host",
-    "import",
-    "instructions",
-    "localProvider",
-    "lsp",
-    "mcp",
-    "media",
-    "memory",
-    "model",
-    "modelProxy",
-    "notify",
-    "plugins",
-    "process",
-    "project",
-    "projectFs",
-    "remoteAccess",
-    "review",
-    "room",
-    "route",
-    "search",
-    "skills",
-    "system",
-    "terminal",
-    "tidy",
-    "tools",
-    "transfer",
-    "update",
-    "usage",
-    "visualize",
-    "voice",
-];
+/// Every request and client notification of the method table, in table order.
+fn table_methods() -> impl Iterator<Item = &'static str> {
+    CLIENT_METHODS
+        .iter()
+        .map(|spec| spec.method)
+        .chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method))
+}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomainsError {
-    #[error("`{0}` is not a domain namespace")]
-    UnknownNamespace(String),
-    #[error("domain namespace `{0}` is registered twice")]
+    #[error("`{0}` is not a method of the protocol's method table")]
+    UnknownMethod(&'static str),
+    #[error("method `{0}` is claimed twice")]
     Duplicate(&'static str),
-    #[error("domain namespaces without a service: {0:?}")]
-    Unfilled(Vec<&'static str>),
 }
 
 #[derive(Default)]
@@ -107,51 +69,47 @@ impl DomainsBuilder {
         Self::default()
     }
 
-    /// Fills the slot of `namespace`.
-    pub fn register(
-        &mut self,
-        namespace: &str,
-        service: Arc<dyn DomainService>,
-    ) -> Result<&mut Self, DomainsError> {
-        let slot = DOMAIN_NAMESPACES
-            .iter()
-            .copied()
-            .find(|slot| *slot == namespace)
-            .ok_or_else(|| DomainsError::UnknownNamespace(namespace.to_owned()))?;
-        if self.services.insert(slot, service).is_some() {
-            return Err(DomainsError::Duplicate(slot));
+    /// Claims every method `service` lists. Nothing is claimed when any of them fails.
+    pub fn register(&mut self, service: Arc<dyn DomainService>) -> Result<&mut Self, DomainsError> {
+        let methods = service.methods();
+        for (index, method) in methods.iter().copied().enumerate() {
+            if !table_methods().any(|listed| listed == method) {
+                return Err(DomainsError::UnknownMethod(method));
+            }
+            if self.services.contains_key(method) || methods[..index].contains(&method) {
+                return Err(DomainsError::Duplicate(method));
+            }
+        }
+        for method in methods {
+            self.services.insert(method, Arc::clone(&service));
         }
         Ok(self)
     }
 
-    /// Slots still empty, in slot order.
-    pub fn unfilled(&self) -> Vec<&'static str> {
-        DOMAIN_NAMESPACES
-            .iter()
-            .copied()
-            .filter(|slot| !self.services.contains_key(slot))
+    /// The table methods the core does not serve itself that no service has claimed yet, in
+    /// table order.
+    pub fn unclaimed(&self) -> Vec<&'static str> {
+        table_methods()
+            .filter(|method| {
+                let namespace = method.split('/').next().unwrap_or(method);
+                !CORE_NAMESPACES.contains(&namespace) && !self.services.contains_key(method)
+            })
             .collect()
     }
 
-    pub fn build(self) -> Result<Domains, DomainsError> {
-        let unfilled = self.unfilled();
-        if !unfilled.is_empty() {
-            return Err(DomainsError::Unfilled(unfilled));
-        }
-        Ok(Domains {
-            services: self.services,
-        })
+    pub fn build(self) -> Domains {
+        Domains { services: self.services }
     }
 }
 
-/// The filled registry behind `CoreHandle::domain`.
+/// The method-to-service table behind `CoreHandle::domain_for`.
 pub struct Domains {
     services: HashMap<&'static str, Arc<dyn DomainService>>,
 }
 
 impl Domains {
-    pub fn get(&self, namespace: &str) -> Option<&dyn DomainService> {
-        self.services.get(namespace).map(|service| service.as_ref())
+    pub fn get(&self, method: &str) -> Option<&dyn DomainService> {
+        self.services.get(method).map(|service| service.as_ref())
     }
 }
 
@@ -161,60 +119,70 @@ mod tests {
 
     use super::*;
 
+    fn serving(methods: &'static [&'static str]) -> Arc<dyn DomainService> {
+        Arc::new(MockDomain::serving(methods))
+    }
+
     #[test]
-    fn slots_are_sorted_and_disjoint_from_core_namespaces() {
-        assert!(DOMAIN_NAMESPACES.windows(2).all(|w| w[0] < w[1]));
+    fn core_namespaces_are_sorted() {
         assert!(CORE_NAMESPACES.windows(2).all(|w| w[0] < w[1]));
-        assert!(
-            DOMAIN_NAMESPACES
-                .iter()
-                .all(|slot| !CORE_NAMESPACES.contains(slot))
-        );
     }
 
     #[test]
-    fn build_refuses_an_unfilled_slot() {
+    fn methods_of_one_namespace_route_to_different_services() {
+        let update = serving(&["config/getUpdateSettings"]);
+        let config = serving(&["config/read"]);
         let mut builder = DomainsBuilder::new();
-        builder
-            .register("config", Arc::new(MockDomain::default()))
-            .unwrap();
-        let err = builder.build().err().unwrap();
-        match err {
-            DomainsError::Unfilled(list) => {
-                assert_eq!(list.len(), DOMAIN_NAMESPACES.len() - 1);
-                assert!(!list.contains(&"config"));
-            }
-            other => panic!("unexpected {other:?}"),
-        }
+        builder.register(update.clone()).unwrap();
+        builder.register(config.clone()).unwrap();
+        let domains = builder.build();
+        let same = |found: Option<&dyn DomainService>, expected: &Arc<dyn DomainService>| {
+            std::ptr::addr_eq(found.unwrap(), Arc::as_ptr(expected))
+        };
+        assert!(same(domains.get("config/getUpdateSettings"), &update));
+        assert!(same(domains.get("config/read"), &config));
+        assert!(domains.get("config/getNetworkProxy").is_none());
     }
 
     #[test]
-    fn register_refuses_unknown_and_duplicate() {
+    fn register_refuses_a_duplicate_claim_and_claims_nothing() {
+        let mut builder = DomainsBuilder::new();
+        builder.register(serving(&["git/status"])).unwrap();
+        assert_eq!(
+            builder.register(serving(&["git/log", "git/status"])).err(),
+            Some(DomainsError::Duplicate("git/status"))
+        );
+        assert_eq!(
+            builder.register(serving(&["git/log", "git/log"])).err(),
+            Some(DomainsError::Duplicate("git/log"))
+        );
+        assert!(builder.build().get("git/log").is_none());
+    }
+
+    #[test]
+    fn register_refuses_a_method_outside_the_table() {
         let mut builder = DomainsBuilder::new();
         assert_eq!(
-            builder
-                .register("thread", Arc::new(MockDomain::default()))
-                .err(),
-            Some(DomainsError::UnknownNamespace("thread".into()))
-        );
-        builder
-            .register("git", Arc::new(MockDomain::default()))
-            .unwrap();
-        assert_eq!(
-            builder
-                .register("git", Arc::new(MockDomain::default()))
-                .err(),
-            Some(DomainsError::Duplicate("git"))
+            builder.register(serving(&["config/nope"])).err(),
+            Some(DomainsError::UnknownMethod("config/nope"))
         );
     }
 
     #[test]
-    fn one_service_fills_several_slots() {
-        let shared: Arc<dyn DomainService> = Arc::new(MockDomain::default());
+    fn notifications_register_like_requests() {
         let mut builder = DomainsBuilder::new();
-        builder.register("project", shared.clone()).unwrap();
-        builder.register("projectFs", shared).unwrap();
-        assert!(!builder.unfilled().contains(&"project"));
-        assert!(!builder.unfilled().contains(&"projectFs"));
+        builder.register(serving(&["client/activity"])).unwrap();
+        assert!(!builder.unclaimed().contains(&"client/activity"));
+        assert!(builder.unclaimed().contains(&"client/perfLog"));
+        assert!(builder.build().get("client/activity").is_some());
+    }
+
+    #[test]
+    fn unclaimed_leaves_out_what_the_core_serves_itself() {
+        let builder = DomainsBuilder::new();
+        let unclaimed = builder.unclaimed();
+        assert!(unclaimed.contains(&"config/read"));
+        assert!(unclaimed.iter().all(|method| !method.starts_with("thread/")));
+        assert!(!unclaimed.contains(&"initialized"));
     }
 }

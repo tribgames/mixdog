@@ -10,16 +10,14 @@ use std::path::PathBuf;
 use mixdog_ledger::append::UsageRecord;
 use mixdog_ledger::append::append_batch;
 use mixdog_ledger::db::Connection;
+use mixdog_ledger::reader::UsageReader;
 use mixdog_ledger::rollup::RollupQuery;
-use mixdog_ledger::rollup::rollup_usage;
 use mixdog_ledger::schema::LedgerShape;
 use mixdog_ledger::schema::LedgerState;
 use mixdog_ledger::schema::Prepared;
 use mixdog_ledger::schema::classify;
 use mixdog_ledger::schema::prepare;
 use mixdog_ledger::sums::build_sums_step;
-use mixdog_ledger::sums::read_session_usage;
-use mixdog_ledger::sums::read_usage_token;
 use mixdog_ledger::sums::sums_complete;
 use mixdog_store::schema::sql::LEDGER_V2_BASE;
 use mixdog_store::schema::sql::LEDGER_V2_DEV;
@@ -87,14 +85,16 @@ fn upgrade_and_build(path: &Path, expect: Prepared) -> Connection {
     conn
 }
 
-#[test]
-fn genuine_145_fixture_upgrades() {
+#[tokio::test]
+async fn genuine_145_fixture_upgrades() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/migration/ledger-v145/ledger.sqlite");
     let (_dir, path) = copy_to_temp(&src);
     let conn = upgrade_and_build(&path, Prepared::Upgraded(LedgerShape::Tag145));
-    let rollup = rollup_usage(&conn, &RollupQuery::default()).unwrap();
-    assert!(!rollup.days.is_empty());
+    let tokens = mixdog_rt::testing::tokens();
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+    let rollup = reader.rollup(RollupQuery::default()).await.unwrap();
+    assert!(!rollup["days"].as_object().unwrap().is_empty());
     let sessions: Vec<String> = conn
         .prepare("SELECT value FROM usage_sessions LIMIT 3")
         .unwrap()
@@ -102,9 +102,12 @@ fn genuine_145_fixture_upgrades() {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    let before = read_usage_token(&conn, &sessions, &[]).unwrap();
-    read_session_usage(&conn, &sessions, &[]).unwrap();
-    assert_eq!(read_usage_token(&conn, &sessions, &[]).unwrap(), before);
+    let before = reader.usage_token(sessions.clone(), vec![]).await.unwrap();
+    reader
+        .session_usage(sessions.clone(), vec![])
+        .await
+        .unwrap();
+    assert_eq!(reader.usage_token(sessions, vec![]).await.unwrap(), before);
 }
 
 #[test]

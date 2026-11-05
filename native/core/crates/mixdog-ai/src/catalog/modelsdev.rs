@@ -18,6 +18,10 @@ use crate::providers::compat::models::ModelTable;
 #[derive(Clone, Default, Debug)]
 pub struct ModelsDev {
     providers: BTreeMap<ProviderId, Vec<ModelRecord>>,
+    /// The overlay as the metadata lookup reads it (`model-catalog-projection.mjs`):
+    /// the narrowed models.dev document, or the narrowed LiteLLM one for the
+    /// layer [`ModelsDev::parse_litellm`] builds.
+    projected: JsonValue,
 }
 
 fn capability(value: Option<&JsonValue>) -> Capability {
@@ -74,7 +78,19 @@ impl ModelsDev {
     /// `None` when `bytes` is not the models.dev document (an object of
     /// providers); a malformed provider or model row is skipped.
     pub fn parse(bytes: &[u8]) -> Option<Self> {
-        let JsonValue::Object(providers) = serde_json::from_slice(bytes).ok()? else {
+        Self::from_models_dev(serde_json::from_slice(bytes).ok()?)
+    }
+
+    /// The LiteLLM price table (`model_prices_and_context_window.json`) as a
+    /// metadata overlay; it carries no per-provider records.
+    pub fn parse_litellm(bytes: &[u8]) -> Option<Self> {
+        let document: JsonValue = serde_json::from_slice(bytes).ok()?;
+        document.is_object().then(|| Self { providers: BTreeMap::new(), projected: super::lookup::project_litellm(&document) })
+    }
+
+    pub(crate) fn from_models_dev(document: JsonValue) -> Option<Self> {
+        let projected = super::lookup::project_models_dev(&document);
+        let JsonValue::Object(providers) = document else {
             return None;
         };
         let mut out = BTreeMap::new();
@@ -92,7 +108,17 @@ impl ModelsDev {
             list.sort_by(|a, b| a.id.cmp(&b.id));
             out.insert(provider, list);
         }
-        Some(Self { providers: out })
+        Some(Self { providers: out, projected })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_litellm(document: JsonValue) -> Self {
+        Self { providers: BTreeMap::new(), projected: super::lookup::project_litellm(&document) }
+    }
+
+    /// The narrowed overlay document the metadata lookup reads.
+    pub fn projected(&self) -> &JsonValue {
+        &self.projected
     }
 
     pub fn models_of(&self, provider: &ProviderId) -> &[ModelRecord] {

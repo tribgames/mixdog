@@ -29,6 +29,7 @@ use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::Phase;
 use mixdog_core_api::domain::provider::ProviderReplay;
+use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -106,7 +107,13 @@ fn own_search_history(name: &str) -> Vec<Message> {
     h
 }
 
-fn oauth_history() -> Vec<Message> {
+/// The history of Node's recorded `oauth` case. Its `looking` message carries
+/// Node's legacy flattened `reasoningItems`, which migration turns into the
+/// complete ordered envelope Node's legacy path sends (reasoning, text, calls
+/// in order; `vectors/legacy_reasoning.json` in `mixdog-migrate`). The text
+/// item has the shape of the route it was written for: `codex` is
+/// `openai-oauth` (typed, with passthrough metadata), otherwise public.
+fn oauth_history(codex: bool) -> Vec<Message> {
     let mut working = text(Role::Assistant, "working");
     working.phase = Some(Phase::Commentary);
     let mut looking = assistant_calls(
@@ -118,9 +125,21 @@ fn oauth_history() -> Vec<Message> {
         ],
     );
     looking.phase = Some(Phase::Commentary);
+    let said = if codex {
+        json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking"}],
+            "phase": "commentary", "internal_chat_message_metadata_passthrough": {}})
+    } else {
+        json!({"role": "assistant", "content": [{"type": "output_text", "text": "looking"}], "phase": "commentary"})
+    };
     looking.push_replay(ProviderReplay {
         owner: ProviderId::from("openai-responses"),
-        items: json!([{"type": "reasoning", "id": "rs", "encrypted_content": "ENC", "summary": []}]),
+        items: json!([
+            {"type": "reasoning", "id": "rs", "encrypted_content": "ENC", "summary": []},
+            said,
+            {"type": "tool_search_call", "call_id": "ts1", "execution": "client", "arguments": {"names": ["x"]}},
+            {"type": "custom_tool_call", "call_id": "cu1", "name": "apply_patch", "input": "P"},
+            {"type": "function_call", "call_id": "sk1", "name": "Skill", "arguments": "{\"name\":\"s\"}"},
+        ]),
     });
     let mut ts1 = tool("ts1", "loaded");
     ts1.native_tool_search = Some(search("openai-oauth"));
@@ -221,8 +240,7 @@ fn request(model: &str, messages: Vec<Message>, tools: Vec<ToolDefinition>, cach
 
 /// Key order is part of the contract, so the comparison is on the text.
 fn same(actual: &Map<String, Value>, expected: &Value, label: &str) {
-    let (a, e) = (&actual["input"], &expected["input"]);
-    if let (Some(a), Some(e)) = (a.as_array(), e.as_array()) {
+    if let (Some(a), Some(e)) = (actual["input"].as_array(), expected["input"].as_array()) {
         for i in 0..a.len().max(e.len()) {
             assert_eq!(a.get(i), e.get(i), "{label}: input[{i}]");
         }
@@ -257,7 +275,7 @@ fn gateway_profile_matches_the_compat_heads() {
         let profile = gateway(name, false);
         let cases: [(&str, Vec<Message>); 4] = [
             ("native", native_history()),
-            ("oauth", oauth_history()),
+            ("oauth", oauth_history(false)),
             ("own-search-output", own_search_history(name)),
             ("server-replay", server_search_history(&format!("compat-responses:{name}"))),
         ];
@@ -307,7 +325,7 @@ fn xai_profiles_match_the_http_and_websocket_heads() {
     let key = "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7";
     let cases: [(&str, Vec<Message>, Vec<ToolDefinition>); 5] = [
         ("native/plain-tools", native_history(), session_tools()),
-        ("oauth/plain-tools", oauth_history(), session_tools()),
+        ("oauth/plain-tools", oauth_history(false), session_tools()),
         ("server-replay/plain-tools", xai_server_history(), session_tools()),
         ("server-replay/deferred-tools", xai_server_history(), deferred_tools()),
         ("native/deferred-tools", native_history(), deferred_tools()),
@@ -428,7 +446,7 @@ fn first_party_native_oauth_and_own_search_heads_hold() {
     for (name, config) in first_party_configs() {
         let cases: [(&str, Vec<Message>); 3] = [
             ("native", native_history()),
-            ("oauth", oauth_history()),
+            ("oauth", oauth_history(name == "openai-oauth")),
             ("own-search-output", own_search_history(name)),
         ];
         for (label, history) in cases {
@@ -437,6 +455,40 @@ fn first_party_native_oauth_and_own_search_heads_hold() {
             let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
             let req = request("gpt-5.5", history, vec![], Some(&cache));
             same(&build(&config, &req).map, &expected, &key);
+        }
+    }
+}
+
+/// Migration's legacy-`reasoningItems` envelopes: each case's `items` are
+/// exactly what Node's legacy path sends for the message, so the first-party
+/// lowering must send them unchanged and in order (the outputs it
+/// synthesizes for the unanswered calls aside).
+#[test]
+fn migrated_legacy_reasoning_envelopes_are_sent_as_node_sends_them() {
+    let cases: Vec<Value> = serde_json::from_str(include_str!(
+        "../../mixdog-migrate/src/session/restore/vectors/legacy_reasoning.json"
+    ))
+    .unwrap();
+    assert_eq!(cases.len(), 5);
+    let mut configs = first_party_configs().into_iter();
+    let (public, codex) = (configs.next().unwrap().1, configs.next().unwrap().1);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        // `openai` is the one route whose items carry no codex parity.
+        let config = if case["message"]["providerMetadata"]["accountRouting"]["provider"] == "openai" {
+            &public
+        } else {
+            &codex
+        };
+        let mut reply = text(Role::Assistant, "");
+        reply.push_replay(ProviderReplay { owner: ProviderId::from("openai-responses"), items: case["items"].clone() });
+        let req = request("gpt-5.5", vec![text(Role::User, "go"), reply, text(Role::User, "next")], vec![], None);
+        let sent = build(config, &req).map["input"].as_array().unwrap().clone();
+        let sent: Vec<&Value> = sent.iter().filter(|i| !i["type"].as_str().unwrap_or("").ends_with("_output")).collect();
+        let items = case["items"].as_array().unwrap();
+        assert_eq!(sent.len(), items.len() + 2, "{name}");
+        for (sent, expected) in sent[1..sent.len() - 1].iter().zip(items) {
+            assert_eq!(serde_json::to_string(sent).unwrap(), serde_json::to_string(expected).unwrap(), "{name}");
         }
     }
 }
@@ -491,6 +543,11 @@ fn spec() -> ContinuationSpec {
 
 const OWNER: &str = "compat-responses:opencode-go";
 
+/// The session's provider state holding `slot` under the route's key.
+fn st(slot: Value) -> ProviderState {
+    with_slot(None, &spec(), slot)
+}
+
 fn turn_output() -> Vec<Value> {
     vec![
         json!({"type": "reasoning", "id": "rs_9", "encrypted_content": "ENC9", "summary": []}),
@@ -519,7 +576,7 @@ fn the_slot_records_the_turn_and_resumes_a_stateless_conversation() {
         )
     );
 
-    let resumed = resume(&spec(), OWNER, Some(&slot), "gpt-5.5", &history).unwrap();
+    let resumed = resume(&spec(), OWNER, Some(&st(slot)), "gpt-5.5", &history).unwrap();
     assert_eq!(resumed.previous_response_id, None);
     assert_eq!(resumed.start_index, 0, "a stateless conversation resends everything");
     assert_eq!(resumed.reset_reason, None);
@@ -539,13 +596,13 @@ fn trailing_reasoning_follows_the_last_message_and_other_owners_are_ignored() {
         &spec(), OWNER, None,
         &TurnResult { response_id: None, output: &output, model: "m", message_count: 1, updated_at_ms: 0 },
     );
-    let resumed = resume(&spec(), OWNER, Some(&mine), "m", &history).unwrap();
+    let resumed = resume(&spec(), OWNER, Some(&st(mine.clone())), "m", &history).unwrap();
     let req = request("m", history.clone(), vec![], None);
     let body = body_of(&gateway("opencode-go", false), &BuildInputs { continuation: Some(&resumed), ..BuildInputs::new(&req) });
     assert_eq!(body["input"].as_array().unwrap().len(), 2);
     assert_eq!(body["input"][1]["encrypted_content"], "ENC9");
 
-    let foreign = resume(&spec(), "compat-responses:other", Some(&mine), "m", &history).unwrap();
+    let foreign = resume(&spec(), "compat-responses:other", Some(&st(mine)), "m", &history).unwrap();
     assert!(foreign.reasoning_by_index.is_empty());
 }
 
@@ -553,7 +610,7 @@ fn trailing_reasoning_follows_the_last_message_and_other_owners_are_ignored() {
 fn a_slot_that_no_longer_fits_is_dropped_with_its_reason() {
     let history = vec![text(Role::User, "go"), text(Role::Assistant, "ok")];
     let base = json!({"previousResponseId": null, "store": false, "seenMessageCount": 1, "model": "a"});
-    let r = |slot: Value, model: &str| resume(&spec(), OWNER, Some(&slot), model, &history).unwrap().reset_reason;
+    let r = |slot: Value, model: &str| resume(&spec(), OWNER, Some(&st(slot)), model, &history).unwrap().reset_reason;
     assert_eq!(r(base.clone(), "b"), Some(ResetReason::ModelChanged));
     assert_eq!(r(json!({"store": false, "model": "a"}), "a"), Some(ResetReason::MissingSeenMessageCount));
     assert_eq!(r(json!({"store": false, "seenMessageCount": 3, "model": "a"}), "a"), Some(ResetReason::SeenMessageCountOutOfRange));
@@ -565,7 +622,7 @@ fn a_slot_that_no_longer_fits_is_dropped_with_its_reason() {
 fn a_stored_response_sends_only_what_follows_it() {
     let history = vec![text(Role::User, "go"), text(Role::Assistant, "ok"), text(Role::User, "next")];
     let slot = json!({"previousResponseId": "resp_7", "seenMessageCount": 1, "model": "m"});
-    let resumed = resume(&spec(), OWNER, Some(&slot), "m", &history).unwrap();
+    let resumed = resume(&spec(), OWNER, Some(&st(slot)), "m", &history).unwrap();
     assert_eq!((resumed.previous_response_id.as_deref(), resumed.start_index), (Some("resp_7"), 2));
     let req = request("m", history, vec![], None);
     let mut profile = gateway("opencode-go", false);
@@ -590,17 +647,225 @@ fn a_stateless_only_route_refuses_imported_server_state() {
     route.stateless_only = Some("openrouter".into());
     let history = vec![text(Role::User, "go")];
     let stored = json!({"previousResponseId": "resp_1", "seenMessageCount": 1});
-    let err = resume(&route, OWNER, Some(&stored), "m", &history).unwrap_err();
+    let err = resume(&route, OWNER, Some(&st(stored)), "m", &history).unwrap_err();
     assert!(err.to_string().starts_with("openrouter Responses is stateless"));
-    assert!(resume(&route, OWNER, Some(&json!({"store": true})), "m", &history).is_err());
-    assert!(resume(&route, OWNER, Some(&json!({"store": false, "seenMessageCount": 1})), "m", &history).is_ok());
+    assert!(resume(&route, OWNER, Some(&st(json!({"store": true}))), "m", &history).is_err());
+    assert!(resume(&route, OWNER, Some(&st(json!({"store": false, "seenMessageCount": 1}))), "m", &history).is_ok());
 }
 
 #[test]
 fn the_slot_merges_into_provider_state_without_touching_other_slots() {
-    let state = json!({"other": {"keep": 1}, "compatResponses": {"old": true}});
+    let state: ProviderState =
+        serde_json::from_value(json!({"other": {"keep": 1}, "compatResponses": {"old": true}})).unwrap();
     let merged = with_slot(Some(&state), &spec(), json!({"new": true}));
-    assert_eq!(merged, json!({"other": {"keep": 1}, "compatResponses": {"new": true}}));
+    assert_eq!(
+        serde_json::to_value(&merged).unwrap(),
+        json!({"other": {"keep": 1}, "compatResponses": {"new": true}})
+    );
+}
+
+/// `response.completed` and `response.done` can arrive in one chunk; the first
+/// terminal frame ends the turn and the buffered rest is ignored (as Node's
+/// loop does), so the history gets one replay, one state and one completion.
+#[test]
+fn a_second_terminal_frame_in_the_same_chunk_is_ignored() {
+    use mixdog_ai::providers::openai::decoder::Framing;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::WireDecoder;
+    let profile = gateway("opencode-go", false);
+    let req = request("m", vec![text(Role::User, "go")], vec![], None);
+    let item = r#"{"type":"reasoning","id":"rs_1","encrypted_content":"E","summary":[]}"#;
+    let response = format!(r#"{{"id":"resp_1","output":[{item}],"usage":{{"input_tokens":1,"output_tokens":2}}}}"#);
+    let sse = format!(
+        "data: {{\"type\":\"response.completed\",\"response\":{response}}}\n\ndata: {{\"type\":\"response.done\",\"response\":{response}}}\n\n"
+    );
+    let mut decoder = profile.decoder_for(&req, Framing::Sse, Arc::new(Ctx));
+    let mut events = decoder.feed(sse.as_bytes()).unwrap();
+    events.extend(decoder.finish().unwrap());
+    let count = |f: fn(&StreamEvent) -> bool| events.iter().filter(|e| f(e)).count();
+    assert_eq!(count(|e| matches!(e, StreamEvent::ReasoningReplay(_))), 1);
+    assert_eq!(count(|e| matches!(e, StreamEvent::ProviderState(_))), 1);
+    assert_eq!(count(|e| matches!(e, StreamEvent::Usage(_))), 1);
+    assert_eq!(count(|e| matches!(e, StreamEvent::Completed { .. })), 1);
+    assert!(decoder.terminal_seen());
+}
+
+/// The live compat route: the codec's decoder reads the request, reports the
+/// updated `compatResponses` slot as `StreamEvent::ProviderState`, and the next
+/// request's `encode` resumes the encrypted reasoning from it. The first-party
+/// routes report no slot (Node keeps none; the ordered replay carries history).
+#[test]
+fn live_routes_flow_provider_state_through_the_request_aware_decoder() {
+    use mixdog_ai::providers::compat::CompatConfig;
+    use mixdog_ai::providers::compat::CompatProfile;
+    use mixdog_ai::providers::compat::responses::CompatResponsesCodec;
+    use mixdog_core_api::domain::keepalive::TransportKind;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::WireCodec;
+
+    let profile = CompatProfile::opencode_go();
+    let codec = CompatResponsesCodec::new(profile.clone(), CompatConfig::for_profile(&profile), TransportKind::Http1);
+    let item = r#"{"type":"reasoning","id":"rs_1","encrypted_content":"E","summary":[]}"#;
+    let sse = format!(
+        "data: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"resp_1\",\"output\":[{item}]}}}}\n\n"
+    );
+    let first = request("gpt-5.5", vec![text(Role::User, "go")], vec![], None);
+    let mut decoder = codec.decoder(&first);
+    let events = decoder.feed(sse.as_bytes()).unwrap();
+    let state = events
+        .into_iter()
+        .find_map(|e| if let StreamEvent::ProviderState(s) = e { Some(s) } else { None })
+        .expect("the compat route reports its slot");
+    assert_eq!(state.rest["compatResponses"]["responseId"], "resp_1");
+
+    let mut next = request(
+        "gpt-5.5",
+        vec![text(Role::User, "go"), text(Role::Assistant, "ok"), text(Role::User, "more")],
+        vec![],
+        None,
+    );
+    next.options.provider_state = Some(state);
+    let wire = codec.encode(&next).unwrap();
+    let body: Value = serde_json::from_slice(&wire.body).unwrap();
+    let kinds: Vec<_> = body["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["type"].as_str().or(i["role"].as_str()).unwrap().to_owned())
+        .collect();
+    assert_eq!(kinds, ["user", "reasoning", "assistant", "user"]);
+
+    let (_, config) = first_party_configs().into_iter().next().unwrap();
+    let openai = mixdog_ai::providers::openai::codec::OpenAiCodec::new(config, TransportKind::Http1);
+    let mut decoder = openai.decoder(&first);
+    let events = decoder.feed(sse.as_bytes()).unwrap();
+    assert!(!events.iter().any(|e| matches!(e, StreamEvent::ProviderState(_))));
+}
+
+/// Node `convertMessagesToResponsesInput` with an owned replay and a carried
+/// history at the same message (probe: `scratch/openai-replay/prec.mjs`): an
+/// owned replay with anything left to send replaces the message and the
+/// history; history serves only a message with no owned replay.
+#[test]
+fn an_owned_replay_wins_over_carried_history_exactly_as_node_does() {
+    let owner = "compat-responses:x";
+    let reasoning = |id: &str, enc: &str| json!({"type": "reasoning", "id": id, "encrypted_content": enc, "summary": []});
+    let message_item = json!({"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "content": [{"type": "output_text", "text": "ok", "annotations": []}]});
+    let user = |t: &str| json!({"role": "user", "content": [{"type": "input_text", "text": t}]});
+    let assistant = json!({"role": "assistant", "content": [{"type": "output_text", "text": "ok"}]});
+    let history = Continuation {
+        reasoning_by_index: std::collections::BTreeMap::from([(1, vec![reasoning("rs_h", "ENC-H")])]),
+        ..Continuation::default()
+    };
+    let input = |items: Option<Value>, replay_reasoning: bool| {
+        let mut reply = text(Role::Assistant, "ok");
+        if let Some(items) = items {
+            reply.push_replay(ProviderReplay { owner: ProviderId::from(owner), items });
+        }
+        let req = request("m", vec![text(Role::User, "go"), reply, text(Role::User, "more")], vec![], None);
+        let mut profile = gateway("x", false);
+        profile.input.replay_reasoning = replay_reasoning;
+        let body = body_of(&profile, &BuildInputs { continuation: Some(&history), ..BuildInputs::new(&req) });
+        body["input"].clone()
+    };
+    let only = json!([reasoning("rs_1", "ENC-1")]);
+    assert_eq!(input(Some(only.clone()), true), json!([user("go"), reasoning("rs_1", "ENC-1"), user("more")]));
+    assert_eq!(
+        input(Some(json!([reasoning("rs_1", "ENC-1"), message_item.clone()])), true),
+        json!([user("go"), reasoning("rs_1", "ENC-1"), message_item, user("more")])
+    );
+    assert_eq!(input(None, true), json!([user("go"), reasoning("rs_h", "ENC-H"), assistant, user("more")]));
+    // Reasoning replay off: nothing owned is left, so the history serves.
+    assert_eq!(input(Some(only), false), json!([user("go"), reasoning("rs_h", "ENC-H"), assistant, user("more")]));
+}
+
+/// The same through the live compat route: the replay and the slot the decoder
+/// emits for one response feed the next request, and reasoning goes out once.
+#[test]
+fn the_emitted_replay_and_slot_send_reasoning_once_on_the_next_turn() {
+    use mixdog_ai::providers::compat::CompatConfig;
+    use mixdog_ai::providers::compat::CompatProfile;
+    use mixdog_ai::providers::compat::responses::CompatResponsesCodec;
+    use mixdog_core_api::domain::keepalive::TransportKind;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::WireCodec;
+
+    let profile = CompatProfile::opencode_go();
+    let codec = CompatResponsesCodec::new(profile.clone(), CompatConfig::for_profile(&profile), TransportKind::Http1);
+    let reasoning = json!({"type": "reasoning", "id": "rs_1", "encrypted_content": "ENC-1", "summary": []});
+    let message_item = json!({"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "content": [{"type": "output_text", "text": "ok", "annotations": []}]});
+    let user = |t: &str| json!({"role": "user", "content": [{"type": "input_text", "text": t}]});
+    let assistant = json!({"role": "assistant", "content": [{"type": "output_text", "text": "ok"}]});
+
+    // One response's emitted replay and state, then the next request built on both.
+    let next_input = |output: Value, attach_replay: bool| {
+        let first = request("gpt-5.5", vec![text(Role::User, "go")], vec![], None);
+        let sse = format!(
+            "data: {}\n\n",
+            json!({"type": "response.completed", "response": {"id": "resp_1", "output": output}})
+        );
+        let events = codec.decoder(&first).feed(sse.as_bytes()).unwrap();
+        let mut reply = text(Role::Assistant, "ok");
+        let mut state = None;
+        for event in events {
+            match event {
+                StreamEvent::ReasoningReplay(replay) if attach_replay => reply.push_replay(replay),
+                StreamEvent::ProviderState(s) => state = Some(s),
+                _ => {}
+            }
+        }
+        let mut next = request("gpt-5.5", vec![text(Role::User, "go"), reply, text(Role::User, "more")], vec![], None);
+        next.options.provider_state = state;
+        let wire = codec.encode(&next).unwrap();
+        serde_json::from_slice::<Value>(&wire.body).unwrap()["input"].clone()
+    };
+    assert_eq!(
+        next_input(json!([reasoning.clone()]), true),
+        json!([user("go"), reasoning.clone(), user("more")]),
+        "a reasoning-only replay goes out once"
+    );
+    assert_eq!(
+        next_input(json!([reasoning.clone(), message_item.clone()]), true),
+        json!([user("go"), reasoning.clone(), message_item, user("more")])
+    );
+    assert_eq!(
+        next_input(json!([reasoning.clone()]), false),
+        json!([user("go"), reasoning, assistant, user("more")]),
+        "history alone"
+    );
+}
+
+/// One mechanism end to end: the request's `ProviderState` in, the decoder's
+/// `StreamEvent::ProviderState` out, other slots untouched, and the next
+/// request resumes from what the event carried.
+#[test]
+fn the_decoder_reports_the_slot_through_provider_state_and_the_next_request_resumes_it() {
+    use mixdog_ai::providers::openai::decoder::Framing;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::WireDecoder;
+    let profile = gateway("opencode-go", false);
+    let prior: ProviderState = serde_json::from_value(json!({"gemini": null, "other": {"keep": 1}})).unwrap();
+    let mut req = request("m", vec![text(Role::User, "go")], vec![], None);
+    req.options.provider_state = Some(prior);
+    let mut decoder = profile.decoder_for(&req, Framing::Sse, Arc::new(Ctx));
+    let item = r#"{"type":"reasoning","id":"rs_1","encrypted_content":"E","summary":[]}"#;
+    let sse = format!(
+        "data: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"resp_1\",\"output\":[{item}]}}}}\n\n"
+    );
+    let events = decoder.feed(sse.as_bytes()).unwrap();
+    let states: Vec<_> = events.iter().filter_map(|e| if let StreamEvent::ProviderState(s) = e { Some(s) } else { None }).collect();
+    assert_eq!(states.len(), 1);
+    let state = states[0];
+    assert_eq!(state.rest["other"], json!({"keep": 1}));
+    assert_eq!(state.rest["compatResponses"]["responseId"], "resp_1");
+    assert_eq!(state.rest["compatResponses"]["seenMessageCount"], 1);
+
+    let mut next = request("m", vec![text(Role::User, "go"), text(Role::Assistant, "ok"), text(Role::User, "more")], vec![], None);
+    next.options.provider_state = Some(state.clone());
+    let resumed = profile.resume(&next).unwrap();
+    assert_eq!(resumed.reasoning_by_index[&1][0]["encrypted_content"], "E");
 }
 
 #[test]
@@ -646,6 +911,8 @@ fn the_decoder_tags_replays_with_the_profile_owner() {
     let mut decoder = profile.decoder(Framing::Sse, Arc::new(Ctx));
     let frame = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","encrypted_content":"E","summary":[]}}
 
+data: {"type":"response.completed","response":{"id":"r","status":"completed","output":[]}}
+
 "#;
     use mixdog_core_api::domain::provider::WireDecoder;
     let events = decoder.feed(frame.as_bytes()).unwrap();
@@ -657,6 +924,25 @@ fn the_decoder_tags_replays_with_the_profile_owner() {
         })
         .collect();
     assert_eq!(owners, [ProviderId::from(OWNER)]);
+}
+
+#[test]
+fn frames_buffered_behind_a_terminal_frame_finish_the_turn_once() {
+    use mixdog_ai::providers::openai::decoder::Framing;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::WireDecoder;
+    let item = r#"{"type":"reasoning","id":"rs_1","encrypted_content":"E","summary":[]}"#;
+    let chunk = format!(
+        "data: {{\"type\":\"response.output_item.done\",\"item\":{item}}}\n\n\
+         data: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"r\",\"output\":[{item}]}}}}\n\n\
+         data: {{\"type\":\"response.done\",\"response\":{{\"id\":\"r\",\"status\":\"completed\",\"output\":[{item}]}}}}\n\n"
+    );
+    let mut decoder = gateway("opencode-go", false).decoder(Framing::Sse, Arc::new(Ctx));
+    let mut events = decoder.feed(chunk.as_bytes()).unwrap();
+    events.extend(decoder.finish().unwrap());
+    let count = |f: fn(&StreamEvent) -> bool| events.iter().filter(|e| f(e)).count();
+    assert_eq!(count(|e| matches!(e, StreamEvent::ReasoningReplay(_))), 1);
+    assert_eq!(count(|e| matches!(e, StreamEvent::Completed { .. })), 1);
 }
 
 // ---- effort-update rejection ---------------------------------------------------
@@ -713,6 +999,57 @@ fn only_a_structured_pointer_at_an_update_item_counts() {
     // A pointer past the input.
     let beyond = rejection(400, json!({"error": {"param": "input[9]"}}));
     assert!(without_effort_updates(&sent, &beyond).is_none());
+}
+
+/// A two-step tool turn with reasoning before, between and after text and
+/// calls, recorded from Node HEAD (`openai-reasoning-replay-golden.json`):
+/// the decoder's envelope equals Node's `providerReplay` for each step, and the
+/// next request replays the history exactly as Node's input converter does.
+#[test]
+fn a_multi_step_reasoning_turn_replays_as_node_does() {
+    use mixdog_ai::providers::openai::decoder::Framing;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::WireDecoder;
+    let golden = Value::Object(oracle("openai-reasoning-replay-golden.json"));
+    let profile = gateway("opencode-go", false);
+    let mut results = golden["results"].as_array().unwrap().iter();
+    let mut history = vec![text(Role::User, golden["user"].as_str().unwrap())];
+    for step in golden["steps"].as_array().unwrap() {
+        let mut decoder = profile.decoder(Framing::Sse, Arc::new(Ctx));
+        let mut events = Vec::new();
+        for frame in step["frames"].as_array().unwrap() {
+            // Odd chunking exercises framing across unit boundaries.
+            let sse = format!("data: {frame}\n\n");
+            for chunk in sse.as_bytes().chunks(13) {
+                events.extend(decoder.feed(chunk).unwrap());
+            }
+        }
+        events.extend(decoder.finish().unwrap());
+        let mut content = String::new();
+        let mut calls = Vec::new();
+        let mut envelopes = Vec::new();
+        for event in events {
+            match event {
+                StreamEvent::TextDelta(t) => content.push_str(&t),
+                StreamEvent::ToolCallDone(c) => calls.push(c),
+                StreamEvent::ReasoningReplay(r) => envelopes.push(r),
+                _ => {}
+            }
+        }
+        assert_eq!(envelopes.len(), 1, "one ordered envelope per response");
+        assert_eq!(envelopes[0].owner, ProviderId::from(OWNER));
+        assert_eq!(envelopes[0].items, step["providerReplay"]["items"], "every output item, reasoning verbatim");
+        let ids: Vec<String> = calls.iter().map(|c| c.id.clone()).collect();
+        let mut assistant = assistant_calls(&content, calls);
+        assistant.push_replay(envelopes.remove(0));
+        history.push(assistant);
+        for id in ids {
+            history.push(tool(&id, results.next().unwrap()[1].as_str().unwrap()));
+        }
+    }
+    let req = request("m", history, vec![], None);
+    let body = body_of(&gateway("opencode-go", false), &BuildInputs::new(&req));
+    assert_eq!(body["input"], golden["input"]);
 }
 
 #[test]

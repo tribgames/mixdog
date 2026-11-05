@@ -676,13 +676,17 @@ async fn terminal_corpus_replays_on_a_real_tab() {
                     })
                     .collect();
                 assert_eq!(got.iter().filter(|p| p["default"] == json!(true)).count(), 1, "one default profile");
-                // The recorded machine's shells that exist here are listed with the same id,
-                // label and default flag.
-                for recorded in expect.as_array().unwrap() {
-                    if std::path::Path::new(recorded["path"].as_str().unwrap()).is_file() {
-                        assert!(got.contains(recorded), "{recorded} missing from {got:?}");
+                // The recorded corpus is the shape of the list, not one machine's shells.
+                assert_eq!(expect["defaultCount"], json!(1));
+                assert_eq!(expect["nonEmpty"], json!(!got.is_empty()));
+                let allowed: Vec<&str> = expect["entryKeys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+                for p in &got {
+                    assert!(std::path::Path::new(p["path"].as_str().unwrap()).is_absolute());
+                    for key in p.as_object().unwrap().keys() {
+                        assert!(allowed.contains(&key.as_str()), "unexpected key {key}");
                     }
                 }
+                assert_eq!(expect["pathsAbsolute"], json!(true));
             }
             "termEnsure" => {
                 let attached = rig.tabs.ensure(None, rig.request()).await.unwrap();
@@ -744,7 +748,7 @@ async fn terminal_corpus_replays_on_a_real_tab() {
             "<emitted event kinds>" => {
                 // The data events became the process feed (`process:<tabId>`), which the other
                 // tests read; the count of the old listener events has no counterpart.
-                assert!(entry["count"].as_u64().unwrap() > 0);
+                assert_eq!(entry["emitted"], json!(true));
                 continue;
             }
             other => panic!("unknown corpus op {other}"),

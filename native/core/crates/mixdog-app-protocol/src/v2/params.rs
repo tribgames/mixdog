@@ -1102,18 +1102,37 @@ impl crate::common::HasOpId for AgentSetLeadAppearanceParams {
     }
 }
 
-/// Params of `agent/setBotOrder`.
+/// Params of `config/getBotOrder`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ConfigGetBotOrderParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+}
+
+/// The one bot order (Lead and Sessions bot lists): trimmed, de-duplicated agent ids, at most
+/// 500. Mixy is pinned first by the UI and is not part of it. Empty means no stored order.
+/// Result of `config/getBotOrder` and `config/setBotOrder`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct BotOrder {
+    pub order: Vec<String>,
+}
+
+/// Params of `config/setBotOrder`. Node rejects more than 500 ids, or an id that is empty after
+/// trimming or longer than 128, with `usage: setBotOrder(an array of agent ids)`; an empty
+/// list clears the stored order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(optional_fields)]
-pub struct AgentSetBotOrderParams {
+pub struct ConfigSetBotOrderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
     pub order: Vec<String>,
 }
 
-impl crate::common::HasOpId for AgentSetBotOrderParams {
+impl crate::common::HasOpId for ConfigSetBotOrderParams {
     fn op_id(&self) -> &OpId {
         &self.op_id
     }

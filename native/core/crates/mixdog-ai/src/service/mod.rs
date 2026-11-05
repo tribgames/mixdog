@@ -2,6 +2,7 @@
 //! `model`, `modelProxy`, `route`, `usage` and `fast`, and the plan-usage
 //! probe the account rotation calls.
 
+pub mod admin_models;
 pub mod admin_route;
 pub mod oauth_usage;
 pub mod routes;

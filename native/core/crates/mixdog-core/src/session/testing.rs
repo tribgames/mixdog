@@ -26,6 +26,7 @@ use mixdog_core_api::feed::PublishError;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedEpoch;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
@@ -59,6 +60,8 @@ use super::prompt_history::FilePromptHistory;
 use super::seams::AppendPosition;
 use super::seams::BarrierError;
 use super::seams::CommitRecord;
+use super::seams::ContextRead;
+use super::seams::ContextStep;
 use super::seams::FeedFactory;
 use super::seams::HeadRead;
 use super::seams::OpenedLog;
@@ -190,6 +193,45 @@ impl ThreadStore for MemStore {
             tail: records,
             append: AppendPosition(Box::new(())),
         })
+    }
+
+    fn context_io(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        _read: Option<ContextRead>,
+    ) -> Result<ContextRead, CoreError> {
+        Ok(ContextRead(Box::new(self.records(id))))
+    }
+
+    /// One page: the last compaction's replacement, then the model rows after it.
+    fn context_cpu(
+        &self,
+        _lane: &InLane<CpuInteractive>,
+        read: ContextRead,
+    ) -> Result<ContextStep, CoreError> {
+        let records = *read.0.downcast::<Vec<(u64, Record)>>().expect("MemStore context");
+        let mut out = Vec::new();
+        for (_, record) in records {
+            match record {
+                Record::Compacted(compacted) => {
+                    out = match compacted.replacement {
+                        Slot::Inline(entries) => entries
+                            .into_iter()
+                            .map(|e| (ItemId::from(e.iid), e.body))
+                            .collect(),
+                        _ => Vec::new(),
+                    };
+                }
+                Record::Item(item) if item.model => {
+                    if let Slot::Inline(body) = item.body {
+                        out.push((ItemId::from(item.iid.as_str().to_owned()), body));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(ContextStep::Done(out))
     }
 
     fn open_log(

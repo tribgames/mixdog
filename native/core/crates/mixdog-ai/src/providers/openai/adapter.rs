@@ -246,7 +246,7 @@ impl OpenAiAdapter {
             self.remember_turn_state(request, token.as_deref());
             return Ok(Opened::Stream(ResponsesStream::new(
                 Source::Http(response.body),
-                self.codec.decoder(),
+                self.codec.decoder(request),
             )));
         }
         Ok(Opened::Rejected(read_failure(response).await?))
@@ -286,7 +286,7 @@ impl OpenAiAdapter {
             .map_err(|fault| ProviderError::transport(fault, DeliveryState::Ambiguous))?;
         let mut stream = ResponsesStream::new(
             Source::Ws { socket, pending: None },
-            self.codec.decoder(),
+            self.codec.decoder(request),
         );
         // The first frame decides whether the server took the request.
         stream.prime().await;

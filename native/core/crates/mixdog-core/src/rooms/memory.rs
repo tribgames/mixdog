@@ -56,7 +56,7 @@ pub fn required_entry_ref(id: u64, index_revision: &str) -> Result<(), RoomError
     if id == 0 {
         return Err(RoomError::Invalid("memory id is invalid.".into()));
     }
-    if index_revision.is_empty() || index_revision.len() > 200 {
+    if index_revision.is_empty() || mixdog_js::utf16_len(index_revision) > 200 {
         return Err(RoomError::Invalid("memory indexRevision is invalid.".into()));
     }
     Ok(())

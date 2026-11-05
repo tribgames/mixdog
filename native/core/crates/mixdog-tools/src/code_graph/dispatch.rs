@@ -8,7 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use super::args::Args;
-use super::federation::{TrustedRoots, drop_cwd_anchors, plan_federation, run_federation};
+use super::cache::GraphCache;
+use super::federation::{TrustSnapshot, drop_cwd_anchors, plan_federation, run_federation};
 use super::graph::Graph;
 use super::modes::{self, Ctx};
 use super::roots::{
@@ -30,9 +31,6 @@ const MODES: [&str; 12] = [
     "callers",
     "callees",
 ];
-
-/// Modes whose `symbols[]` entries are each one query.
-const PER_SYMBOL: [&str; 5] = ["find_symbol", "references", "callers", "callees", "impact"];
 
 /// Path of `abs` under `root` with forward slashes, or the absolute path when outside it.
 pub(super) fn display_rel(abs: &Path, root: &Path) -> String {
@@ -56,12 +54,16 @@ pub(super) struct Answer {
     /// False when the answer is known partial (a federated section failed, or the graph hit its
     /// file cap): Node's `markScopedCacheIncomplete`, so the result is not reused.
     pub complete: bool,
+    /// The whole answer is an error body (`classifyResultKind`). A single call's error does not
+    /// make it incomplete, but a federated parent counts an erroring section as a failed one.
+    pub error: bool,
 }
 
 /// What a call knows beyond its arguments: where trusted roots come from, and the session's cwd
 /// (always a selected directory).
 pub(super) struct Env<'a> {
-    pub trust: Option<&'a dyn TrustedRoots>,
+    pub trust: &'a TrustSnapshot,
+    pub cache: &'a GraphCache,
     pub session_cwd: &'a Path,
 }
 
@@ -101,7 +103,7 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     }
     if let Some(file) = args.file.as_deref().filter(|_| !has_aggregate) {
         match resolve_file_anchor_root("code_graph", file, &base, explicit)? {
-            FileAnchor::Error(text) => return Ok(Answer { text, dependency_roots: None, complete: true }),
+            FileAnchor::Error(text) => return Ok(Answer { text, dependency_roots: None, complete: true, error: true }),
             FileAnchor::Root(anchor_root) => {
                 if let Some(anchor_root) = anchor_root {
                     root = anchor_root;
@@ -131,52 +133,99 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     let graph = match single_file.as_ref().filter(|_| mode == "symbols") {
         Some(file) => match Graph::build_single(&root, file)? {
             Some(g) => g,
-            None => Graph::build(&root, excluded)?,
+            None => Graph::build(&root, excluded, env.cache)?,
         },
-        None => Graph::build(&root, excluded)?,
+        None => Graph::build(&root, excluded, env.cache)?,
     };
-    // A graph over the whole tree is what the cache remembers as an indexed root.
-    if excluded.is_empty()
-        && let Some(trust) = env.trust
-    {
-        trust.indexed(&root);
-    }
 
-    let symbols = if PER_SYMBOL.contains(&mode) { args.symbol_list() } else { Vec::new() };
-    let per_anchor: Vec<Option<&String>> = if anchors.is_empty() {
-        vec![None]
+    // `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
+    let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() {
+        "find_symbol"
     } else {
-        anchors.iter().map(Some).collect()
+        mode
     };
-    let per_symbol: Vec<Option<&String>> = if symbols.is_empty() {
-        vec![None]
+    let batch_mode = if mode == "search" { "symbol_search" } else { mode };
+    let raw = |a: &Args| Section::whole(answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()));
+    // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
+    let scope_files = if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) {
+        args.file_list()
     } else {
-        symbols.iter().map(Some).collect()
+        Vec::new()
     };
-    let multiple = per_anchor.len() * per_symbol.len() > 1;
-    let mut sections: Vec<String> = Vec::new();
-    for anchor in &per_anchor {
-        for symbol in &per_symbol {
-            let call_args = match (anchor, symbol) {
-                (Some(a), Some(s)) => args.with_file(a).with_symbol(s),
-                (Some(a), None) => args.with_file(a),
-                (None, Some(s)) => args.with_symbol(s),
-                (None, None) => args.clone(),
-            };
-            let text = answer(mode, &call_args, &base, default_cwd, &root, &graph, anchor.map(String::as_str));
-            if multiple {
-                let label = [anchor.map(String::as_str), symbol.map(String::as_str)]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                sections.push(format!("# {label}\n{text}"));
-            } else {
-                sections.push(text);
+    let one = |a: &Args| -> Section {
+        match scope_files.as_slice() {
+            [] => raw(a),
+            [only] => raw(&a.with_file(only)),
+            many => fanout(many, |f| format!("file {f}"), |f| raw(&a.with_file(f))),
+        }
+    };
+    let section = 'work: {
+        if BATCHABLE.contains(&batch_mode) {
+            let list = args.symbol_list();
+            match list.as_slice() {
+                [] => {}
+                [only] if args.symbol.as_deref() == Some(only.as_str()) => {}
+                [only] => break 'work one(&args.with_symbol(only)),
+                many => break 'work fanout(many, |s| format!("{batch_mode} {s}"), |s| one(&args.with_symbol(s))),
             }
         }
+        if FILE_BATCHABLE.contains(&batch_mode) {
+            let list = args.file_list();
+            match list.as_slice() {
+                [] => {}
+                [only] if args.file.as_deref() == Some(only.as_str()) => {}
+                [only] => break 'work one(&args.with_file(only)),
+                many => break 'work fanout(many, |f| format!("{batch_mode} {f}"), |f| one(&args.with_file(f))),
+            }
+        }
+        one(&args)
+    };
+    let complete = section.complete && !graph.truncated;
+    let error = is_error_body(&section.text);
+    Ok(Answer { text: section.text, dependency_roots: Some(dependency_roots), complete, error })
+}
+
+/// One answer text and whether it is whole: a fanned-out call is whole only when every section is.
+pub(super) struct Section {
+    text: String,
+    complete: bool,
+}
+
+impl Section {
+    fn whole(text: String) -> Self {
+        Self { text, complete: true }
     }
-    Ok(Answer { text: sections.join("\n\n"), dependency_roots: Some(dependency_roots), complete: !graph.truncated })
+}
+
+/// `classifyResultKind(body) == 'error'`.
+pub(super) fn is_error_body(body: &str) -> bool {
+    let lower = body.trim_start().to_lowercase();
+    if lower.starts_with("[error") {
+        return true;
+    }
+    let Some(rest) = lower.strip_prefix("error") else {
+        return false;
+    };
+    let after = rest.trim_start();
+    (rest.starts_with(char::is_whitespace) && after.starts_with("[code")) || after.starts_with(':')
+}
+
+/// Modes that take `symbols[]`.
+const BATCHABLE: [&str; 6] = ["symbol", "find_symbol", "symbol_search", "callers", "callees", "references"];
+/// Modes that take `files[]` as separate targets.
+const FILE_BATCHABLE: [&str; 6] = ["overview", "imports", "dependents", "related", "impact", "symbols"];
+
+/// One `# header` section per item, joined by a blank line (`_fanoutSections`): a section that
+/// is an error body, or itself incomplete, makes the whole answer incomplete.
+fn fanout<T>(items: &[T], header: impl Fn(&T) -> String, run: impl Fn(&T) -> Section) -> Section {
+    let mut complete = true;
+    let mut texts = Vec::new();
+    for item in items {
+        let part = run(item);
+        complete &= part.complete && !is_error_body(&part.text);
+        texts.push(format!("# {}\n{}", header(item), part.text));
+    }
+    Section { text: texts.join("\n\n"), complete }
 }
 
 fn answer(
@@ -192,7 +241,11 @@ fn answer(
     let rel = abs.as_ref().map(|p| display_rel(p, root));
     let is_dir = abs.as_ref().is_some_and(|p| p.is_dir());
     let (file_rel, scope_prefix) = match (&rel, is_dir) {
-        (Some(r), true) => (None, Some(format!("{}/", r.trim_end_matches('/')))),
+        // The project root itself is no scope (`_scopeRelPrefix`).
+        (Some(r), true) => match r.trim_end_matches('/') {
+            "" | "." => (None, None),
+            dir => (None, Some(format!("{dir}/"))),
+        },
         (Some(r), false) => (Some(r.clone()), None),
         _ => (None, None),
     };
@@ -201,7 +254,7 @@ fn answer(
         cwd: root,
         default_cwd,
         graph,
-        norm_file: rel.as_deref(),
+        norm_file: anchor,
         node: file_rel.as_deref().and_then(|r| graph.node(r)),
         rel: file_rel,
         scope_prefix,

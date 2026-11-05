@@ -110,6 +110,7 @@ pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
         output_tokens: candidates + thoughts.unwrap_or(0),
         cache_read_tokens: cached,
         cache_write_tokens: 0,
+        cache_write_1h_tokens: 0,
         reasoning_tokens: thoughts.unwrap_or(0),
         raw: Some(um.clone()),
         cost: None,

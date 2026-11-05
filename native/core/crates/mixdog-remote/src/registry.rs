@@ -11,6 +11,10 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 /// The `browser` a second PC's Mixdog desktop window reports in its pairing claim.
 pub const MIXDOG_DESKTOP_CLIENT_BROWSER: &str = "Mixdog Desktop";
 
+/// What Node stamps for a connection with no device name: `connectionDevice()`,
+/// `(await client?.deviceName?.()) || 'Web app'` (apps/desktop/src/main/remote-session-methods.ts:42).
+pub const DEFAULT_DEVICE_NAME: &str = "Web app";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkKind {
     /// A Mixdog desktop window on another PC, over the relay.
@@ -57,8 +61,8 @@ impl DeviceRegistry {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A relay peer attached as a paired device. `device` is the credential id the relay named
-    /// (stable across reconnects); `browser` is what the device reported in its claim.
+    /// A relay peer attached as a paired device. `device` is the device's display name (what
+    /// `client.deviceName()` returns in Node); `browser` is what the device reported in its claim.
     pub fn attach_peer(&self, peer_id: &str, device: &str, browser: &str) {
         let kind = if browser == MIXDOG_DESKTOP_CLIENT_BROWSER { LinkKind::RemoteDesktop } else { LinkKind::Phone };
         self.inner().peers.insert(peer_id.to_owned(), Described { device: device.to_owned(), kind });

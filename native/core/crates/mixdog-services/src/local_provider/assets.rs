@@ -6,9 +6,11 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_rt::{DurabilityIo, LaneToken};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
@@ -110,17 +112,19 @@ fn check_asset(asset: &Value) -> Result<(i64, String, String), AssetError> {
     Ok((size, url.to_owned(), sha.to_lowercase()))
 }
 
-pub async fn sha256_file(path: &Path, cancel: &CancellationToken) -> Result<String, AssetError> {
+/// Hashes `path` as one job on the durability lane (the lane its partial files are written on);
+/// a cancel ends the wait at once and stops the read at its next 1 MiB block.
+pub async fn sha256_file(lane: DurabilityIo, path: &Path, cancel: &CancellationToken) -> Result<String, AssetError> {
     let path = path.to_owned();
-    let cancel = cancel.clone();
-    tokio::task::spawn_blocking(move || {
+    let job_cancel = cancel.clone();
+    let hashed = on_durability_lane(lane, cancel, move || {
         use std::io::Read;
         let mut file = fs::File::open(&path)?;
         let mut hasher = Sha256::new();
         let mut buf = vec![0u8; 1024 * 1024];
         loop {
-            if cancel.is_cancelled() {
-                return Err(AssetError::Aborted);
+            if job_cancel.is_cancelled() {
+                return Ok(None);
             }
             let n = file.read(&mut buf)?;
             if n == 0 {
@@ -128,10 +132,10 @@ pub async fn sha256_file(path: &Path, cancel: &CancellationToken) -> Result<Stri
             }
             hasher.update(&buf[..n]);
         }
-        Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+        Ok(Some(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()))
     })
-    .await
-    .map_err(|e| AssetError::Other(e.to_string()))?
+    .await?;
+    hashed.ok_or(AssetError::Aborted)
 }
 
 fn part_path(destination: &Path) -> PathBuf {
@@ -153,18 +157,150 @@ fn report(on_progress: &Option<Progress>, stage: Option<&str>, received: i64, to
     }
 }
 
+/// Received bytes are written and flushed in batches of this size, one lane job per batch.
+const WRITE_BATCH: usize = 1024 * 1024;
+
 pub struct DownloadOptions {
     pub on_progress: Option<Progress>,
     pub cancel: CancellationToken,
     pub force: bool,
     pub timeout: Duration,
     pub check_disk: bool,
+    /// The lane the partial file is created, written and fsynced on.
+    pub durability: DurabilityIo,
+    /// Received bytes collected before each write job.
+    pub write_batch: usize,
+    /// Runs at the start of every write job, on the lane thread.
+    #[cfg(test)]
+    pub write_gate: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
-impl Default for DownloadOptions {
-    fn default() -> Self {
-        Self { on_progress: None, cancel: CancellationToken::new(), force: false, timeout: DOWNLOAD_TIMEOUT, check_disk: true }
+impl DownloadOptions {
+    pub fn new(durability: DurabilityIo) -> Self {
+        Self {
+            on_progress: None,
+            cancel: CancellationToken::new(),
+            force: false,
+            timeout: DOWNLOAD_TIMEOUT,
+            check_disk: true,
+            durability,
+            write_batch: WRITE_BATCH,
+            #[cfg(test)]
+            write_gate: None,
+        }
     }
+}
+
+/// Runs blocking file work on the durability lane and waits for it to settle. Cancelling `cancel`
+/// stops a job still waiting for lane room or queued; a job already running is always awaited, so
+/// `Aborted` is only returned once nothing of this call is still touching the file.
+async fn on_durability_lane<T: Send + 'static>(lane: DurabilityIo, cancel: &CancellationToken, work: impl FnOnce() -> std::io::Result<T> + Send + 'static) -> Result<T, AssetError> {
+    let aborted = |e: &dyn std::fmt::Display| if cancel.is_cancelled() { AssetError::Aborted } else { AssetError::Other(e.to_string()) };
+    let job = lane.submit_wait(cancel, move |_| work()).await.map_err(|e| aborted(&e))?;
+    let done = job.await.map_err(|e| aborted(&e))?;
+    Ok(done?)
+}
+
+/// Quick file work that must finish even when the download was cancelled (cleanup, the final
+/// rename): it never observes a cancel.
+async fn settled<T: Send + 'static>(lane: DurabilityIo, work: impl FnOnce() -> std::io::Result<T> + Send + 'static) -> Result<T, AssetError> {
+    on_durability_lane(lane, &CancellationToken::new(), work).await
+}
+
+async fn create_dir_all(lane: DurabilityIo, path: &Path) -> Result<(), AssetError> {
+    let path = path.to_owned();
+    settled(lane, move || fs::create_dir_all(path)).await
+}
+
+/// Length of `path`, 0 when it does not exist.
+async fn file_len(lane: DurabilityIo, path: &Path) -> Result<i64, AssetError> {
+    let path = path.to_owned();
+    settled(lane, move || Ok(fs::metadata(path).map_or(0, |m| m.len() as i64))).await
+}
+
+async fn remove_file(lane: DurabilityIo, path: &Path) {
+    let path = path.to_owned();
+    let _ = settled(lane, move || Ok(drop(fs::remove_file(path)))).await;
+}
+
+async fn remove_dir_all(lane: DurabilityIo, path: &Path) {
+    let path = path.to_owned();
+    let _ = settled(lane, move || Ok(drop(fs::remove_dir_all(path)))).await;
+}
+
+async fn rename(lane: DurabilityIo, from: &Path, to: &Path) -> Result<(), AssetError> {
+    let (from, to) = (from.to_owned(), to.to_owned());
+    settled(lane, move || fs::rename(from, to)).await
+}
+
+/// Runs any blocking job (a probe, a read, a short write) of the provider on the lane; it never
+/// observes a cancel. Every file-system call of the provider's async paths goes through here.
+pub(super) async fn probe<T: Send + 'static>(lane: DurabilityIo, work: impl FnOnce() -> T + Send + 'static) -> Result<T, AssetError> {
+    settled(lane, move || Ok(work())).await
+}
+
+async fn check_disk(lane: DurabilityIo, enabled: bool, dir: &Path, need: i64) -> Result<(), AssetError> {
+    if !enabled {
+        return Ok(());
+    }
+    let dir = dir.to_owned();
+    probe(lane, move || ensure_disk_space(&dir, need).map_err(AssetError::Other)).await?
+}
+
+/// One owner per partial file: a download holds its destination's lock from its first file
+/// operation until its last write has settled, so a resume waits for the download it follows.
+/// An entry lives while it has a holder or a waiter, so the map holds only active destinations.
+struct Owner {
+    lock: Arc<tokio::sync::Mutex<()>>,
+    users: usize,
+}
+
+fn owners() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, Owner>> {
+    static OWNERS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Owner>>> = std::sync::OnceLock::new();
+    OWNERS.get_or_init(Default::default)
+}
+
+/// A waiter's or holder's claim on the registry entry; the last one out removes it.
+struct Registration(PathBuf);
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        let mut map = owners().lock().unwrap();
+        if let Some(owner) = map.get_mut(&self.0) {
+            owner.users -= 1;
+            if owner.users == 0 {
+                map.remove(&self.0);
+            }
+        }
+    }
+}
+
+/// Ownership of a destination. The guard is released before the registration, so a waiter that
+/// takes over finds the entry still there.
+struct Ownership {
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+    _registration: Registration,
+}
+
+/// Waits until this caller owns `partial`; a cancel while waiting gives up with `None`.
+async fn own(partial: &Path, cancel: &CancellationToken) -> Option<Ownership> {
+    let lock = {
+        let mut map = owners().lock().unwrap();
+        let owner = map.entry(partial.to_owned()).or_insert_with(|| Owner { lock: Arc::default(), users: 0 });
+        owner.users += 1;
+        owner.lock.clone()
+    };
+    let registration = Registration(partial.to_owned());
+    tokio::select! {
+        guard = lock.lock_owned() => Some(Ownership { _guard: guard, _registration: registration }),
+        () = cancel.cancelled() => None,
+    }
+}
+
+/// How many callers hold or wait for `partial`.
+#[cfg(test)]
+fn users_of(partial: &Path) -> usize {
+    owners().lock().unwrap().get(partial).map_or(0, |o| o.users)
 }
 
 /// Downloads `asset` (`url`, `size`, `sha256`, optional `name`) to `destination`.
@@ -184,29 +320,33 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     if deadline.is_cancelled() {
         return Err(AssetError::Aborted);
     }
-    fs::create_dir_all(destination.parent().expect("destination has a parent"))?;
-    if !options.force && exact_file(destination, size) && sha256_file(destination, &deadline).await? == sha256 {
-        report(&options.on_progress, None, size, size, 100);
-        return Ok(destination.to_owned());
-    }
+    let lane = options.durability;
     let partial = part_path(destination);
-    let mut received = fs::metadata(&partial).map_or(0, |m| m.len() as i64);
-    if received > size {
-        let _ = fs::remove_file(&partial);
-        received = 0;
-    }
-    if received == size {
-        if sha256_file(&partial, &deadline).await? == sha256 {
-            fs::rename(&partial, destination)?;
+    let Some(_owner) = own(&partial, &deadline).await else { return Err(AssetError::Aborted) };
+    let dir = destination.parent().expect("destination has a parent");
+    create_dir_all(lane, dir).await?;
+    if !options.force {
+        let (path, expected) = (destination.to_owned(), size);
+        if probe(lane, move || exact_file(&path, expected)).await? && sha256_file(lane, destination, &deadline).await? == sha256 {
             report(&options.on_progress, None, size, size, 100);
             return Ok(destination.to_owned());
         }
-        let _ = fs::remove_file(&partial);
+    }
+    let mut received = file_len(lane, &partial).await?;
+    if received > size {
+        remove_file(lane, &partial).await;
         received = 0;
     }
-    let dir = destination.parent().expect("destination has a parent");
-    let disk = |need: i64| if options.check_disk { ensure_disk_space(dir, need).map_err(AssetError::Other) } else { Ok(()) };
-    disk(size - received)?;
+    if received == size {
+        if sha256_file(lane, &partial, &deadline).await? == sha256 {
+            rename(lane, &partial, destination).await?;
+            report(&options.on_progress, None, size, size, 100);
+            return Ok(destination.to_owned());
+        }
+        remove_file(lane, &partial).await;
+        received = 0;
+    }
+    check_disk(lane, options.check_disk, dir, size - received).await?;
     let mut response = tokio::select! {
         r = fetcher.get(&url, received) => r.map_err(AssetError::Other)?,
         _ = deadline.cancelled() => return Err(AssetError::Aborted),
@@ -219,39 +359,80 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     }
     let resumed = received > 0 && response.status == 206;
     if received > 0 && !resumed {
-        let _ = fs::remove_file(&partial);
+        remove_file(lane, &partial).await;
         received = 0;
-        disk(size)?;
+        check_disk(lane, options.check_disk, dir, size).await?;
     }
-    let mut file = fs::OpenOptions::new().create(true).write(true).append(resumed).truncate(!resumed).open(&partial)?;
+    let opened = {
+        let partial = partial.clone();
+        on_durability_lane(lane, &deadline, move || fs::OpenOptions::new().create(true).write(true).append(resumed).truncate(!resumed).open(&partial)).await?
+    };
+    let mut file = Some(opened);
     let mut total = received;
-    loop {
-        let chunk = tokio::select! {
-            c = response.body.next() => c.map_err(AssetError::Other)?,
-            _ = deadline.cancelled() => return Err(AssetError::Aborted),
-        };
-        let Some(chunk) = chunk else { break };
-        total += chunk.len() as i64;
-        if total > size {
-            return Err(AssetError::Oversize(name));
+    let mut pending: Vec<u8> = Vec::new();
+    // Every exit from the stream settles its last write job before the file is released.
+    let streamed: Result<(), AssetError> = async {
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                _ = deadline.cancelled() => return Err(AssetError::Aborted),
+                c = response.body.next() => c.map_err(AssetError::Other)?,
+            };
+            let Some(chunk) = chunk else { break };
+            total += chunk.len() as i64;
+            if total > size {
+                return Err(AssetError::Oversize(name.clone()));
+            }
+            pending.extend_from_slice(&chunk);
+            report(&options.on_progress, Some("downloading"), total, size, ((total as f64 / size as f64) * 100.0).round().min(99.0) as i64);
+            if pending.len() >= options.write_batch {
+                let batch = std::mem::take(&mut pending);
+                let mut open = file.take().expect("file is open while streaming");
+                #[cfg(test)]
+                let gate = options.write_gate.clone();
+                file = Some(
+                    on_durability_lane(lane, &deadline, move || {
+                        #[cfg(test)]
+                        if let Some(gate) = gate {
+                            gate();
+                        }
+                        open.write_all(&batch).map(|()| open)
+                    })
+                    .await?,
+                );
+            }
         }
-        file.write_all(&chunk)?;
-        report(&options.on_progress, Some("downloading"), total, size, ((total as f64 / size as f64) * 100.0).round().min(99.0) as i64);
+        let mut open = file.take().expect("file is open while streaming");
+        let last = std::mem::take(&mut pending);
+        #[cfg(test)]
+        let gate = options.write_gate.clone();
+        on_durability_lane(lane, &deadline, move || {
+            #[cfg(test)]
+            if let Some(gate) = gate {
+                gate();
+            }
+            open.write_all(&last)?;
+            open.sync_all()
+        })
+        .await
     }
-    file.sync_all()?;
-    drop(file);
+    .await;
+    if let Some(open) = file.take() {
+        let _ = settled(lane, move || Ok(drop(open))).await;
+    }
+    streamed?;
     if total != size {
         return Err(AssetError::Incomplete(name, total, size));
     }
     report(&options.on_progress, Some("verifying"), total, size, 99);
-    if sha256_file(&partial, &deadline).await? != sha256 {
-        let _ = fs::remove_file(&partial);
+    if sha256_file(lane, &partial, &deadline).await? != sha256 {
+        remove_file(lane, &partial).await;
         return Err(AssetError::DigestMismatch(name));
     }
     if deadline.is_cancelled() {
         return Err(AssetError::Aborted);
     }
-    fs::rename(&partial, destination)?;
+    rename(lane, &partial, destination).await?;
     report(&options.on_progress, Some("complete"), total, size, 100);
     Ok(destination.to_owned())
 }
@@ -296,28 +477,29 @@ async fn extract_archive(archive: &Path, destination: &Path, cancel: &Cancellati
 }
 
 /// Installs the runtime build for this host; no-op when its executable is already there.
-pub async fn install_runtime(catalog: &Catalog, fetcher: &dyn Fetcher, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
+pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, durability: DurabilityIo, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
     let hardware = catalog.hardware.detect(true).await;
     if cancel.is_cancelled() {
         return Err(AssetError::Aborted);
     }
     let entry = catalog.runtime_platform_entry(platform_key);
-    let status = catalog.status(Some(platform_key));
+    let status = catalog.status(Some(platform_key)).await?;
     let Some(entry) = entry.filter(|_| status["available"] == true) else {
         return Err(AssetError::Other("[local-provider] Windows x64 with a compatible NVIDIA RTX GPU, or an Apple Silicon Mac with enough memory, is required".into()));
     };
     let _ = hardware;
     let target = catalog.runtime_directory();
     let executable = entry["executable"].as_str().unwrap_or("");
-    if file_has_data(&target.join(executable)) {
-        return Ok(catalog.status(Some(platform_key)));
+    let installed = target.join(executable);
+    if probe(durability, move || file_has_data(&installed)).await? {
+        return catalog.status(Some(platform_key)).await;
     }
     let total_bytes = entry["downloadBytes"].as_i64().unwrap_or(0);
-    ensure_disk_space(&catalog.runtime_root(), total_bytes).map_err(AssetError::Other)?;
+    check_disk(durability, true, &catalog.runtime_root(), total_bytes).await?;
     let staging = catalog.runtime_root().join(format!(".staging-{}", std::process::id()));
     let downloads = catalog.runtime_root().join(".downloads");
-    let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging)?;
+    remove_dir_all(durability, &staging).await;
+    create_dir_all(durability, &staging).await?;
     let result = async {
         let mut completed = 0i64;
         for asset in entry["assets"].as_array().cloned().unwrap_or_default() {
@@ -333,7 +515,7 @@ pub async fn install_runtime(catalog: &Catalog, fetcher: &dyn Fetcher, platform_
                 m.insert("percent".into(), json!((got as f64 / total_bytes as f64 * 100.0).round()));
                 progress_cb(m);
             });
-            download_verified_asset(fetcher, &asset, &archive, DownloadOptions { on_progress: Some(on_progress), cancel: cancel.clone(), ..Default::default() }).await?;
+            download_verified_asset(fetcher, &asset, &archive, DownloadOptions { on_progress: Some(on_progress), cancel: cancel.clone(), ..DownloadOptions::new(durability) }).await?;
             let after = completed + asset["size"].as_i64().unwrap_or(0);
             progress(Map::from_iter([
                 ("phase".to_owned(), json!("runtime")), ("stage".into(), json!("extracting")),
@@ -343,31 +525,32 @@ pub async fn install_runtime(catalog: &Catalog, fetcher: &dyn Fetcher, platform_
             extract_archive(&archive, &staging, &cancel).await?;
             completed = after;
         }
-        if !staging.join(executable).exists() {
+        let extracted = staging.join(executable);
+        if !probe(durability, move || extracted.exists()).await? {
             return Err(AssetError::Other(format!("[local-provider] runtime archive did not contain {executable}")));
         }
         if cancel.is_cancelled() {
             return Err(AssetError::Aborted);
         }
-        let _ = fs::remove_dir_all(&target);
-        fs::rename(&staging, &target)?;
-        let _ = fs::remove_dir_all(&downloads);
-        Ok(catalog.status(Some(platform_key)))
+        remove_dir_all(durability, &target).await;
+        rename(durability, &staging, &target).await?;
+        remove_dir_all(durability, &downloads).await;
+        catalog.status(Some(platform_key)).await
     }
     .await;
     if result.is_err() {
-        let _ = fs::remove_dir_all(&staging);
+        remove_dir_all(durability, &staging).await;
     }
     result
 }
 
 /// Downloads one model after checking the runtime and GPU memory.
-pub async fn install_model(catalog: &Catalog, fetcher: &dyn Fetcher, entry: &Value, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
+pub async fn install_model(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, durability: DurabilityIo, entry: &Value, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
     let hardware = catalog.hardware.detect(true).await;
     if cancel.is_cancelled() {
         return Err(AssetError::Aborted);
     }
-    if catalog.status(None)["runtime"]["installed"] != true {
+    if catalog.status(None).await?["runtime"]["installed"] != true {
         return Err(AssetError::Other("[local-provider] install the Local Provider runtime first".into()));
     }
     let minimum = entry["minimumVramBytes"].as_i64().unwrap_or(0);
@@ -380,8 +563,8 @@ pub async fn install_model(catalog: &Catalog, fetcher: &dyn Fetcher, entry: &Val
         p.insert("modelId".into(), id.clone());
         progress(p);
     });
-    download_verified_asset(fetcher, entry, &catalog.model_path(entry), DownloadOptions { on_progress: Some(on_progress), cancel, ..Default::default() }).await?;
-    Ok(catalog.status(None))
+    download_verified_asset(fetcher, entry, &catalog.model_path(entry), DownloadOptions { on_progress: Some(on_progress), cancel, ..DownloadOptions::new(durability) }).await?;
+    catalog.status(None).await
 }
 
 fn paused_entry(phase: &str, model_id: Option<&str>, received: i64, total: i64) -> Value {
@@ -390,7 +573,12 @@ fn paused_entry(phase: &str, model_id: Option<&str>, received: i64, total: i64) 
 }
 
 /// Live installations plus the paused ones the partial files on disk prove after a restart.
-pub fn resumable_installations(catalog: &Catalog, status: &Value, live: Vec<Value>) -> Vec<Value> {
+pub async fn resumable_installations(catalog: &Arc<Catalog>, status: &Value, live: Vec<Value>) -> Result<Vec<Value>, AssetError> {
+    let (job_catalog, job_status) = (catalog.clone(), status.clone());
+    probe(catalog.lane(), move || resumable_blocking(&job_catalog, &job_status, live)).await
+}
+
+fn resumable_blocking(catalog: &Catalog, status: &Value, live: Vec<Value>) -> Vec<Value> {
     let mut entries = live;
     for model in status["models"].as_array().into_iter().flatten() {
         let size = model["sizeBytes"].as_i64().unwrap_or(0);
@@ -425,11 +613,18 @@ pub enum DiscardError {
     UnknownModel,
     #[error("phase must be runtime, model, verify or repair.")]
     BadPhase,
+    #[error("[local-provider] {0}")]
+    Lane(String),
 }
 
 /// Drops a paused or failed installation's downloads. Installed weights and runtimes are
 /// untouched; a failed verification only forgets its row (the caller forgets the row).
-pub fn discard_downloads(catalog: &Catalog, phase: &str, model_id: Option<&str>) -> Result<(), DiscardError> {
+pub async fn discard_downloads(catalog: &Arc<Catalog>, phase: &str, model_id: Option<&str>) -> Result<(), DiscardError> {
+    let (job_catalog, phase, model_id) = (catalog.clone(), phase.to_owned(), model_id.map(str::to_owned));
+    probe(catalog.lane(), move || discard_blocking(&job_catalog, &phase, model_id.as_deref())).await.map_err(|e| DiscardError::Lane(e.to_string()))?
+}
+
+fn discard_blocking(catalog: &Catalog, phase: &str, model_id: Option<&str>) -> Result<(), DiscardError> {
     match phase {
         "runtime" => {
             for asset in catalog.runtime_platform_entry(super::hardware::host_platform_key()).and_then(|e| e["assets"].as_array().cloned()).unwrap_or_default() {
@@ -492,7 +687,93 @@ mod tests {
     }
 
     fn opts() -> DownloadOptions {
-        DownloadOptions { check_disk: false, ..Default::default() }
+        DownloadOptions { check_disk: false, ..DownloadOptions::new(mixdog_rt::testing::tokens().durability_io) }
+    }
+
+    /// The test backend runs lane jobs inline, so which thread wrote cannot be observed here; what
+    /// is checked is that the lane path honours cancellation and carries a multi-batch download.
+    #[tokio::test(flavor = "current_thread")]
+    async fn partial_file_io_goes_through_the_lane_with_cancellation_and_batches() {
+        let dir = tempfile::tempdir().unwrap();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        assert_eq!(on_durability_lane(lane, &CancellationToken::new(), || Ok(7)).await.unwrap(), 7);
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert!(matches!(on_durability_lane(lane, &cancelled, || Ok(())).await, Err(AssetError::Aborted)));
+        // A body spanning many write batches is written through the lane and verified.
+        let content = vec![7u8; 100];
+        let dest = dir.path().join("big.bin");
+        download_verified_asset(&fake(&content), &asset(&content), &dest, DownloadOptions { write_batch: 8, ..opts() }).await.unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), content);
+    }
+
+    /// A resume must not touch the partial file while the download it follows still has a write in
+    /// flight, and must then continue from every byte that write put down. The first download is
+    /// paused (cancelled) while its first write job is held on the gate.
+    #[test]
+    fn a_resume_waits_for_the_paused_download_to_settle_its_write() {
+        use std::sync::mpsc;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("a.bin");
+        let content = b"hello world!";
+        let (first, second) = (fake(content), fake(content));
+        let pause = CancellationToken::new();
+        let (entered_tx, entered_rx) = mpsc::channel::<()>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = Mutex::new(release_rx);
+        // The gate also opens when the sender is dropped, so a failing assertion cannot leave the
+        // write job blocked.
+        let gate: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            entered_tx.send(()).ok();
+            release_rx.lock().unwrap().recv().ok();
+        });
+        let run = |fetcher: &Fake, options: DownloadOptions| {
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(download_verified_asset(fetcher, &asset(content), &dest, options))
+        };
+        let partial = part_path(&dest);
+        std::thread::scope(|scope| {
+            let release = release_tx;
+            let paused = scope.spawn(|| run(&first, DownloadOptions { write_batch: 4, cancel: pause.clone(), write_gate: Some(gate), ..opts() }));
+            entered_rx.recv().unwrap();
+            pause.cancel();
+            let resumed = scope.spawn(|| run(&second, opts()));
+            // The resume has reached the destination's lock when it is registered next to the holder.
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            while users_of(&partial) < 2 {
+                assert!(std::time::Instant::now() < deadline, "the resume never reached the destination lock");
+                std::thread::yield_now();
+            }
+            assert!(second.requested_from.lock().unwrap().is_empty(), "the resume started while the paused download still owned the file");
+            drop(release);
+            assert!(matches!(paused.join().unwrap(), Err(AssetError::Aborted)));
+            resumed.join().unwrap().unwrap();
+        });
+        assert_eq!(*second.requested_from.lock().unwrap(), vec![4], "the resume continues after the settled write");
+        assert_eq!(fs::read(&dest).unwrap(), content);
+        assert!(!part_path(&dest).exists());
+        assert_eq!(users_of(&partial), 0, "the registry keeps no entry for a finished destination");
+    }
+
+    #[tokio::test]
+    async fn the_owner_registry_holds_only_active_destinations() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"hello world!";
+        // A completed download, a failed one (wrong digest) and one cancelled while waiting.
+        let done = dir.path().join("done.bin");
+        download_verified_asset(&fake(content), &asset(content), &done, opts()).await.unwrap();
+        assert_eq!(users_of(&part_path(&done)), 0);
+        let bad = dir.path().join("bad.bin");
+        let mut wrong = asset(content);
+        wrong["sha256"] = json!(digest(b"other"));
+        assert!(download_verified_asset(&fake(content), &wrong, &bad, opts()).await.is_err());
+        assert_eq!(users_of(&part_path(&bad)), 0);
+        let held = own(&part_path(&done), &CancellationToken::new()).await.unwrap();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert!(own(&part_path(&done), &cancel).await.is_none());
+        assert_eq!(users_of(&part_path(&done)), 1, "the cancelled waiter left");
+        drop(held);
+        assert_eq!(users_of(&part_path(&done)), 0);
     }
 
     #[tokio::test]
@@ -564,23 +845,23 @@ mod tests {
         assert!(matches!(download_verified_asset(&fake(content), &asset(content), &dest, cancelled).await, Err(AssetError::Aborted)));
     }
 
-    #[test]
-    fn partial_files_surface_as_paused_installations_and_can_be_discarded() {
+    #[tokio::test]
+    async fn partial_files_surface_as_paused_installations_and_can_be_discarded() {
         let dir = tempfile::tempdir().unwrap();
         let c = super::super::catalog::tests::catalog(dir.path());
         let weights = c.model_path(&c.model_entry("qwen3.8-27b-q4-k-m").unwrap());
         fs::create_dir_all(weights.parent().unwrap()).unwrap();
         fs::write(part_path(&weights), vec![1u8; 100]).unwrap();
-        let status = c.status(Some("win32-x64-nvidia"));
-        let rows = resumable_installations(&c, &status, vec![]);
+        let status = c.status(Some("win32-x64-nvidia")).await.unwrap();
+        let rows = resumable_installations(&c, &status, vec![]).await.unwrap();
         let row = rows.iter().find(|r| r["phase"] == "model").unwrap();
         assert_eq!((row["state"].clone(), row["receivedBytes"].clone()), (json!("paused"), json!(100)));
         // A live row for the same model suppresses the synthetic one.
         let live = vec![json!({"phase": "model", "modelId": "qwen3.8-27b-q4-k-m", "state": "running"})];
-        assert_eq!(resumable_installations(&c, &status, live).iter().filter(|r| r["phase"] == "model").count(), 1);
-        discard_downloads(&c, "model", Some("qwen3.8-27b-q4-k-m")).unwrap();
+        assert_eq!(resumable_installations(&c, &status, live).await.unwrap().iter().filter(|r| r["phase"] == "model").count(), 1);
+        discard_downloads(&c, "model", Some("qwen3.8-27b-q4-k-m")).await.unwrap();
         assert!(!part_path(&weights).exists());
-        assert!(matches!(discard_downloads(&c, "model", Some("nope")), Err(DiscardError::UnknownModel)));
-        assert!(matches!(discard_downloads(&c, "bogus", None), Err(DiscardError::BadPhase)));
+        assert!(matches!(discard_downloads(&c, "model", Some("nope")).await, Err(DiscardError::UnknownModel)));
+        assert!(matches!(discard_downloads(&c, "bogus", None).await, Err(DiscardError::BadPhase)));
     }
 }
