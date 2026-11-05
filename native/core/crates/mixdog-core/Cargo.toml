@@ -1,0 +1,20 @@
+[package]
+name = "mixdog-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-core-api = { workspace = true }
+mixdog-store = { workspace = true }
+mixdog-agent = { workspace = true }
+mixdog-ledger = { workspace = true }
+mixdog-mcp = { workspace = true }
+mixdog-services = { workspace = true }
+mixdog-workspace = { workspace = true }
+mixdog-scm = { workspace = true }
+mixdog-remote = { workspace = true }
+mixdog-exthost = { workspace = true }

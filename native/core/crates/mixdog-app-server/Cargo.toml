@@ -1,0 +1,12 @@
+[package]
+name = "mixdog-app-server"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-app-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }

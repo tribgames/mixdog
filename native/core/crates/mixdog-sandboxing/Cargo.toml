@@ -1,0 +1,11 @@
+[package]
+name = "mixdog-sandboxing"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-protocol = { workspace = true }
