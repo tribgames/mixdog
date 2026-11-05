@@ -69,6 +69,11 @@
     inset 0 0 0 var(--mx-hairline) var(--mx-border);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
+  /* Korean breaks by 어절 and the last line never holds one orphan, as in the
+     guide checklist (starter-guide.css). */
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-wrap: pretty;
 }
 .starter-tour-card {
   width: 320px;
