@@ -4,8 +4,9 @@
  * observation instead of replaying its input. A failure is judged before it
  * is reported: codes that mean the user has the desktop trigger a takeover,
  * a user pause parks the work (keeping only its progress), the user's own
- * input refuses just this action, and anything else gets one recovery capture
- * so the reply carries fresh evidence.
+ * input refuses just this action (and, for a foreground one, makes that
+ * session wait until the user is idle), and anything else gets one recovery
+ * capture so the reply carries fresh evidence.
  */
 import { beginComputerOperation } from '../../human-only-approval';
 import { type ComputerUseCoordinator, computerResultLastNumber } from '../session/coordinator';
@@ -13,14 +14,20 @@ import { computerLogError } from '../session/log-privacy';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log';
 import { captureAttemptsFromError } from '../shared/capture-attempts';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
-import { computerDeliveryMode, guardsBackgroundFocus, READ_ACTIONS, requiresForegroundLane } from './action-sets';
+import {
+  computerDeliveryMode,
+  drivesForeground,
+  guardsBackgroundFocus,
+  READ_ACTIONS,
+  requiresForegroundLane,
+} from './action-sets';
 import { PausedBeforeDispatch, type ForegroundLane } from './command-queue-foreground';
 import { type PauseGate, pausedForUserInput } from './command-queue-pause';
 import type { ActiveExecution, ExecutionState } from './execution-state';
 import { PausedComputerWork, pendingWorkReply } from './pending-work';
 import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
-import { userInputRefusalPayload } from './user-input-refusal';
+import { UserInputBeforeDispatch, userInputRefusalPayload, yieldedUserInputPayload } from './user-input-refusal';
 import { TAKEOVER_CODES } from '../shared/takeover-codes';
 import type { WindowArrivals } from './window-arrivals';
 
@@ -60,18 +67,39 @@ function observesOnly(command: ComputerCommand): boolean {
   return READ_ACTIONS.has(String(command.action)) || isComputerRecoveryRead(String(command.action));
 }
 
-/** The takeover code a returned reply carries, if any. */
-function takeoverCodeIn(result: ComputerCommandResult): { code: string; message: string } | undefined {
-  let reply: unknown;
+/** A returned reply as an object, when it is one. */
+function replyPayload(result: ComputerCommandResult): Record<string, unknown> | undefined {
   try {
-    reply = JSON.parse(result.text);
+    const reply: unknown = JSON.parse(result.text);
+    return reply && typeof reply === 'object' && !Array.isArray(reply) ? (reply as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
-  if (!reply || typeof reply !== 'object') return undefined;
-  const { code, message } = reply as { code?: unknown; message?: unknown };
+}
+
+/** The takeover code a returned reply carries, if any. */
+function takeoverCodeIn(result: ComputerCommandResult): { code: string; message: string } | undefined {
+  const { code, message } = replyPayload(result) ?? {};
   if (typeof code !== 'string' || !TAKEOVER_CODES.includes(code)) return undefined;
   return { code, message: typeof message === 'string' ? message : 'reported by the native result' };
+}
+
+/** With the idle-resume interval at 0 only the user's Resume ends a yield. */
+function manualResume(deps: CommandAttemptDeps): boolean {
+  return deps.coordinator.snapshot().idleResumeSeconds === 0;
+}
+
+/** The user's input refused a foreground action: that session alone yields
+ *  until the desktop is quiet. A background action only ever refuses. */
+function userInputReply(
+  deps: CommandAttemptDeps,
+  attempt: Attempt,
+  payload: Record<string, unknown>
+): ComputerCommandResult {
+  const { command, state } = attempt;
+  const yielded =
+    drivesForeground(command) && !observesOnly(command) && deps.coordinator.yieldSession(state.sessionId);
+  return { text: JSON.stringify(yielded ? yieldedUserInputPayload(payload, manualResume(deps)) : payload) };
 }
 
 /** The recovery capture is an active operation too, so Stop and Resume
@@ -139,15 +167,21 @@ async function failedAttempt(
     ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}),
   };
   appendComputerRunRecord(state.sessionId, record);
-  if (code === 'user_input_active') {
+  const beforeDispatch = failure instanceof UserInputBeforeDispatch;
+  if (code === 'user_input_active' || beforeDispatch) {
     // The user's input refuses this action alone. They own the desktop, so
-    // there is no recovery capture; the session and its queue go on.
+    // there is no recovery capture; a background action's session goes on, a
+    // foreground one's waits for the user to be idle.
     deps.recordDiagnostic?.(state.sessionId, { ...record, stage: 'execution' });
-    return {
-      text: JSON.stringify(
-        userInputRefusalPayload(String(command.action || ''), command.window_id, !observesOnly(command))
-      ),
-    };
+    return userInputReply(
+      deps,
+      attempt,
+      userInputRefusalPayload(
+        String(command.action || ''),
+        command.window_id,
+        !beforeDispatch && !observesOnly(command)
+      )
+    );
   }
   const recapture = await recoveryCapture(deps, attempt, error, record);
   if (recapture) return recapture;
@@ -196,7 +230,9 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       const returned = takeoverCodeIn(result);
       if (returned && !coordinator.snapshot().userControlActive)
         throw new Error(`${returned.code}: ${returned.message}`);
-      return result;
+      // The user's input found after dispatch, or that stopped a sequence.
+      const reply = replyPayload(result);
+      return reply?.code === 'user_input_active' ? userInputReply(deps, attempt, reply) : result;
     });
   }
 
@@ -207,6 +243,17 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
     pending?: PausedComputerWork
   ): Promise<ComputerCommandResult> {
     const sessionId = sessionIdFor(command);
+    // A yielded session sends nothing until the user has been idle.
+    if (coordinator.isYielded(sessionId) && !observesOnly(command)) {
+      return {
+        text: JSON.stringify(
+          yieldedUserInputPayload(
+            userInputRefusalPayload(String(command.action || ''), command.window_id, false),
+            manualResume(deps)
+          )
+        ),
+      };
+    }
     const foreground = requiresForegroundLane(command);
     const releaseApproval = beginComputerOperation();
     const state: ActiveExecution = { sessionId, aborted: false };

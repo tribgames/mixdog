@@ -108,6 +108,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
 
   return {
     resumeAfterTakeover: stop.resumeAfterTakeover,
+    resumeYielded: stop.resumeYielded,
     waitForCleanup: stop.waitForCleanup,
     onSessionWorkerRetired: reclaim.onSessionWorkerRetired,
     reapIdleSessionWorkers: reclaim.reapIdleSessionWorkers,

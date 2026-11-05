@@ -281,3 +281,25 @@ test('cancelling a resume drain prevents a late command from releasing the pause
   assert.equal(released.length, releasedBefore);
   coordinator.reset();
 });
+
+test('with automatic resume off, a yielded session makes the pill resumable and Resume continues only it, dropping its captures', async () => {
+  const { coordinator, lifecycle, released, observations } = fixture(undefined, {});
+  coordinator.resumeAfterUserTakeover();
+  coordinator.beginCommand({ sessionId: 'b', action: 'click', mode: 'foreground' });
+  coordinator.setIdleResume(0);
+  assert.equal(coordinator.yieldSession('a'), true);
+  let model = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
+  assert.equal(model.resumable, true);
+  assert.equal(model.title, 'Computer in use', 'session b still works, so the pill is not Waiting');
+  observations.set('b', 'b-ref');
+  await lifecycle.resumeByUser(coordinator.snapshot().takeoverGeneration);
+  assert.deepEqual(coordinator.snapshot().yieldedSessionIds, []);
+  assert.deepEqual(released, ['a'], 'only the yielded session loses its captures');
+  assert.equal(observations.has('b'), true);
+  model = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
+  assert.equal(model.resumable, false);
+  // With automatic resume on, a yield alone offers no Resume.
+  coordinator.setIdleResume(5);
+  coordinator.yieldSession('a');
+  assert.equal(computerUseOverlayPresentation(coordinator.snapshot(), 'en').resumable, false);
+});

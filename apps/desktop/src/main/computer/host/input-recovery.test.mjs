@@ -208,7 +208,7 @@ test('observer loss is unknown, not an assertion that the user took control', as
   }
 });
 
-test('a recovering input gap after dispatch is waited out; a persisting one stays unknown', async () => {
+test('a recovering input gap after dispatch is waited out; a persisting one is the user input, not a lost observer', async () => {
   for (const gapReads of [1, Number.POSITIVE_INFINITY]) {
     const calls = [];
     const resolver = createInputResolution({
@@ -232,8 +232,10 @@ test('a recovering input gap after dispatch is waited out; a persisting one stay
       assert.deepEqual(calls, ['input_recovery_state', 'input_recovery_state']);
     } else {
       assert.equal(result.ok, false);
-      assert.equal(result.code, 'input_observation_unavailable');
-      assert.notEqual(result.user_control, true);
+      // Input that keeps arriving means the user is working: refuse this action
+      // only. A lost observer would take over the whole desktop instead.
+      assert.equal(result.code, 'user_input_active');
+      assert.equal(result.user_control, true);
       assert.equal(calls.length > 2, true, 'the gap was re-read before giving up');
     }
   }

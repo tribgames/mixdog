@@ -101,8 +101,9 @@ type RecoveryVerification = NonNullable<Awaited<ReturnType<InputRunSettleHost['v
 type NativeStepTransition = { transition: ComputerWindowTransition; settleDelayMs: number } | undefined;
 
 /** Input recovery could not be confirmed. The user's own input refuses only
- *  this action; anything else hands the desktop back to the user. The reply
- *  says why, with the native evidence the verdict rests on. */
+ *  this action (a persistent input gap counts as the user's input); anything
+ *  else hands the desktop back to the user. The reply says why, with the
+ *  native evidence the verdict rests on. */
 function inputRecoveryFailureReply(
   host: InputRunSettleHost,
   run: InputRunContext,

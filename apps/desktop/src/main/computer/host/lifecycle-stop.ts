@@ -166,6 +166,10 @@ export function createSessionStop(
   /** The overlay's Resume: a latched cleanup gets its verified recovery first,
    *  then the paused task continues from the generation the user saw. */
   async function resumeByUser(generation: number): Promise<void> {
+    // Sessions yielded to the user's input (no desktop-wide pause) continue on
+    // Resume when automatic resume is off.
+    const current = coordinator.snapshot();
+    if (!current.userControlActive && (current.yieldedSessionIds ?? []).length > 0) return resumeYielded();
     if (coordinator.snapshot().cleanupState === 'failed') await recoverLatchedCleanup(true);
     await resumeAfterTakeover(generation);
   }
@@ -196,6 +200,18 @@ export function createSessionStop(
     coordinator.resumeAfterUserTakeover(generation);
   }
 
+  /** The user's hands have been off the input for the quiet interval: the
+   *  yielded sessions continue, and only those. Nothing was aborted, so there
+   *  is no cleanup to wait for; their observations are discarded so the next
+   *  input needs a fresh capture, and nothing is replayed. */
+  async function resumeYielded(signal?: AbortSignal, recheck?: () => Promise<boolean>): Promise<void> {
+    const sessionIds = coordinator.snapshot().yieldedSessionIds ?? [];
+    if (recheck && !(await recheck())) throw new Error('computer_resume_stale: input changed while resuming');
+    if (signal?.aborted) throw new Error('computer_resume_cancelled: resume request cancelled');
+    for (const sessionId of sessionIds) host.releaseSessionState(sessionId, host.releaseCaptureSession);
+    coordinator.resumeYielded(sessionIds);
+  }
+
   async function waitForCleanup(): Promise<boolean> {
     const results = await Promise.allSettled([...cleanupJobs.values()]);
     return results.every((result) => result.status === 'fulfilled');
@@ -205,6 +221,7 @@ export function createSessionStop(
     takeOverComputer,
     stopAllComputerSessions,
     resumeAfterTakeover,
+    resumeYielded,
     resumeByUser,
     recoverBeforeCommand,
     waitForCleanup,

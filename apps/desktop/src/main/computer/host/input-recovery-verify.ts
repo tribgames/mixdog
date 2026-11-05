@@ -244,13 +244,19 @@ export async function verifyInputRecovery(
       return undefined;
     }
   };
-  // A recovering input gap is waited out; one that persists stays unknown below.
+  // A recovering input gap is waited out; one that persists is the user's input.
   let current = await settleInputGap(
     readback,
     (state) => state?.inputObserverReady !== true && state?.inputObserverReason === INPUT_GAP_REASON,
     () => host.assertExecutionNotAborted()
   );
   try {
+    // A gap that outlasted the settle wait is input still arriving: the user is
+    // on the desktop, which refuses this action. It is not a lost observer,
+    // which would hand the whole desktop over to the user.
+    if (current?.inputObserverReady !== true && current?.inputObserverReason === INPUT_GAP_REASON) {
+      return { ok: false, recovery_skipped: true, user_control: true, code: 'user_input_active', ...withReadback(check) };
+    }
     if (!current || !inputKnown(current, inputRecovery)) {
       return {
         ok: false,

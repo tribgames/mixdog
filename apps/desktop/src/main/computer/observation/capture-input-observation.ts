@@ -9,6 +9,8 @@ import { CAPTURE_ACCESSIBILITY_TIMEOUT_MS, sleep } from '../shared/common';
 /** The native observer's reason while it recovers from input it could not
  *  attribute: it is ready again after about 300 ms without input. */
 export const INPUT_GAP_REASON = 'input_gap';
+/** Why a capture is not foreground-ready when the user's input reached its window meanwhile. */
+export const USER_INPUT_DURING_CAPTURE = 'user_input_during_capture';
 const INPUT_GAP_SETTLE_MS = 1_000;
 const INPUT_GAP_POLL_MS = 100;
 
@@ -149,6 +151,6 @@ function foregroundInputState(
   return {
     foregroundReady,
     foregroundInputReason:
-      unavailable(before) || unavailable(after) ? 'input_observer_unavailable' : 'user_input_during_capture',
+      unavailable(before) || unavailable(after) ? 'input_observer_unavailable' : USER_INPUT_DURING_CAPTURE,
   };
 }
