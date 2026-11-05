@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { browserBridgeAvailableSync, executeBrowserTool } from './browser-bridge/client.mjs';
+import { readBridgeDiscovery } from './bridge-discovery.mjs';
 import {
   BROWSER_ACTIONS,
   BROWSER_DEVTOOLS_ACTIONS,
@@ -1941,19 +1942,23 @@ test('bridge clients only surface fresh, compatible discovery records', async ()
       assert.equal(client.available(), false, `${client.name}: incompatible version`);
 
       await writeFile(path, '{"version":1,"port":1234,"token":"secret"}\n');
+      await waitUntil(() => client.available());
       assert.equal(client.available(), true, `${client.name}: valid discovery`);
 
       const stale = new Date(Date.now() - 6 * 60_000);
       await utimes(path, stale, stale);
+      await waitUntil(() => !client.available());
       assert.equal(client.available(), false, `${client.name}: stale discovery`);
 
       await writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${process.pid}}\n`);
+      await waitUntil(() => client.available());
       assert.equal(client.available(), true, `${client.name}: live writer pid`);
 
       // A fresh file whose writer has exited is a crash leftover another
       // instance's heartbeat may keep touching; it must not surface the tool.
       const exited = await deadProcessId();
       await writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${exited}}\n`);
+      await waitUntil(() => !client.available());
       assert.equal(client.available(), false, `${client.name}: dead writer pid`);
     }
     const stale = await executeBrowserTool({ action: 'status' }, { sessionId: 'stale-session' });
@@ -1979,6 +1984,7 @@ test('bridge clients read discovery from the isolation namespace when set', asyn
       await writeFile(join(directory, client.file), '{"version":1,"port":1234,"token":"shared"}\n');
       assert.equal(client.available(), false, `${client.name}: shared data dir is not consulted`);
       await writeFile(join(namespace, client.file), '{"version":1,"port":1234,"token":"own"}\n');
+      await waitUntil(() => client.available());
       assert.equal(client.available(), true, `${client.name}: namespaced discovery`);
     }
   } finally {
@@ -2372,6 +2378,7 @@ test('browser bridge replacement retries observations but never replays mutation
           token: 'old-token',
         })}\n`
       );
+      await waitUntil(() => readBridgeDiscovery('browser-bridge.json')?.token === 'old-token');
     };
 
     await pointDiscoveryAtOld();
@@ -2609,6 +2616,7 @@ test('computer client retries once against a republished bridge endpoint', {
     }
     let staleHit = armStaleEndpoint();
     await publish(staleServer.address().port, 'stale-token');
+    await waitUntil(() => readBridgeDiscovery('computer-bridge.json')?.token === 'stale-token');
     const sameEndpointMutationExecution = executeComputerTool(
       {
         action: 'act',
@@ -2628,6 +2636,7 @@ test('computer client retries once against a republished bridge endpoint', {
 
     staleHit = armStaleEndpoint();
     await publish(staleServer.address().port, 'stale-token');
+    await waitUntil(() => readBridgeDiscovery('computer-bridge.json')?.token === 'stale-token');
     const mutationExecution = executeComputerTool(
       {
         action: 'act',
@@ -2648,6 +2657,7 @@ test('computer client retries once against a republished bridge endpoint', {
 
     staleHit = armStaleEndpoint();
     await publish(staleServer.address().port, 'stale-token');
+    await waitUntil(() => readBridgeDiscovery('computer-bridge.json')?.token === 'stale-token');
     const execution = executeComputerTool(
       { action: 'list', input: { kind: 'windows' } },
       { sessionId: 'retry-session' }
@@ -2660,6 +2670,7 @@ test('computer client retries once against a republished bridge endpoint', {
     assert.deepEqual(seen, [{ action: 'list_windows', session_id: 'retry-session' }]);
 
     await publish(unauthorizedServer.address().port, 'stale-token');
+    await waitUntil(() => readBridgeDiscovery('computer-bridge.json')?.port === unauthorizedServer.address().port);
     const authResult = await executeComputerTool(
       { action: 'list', input: { kind: 'apps' } },
       { sessionId: 'retry-session' }

@@ -5,6 +5,8 @@ import test from 'node:test';
 
 import { executeBrowserTool } from '../../../../../src/runtime/browser-bridge/client.mjs';
 import { recordMailLinks } from '../../../../../src/runtime/browser-bridge/mail-links.mjs';
+import { readBridgeDiscovery } from '../../../../../src/runtime/bridge-discovery.mjs';
+import { waitUntil } from '../../../../../src/runtime/shared/wait-until.test-support.mjs';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file.ts';
 import { createBrowserAgentBridge } from './agent-bridge.ts';
 import { createBrowserUrlAdmission } from './url-admission.ts';
@@ -52,6 +54,11 @@ async function withBridge(t) {
   bridge.start();
   t.after(() => bridge.stop());
   await ready;
+  const published = JSON.parse(readFileSync(join(bridgeDiscoveryDirectory(), 'browser-bridge.json'), 'utf8'));
+  await waitUntil(() => {
+    const discovery = readBridgeDiscovery('browser-bridge.json');
+    return discovery?.port === published.port && discovery?.token === published.token;
+  });
   const navigate = async (sessionId, input) => {
     const result = await executeBrowserTool({ action: 'navigate', input }, { sessionId });
     return { text: result.content[0].text, isError: result.isError === true };

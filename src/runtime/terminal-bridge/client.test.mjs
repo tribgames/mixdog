@@ -14,6 +14,7 @@ import {
   validateTerminalArgs,
 } from './client.mjs';
 import { TOOL_DEFS } from './tool-defs.mjs';
+import { waitUntil } from '../shared/wait-until.test-support.mjs';
 
 async function withBridge(handler, run) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-terminal-bridge-'));
@@ -315,6 +316,7 @@ test('availability follows a fresh discovery file', async () => {
       join(directory, 'terminal-bridge.json'),
       JSON.stringify({ version: 1, port: 1234, token: 't', pid: process.pid })
     );
+    await waitUntil(() => terminalBridgeAvailableSync());
     assert.equal(terminalBridgeAvailableSync(), true);
     const result = await executeTerminalTool({ action: 'list' }, { sessionId: '' });
     assert.match(result.content[0].text, /session context/);

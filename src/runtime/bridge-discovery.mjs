@@ -40,9 +40,10 @@ export function processAlive(pid) {
 }
 
 /** `{ port, token }` when the bridge is discoverable, otherwise `null` with a
- *  `reason` available through {@link readBridgeDiscoveryDetail}. */
-export function readBridgeDiscovery(fileName) {
-  return readBridgeDiscoveryDetail(fileName).discovery;
+ *  `reason` available through {@link readBridgeDiscoveryDetail}. Recovery after
+ *  a failed request uses `fresh` to see a replacement before the watch reload. */
+export function readBridgeDiscovery(fileName, options) {
+  return readBridgeDiscoveryDetail(fileName, options).discovery;
 }
 
 /** True when the on-disk advertisement names a different loopback endpoint
@@ -80,16 +81,16 @@ const discoveryCache = createWatchedFileCache({
   },
 });
 
-function cachedAdvertisement(path) {
+function cachedAdvertisement(path, options) {
   try {
-    return { entry: discoveryCache.get(path) };
+    return { entry: discoveryCache.get(path, options) };
   } catch (error) {
     return { reason: error instanceof SyntaxError ? 'invalid' : `unreadable (${error?.code || error?.message})` };
   }
 }
 
-export function readBridgeDiscoveryDetail(fileName) {
-  const { entry, reason } = cachedAdvertisement(join(bridgeDiscoveryDirectory(), fileName));
+export function readBridgeDiscoveryDetail(fileName, options) {
+  const { entry, reason } = cachedAdvertisement(join(bridgeDiscoveryDirectory(), fileName), options);
   if (reason) return { discovery: null, reason };
   if (!entry) return { discovery: null, reason: 'missing' };
   if (Date.now() - entry.mtimeMs >= DISCOVERY_MAX_AGE_MS) return { discovery: null, reason: 'expired' };

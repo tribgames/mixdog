@@ -379,7 +379,7 @@ export async function executeBrowserTool(args, options = {}) {
         return settleFailure('browser bridge timed out and cancelled the active command');
       }
       if (options.signal?.aborted) return settleFailure('browser command cancelled');
-      const replacement = readBridgeDiscovery(DISCOVERY_FILE);
+      const replacement = readBridgeDiscovery(DISCOVERY_FILE, { fresh: true });
       if (attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
         if (RETRYABLE_ACTIONS.has(validated.action)) {
           discovery = replacement;
