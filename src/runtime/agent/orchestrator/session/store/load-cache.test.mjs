@@ -33,6 +33,7 @@ import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock
 import { releaseSessionWriter } from './session-writer-claim.mjs';
 import { _sessionLogIoForTest } from './session-log-writer.mjs';
 import { readDurableSessionRecord } from './transcript-durability.mjs';
+import { settleSummaryIndexWrites } from '../store-summary-index.mjs';
 import {
   _clearSessionSaveState,
   _liveSessions,
@@ -62,14 +63,23 @@ function fixture(t) {
     renameSync(`${path}.next`, path);
   };
   write(saved);
-  t.after(() => {
+  t.after(async () => {
     _liveSessions.delete(id);
     _clearSessionSaveState(id);
+    await removeDataDir(root);
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
-    rmSync(root, { recursive: true, force: true });
   });
-  return { id, path, saved, write };
+  return { id, root, path, saved, write };
+}
+
+// A save or delete resolves before the summary-index op it queued is written
+// (store-summary-index.mjs settleSummaryIndexWrites): that write lands in the
+// data dir, so it is awaited before the dir goes, while the dir is still the
+// one the write resolves.
+async function removeDataDir(root) {
+  await settleSummaryIndexWrites();
+  rmSync(root, { recursive: true, force: true });
 }
 
 test('restored repeated text stays byte-exact and message containers remain independent', (t) => {
@@ -223,6 +233,18 @@ test('saves made while a delete runs wait behind it, then create the session ane
   const other = acquireOsExclusiveLockSync(lockPath, { namespace: 'session-writer' });
   assert.equal(other.held, true);
   other.release();
+});
+
+test('a removed data dir stays removed: the index writes queued by saves and a delete land before it goes', async (t) => {
+  const f = fixture(t);
+  assert.equal(await saveSessionAsync({ ...f.saved, messages: [{ role: 'user', content: 'saved' }] }), 'saved');
+  const deleting = deleteSession(f.id);
+  const during = saveSessionAsync({ ...f.saved, messages: [{ role: 'user', content: 'during the delete' }] });
+  assert.deepEqual(await Promise.all([deleting, during]), [true, 'saved']);
+  assert.equal(await releaseSessionWriter(f.id), true);
+  await removeDataDir(f.root);
+  await settleSummaryIndexWrites();
+  assert.equal(existsSync(f.root), false, 'a write queued before the removal created the data dir again');
 });
 
 test('a save made after a delete creates the session again from its copy, as v1.4.5 did', async (t) => {
