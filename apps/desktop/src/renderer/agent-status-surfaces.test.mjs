@@ -211,10 +211,8 @@ test('agent rows show no quiet or wait-reason line, however long a running agent
   assert.equal(document.querySelectorAll('.agent-pool-row').length, 4);
   assert.equal(document.querySelector('.agent-pool-row .quiet-cue'), null);
   assert.equal(
-    quietCueText({ quietMs: 200_000, minutes: 3, wait: 'tool', tool: 'shell', escalated: false }).endsWith(
-      'running shell'
-    ),
-    true
+    quietCueText({ quietMs: 200_000, minutes: 3, wait: 'tool', tool: 'shell', escalated: false }),
+    'running shell for 3m'
   );
 });
 
@@ -228,10 +226,11 @@ test('the live status line shows the published quiet state and escalates with St
   const snapshot = (quiet) => ({
     sessionId: 'lead-a',
     busy: true,
-    spinner: { active: true, mode: 'requesting', startedAt: Date.now() - 700_000, quiet },
+    spinner: { active: true, mode: 'requesting', startedAt: Date.now() - 700_000, outputTokens: 12_400, quiet },
   });
   await act(async () => root.render(React.createElement(LiveActivity, { snapshot: snapshot(null) })));
   assert.equal(document.querySelector('.live-activity-quiet'), null);
+  assert.ok(document.querySelector('.live-activity-tokens'), 'tokens show while progress counts');
   const since = Date.now() - 150_000;
   await act(async () =>
     root.render(React.createElement(LiveActivity, { snapshot: snapshot({ since, wait: 'provider', warnMs: 600_000 }) }))
@@ -239,6 +238,7 @@ test('the live status line shows the published quiet state and escalates with St
   const quiet = document.querySelector('.live-activity-quiet');
   assert.match(quiet.textContent, /waiting on provider/);
   assert.equal(quiet.querySelector('.quiet-cue-stop'), null);
+  assert.equal(document.querySelector('.live-activity-tokens'), null, 'the stalled token count yields to the cue');
   await act(async () =>
     root.render(
       React.createElement(LiveActivity, {

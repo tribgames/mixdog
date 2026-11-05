@@ -3430,6 +3430,7 @@
   "No uncommitted changes.": "Nenhuma alteração não confirmada.",
   "No unstaged changes.": "Nenhuma alteração não preparada.",
   "No updates for {{duration}}": "Sem atualizações há {{duration}}",
+  "{{wait}} for {{duration}}": "{{wait}} há {{duration}}",
   "No usage in this period.": "Nenhum uso neste período.",
   "No usage limits to show": "Nenhum limite de uso para mostrar",
   "No usage recorded yet.": "Nenhum uso registrado ainda.",
