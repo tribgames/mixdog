@@ -5,6 +5,7 @@
 //! record encode to cpu-interactive, never await storage or a lane.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering::SeqCst;
 
 use mixdog_tools::exec::WakeReason;
 use mixdog_app_protocol::v2::thread::HistoryResetReason;
@@ -56,6 +57,9 @@ use mixdog_store::schema::bounded::Text;
 use mixdog_store::schema::record::ApprovalPhase;
 use mixdog_store::schema::record::ApprovalRecord;
 use mixdog_store::schema::record::Base;
+use mixdog_store::schema::record::CompactedDropped;
+use mixdog_store::schema::record::CompactedRecord;
+use mixdog_store::schema::record::ReplacementEntry;
 use mixdog_store::schema::record::DequeueReason;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
@@ -102,6 +106,8 @@ use super::run::ItemCommit;
 use super::run::ProducerMsg;
 use super::run::RunError;
 use super::run::ModelContext;
+use super::user_facts::RowFacts;
+use super::user_facts::user_facts;
 use super::run::RunPort;
 use super::run::SteerInput;
 use super::run::within_priority;
@@ -119,6 +125,9 @@ use crate::approvals::Lineage;
 use crate::approvals::request_frame;
 use crate::approvals::request_params;
 use crate::approvals::resolved_frame;
+
+/// The header key of the session's saved provider state (Node `session.providerState`).
+const PROVIDER_STATE: &str = "providerState";
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -195,6 +204,8 @@ pub(crate) struct ActorChannels {
     pub prod_rx: mpsc::Receiver<ProducerMsg>,
     pub dur_tx: mpsc::Sender<ToDurability>,
     pub dur_rx: mpsc::Receiver<FromDurability>,
+    /// The directory the thread unloads from.
+    pub directory: std::sync::Weak<super::directory::DirInner>,
 }
 
 pub(crate) struct SessionActor {
@@ -271,10 +282,10 @@ impl SessionActor {
         log_id: String,
         acked_end: u64,
         state: SessionState,
+        surface: watch::Sender<Arc<SessionSurface>>,
         ch: ActorChannels,
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-        let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         Self {
             surface,
             feed_id: FeedId::from(id.as_str()),
@@ -337,7 +348,51 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
+            // An unloaded thread stops once its accepted records are handed off.
+            if self.cell.closed.load(SeqCst) && self.outbox.is_empty() {
+                break;
+            }
         }
+    }
+
+    /// Unloads when the last subscriber has left and nothing is live: no run, no queued
+    /// input, no pending approval. The memory ingest fires without waiting (today's
+    /// `void ingestSessionIntoMemory(session)` when the CLI closes a session).
+    fn try_unload(&mut self) {
+        let cell = &self.cell;
+        if !cell.ever_subscribed.load(SeqCst)
+            || cell.subscribers.load(SeqCst) != 0
+            || self.run.is_some()
+            || !self.projected.queue.is_empty()
+            || !self.projected.approvals.is_empty()
+        {
+            return;
+        }
+        let Some(directory) = self.ch.directory.upgrade() else {
+            return;
+        };
+        if directory.unload(&self.id, &self.cell) {
+            tokio::spawn(self.close_ingest());
+        }
+    }
+
+    /// Today's `ingestSessionIntoMemory(session)` over the model context.
+    fn close_ingest(&self) -> futures::future::BoxFuture<'static, ()> {
+        let context = ModelContext {
+            store: self.deps.store.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let memory = self.deps.memory.clone();
+        let cwd = self.cwd();
+        Box::pin(async move {
+            let Ok(rows) = context.read().await else {
+                return;
+            };
+            let messages = rows.into_iter().map(|(_, body)| body).collect();
+            memory.ingest(&context.thread, &cwd, messages).await;
+        })
     }
 
     // ───────────── accept, encode, hand off, release ─────────────
@@ -529,6 +584,7 @@ impl SessionActor {
         if let Change::Record { record, .. } = &entry.change
             && matches!(**record, Record::Meta(_) | Record::Session(_))
         {
+            self.cell.header.store(Arc::new(self.acked.header.clone()));
             self.refresh_surface();
         }
         notes.extend(entry.notes);
@@ -872,6 +928,14 @@ impl SessionActor {
                 let _ = self.ch.dur_tx.try_send(ToDurability::Retry);
             }
             Ctl::RefreshSurface => self.refresh_surface(),
+            Ctl::Unsubscribed => self.try_unload(),
+            Ctl::Shutdown(done) => {
+                self.cell.closed.store(true, SeqCst);
+                if let Some(run) = &self.run {
+                    run.cancel.cancel();
+                }
+                let _ = done.send(self.close_ingest());
+            }
         }
     }
 
@@ -950,6 +1014,7 @@ impl SessionActor {
                     )),
                 ),
             };
+            let completed = phase == RunPhase::Completed;
             let record = Record::Run(RunRecord {
                 rid: id(turn.as_str()),
                 phase,
@@ -959,9 +1024,39 @@ impl SessionActor {
                 op: None,
                 detail,
             });
-            self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+            let mut effects = Vec::new();
+            if completed {
+                effects.push(Effect::ItemAck(self.ingest_when_durable()));
+            }
+            self.accept_record(record, Class::Control, Display::None, Vec::new(), effects);
         }
         self.start_next_queued();
+        self.try_unload();
+    }
+
+    /// Today's `terminalSave.then(() => ingestSessionTurn(session))`: once the completed turn's
+    /// terminal record is durable, its model context goes to the session-search copy. A failed
+    /// save ingests nothing.
+    fn ingest_when_durable(&self) -> oneshot::Sender<Result<(), RunError>> {
+        let (tx, rx) = oneshot::channel();
+        let context = ModelContext {
+            store: self.deps.store.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let header = self.projected.header.clone();
+        let search = self.deps.search.clone();
+        tokio::spawn(async move {
+            if !matches!(rx.await, Ok(Ok(()))) {
+                return;
+            }
+            if let Ok(rows) = context.read().await {
+                let messages = rows.into_iter().map(|(_, body)| body).collect();
+                search.ingest_turn(&context.thread, &header, messages);
+            }
+        });
+        tx
     }
 
     /// The next queued entry becomes a run (P X9: busy → queued, follow-ups run in order).
@@ -1035,6 +1130,68 @@ impl SessionActor {
                     }
                 }
             }
+            ProducerMsg::ProviderState { turn, state, ack } => {
+                if !self.active(&turn) {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                }
+                let value = state.map(|state| {
+                    serde_json::to_value(state).expect("provider state serializes")
+                });
+                match self.provider_state_change(value) {
+                    Some(record) => self.accept_record(
+                        record,
+                        Class::Normal,
+                        Display::None,
+                        Vec::new(),
+                        vec![Effect::ItemAck(ack)],
+                    ),
+                    None => drop(ack.send(Ok(()))),
+                }
+            }
+            ProducerMsg::Compacted {
+                turn,
+                compaction,
+                ack,
+            } => {
+                if !self.active(&turn) {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                }
+                // A compaction that changed the context drops the provider continuation
+                // (`compaction-runner.mjs:701`).
+                if let Some(reset) = self.provider_state_change(None) {
+                    self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
+                }
+                let record = Record::Compacted(CompactedRecord {
+                    cid: id(&new_id()),
+                    summary_iid: None,
+                    op: None,
+                    at: Some(compaction.at),
+                    dropped_count: Some(compaction.dropped_count),
+                    dropped: compaction.dropped.map(|d| CompactedDropped {
+                        message_ids: d.message_ids,
+                        call_ids: d.call_ids,
+                    }),
+                    replacement: Slot::Inline(
+                        compaction
+                            .replacement
+                            .into_iter()
+                            .map(|(iid, body)| ReplacementEntry {
+                                iid: iid.as_str().to_owned(),
+                                body,
+                            })
+                            .collect(),
+                    ),
+                });
+                self.accept_record(
+                    record,
+                    Class::Normal,
+                    Display::None,
+                    Vec::new(),
+                    vec![Effect::ItemAck(ack)],
+                );
+            }
             ProducerMsg::Approval { turn, ask, reply } => {
                 if !self.active(&turn) {
                     let _ = reply.send(ApprovalResolution::Cancelled {
@@ -1085,13 +1242,19 @@ impl SessionActor {
         }
     }
 
+    /// A row's facts from the classification migration writes.
+    fn user_facts(&self, body: &mut Value) -> RowFacts {
+        user_facts(body, self.deps.attachments.as_ref())
+    }
+
     fn item_record(
         &self,
         turn: &TurnId,
-        item: ItemCommit,
+        mut item: ItemCommit,
         op: Option<OpRef>,
     ) -> Result<Record, CoreError> {
-        let prompt = self.deps.transcript.prompt_fact(item.role.as_deref(), &item.body);
+        let facts = self.user_facts(&mut item.body);
+        let (visible, prompt) = (item.visible && facts.visible, facts.prompt);
         Ok(Record::Item(ItemRecord {
             iid: text(item.iid.as_str(), "itemId")?,
             turn: Some(text(turn.as_str(), "turnId")?),
@@ -1102,7 +1265,7 @@ impl SessionActor {
                 .transpose()?,
             form: Form::Message,
             model: item.model,
-            visible: item.visible,
+            visible,
             archive: None,
             op,
             prompt: prompt.map(Slot::Inline),
@@ -1402,6 +1565,28 @@ impl SessionActor {
 
     /// Today's `rewindToItem`: the target is a user row; it and everything after it leave the
     /// lineage, and its text goes back to the composer (and out of the Up-arrow list).
+    /// The `meta` record that makes the header's `providerState` `state` (`None` deletes the
+    /// key), or `None` when it already is.
+    fn provider_state_change(&self, state: Option<Value>) -> Option<Record> {
+        if self.projected.header.get(PROVIDER_STATE) == state.as_ref() {
+            return None;
+        }
+        let mut change = HeaderChange {
+            set: serde_json::Map::new(),
+            unset: Vec::new(),
+        };
+        match state {
+            Some(state) => {
+                change.set.insert(PROVIDER_STATE.into(), state);
+            }
+            None => change.unset.push(PROVIDER_STATE.into()),
+        }
+        Some(Record::Meta(MetaRecord {
+            op: None,
+            change: Slot::Inline(change),
+        }))
+    }
+
     fn rewind(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: ThreadRewindParams = parse(&req.params, "ThreadRewindParams")?;
         // Idle-only, as today: a live turn must be interrupted first.
@@ -1434,11 +1619,13 @@ impl SessionActor {
             op: self.op_ref(req, Some(&value))?,
         });
         let note = self.history_reset(HistoryResetReason::Rewind, previous);
+        let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
+        // The provider continuation is keyed on the truncated prefix (`session-crud.mjs:473`).
+        if let Some(reset) = self.provider_state_change(None) {
+            records.push((reset, Class::Normal, Display::None, Vec::new()));
+        }
         Ok(Plan {
-            kind: PlanKind::Records(
-                vec![(record, Class::Normal, Display::None, vec![note])],
-                vec![Change::PromptWithout(text)],
-            ),
+            kind: PlanKind::Records(records, vec![Change::PromptWithout(text)]),
             value,
             after: Some(false),
             prompt: None,
@@ -1455,11 +1642,13 @@ impl SessionActor {
             op: self.op_ref(req, Some(&value))?,
         });
         let note = self.history_reset(HistoryResetReason::Clear, None);
+        let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
+        // A cleared session starts without provider state (`session-crud.mjs:137`).
+        if let Some(reset) = self.provider_state_change(None) {
+            records.push((reset, Class::Normal, Display::None, Vec::new()));
+        }
         Ok(Plan {
-            kind: PlanKind::Records(
-                vec![(record, Class::Normal, Display::None, vec![note])],
-                Vec::new(),
-            ),
+            kind: PlanKind::Records(records, Vec::new()),
             value,
             after: Some(true),
             prompt: None,
@@ -1493,7 +1682,7 @@ impl SessionActor {
     /// execution provenance the transcript turns into a card), in the running turn if any; it
     /// releases the turn's passive wait.
     fn task_notification(&mut self, task_id: String, status: String, text: String) {
-        let body = json!({
+        let mut body = json!({
             "role": "user",
             "content": text,
             "meta": {
@@ -1501,16 +1690,17 @@ impl SessionActor {
                 "execution": { "taskId": task_id, "status": status },
             },
         });
+        let facts = self.user_facts(&mut body);
         let item = Record::Item(ItemRecord {
             iid: id(&new_id()),
             turn: self.run.as_ref().map(|run| id(run.turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
             model: true,
-            visible: true,
+            visible: facts.visible,
             archive: None,
             op: None,
-            prompt: None,
+            prompt: facts.prompt.map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         });
@@ -1532,24 +1722,25 @@ impl SessionActor {
         prompt: Option<String>,
     ) {
         let turn = TurnId::from(new_id());
-        let body = self.deps.transcript.user_message(&input);
-        let prompt_fact = self.deps.transcript.prompt_fact(Some("user"), &body);
+        let mut body = self.deps.transcript.user_message(&input);
+        let facts = self.user_facts(&mut body);
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
         if let Some(op) = &mut op_ref {
             op.result = Json::try_from(value.clone()).ok();
         }
         let input_iid = mixdog_core_api::ids::ItemId::from(new_id());
+        let input_body = body.clone();
         let item = Record::Item(ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
             model: true,
-            visible: true,
+            visible: facts.visible,
             archive: None,
             op: op_ref,
-            prompt: prompt_fact.map(Slot::Inline),
+            prompt: facts.prompt.map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         });
@@ -1589,6 +1780,11 @@ impl SessionActor {
             turn: turn.clone(),
             tx: self.ch.prod_tx.clone(),
             input: input_rx,
+            provider: self
+                .acked
+                .header
+                .get(PROVIDER_STATE)
+                .and_then(|state| serde_json::from_value(state.clone()).ok()),
         };
         // A session takes moved settings gates at its next turn start (today's
         // `stageToolAvailability`).
@@ -1597,12 +1793,15 @@ impl SessionActor {
             thread: self.id.clone(),
             turn: turn.clone(),
             input,
+            input_item: input_iid.clone(),
+            input_body,
+            header: self.acked.header.clone(),
             port,
             context: ModelContext {
                 store: self.deps.store.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
-                input: input_iid,
+                input: input_iid.clone(),
             },
             surface: self.surface.subscribe(),
             cancel,
@@ -1634,6 +1833,13 @@ impl SessionActor {
             }
         }
         let runs: Vec<String> = self.acked.runs.keys().cloned().collect();
+        // Recovering an interrupted turn drops the provider continuation
+        // (`turn-checkpoint.mjs:554`).
+        if !runs.is_empty()
+            && let Some(reset) = self.provider_state_change(None)
+        {
+            self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
         for rid in runs {
             let record = Record::Run(RunRecord {
                 rid: id(&rid),

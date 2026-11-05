@@ -85,10 +85,15 @@ for (let i = 0; i < 150; i += 1) {
 }
 let deep = { attachmentRef: 'x' };
 for (let i = 0; i < 130; i += 1) deep = { child: deep };
-attachmentCases.push({ input: deep, ...outcome(() => host.withoutAttachmentReferences(deep)) });
+// Nesting this deep is beyond a JSON reader's depth limit, so the case carries only its depth.
+attachmentCases.push({ nest: 130, ...outcome(() => host.withoutAttachmentReferences(deep)) });
 let ok = { attachmentRef: 'x', filename: 'f.txt' };
 for (let i = 0; i < 128; i += 1) ok = { child: ok };
-attachmentCases.push({ input: ok, ...outcome(() => host.withoutAttachmentReferences(ok)) });
+attachmentCases.push({ nest: 128, ...outcome(() => {
+  let node = host.withoutAttachmentReferences(ok);
+  for (let i = 0; i < 128; i += 1) node = node.child;
+  return node;
+}) });
 
 const PROPS = ['status', 'httpStatus', 'code', 'retryAfter', 'retryAfterMs', 'partialContent', 'partialUsage', 'liveTextEmitted', 'emittedToolCall', 'unsafeToRetry', 'quotaExhausted', 'reauthRequired', 'providerErrorCode', 'providerErrorType', 'requestId', 'responseFailed', 'wsCloseCode', 'midstreamRetries', 'headers', 'cause', 'authorization', 'extra'];
 const errorCases = [];
@@ -127,7 +132,8 @@ for (let i = 0; i < 120; i += 1) {
     providers[name] = entry;
   }
   const allowList = providerNames.filter(() => chance(0.7));
-  providerConfigCases.push({ providers, allowList, ...outcome(() => host.publicProviderConfig(chance(0.05) ? null : providers, (n) => allowList.includes(n))) });
+  const input = chance(0.05) ? null : providers;
+  providerConfigCases.push({ providers: input, allowList, ...outcome(() => host.publicProviderConfig(input, (n) => allowList.includes(n))) });
 }
 
 const callbackNames = [...host.MODEL_PROXY_CALLBACKS.keys()];
@@ -176,6 +182,69 @@ const decodeCases = taggedTexts.map((text) => {
   return { text, ...outcome(() => describe(channel.decodeModelProxyWire(text))) };
 });
 
+// quotaUsable (quota-reading.mjs): the single-credential path, where one forced reading decides.
+const quota = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/quota-reading.mjs');
+const quotaCases = [];
+const LABELS = ['Weekly', '5h', '7D Spark', '7D opus', 'Spark (GPT-5.3)', '', undefined];
+const QUOTA_MODELS = ['', 'gpt-5', 'gpt-5.3-codex-spark', 'claude-opus-4', 'claude-sonnet-4', 'spark'];
+for (let i = 0; i < 300; i += 1) {
+  const reading = chance(0.1) ? null : {};
+  if (reading) {
+    if (chance(0.5)) {
+      reading.quotaWindows = Array.from({ length: Math.floor(rnd() * 4) }, () => {
+        const w = {};
+        if (chance(0.8)) w.label = pick(LABELS);
+        if (chance(0.9)) w.usedPct = pick([0, 30, 99.9, 100, 120, 'x', null, 50]);
+        if (chance(0.3)) w.models = pick([[], ['spark'], ['opus'], ['gpt-5']]);
+        if (chance(0.2)) w.except = pick([[], ['spark'], ['opus']]);
+        return w;
+      });
+    }
+    if (chance(0.5)) reading.balance = pick([{ unlimited: true }, { remainingCredits: 5 }, { remainingUsd: 0 }, { remainingCredits: '5' }, {}, { unlimited: 'yes' }, { remainingUsd: 0.5 }]);
+  }
+  const useCredits = chance(0.5);
+  const model = pick(QUOTA_MODELS);
+  const noMeasurement = chance(0.04);
+  quotaCases.push({ reading: plain(reading), useCredits, model, measurementNull: noMeasurement, ...outcome(() => quota.quotaMeasurementServesModel(noMeasurement ? null : { providerName: 'openai-oauth', useCredits, accounts: null, reading }, model)) });
+}
+quotaCases.push({ reading: null, useCredits: false, model: 'x', measurementNull: true, ...outcome(() => quota.quotaMeasurementServesModel(null, 'x')) });
+
+// inlineModelProxyAttachments (model-proxy-provider.mjs:61): newest-first inlining under one byte
+// budget, over a real attachment store in a temporary data directory.
+const { mkdtempSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-rec-attach-'));
+const attachStore = await importFrom(tree, 'src/runtime/attachments/store.mjs');
+const proxyProvider = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/model-proxy-provider.mjs');
+const inlineCases = [];
+for (let i = 0; i < 200; i += 1) {
+  const messages = [];
+  const shape = [];
+  for (let m = 0; m < 1 + Math.floor(rnd() * 3); m += 1) {
+    const parts = [];
+    const sizes = [];
+    for (let k = 0; k < Math.floor(rnd() * 4); k += 1) {
+      const missing = chance(0.15);
+      const size = 1 + Math.floor(rnd() * 60);
+      let ref;
+      if (missing) ref = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(rnd() * 16)]).join('');
+      else ref = attachStore.storeAttachmentBuffer(Buffer.from(Array.from({ length: size }, () => Math.floor(rnd() * 256)))).attachmentRef;
+      parts.push({ type: 'file', attachmentRef: ref, mimeType: 'application/pdf', filename: 'a.pdf', sizeBytes: size });
+      sizes.push({ size, missing });
+    }
+    messages.push({ role: 'user', content: parts });
+    shape.push(sizes);
+  }
+  const maxBytes = pick([10, 40, 100, 400, 100000]);
+  const out = proxyProvider.inlineModelProxyAttachments(messages, { maxBytes });
+  inlineCases.push({
+    maxBytes,
+    shape,
+    inlined: out.map((m) => m.content.map((p) => !p.attachmentRef && typeof p.data === 'string')),
+    bytes: out.map((m) => m.content.map((p) => (typeof p.data === 'string' ? Buffer.from(p.data, 'base64').length : null))),
+  });
+}
+
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'ai-admin');
 writeJson(join(outDir, 'model-proxy-twin.json'), {
   domain: 'model-proxy-twin',
@@ -188,6 +257,8 @@ writeJson(join(outDir, 'model-proxy-twin.json'), {
   callbackCases,
   wireCases,
   decodeCases,
+  quotaCases,
+  inlineCases,
 });
 writeSetManifest(outDir, {
   set: 'ai-admin',

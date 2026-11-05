@@ -8,6 +8,7 @@ use bytes::Bytes;
 use mixdog_app_protocol::v2::thread::ItemDeltaParams;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
+use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::QueuedId;
 use mixdog_core_api::ids::ThreadId;
@@ -172,6 +173,36 @@ pub(crate) enum ProducerMsg {
         max_priority: Priority,
         reply: oneshot::Sender<Vec<SteerInput>>,
     },
+    ProviderState {
+        turn: TurnId,
+        state: Option<ProviderState>,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
+    Compacted {
+        turn: TurnId,
+        compaction: Compaction,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
+}
+
+/// A compaction of the run's model context: the store's `compacted` record.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Compaction {
+    /// The new model context, in order: each row's item id and stored body.
+    pub replacement: Vec<(ItemId, Value)>,
+    /// Wall-clock milliseconds of the compaction (the divider's `at`).
+    pub at: i64,
+    /// Node `droppedMessages`: how many rows the pass took out (always written).
+    pub dropped_count: u64,
+    /// The identities the compaction took out of the model context, when the loop reports them.
+    pub dropped: Option<Dropped>,
+}
+
+/// The `compacted` record's `dropped: {messageIds, callIds}`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Dropped {
+    pub message_ids: Vec<String>,
+    pub call_ids: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -180,9 +211,32 @@ pub struct RunPort {
     pub(crate) turn: TurnId,
     pub(crate) tx: mpsc::Sender<ProducerMsg>,
     pub(crate) input: watch::Receiver<InputState>,
+    /// The header's `providerState` as acked at turn start.
+    pub(crate) provider: Option<ProviderState>,
 }
 
 impl RunPort {
+    /// The session's saved provider state, read once at turn start as today's loop options
+    /// read `session.providerState` (`ask-turn-loop-options.mjs:71`).
+    pub async fn provider_state(&self) -> Option<ProviderState> {
+        self.provider.clone()
+    }
+
+    /// Today's `persistProviderState`: `Some` replaces the saved state as a whole (the adapter
+    /// already merged its slot into it), `None` deletes it. The agent calls it only where Node
+    /// writes, when the provider reported an update or a state is present. Resolves once the
+    /// header change is durable; an unchanged state appends nothing.
+    pub async fn save_provider_state(&self, state: Option<ProviderState>) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.send(ProducerMsg::ProviderState {
+            turn: self.turn.clone(),
+            state,
+            ack,
+        })
+        .await?;
+        rx.await.map_err(|_| RunError::Closed)?
+    }
+
     pub fn thread(&self) -> &ThreadId {
         &self.thread
     }
@@ -257,6 +311,18 @@ impl RunPort {
         })
         .await?;
         rx.await.map_err(|_| RunError::Closed)
+    }
+
+    /// Appends the `compacted` record and resolves once it is durable (or failed).
+    pub async fn compacted(&self, compaction: Compaction) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.send(ProducerMsg::Compacted {
+            turn: self.turn.clone(),
+            compaction,
+            ack,
+        })
+        .await?;
+        rx.await.map_err(|_| RunError::Closed)?
     }
 }
 

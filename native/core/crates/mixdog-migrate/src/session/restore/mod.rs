@@ -21,14 +21,14 @@ mod tests;
 
 use mixdog_protocol::message_class::js::str_of;
 pub use mixdog_protocol::message_class::Shown;
+pub use mixdog_protocol::message_class::TASK_CARD;
+pub use mixdog_protocol::message_class::TURN_END;
 pub use mixdog_protocol::message_class::envelope;
 pub use mixdog_protocol::message_class::is_room_row;
 pub use mixdog_protocol::message_class::room_prompt;
+pub use mixdog_protocol::message_class::row_facts;
 pub use mixdog_protocol::message_class::user_row;
 pub use mixdog_protocol::message_class::user_text;
-use serde_json::Map;
-use serde_json::Value;
-use serde_json::json;
 
 use super::model::Row;
 use crate::framework::ItemContext;
@@ -36,43 +36,16 @@ use user_text::Blobs;
 use user_text::ReadError;
 use user_text::UserText;
 
-/// The typed fact of a tool card row.
-pub const TASK_CARD: &str = "taskCard";
-/// The typed fact of an interrupted turn end.
-pub const TURN_END: &str = "turnEnd";
-
-fn set_meta(body: &mut Value, key: &str, fact: Value) {
-    let Some(message) = body.as_object_mut() else {
-        return;
-    };
-    let meta = message.entry("meta").or_insert(Value::Null);
-    if meta.is_null() {
-        *meta = Value::Object(Map::new());
-    }
-    if let Some(meta) = meta.as_object_mut() {
-        meta.insert(key.to_owned(), fact);
-    }
-}
-
 /// Classifies one transcript load's rows in order (`restoreTranscriptRange`); `blobs` is
 /// the attachment store the user text reads offloaded parts from.
 pub fn convert<'r>(rows: impl IntoIterator<Item = &'r mut Row>, blobs: &dyn Blobs) {
     let mut text = UserText::new(blobs);
     for row in rows {
-        if is_room_row(&row.body) {
-            row.prompt = room_prompt(&row.body);
-            continue;
-        }
-        match str_of(&row.body, "role") {
-            Some("user") => match user_row(&row.body, &mut text) {
-                Shown::Nothing => row.visible = false,
-                Shown::Notice => {}
-                Shown::Card(card) => set_meta(&mut row.body, TASK_CARD, card),
-                Shown::TurnEnd => set_meta(&mut row.body, TURN_END, json!({"status": "cancelled", "elapsedMs": 0})),
-                Shown::User(text) => row.prompt = Some(text),
-            },
-            Some("assistant") => reasoning::convert(&mut row.body),
-            _ => {}
+        if let Some(facts) = row_facts(&mut row.body, &mut text) {
+            row.visible &= facts.visible;
+            row.prompt = facts.prompt;
+        } else if str_of(&row.body, "role") == Some("assistant") {
+            reasoning::convert(&mut row.body);
         }
     }
 }

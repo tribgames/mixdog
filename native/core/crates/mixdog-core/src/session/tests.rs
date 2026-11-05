@@ -572,6 +572,30 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     turn(&handle, "again", "op-2").await;
     eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let id = handle.id.clone();
+    handle
+        .request(request(
+            "thread/name/set",
+            json!({ "threadId": id, "opId": "op-name", "title": "  Haiku  " }),
+            "op-name",
+        ))
+        .await
+        .expect("name/set");
+    // The index answers the metadata with the raw title, without loading anything.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let meta = loop {
+        let meta = first.session_meta(&id).await.expect("meta");
+        if meta.as_ref().is_some_and(|m| m.title.as_deref() == Some("  Haiku  ")) {
+            break meta.expect("listed");
+        }
+        assert!(tokio::time::Instant::now() < deadline, "meta not indexed: {meta:?}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert_eq!(meta.agent, Value::Null);
+    assert_eq!(meta.owner_session_id, Value::Null);
+    assert_eq!(
+        first.session_meta(&ThreadId::from("missing")).await.expect("meta"),
+        None
+    );
 
     // A fresh directory opens the thread from its log and the index.
     let second = SessionDirectory::new(rig.deps_on(store));
@@ -596,6 +620,138 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     assert_eq!(value["text"], "again");
     eventually(|| (rows(&reopened).len() == 2).then_some(())).await;
     eventually(|| (prompt_list(&reopened) == ["hello"]).then_some(())).await;
+}
+
+/// A subscriber attaches (the counting `FeedSource::attach` does around the feed).
+fn subscribe(handle: &SessionHandle) {
+    assert!(handle.cell.subscribing());
+    handle.cell.subscribed(true);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    subscribe(&handle);
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    assert!(directory.handle(&handle.id).is_some(), "one subscriber is left");
+
+    handle.cell.unsubscribed();
+    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually(|| (lock(&rig.closes.seen).len() == 1).then_some(())).await;
+    assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
+    assert!(!handle.cell.subscribing(), "an unloaded thread takes no subscriber");
+    // A later open loads it again.
+    let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
+    assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    rig.set_script(Arc::new(move |run| {
+        let mut gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    subscribe(&handle);
+    turn(&handle, "hold", "op-1").await;
+    handle.cell.unsubscribed();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(directory.handle(&handle.id).is_some(), "the run is live");
+
+    release.send(true).expect("release");
+    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_waits_for_the_ingests_at_most_2500_ms() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    *lock(&rig.closes.delay) = Duration::from_secs(10);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+
+    let started = tokio::time::Instant::now();
+    directory.shutdown().await;
+    let took = started.elapsed();
+    assert!(took >= Duration::from_millis(2400) && took < Duration::from_millis(4000), "{took:?}");
+    assert!(directory.handle(&handle.id).is_none());
+    assert!(lock(&rig.closes.seen).is_empty(), "the slow ingest was not waited for");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    let (thread, messages) = lock(&rig.ingests.0)[0].clone();
+    assert_eq!(thread, handle.id);
+    assert_eq!(messages.len(), 2, "the input row and the reply: {messages:?}");
+    assert_eq!(messages[1]["text"], "re: hello");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it() {
+    use mixdog_core_api::domain::provider::ProviderState;
+
+    let rig = Rig::new();
+    let seen: Arc<Mutex<Vec<Option<ProviderState>>>> = Arc::default();
+    let saved = ProviderState {
+        gemini: None,
+        rest: json!({ "xaiResponses": { "previousResponseId": "r1" } })
+            .as_object()
+            .cloned()
+            .expect("object"),
+    };
+    let (seen_in, saved_in) = (seen.clone(), saved.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (seen, saved) = (seen_in.clone(), saved_in.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let state = run.port.provider_state().await;
+            lock(&seen).push(state);
+            run.port.save_provider_state(Some(saved)).await.expect("saved");
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually(|| (idle(&handle) && lock(&seen).len() == 1).then_some(())).await;
+    turn(&handle, "two", "op-2").await;
+    eventually(|| (idle(&handle) && lock(&seen).len() == 2).then_some(())).await;
+    assert_eq!(lock(&seen).clone(), vec![None, Some(saved.clone())]);
+    assert_eq!(
+        handle.live_header().header().get("providerState"),
+        Some(&json!({ "xaiResponses": { "previousResponseId": "r1" } }))
+    );
+
+    handle
+        .request(request(
+            "thread/clear",
+            json!({ "threadId": handle.id, "opId": "op-3" }),
+            "op-3",
+        ))
+        .await
+        .expect("clear");
+    assert_eq!(handle.live_header().header().get("providerState"), None);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -677,4 +833,22 @@ async fn runs_get_the_sessions_tool_surface() {
     turn(&handle, "go", "op-1").await;
     eventually(|| (lock(&seen).len() == 1).then_some(())).await;
     assert_eq!(lock(&seen)[0], Vec::<String>::new());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_live_header_follows_acked_header_changes() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let live = handle.live_header();
+    assert_ne!(live.header().get("title"), Some(&json!("renamed")));
+    handle
+        .request(request(
+            "thread/name/set",
+            json!({ "threadId": handle.id, "opId": "op-1", "title": "renamed" }),
+            "op-1",
+        ))
+        .await
+        .expect("name/set");
+    assert_eq!(live.header().get("title"), Some(&json!("renamed")));
 }

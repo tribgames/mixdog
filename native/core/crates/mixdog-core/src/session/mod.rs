@@ -35,6 +35,9 @@ mod store;
 mod surface;
 mod transcript;
 pub mod user_text;
+pub mod user_cwd;
+pub mod user_facts;
+pub mod agent_route;
 mod view;
 pub mod worktree;
 
@@ -60,6 +63,10 @@ pub use self::run::RunPort;
 pub use self::run::SteerInput;
 pub use self::seams::AppendPosition;
 pub use self::seams::BarrierError;
+pub use self::seams::CloseIngest;
+pub use self::seams::SessionMeta;
+pub use self::user_cwd::UserCwd;
+pub use self::store::MemoryCloseIngest;
 pub use self::seams::CommitRecord;
 pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
@@ -74,7 +81,9 @@ pub use self::seams::SessionLog;
 pub use self::seams::ThreadStore;
 pub use self::seams::ToolSurfaceSource;
 pub use self::seams::Transcript;
+pub use self::seams::TurnIngest;
 pub use self::seams::WindowRead;
+pub use self::store::SessionSearchTurns;
 pub use self::state::Section;
 pub use self::store::CoreThreadFeeds;
 pub use self::transcript::StoredRows;
@@ -102,6 +111,14 @@ pub struct SessionDeps {
     /// Called on create and open, where today's `session-lifecycle.mjs` calls
     /// `prewarmSessionAutoEffort`.
     pub effort: Arc<dyn EffortPrewarm>,
+    /// The session-search copy, written once per completed turn.
+    pub search: Arc<dyn TurnIngest>,
+    /// The memory ingest when a thread unloads or the core shuts down.
+    pub memory: Arc<dyn CloseIngest>,
+    /// The cwd files under the data dir (`user-cwd.mjs`).
+    pub user_cwd: UserCwd,
+    /// The prompt-attachment store user text reads offloaded parts from.
+    pub attachments: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
     pub feeds: Arc<dyn FeedFactory>,
     pub server_requests: Arc<dyn ServerRequestSink>,
     pub approval_ids: Arc<dyn ApprovalIds>,

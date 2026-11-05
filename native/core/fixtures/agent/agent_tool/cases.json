@@ -1,0 +1,2642 @@
+[
+  {
+    "name": "unknown_type",
+    "args": {
+      "type": "frobnicate"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent: unknown type \"frobnicate\""
+  },
+  {
+    "name": "list_roster",
+    "args": {
+      "type": "list",
+      "tag": "al"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "workers": [
+        {
+          "tag": "alpha",
+          "status": "running",
+          "active": true,
+          "stage": "tool_running"
+        },
+        {
+          "tag": "beta",
+          "status": "idle",
+          "active": false
+        }
+      ],
+      "jobs": [
+        {
+          "task_id": "t1",
+          "type": "spawn",
+          "status": "running",
+          "tag": "alpha",
+          "finished": false
+        },
+        {
+          "task_id": "t2",
+          "type": "spawn",
+          "status": "completed",
+          "tag": "beta",
+          "finished": true
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "agents: 2 · tasks: 2\n- alpha  running/tool_running\n- t1  spawn  running  alpha\n- idle/closed agents: 1 (0 match tag \"al\", showing 0)\n- finished tasks: 1 (0 match tag \"al\", showing 0)"
+  },
+  {
+    "name": "status_with_target",
+    "args": {
+      "type": "status",
+      "tag": "alpha"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "job": {
+        "taskId": "t9",
+        "sessionId": "s9",
+        "view": {
+          "task_id": "t9",
+          "status": "completed",
+          "type": "spawn",
+          "tag": "alpha",
+          "sessionId": "s9",
+          "result": "<final-answer>done</final-answer>"
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "agent task: t9\nstatus: completed\ntype: spawn\ntarget: alpha s9\n\ndone"
+  },
+  {
+    "name": "status_without_target_is_the_roster",
+    "args": {
+      "type": "status"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "workers": [],
+      "jobs": []
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "agents: 0 · tasks: 0\n(no agents or tasks)"
+  },
+  {
+    "name": "read_worker_without_task_uses_handoff",
+    "args": {
+      "type": "read",
+      "tag": "alpha"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "job": {
+        "taskId": null,
+        "sessionId": "s9",
+        "view": {
+          "task_id": "w9",
+          "status": "idle",
+          "type": "spawn",
+          "tag": "alpha",
+          "sessionId": "s9"
+        }
+      },
+      "handoff": "the handoff"
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "agent task: w9\nstatus: idle\ntype: spawn\ntarget: alpha s9\n\nthe handoff"
+  },
+  {
+    "name": "read_with_task_ignores_handoff",
+    "args": {
+      "type": "read",
+      "task_id": "t9"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "job": {
+        "taskId": "t9",
+        "sessionId": "s9",
+        "view": {
+          "task_id": "t9",
+          "status": "running",
+          "type": "spawn"
+        }
+      },
+      "handoff": "ignored"
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "agent task: t9\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "cleanup",
+    "args": {
+      "type": "cleanup"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "a": "s1",
+        "b": "s2"
+      },
+      "jobs": [
+        {
+          "task_id": "t1",
+          "status": "running"
+        }
+      ],
+      "workers": [
+        {
+          "tag": "a"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "{\n  \"tasksRemoved\": 0,\n  \"tagsRemoved\": 0,\n  \"tasks\": 1,\n  \"workers\": 1\n}"
+  },
+  {
+    "name": "close_live_session_forgets_row_and_descendants",
+    "args": {
+      "type": "close",
+      "tag": "w1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "w1": "s1"
+      },
+      "tagAgents": [
+        "w1"
+      ],
+      "live": {
+        "s1": {
+          "id": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      },
+      "descendants": {
+        "s1": [
+          "d1",
+          "d2"
+        ]
+      },
+      "closeOk": true
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": false
+        }
+      ],
+      [
+        "closeSession",
+        "s1",
+        "cli-agent-close",
+        {
+          "tombstone": false,
+          "ownerClose": true
+        }
+      ],
+      [
+        "forgetTerminalSession",
+        "w1",
+        "s1"
+      ],
+      [
+        "removeWorkerRow",
+        "d1"
+      ],
+      [
+        "removeWorkerRow",
+        "d2"
+      ],
+      [
+        "markReleased",
+        [
+          "s1",
+          "d1",
+          "d2"
+        ]
+      ]
+    ],
+    "result": "agent close: ok\ntag: w1\nsessionId: s1"
+  },
+  {
+    "name": "close_that_fails_keeps_the_row",
+    "args": {
+      "type": "cancel",
+      "sessionId": "s1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "w1": "s1"
+      },
+      "live": {
+        "s1": {
+          "id": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      },
+      "closeOk": false
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": false
+        }
+      ],
+      [
+        "closeSession",
+        "s1",
+        "cli-agent-close",
+        {
+          "tombstone": false,
+          "ownerClose": true
+        }
+      ]
+    ],
+    "result": "agent close: not closed\ntag: w1\nsessionId: s1"
+  },
+  {
+    "name": "close_unknown_target",
+    "args": {
+      "type": "close",
+      "tag": "ghost"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "ghost",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": false
+        }
+      ]
+    ],
+    "result": "Error: agent close: target \"ghost\" not found"
+  },
+  {
+    "name": "close_without_target",
+    "args": {
+      "type": "close"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent close: tag or sessionId is required"
+  },
+  {
+    "name": "close_lead_session_is_refused",
+    "args": {
+      "type": "close",
+      "tag": "boss"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "boss": "s0"
+      },
+      "live": {
+        "s0": {
+          "id": "s0",
+          "agent": "Lead",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "boss",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": false
+        }
+      ]
+    ],
+    "result": "Error: agent close: target \"boss\" is a Lead session"
+  },
+  {
+    "name": "close_stale_local_tag_is_forgotten",
+    "args": {
+      "type": "close",
+      "tag": "old"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "old": "gone"
+      },
+      "tagAgents": [
+        "old"
+      ],
+      "rows": [
+        {
+          "tag": "old",
+          "sessionId": "gone",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "unresolvable": [
+        "old"
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "old",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": false
+        }
+      ],
+      [
+        "unbindTag",
+        "old"
+      ]
+    ],
+    "result": "agent close: ok\ntag: old\nforgotten: true"
+  },
+  {
+    "name": "close_by_task_id_only",
+    "args": {
+      "type": "close",
+      "task_id": "task-A"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tasks": [
+        {
+          "task_id": "task-A",
+          "sessionId": null,
+          "tag": "tagA"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "cancelTask",
+        "task-A"
+      ]
+    ],
+    "result": "agent close: ok\ntag: tagA\ntask_id: task-A"
+  },
+  {
+    "name": "close_cancels_the_sessions_tasks",
+    "args": {
+      "type": "close",
+      "tag": "w1",
+      "task_id": "task-B"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "w1": "s1"
+      },
+      "live": {
+        "s1": {
+          "id": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      },
+      "closeOk": true,
+      "tasks": [
+        {
+          "task_id": "task-B",
+          "sessionId": "s1",
+          "tag": "w1"
+        },
+        {
+          "task_id": "task-C",
+          "sessionId": "s1",
+          "tag": null
+        },
+        {
+          "task_id": "task-D",
+          "sessionId": "other",
+          "tag": "zzz"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "refreshTags",
+        false,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": false
+        }
+      ],
+      [
+        "cancelTask",
+        "task-B"
+      ],
+      [
+        "cancelTask",
+        "task-C"
+      ],
+      [
+        "closeSession",
+        "s1",
+        "cli-agent-close",
+        {
+          "tombstone": false,
+          "ownerClose": true
+        }
+      ],
+      [
+        "forgetTerminalSession",
+        "w1",
+        "s1"
+      ],
+      [
+        "markReleased",
+        [
+          "s1"
+        ]
+      ]
+    ],
+    "result": "agent close: ok\ntag: w1\nsessionId: s1\ntask_id: task-B"
+  },
+  {
+    "name": "send_to_live_tag",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "go"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "ok": {
+            "sessionId": "s1",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "adoptCaller",
+        "s1"
+      ],
+      [
+        "dispatch",
+        {
+          "args": {
+            "type": "send",
+            "tag": "w1",
+            "message": "go"
+          },
+          "sessionId": "s1",
+          "prompt": null,
+          "route": null
+        },
+        {
+          "reused": false,
+          "resumed": false
+        }
+      ]
+    ],
+    "result": "dispatched s1"
+  },
+  {
+    "name": "send_explicit_session_that_is_gone_errors",
+    "args": {
+      "type": "send",
+      "tag": "sess_abc",
+      "message": "go"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"sess_abc\" not found"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "sess_abc",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent send: target \"session\" not found"
+  },
+  {
+    "name": "send_other_failure_is_not_a_dead_target",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "go"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: queue is full"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent send: queue is full"
+  },
+  {
+    "name": "send_dead_tag_with_no_evidence_errors",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "go"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"w1\" not found"
+        },
+        {
+          "err": "agent send: target \"w1\" not found"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent send: target \"w1\" not found"
+  },
+  {
+    "name": "send_dead_tag_resumes_the_reaped_session",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "continue"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"w1\" not found"
+        },
+        {
+          "err": "agent send: target \"w1\" is closed"
+        }
+      ],
+      "tombstones": [
+        {
+          "tag": "w1",
+          "sessionId": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "resumable": {
+        "w1|s1": {
+          "session": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "continue"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "continue"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "adoptCaller",
+        "s1"
+      ],
+      [
+        "dispatch",
+        {
+          "args": {
+            "type": "send",
+            "tag": "w1",
+            "message": "continue"
+          },
+          "sessionId": "s1",
+          "prompt": "continue",
+          "route": null
+        },
+        {
+          "reused": false,
+          "resumed": true
+        }
+      ],
+      [
+        "bindTag",
+        "w1",
+        "s1"
+      ],
+      [
+        "consumeTagTombstone",
+        "w1",
+        "s1"
+      ]
+    ],
+    "result": "dispatched s1"
+  },
+  {
+    "name": "send_dead_tag_respawns_when_the_session_cannot_continue",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "continue",
+      "agent": "reviewer"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"w1\" not found"
+        },
+        {
+          "err": "agent send: target \"w1\" not found"
+        }
+      ],
+      "rows": [
+        {
+          "tag": "w1",
+          "sessionId": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "resumable": {
+        "w1|s1": null
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "continue",
+          "agent": "reviewer"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "continue",
+          "agent": "reviewer"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "forgetTerminalSession",
+        "w1",
+        "s1"
+      ],
+      [
+        "startSpawn",
+        {
+          "type": "spawn",
+          "tag": "w1",
+          "agent": "reviewer",
+          "prompt": "continue",
+          "cwd": "/work"
+        },
+        "/work",
+        {
+          "respawned": true
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nrespawned: true\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "send_dead_tag_revived_by_a_competing_resume",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "go"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"w1\" not found"
+        },
+        {
+          "ok": {
+            "sessionId": "s1",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "adoptCaller",
+        "s1"
+      ],
+      [
+        "dispatch",
+        {
+          "args": {
+            "type": "send",
+            "tag": "w1",
+            "message": "go"
+          },
+          "sessionId": "s1",
+          "prompt": null,
+          "route": null
+        },
+        {
+          "reused": false,
+          "resumed": false
+        }
+      ]
+    ],
+    "result": "dispatched s1"
+  },
+  {
+    "name": "send_dead_tag_resume_gone_cwd_is_refused",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "go"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"w1\" not found"
+        },
+        {
+          "err": "agent send: target \"w1\" not found"
+        }
+      ],
+      "tombstones": [
+        {
+          "tag": "w1",
+          "sessionId": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "resumable": {
+        "w1|s1": {
+          "session": null,
+          "missingCwd": "/gone/dir"
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent send: tag \"w1\" cannot continue: its working directory \"/gone/dir\" no longer exists; pass an existing cwd to start a fresh session there"
+  },
+  {
+    "name": "send_dead_tag_other_agent_gets_a_fresh_session",
+    "args": {
+      "type": "send",
+      "tag": "w1",
+      "message": "go",
+      "agent": "reviewer"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "prepare": [
+        {
+          "err": "agent send: target \"w1\" not found"
+        },
+        {
+          "err": "agent send: target \"w1\" not found"
+        }
+      ],
+      "tombstones": [
+        {
+          "tag": "w1",
+          "sessionId": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "resumable": {
+        "w1|s1": {
+          "session": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go",
+          "agent": "reviewer"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "type": "send",
+          "tag": "w1",
+          "message": "go",
+          "agent": "reviewer"
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "forgetTerminalSession",
+        "w1",
+        ""
+      ],
+      [
+        "consumeTagTombstone",
+        "w1",
+        "s1"
+      ],
+      [
+        "startSpawn",
+        {
+          "type": "spawn",
+          "tag": "w1",
+          "agent": "reviewer",
+          "prompt": "go",
+          "cwd": "/work"
+        },
+        "/work",
+        {
+          "respawned": true
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nrespawned: true\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_without_a_tag",
+    "args": {
+      "prompt": "do it",
+      "agent": "worker"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "do it",
+          "agent": "worker"
+        },
+        "/work",
+        {
+          "respawned": false
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_model_without_provider_on_a_headless_surface",
+    "args": {
+      "prompt": "x",
+      "model": "gpt-5"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: model requires provider on this surface"
+  },
+  {
+    "name": "spawn_provider_without_model",
+    "args": {
+      "prompt": "x",
+      "provider": "openai"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: provider requires model"
+  },
+  {
+    "name": "spawn_punctuation_model_is_not_found",
+    "args": {
+      "prompt": "x",
+      "model": "???",
+      "provider": "openai"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: model \"???\" for provider \"openai\" not found"
+  },
+  {
+    "name": "spawn_exact_provider_and_model_pass_through",
+    "args": {
+      "prompt": "x",
+      "model": "gpt-5",
+      "provider": "openai"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "x",
+          "model": "gpt-5",
+          "provider": "openai"
+        },
+        "/work",
+        {
+          "respawned": false
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_model_resolves_through_the_catalog",
+    "args": {
+      "prompt": "x",
+      "model": "sonnet 4",
+      "provider": "anth"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "catalog": [
+        {
+          "provider": "anthropic",
+          "id": "claude-sonnet-4",
+          "display": "Claude Sonnet 4",
+          "catalogComplete": true
+        },
+        {
+          "provider": "anthropic",
+          "id": "claude-opus-4",
+          "display": "Claude Opus 4",
+          "catalogComplete": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT 5",
+          "catalogComplete": true
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": true,
+          "force": false,
+          "provider": null
+        }
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "x",
+          "model": "claude-sonnet-4",
+          "provider": "anthropic"
+        },
+        "/work",
+        {
+          "respawned": false
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_model_ambiguous",
+    "args": {
+      "prompt": "x",
+      "model": "claude"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "catalog": [
+        {
+          "provider": "anthropic",
+          "id": "claude-sonnet-4",
+          "display": "Claude Sonnet 4",
+          "catalogComplete": true
+        },
+        {
+          "provider": "anthropic",
+          "id": "claude-opus-4",
+          "display": "Claude Opus 4",
+          "catalogComplete": true
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": true,
+          "force": false,
+          "provider": null
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: model \"claude\" is ambiguous: anthropic/claude-sonnet-4, anthropic/claude-opus-4; pass the exact one"
+  },
+  {
+    "name": "spawn_model_not_found_lists_the_provider",
+    "args": {
+      "prompt": "x",
+      "model": "llama",
+      "provider": "openai"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "catalog": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT 5",
+          "catalogComplete": true
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": true,
+          "force": false,
+          "provider": null
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": false,
+          "force": true,
+          "provider": "openai"
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: model \"llama\" for provider \"openai\" not found; available: openai/gpt-5"
+  },
+  {
+    "name": "spawn_provider_with_no_models",
+    "args": {
+      "prompt": "x",
+      "model": "llama",
+      "provider": "nowhere"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "catalog": []
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": true,
+          "force": false,
+          "provider": null
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": false,
+          "force": false,
+          "provider": null
+        }
+      ],
+      [
+        "listModels",
+        {
+          "quick": false,
+          "force": true,
+          "provider": "nowhere"
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: provider \"nowhere\" has no available models"
+  },
+  {
+    "name": "spawn_tag_on_a_live_session_reuses_it",
+    "args": {
+      "prompt": "again",
+      "tag": "w1",
+      "model": "gpt-5",
+      "provider": "openai",
+      "effort": "high",
+      "fast": true
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tags": {
+        "w1": "s1"
+      },
+      "live": {
+        "s1": {
+          "id": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      },
+      "prepare": [
+        {
+          "ok": {
+            "sessionId": "s1",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "prepareSend",
+        {
+          "prompt": "again",
+          "tag": "w1",
+          "model": "gpt-5",
+          "provider": "openai",
+          "effort": "high",
+          "fast": true
+        },
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "adoptCaller",
+        "s1"
+      ],
+      [
+        "dispatch",
+        {
+          "args": {
+            "prompt": "again",
+            "tag": "w1",
+            "model": "gpt-5",
+            "provider": "openai",
+            "effort": "high",
+            "fast": true
+          },
+          "sessionId": "s1",
+          "prompt": null,
+          "route": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "high",
+            "fast": true
+          }
+        },
+        {
+          "reused": true,
+          "resumed": false
+        }
+      ]
+    ],
+    "result": "dispatched s1"
+  },
+  {
+    "name": "spawn_tag_with_a_terminal_trace_reaps_it",
+    "args": {
+      "prompt": "x",
+      "tag": "w1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "traces": [
+        "w1"
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "reapTrace",
+        "w1"
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "x",
+          "tag": "w1"
+        },
+        "/work",
+        {
+          "respawned": true
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nrespawned: true\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_tag_resumes_from_its_tombstone",
+    "args": {
+      "prompt": "continue",
+      "tag": "w1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tombstones": [
+        {
+          "tag": "w1",
+          "sessionId": "s1",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "resumable": {
+        "w1|s1": {
+          "session": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "adoptCaller",
+        "s1"
+      ],
+      [
+        "dispatch",
+        {
+          "args": {
+            "prompt": "continue",
+            "tag": "w1"
+          },
+          "sessionId": "s1",
+          "prompt": "continue",
+          "route": null
+        },
+        {
+          "reused": false,
+          "resumed": true
+        }
+      ],
+      [
+        "bindTag",
+        "w1",
+        "s1"
+      ],
+      [
+        "consumeTagTombstone",
+        "w1",
+        "s1"
+      ]
+    ],
+    "result": "dispatched s1"
+  },
+  {
+    "name": "spawn_tag_tombstone_that_cannot_resume_inherits_agent_and_cwd",
+    "args": {
+      "prompt": "x",
+      "tag": "w1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "tombstones": [
+        {
+          "tag": "w1",
+          "sessionId": "s1",
+          "agent": "worker",
+          "cwd": "/old",
+          "parentSessionId": "lead1"
+        }
+      ],
+      "resumable": {
+        "w1|s1": null
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s1",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "consumeTagTombstone",
+        "w1",
+        "s1"
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "x",
+          "tag": "w1",
+          "agent": "worker",
+          "cwd": "/old"
+        },
+        "/work",
+        {
+          "respawned": true
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nrespawned: true\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_tag_foreign_tombstone_is_refused",
+    "args": {
+      "prompt": "x",
+      "tag": "w1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "foreignTombstones": [
+        {
+          "tag": "w1",
+          "sessionId": "s7",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "other"
+        }
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ]
+    ],
+    "result": "Error: agent spawn: tag \"w1\" belongs to another terminal"
+  },
+  {
+    "name": "spawn_tag_resumes_its_last_session_record",
+    "args": {
+      "prompt": "continue",
+      "tag": "w1"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "lastSessions": {
+        "w1": {
+          "tag": "w1",
+          "sessionId": "s5",
+          "agent": "worker",
+          "cwd": "/work",
+          "parentSessionId": "lead1"
+        }
+      },
+      "resumable": {
+        "w1|s5": {
+          "session": {
+            "id": "s5",
+            "agent": "worker",
+            "cwd": "/work"
+          }
+        }
+      }
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "w1",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "resumableTagSession",
+        "w1",
+        "s5",
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "adoptCaller",
+        "s5"
+      ],
+      [
+        "dispatch",
+        {
+          "args": {
+            "prompt": "continue",
+            "tag": "w1"
+          },
+          "sessionId": "s5",
+          "prompt": "continue",
+          "route": null
+        },
+        {
+          "reused": false,
+          "resumed": true
+        }
+      ],
+      [
+        "bindTag",
+        "w1",
+        "s5"
+      ]
+    ],
+    "result": "dispatched s5"
+  },
+  {
+    "name": "spawn_new_tag_is_fresh",
+    "args": {
+      "prompt": "x",
+      "tag": "brand-new"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {},
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "brand-new",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "x",
+          "tag": "brand-new"
+        },
+        "/work",
+        {
+          "respawned": false
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn."
+  },
+  {
+    "name": "spawn_ambiguous_tag_falls_through_to_a_fresh_spawn",
+    "args": {
+      "prompt": "x",
+      "tag": "dup"
+    },
+    "context": {
+      "callerSessionId": "lead1",
+      "clientHostPid": 4242,
+      "cwd": "/work"
+    },
+    "world": {
+      "ambiguous": [
+        "dup"
+      ]
+    },
+    "trace": [
+      [
+        "resolveTombstoneOwners"
+      ],
+      [
+        "rehydrate"
+      ],
+      [
+        "refreshTags",
+        true,
+        {
+          "s": "lead1",
+          "p": 4242
+        }
+      ],
+      [
+        "resolveTag",
+        "dup",
+        {
+          "s": "lead1",
+          "p": 4242
+        },
+        {
+          "scan": false,
+          "traces": true
+        }
+      ],
+      [
+        "startSpawn",
+        {
+          "prompt": "x",
+          "tag": "dup"
+        },
+        "/work",
+        {
+          "respawned": false
+        }
+      ]
+    ],
+    "result": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn."
+  }
+]

@@ -116,6 +116,55 @@ pub fn user_row(message: &Value, text: &mut UserText<'_>) -> Shown {
     }
 }
 
+/// The typed fact of a tool card row (`meta.taskCard`).
+pub const TASK_CARD: &str = "taskCard";
+/// The typed fact of an interrupted turn end (`meta.turnEnd`).
+pub const TURN_END: &str = "turnEnd";
+
+/// What a stored row carries besides its body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowFacts {
+    /// False when the transcript shows nothing for the message.
+    pub visible: bool,
+    /// The display text when the row counts for prompt history (`ItemRecord.prompt`).
+    pub prompt: Option<String>,
+}
+
+/// The typed facts of a room row or a user-role message, as both the migration and the live
+/// writer store them: [`room_prompt`] for a room row, else [`user_row`], with a card or a
+/// cancel line written into `meta` (`meta.taskCard`, `meta.turnEnd`). `None` for any other
+/// message, which keeps its row as is.
+pub fn row_facts(message: &mut Value, text: &mut UserText<'_>) -> Option<RowFacts> {
+    if is_room_row(message) {
+        return Some(RowFacts { visible: true, prompt: room_prompt(message) });
+    }
+    if str_of(message, "role") != Some("user") {
+        return None;
+    }
+    let mut facts = RowFacts { visible: true, prompt: None };
+    match user_row(message, text) {
+        Shown::Nothing => facts.visible = false,
+        Shown::Notice => {}
+        Shown::Card(card) => set_meta(message, TASK_CARD, card),
+        Shown::TurnEnd => set_meta(message, TURN_END, serde_json::json!({ "status": "cancelled", "elapsedMs": 0 })),
+        Shown::User(text) => facts.prompt = Some(text),
+    }
+    Some(facts)
+}
+
+fn set_meta(message: &mut Value, key: &str, fact: Value) {
+    let Some(message) = message.as_object_mut() else {
+        return;
+    };
+    let meta = message.entry("meta").or_insert(Value::Null);
+    if meta.is_null() {
+        *meta = Value::Object(serde_json::Map::new());
+    }
+    if let Some(meta) = meta.as_object_mut() {
+        meta.insert(key.to_owned(), fact);
+    }
+}
+
 /// `promptHistoryKey(text)` is not empty.
 fn counts(text: &str) -> bool {
     !js_trim(text).is_empty()

@@ -104,16 +104,6 @@ impl RecordTranscript {
     }
 }
 
-/// `meta.source` values whose text is runtime-written, never the user's prompt (P §5.3
-/// `MessageSource`): a notice, card, summary, recovery or continuation row.
-fn is_runtime_written(source: &str) -> bool {
-    !matches!(source, "" | "import" | "routine-trigger" | "steering")
-}
-
-fn text_of<'a>(value: &'a Value, key: &str) -> &'a str {
-    value.get(key).and_then(Value::as_str).unwrap_or_default()
-}
-
 impl Transcript for RecordTranscript {
     fn items(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
         let Slot::Inline(body) = &record.body else {
@@ -211,36 +201,6 @@ impl Transcript for RecordTranscript {
             transcript["attachments"] = Value::Array(stored);
         }
         json!({ "role": "user", "content": content, "meta": { "transcript": transcript } })
-    }
-
-    fn prompt_fact(&self, role: Option<&str>, body: &Value) -> Option<String> {
-        if role != Some("user") {
-            return None;
-        }
-        let meta = body.get("meta");
-        if matches!(meta, Some(Value::String(kind)) if kind == "skill" || kind == "hook") {
-            return None;
-        }
-        let source = meta.map_or("", |m| text_of(m, "source"));
-        if source == "agent-room" {
-            // An own room line (`room.kind` user) counts with its words as written.
-            let line = meta?.pointer("/room/kind").and_then(Value::as_str)?;
-            let words = body.get("content").and_then(Value::as_str).unwrap_or_default();
-            return (line == "user" && !js_trim(words).is_empty()).then(|| words.to_owned());
-        }
-        if is_runtime_written(source) {
-            return None;
-        }
-        let shown = meta
-            .and_then(|m| m.pointer("/transcript/displayText"))
-            .and_then(Value::as_str)
-            .map(|text| js_trim(text).to_owned())
-            .filter(|text| !text.is_empty());
-        let text = shown.unwrap_or_else(|| {
-            let mut budget = PASTED_LINE_READ_BUDGET_BYTES;
-            user_display_text(body.get("content").unwrap_or(&Value::Null), &mut NoAttachments, &mut budget)
-        });
-        (!text.is_empty()).then_some(text)
     }
 
     fn summary(&self, id: &ThreadId, header: &Header) -> ThreadSummary {

@@ -16,9 +16,14 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::thread::Decision;
 use mixdog_rt::CancellationToken;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
+
+use crate::ports::gate::LiveHeader;
 
 use super::seams::RunOutcome;
 use super::view::SessionView;
@@ -35,6 +40,10 @@ pub(crate) enum Ctl {
     RetryStorage,
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
+    /// The last subscriber left: an idle thread unloads.
+    Unsubscribed,
+    /// Core shutdown: the actor stops and hands back its memory ingest.
+    Shutdown(tokio::sync::oneshot::Sender<futures::future::BoxFuture<'static, ()>>),
 }
 
 /// The active run as RT-C sees it.
@@ -54,8 +63,57 @@ pub(crate) struct ControlCell {
     pub approvals: ArcSwap<HashSet<u64>>,
     /// The acked view (thread/read, resume results).
     pub view: ArcSwap<SessionView>,
+    /// The acked header, republished when a header change is acked.
+    pub header: ArcSwap<Header>,
+    /// The session's tool-policy surface, as the actor publishes it.
+    pub surface: watch::Receiver<Arc<SessionSurface>>,
     pub ctl_tx: mpsc::Sender<Ctl>,
     pub steer_cap: usize,
+    /// Feed subscribers attached now.
+    pub subscribers: std::sync::atomic::AtomicUsize,
+    /// A subscriber was ever attached: only then does the thread unload when none is left.
+    pub ever_subscribed: std::sync::atomic::AtomicBool,
+    /// Set (under the directory's shard lock) when the thread unloads; attaches then fail.
+    pub closed: std::sync::atomic::AtomicBool,
+}
+
+impl ControlCell {
+    /// An attach starts: counted before the closed check, so an unload (which checks the count
+    /// under the shard lock, then closes) and an attach never both succeed. False when closed.
+    pub fn subscribing(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.subscribers.fetch_add(1, SeqCst);
+        if self.closed.load(SeqCst) {
+            self.subscribers.fetch_sub(1, SeqCst);
+            return false;
+        }
+        true
+    }
+
+    /// The attach that [`Self::subscribing`] started ended (`ok`: the subscriber is attached).
+    pub fn subscribed(&self, ok: bool) {
+        use std::sync::atomic::Ordering::SeqCst;
+        if ok {
+            self.ever_subscribed.store(true, SeqCst);
+        } else {
+            self.subscribers.fetch_sub(1, SeqCst);
+        }
+    }
+
+    /// A subscriber detached; the last one asks the actor to unload when idle.
+    pub fn unsubscribed(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let before = self.subscribers.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1));
+        if before == Ok(1) {
+            let _ = self.ctl_tx.try_send(Ctl::Unsubscribed);
+        }
+    }
+}
+
+impl LiveHeader for ControlCell {
+    fn header(&self) -> Arc<Header> {
+        self.header.load_full()
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

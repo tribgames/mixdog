@@ -206,7 +206,19 @@ fn tool_env() -> ToolEnv {
     }
 }
 
+/// The test backend spawns the process-wide ticker on the ambient runtime, which
+/// would die with whichever test started it first; start it on one that lives
+/// for the whole process.
+fn long_lived_ticker() {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap());
+    let _entered = runtime.enter();
+    mixdog_rt::testing::tokens();
+    mixdog_rt::ticker();
+}
+
 async fn explore(provider: Arc<Provider>, deadline: Duration) -> Result<mixdog_tools::orch::explore::ExploreAnswer, ExploreFailure> {
+    long_lived_ticker();
     let explorer = AgentExplorer::new(Arc::new(Host(provider)), &env(), tool_env());
     let thread = ThreadId::from("t");
     let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap();
@@ -258,7 +270,9 @@ async fn explorer_results_equal_nodes() {
         } else {
             Duration::from_secs(60)
         };
-        let got = explore(Provider::scripted(script), deadline).await;
+        let got = tokio::time::timeout(Duration::from_secs(10), explore(Provider::scripted(script), deadline))
+            .await
+            .unwrap_or_else(|_| panic!("{name}: the explorer did not return"));
         match case.get("text").and_then(|t| t.as_str()) {
             Some(text) => {
                 let answer = got.unwrap_or_else(|e| panic!("{name}: {e:?}"));
