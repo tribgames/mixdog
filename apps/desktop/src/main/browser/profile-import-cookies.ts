@@ -1,3 +1,5 @@
+import { stat } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import {
   cookiePartitionKey,
   isBrowserInternalCookiePartition,
@@ -5,6 +7,28 @@ import {
   type BrowserCookie,
   type BrowserCookieJar,
 } from './cookie-jar';
+
+/** Identity of the Cookies database the native importer reads for a profile
+ *  (`Network/Cookies`, else the legacy `Cookies`), from file stats alone: size
+ *  and modification time of the database and of a `-wal` or `-journal` beside
+ *  it, which can hold changes the main file does not yet show. Undefined when
+ *  the database is missing. */
+export async function cookieStoreIdentity(profileDirectory: string): Promise<string | undefined> {
+  const statsOf = (path: string): Promise<string | undefined> =>
+    stat(path).then(
+      (info) => `${info.mtimeMs}:${info.size}`,
+      () => undefined
+    );
+  let database = join(profileDirectory, 'Network', 'Cookies');
+  let main = await statsOf(database);
+  if (main === undefined) {
+    database = join(profileDirectory, 'Cookies');
+    main = await statsOf(database);
+  }
+  if (main === undefined) return undefined;
+  const [wal, journal] = await Promise.all([statsOf(`${database}-wal`), statsOf(`${database}-journal`)]);
+  return [basename(dirname(database)), main, wal ?? '-', journal ?? '-'].join('|');
+}
 
 export interface BrowserImportCookie {
   name?: unknown;

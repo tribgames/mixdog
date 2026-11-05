@@ -16,6 +16,7 @@ import {
 } from './profile-import-native';
 import {
   CookieImportError,
+  cookieStoreIdentity,
   importBrowserCookies,
   parseBrowserCookieReport,
   type NativeAppBoundKey,
@@ -760,6 +761,12 @@ export class BrowserProfileImportService {
       if (!profileId || !source?.profiles.some((profile) => profile.id === profileId) || !source.supports.cookies) {
         throw new Error('The selected Chrome profile is no longer available for cookie import.');
       }
+      // Same Cookies database as at the last successful import: nothing new to
+      // read, and importing would only overwrite cookies the app refreshed since.
+      const identity = await this.cookieStoreIdentity(profileId);
+      if (identity !== undefined && (await this.autoState.read()).importedStores?.[profileId] === identity) {
+        return { state: 'skipped', reason: 'unchanged' };
+      }
       return { state: 'imported', count: await this.importCookies(profileId, true) };
     } catch (error) {
       return await this.recordAutomaticFailure(error);
@@ -792,7 +799,18 @@ export class BrowserProfileImportService {
     );
   }
 
+  /** Stat-only identity of the profile's Cookies database; undefined when it cannot be told. */
+  private async cookieStoreIdentity(profileId: string): Promise<string | undefined> {
+    try {
+      return await cookieStoreIdentity(exactProfileDirectory(this.chromeUserData(), profileId));
+    } catch {
+      return undefined;
+    }
+  }
+
   private async importCookies(profileId: string, automatic = false): Promise<number> {
+    // Measured before the read: a change made while reading shows up at the next run.
+    const identity = await this.cookieStoreIdentity(profileId);
     const report = parseBrowserCookieReport(await this.readCookieReport(profileId, automatic));
     if (report.appBoundKey) {
       const grant = report.appBoundKey;
@@ -820,7 +838,7 @@ export class BrowserProfileImportService {
     );
     // Status for the settings page; failing to write it must not undo an import that worked.
     await this.autoState
-      .update({ lastImportAt: Date.now(), lastCount: imported, lastError: undefined, needsManualImport: false })
+      .recordImport(profileId, { lastImportAt: Date.now(), lastCount: imported }, identity)
       .catch(() => undefined);
     // Only a key that is saved now proves the next run can read this profile without a prompt.
     if ((await this.savedKeyStatus().catch(() => undefined))?.saved) {

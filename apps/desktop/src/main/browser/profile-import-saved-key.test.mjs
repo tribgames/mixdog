@@ -4,7 +4,7 @@
 // importer's sealed-envelope protocol. Fixture Local State and fake keys only.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -172,6 +172,13 @@ function world(t, { scenario = {}, encryption = fakeEncryption() } = {}) {
     data,
     set,
     writeLocalState,
+    /** Chrome writing its cookie store: new content, and a modification time that moves. */
+    writeCookies: (content, seconds) => {
+      const file = join(chrome, 'Default', 'Network', 'Cookies');
+      mkdirSync(join(chrome, 'Default', 'Network'), { recursive: true });
+      writeFileSync(file, content);
+      utimesSync(file, seconds, seconds);
+    },
     setScenario: (next) => setScenario({ ...scenario, ...next }),
     keyFile: join(data, APP_BOUND_KEY_FILE),
     calls: () =>
@@ -369,6 +376,73 @@ test('without OS encryption nothing is stored, the importer is not asked for the
   assert.deepEqual(await w.service.savedKeyStatus(), { available: false, saved: false });
   assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'needs-manual-import' });
   assert.equal(elevations(w.calls()), 1);
+});
+
+test('automatic runs do nothing while the Cookies database looks the same as at the last import', {
+  skip: !isWindows,
+}, async (t) => {
+  const w = world(t);
+  w.writeCookies('first', 1_700_000_000);
+  await w.manual();
+  const importerCalls = w.calls().length;
+  const written = w.set.length;
+  const backups = () => readdirSync(join(w.data, 'browser-import-backups')).length;
+  const backupCount = backups();
+  const state = await w.service.cookieAutoImportState.read();
+
+  // App start and each Chrome exit both end in this call.
+  for (let run = 0; run < 3; run += 1) {
+    assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'skipped', reason: 'unchanged' });
+  }
+  assert.equal(w.calls().length, importerCalls, 'the importer is not started');
+  assert.equal(w.set.length, written, 'no cookie is written');
+  assert.equal(backups(), backupCount, 'no backup is made');
+  assert.deepEqual(await w.service.cookieAutoImportState.read(), state, 'the record is untouched');
+});
+
+test('a changed Cookies database (size or time, or a journal beside it) leads to one run, then quiet again', {
+  skip: !isWindows,
+}, async (t) => {
+  const w = world(t);
+  w.writeCookies('first', 1_700_000_000);
+  await w.manual();
+  const base = w.calls().length;
+
+  w.writeCookies('first', 1_700_000_100); // same size, later time
+  assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'imported', count: 1 });
+  assert.equal(w.calls().length, base + 1);
+  assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'skipped', reason: 'unchanged' });
+
+  w.writeCookies('second, longer', 1_700_000_100); // same time, other size
+  assert.equal((await w.service.runAutomaticCookieImport('Default')).state, 'imported');
+
+  writeFileSync(join(w.data, '..', 'chrome', 'Default', 'Network', 'Cookies-journal'), 'pending');
+  assert.equal((await w.service.runAutomaticCookieImport('Default')).state, 'imported');
+  assert.equal(w.calls().length, base + 3);
+  assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'skipped', reason: 'unchanged' });
+});
+
+test('a manual import runs even when the Cookies database has not changed', { skip: !isWindows }, async (t) => {
+  const w = world(t);
+  w.writeCookies('first', 1_700_000_000);
+  await w.manual();
+  const base = w.calls().length;
+  const written = w.set.length;
+  const again = await w.manual();
+  assert.deepEqual(again.errors, {});
+  assert.equal(w.calls().length, base + 1, 'the importer ran');
+  assert.equal(w.set.length, written + 1, 'and the cookie was written');
+});
+
+test('a failed automatic run is not remembered as imported: the next one tries again', { skip: !isWindows }, async (t) => {
+  const w = world(t);
+  w.writeCookies('first', 1_700_000_000);
+  await w.manual();
+  w.writeCookies('second', 1_700_000_100);
+  w.setScenario({ chromeRunning: true });
+  assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'skipped', reason: 'chrome-running' });
+  w.setScenario({ chromeRunning: false });
+  assert.equal((await w.service.runAutomaticCookieImport('Default')).state, 'imported');
 });
 
 test('an automatic run while Chrome holds the database is skipped quietly', { skip: !isWindows }, async (t) => {

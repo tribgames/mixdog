@@ -31,6 +31,10 @@ export interface CookieAutoImportState {
   /** Profiles whose cookie import finished while a Chrome key was saved: the
    *  only evidence that an automatic run can read them without a prompt. */
   readyProfiles?: string[];
+  /** Per profile, the Cookies database identity (`cookieStoreIdentity`) as it
+   *  was when its last import succeeded: an automatic run is pointless while
+   *  the database still looks the same. */
+  importedStores?: Record<string, string>;
 }
 
 /** Chrome is running while its lock file exists. */
@@ -130,13 +134,21 @@ export function watchChromeLock(
 
 export type AutoCookieImportOutcome =
   | { state: 'imported'; count: number }
-  | { state: 'skipped'; reason: 'chrome-running' | 'busy' }
+  | { state: 'skipped'; reason: 'chrome-running' | 'busy' | 'unchanged' }
   | { state: 'needs-manual-import' }
   | { state: 'failed'; error: string };
 
 export interface CookieAutoImportSettings {
   enabled: boolean;
   profileId: string;
+}
+
+function storeIdentities(raw: Record<string, unknown>): Record<string, string> {
+  const stores: Record<string, string> = {};
+  for (const [profileId, identity] of Object.entries(raw)) {
+    if (profileId && typeof identity === 'string' && identity) stores[profileId] = identity;
+  }
+  return stores;
 }
 
 function finiteNumber(value: unknown): number | undefined {
@@ -166,6 +178,9 @@ export class CookieAutoImportStateStore {
       ...(Array.isArray(parsed.readyProfiles)
         ? { readyProfiles: parsed.readyProfiles.filter((id): id is string => typeof id === 'string' && id !== '') }
         : {}),
+      ...(parsed.importedStores && typeof parsed.importedStores === 'object'
+        ? { importedStores: storeIdentities(parsed.importedStores as Record<string, unknown>) }
+        : {}),
     };
   }
 
@@ -187,6 +202,21 @@ export class CookieAutoImportStateStore {
   /** Merge `patch`; a field set to undefined (or false) is removed. */
   update(patch: { [Key in keyof CookieAutoImportState]: CookieAutoImportState[Key] | undefined }): Promise<void> {
     return this.enqueue(() => this.merge(patch));
+  }
+
+  /** A successful import: the status fields and, when known, the Cookies
+   *  database identity measured before the cookies were read. */
+  recordImport(
+    profileId: string,
+    patch: { lastImportAt: number; lastCount: number },
+    storeIdentity: string | undefined
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      const stores = { ...(await this.read()).importedStores };
+      if (storeIdentity === undefined) delete stores[profileId];
+      else stores[profileId] = storeIdentity;
+      await this.merge({ ...patch, lastError: undefined, needsManualImport: false, importedStores: stores });
+    });
   }
 
   /** Record that `profileId` was imported while a Chrome key was saved. */
