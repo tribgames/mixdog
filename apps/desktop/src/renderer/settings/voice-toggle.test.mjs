@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { installTestDom } from '../test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from '../test-support/test-dom.mjs';
+
+// The built-in cards read the core's `toolModules` section; `context()` pushes what each test says the core holds.
+const modules = toolModulesSource();
 
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -27,6 +30,7 @@ window.matchMedia = () => ({
 window.mixdogDesktop = {
   setTitleBarDimmed() {},
   rendererDiagnostic() {},
+  sections: modules.sections,
 };
 
 const { CategoryPanel } = await import('./capability-panels.tsx');
@@ -40,6 +44,15 @@ function deferred() {
 }
 
 function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} }) {
+  const heldModules = {
+    webSearch: { enabled: true },
+    memory: { enabled: true, installed: true },
+    git: { enabled: true, installed: true },
+    office: { enabled: true, installed: true },
+    tidy: { enabled: true, installed: true },
+    ...toolModules,
+  };
+  modules.publish(heldModules);
   return {
     api: {
       readSettings: async () => ({
@@ -58,14 +71,7 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
     },
     data: {
       profile: { languages: [], experienceLevels: [] },
-      toolModules: {
-        webSearch: { enabled: true },
-        memory: { enabled: true, installed: true },
-        git: { enabled: true, installed: true },
-        office: { enabled: true, installed: true },
-        tidy: { enabled: true, installed: true },
-        ...toolModules,
-      },
+      toolModules: heldModules,
       recap: { enabled: true },
       theme: 'basic',
       voice: {

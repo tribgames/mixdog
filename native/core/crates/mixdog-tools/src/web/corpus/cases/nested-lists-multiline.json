@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/lists",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Lists",
+  "content": "- Para one\n  \n  Para two\n- ```\n  pre in li\n  second\n  ```\n- plain\n\n1. one\n2. two\n   \n   1. sub\n\n- not li\n- after",
+  "extractor": "dom-markdown"
+ }
+}

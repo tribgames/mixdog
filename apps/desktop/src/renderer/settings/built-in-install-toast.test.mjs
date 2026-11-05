@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { installTestDom } from '../test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from '../test-support/test-dom.mjs';
 
 installTestDom(null, {
   html: '<!doctype html><html><body><main></main></body></html>',
@@ -12,7 +12,8 @@ installTestDom(null, {
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.HTMLElement.prototype.attachEvent = () => {};
 window.HTMLElement.prototype.detachEvent = () => {};
-window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
+const modules = toolModulesSource();
+window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {}, sections: modules.sections };
 const { CapabilitySettings } = await import('./CapabilitySettings.tsx');
 const { preloadCapabilitySettings } = await import('./capability-data.ts');
 
@@ -35,6 +36,8 @@ async function installMemory(install) {
     readSettings: async () => ({}),
   };
   await preloadCapabilitySettings(api);
+  // The core's `toolModules` section is what the card reads; the install's result arrives through it.
+  modules.publish({ memory: { installed: false, enabled: false } });
   const root = createRoot(document.querySelector('main'));
   try {
     await act(async () => {

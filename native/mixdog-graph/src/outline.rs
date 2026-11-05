@@ -104,7 +104,7 @@ mod visibility;
 #[cfg(test)]
 mod test_support;
 
-pub use cli::run;
+pub use cli::{outline_files, run, FileOutline, OutlineItem, OutlineMember, OutlineReport};
 pub use extractors::{extractors_for, FileMeta, LangExtractors, Walked, WalkedItem};
 pub use imports::{expand_elixir_alias_spec, expand_php_use_spec};
 pub use kind_map::{kind_map_for, unified_kind, KIND_MAP, KIND_VOCABULARY};

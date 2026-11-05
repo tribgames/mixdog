@@ -6,6 +6,7 @@
 //! timer: a stream dies only by the facts listed on [`TransportFault`], a
 //! missing terminal event, a provider error, or the consumer dropping it.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -17,6 +18,8 @@ use super::keepalive::KeepaliveSchedule;
 use super::keepalive::TransportKind;
 use super::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
+use mixdog_protocol::ThreadId;
+use mixdog_protocol::TurnId;
 
 // ---------------------------------------------------------------------------
 // Request
@@ -96,6 +99,11 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: JsonValue,
+    /// The provider's native call item type when it is not a plain function
+    /// call (Responses `custom_tool_call`, `local_shell_call`, …), verbatim,
+    /// so replay sends the call back as the same item type; `None` for a
+    /// function call.
+    pub native_type: Option<String>,
 }
 
 /// A provider-opaque replay envelope. Only its owner reads it back.
@@ -111,6 +119,16 @@ pub struct ProviderReplay {
 pub enum MessageSource {
     Steering,
     StreamCutRecovery,
+    /// The tail reminder: a user message built for one request, always the
+    /// last message, never stored in the history. Every wire sends it; how:
+    /// - Anthropic (API key and OAuth): its own text block appended to the
+    ///   last user message (a new user message when there is none), after
+    ///   the last cache breakpoint; with turn-scoped reminders, a system
+    ///   message with `clear_at` instead.
+    /// - Antigravity: a separate last `{role:"user", parts:[{text}]}`.
+    /// - OpenAI-compatible Responses: a separate last user `input_text`.
+    /// - Every other wire: an ordinary last user message.
+    TailReminder,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -129,6 +147,14 @@ pub struct Message {
     pub assistant_blocks: Option<JsonValue>,
     pub native_tool_search: Option<JsonValue>,
     pub source: Option<MessageSource>,
+    /// Assistant only (Node `turnReminder`): the tail reminder the request
+    /// that produced this turn carried. A codec on the turn-scoped layout
+    /// re-sends it right before this message as the system message
+    /// `{role:"system", clear_at:"next_user_message", content:[{type:"text",
+    /// text}]}`, and sends the current [`MessageSource::TailReminder`] in that
+    /// same shape; every other codec ignores it. The `clear_at` messages
+    /// themselves are never stored: they derive from this text alone.
+    pub turn_reminder: Option<String>,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -146,6 +172,7 @@ impl Message {
             assistant_blocks: None,
             native_tool_search: None,
             source: None,
+            turn_reminder: None,
             provider_replay: Vec::new(),
         }
     }
@@ -164,6 +191,12 @@ impl Message {
             .iter()
             .filter(move |r| &r.owner == owner)
     }
+
+    /// Every envelope, for code that keeps or moves messages whole (storage,
+    /// compaction). A request encoder reads [`Self::replay_for`] instead.
+    pub fn provider_replay(&self) -> &[ProviderReplay] {
+        &self.provider_replay
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -171,6 +204,9 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: JsonValue,
+    /// Sent with `defer_loading: true` where the wire supports deferred
+    /// tools (Responses tool search); other wires ignore it.
+    pub defer_loading: bool,
 }
 
 /// Send options the adapters read (PW §2.1, §2.1a). Callbacks are replaced
@@ -186,12 +222,113 @@ pub struct RequestOptions {
     /// One-shot recovery override.
     pub max_output_tokens_override: Option<u32>,
     pub fast: bool,
+    /// `None` is the wire default (`auto`); `"auto"`, `"none"`, `"required"`,
+    /// or a tool name, which forces that tool.
     pub tool_choice: Option<String>,
     pub verbosity: Option<String>,
     pub request_kind: Option<String>,
     pub iteration: u32,
     pub prompt_cache_key: Option<String>,
     pub model_parameters: Option<JsonValue>,
+    /// The thread, context window and turn the request serves; `None` for a
+    /// request outside any thread.
+    pub thread: Option<RequestThread>,
+    /// The session that spawned this one (a sub-agent's parent).
+    pub parent_session_id: Option<String>,
+    /// `None` sends the wire's default (or omits the field).
+    pub parallel_tool_calls: Option<bool>,
+    /// `None` sends no temperature.
+    pub temperature: Option<Temperature>,
+    /// The conversation's effort history for wires that replay it (Responses):
+    /// the agent fills it, the adapter encodes it. `None` sends `effort` alone.
+    pub effort_projection: Option<EffortProjection>,
+    /// Provider-hosted tools sent ahead of the function tools (Node
+    /// `opts.nativeTools`). Each codec renders the ones its wire hosts and
+    /// skips the rest; empty sends none.
+    pub hosted_tools: Vec<HostedTool>,
+}
+
+/// A tool the provider runs itself.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum HostedTool {
+    WebSearch(HostedWebSearch),
+}
+
+/// Native web search, filled by the caller already normalized for the
+/// route's family (Node `nativeWebSearchTool`); codecs render it as:
+/// - Responses (openai, xai): `{type: tool_type, search_context_size?,
+///   filters?: {allowed_domains}, user_location?}`;
+/// - Anthropic: `{type: "web_search_20250305", name: "web_search", max_uses,
+///   allowed_domains?, user_location?}`;
+/// - Gemini: `{googleSearch: {}}` when `tool_type` is `google_search` or
+///   `google_search_retrieval`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct HostedWebSearch {
+    /// `web_search`, `web_search_preview` (Responses) or `google_search`.
+    pub tool_type: String,
+    /// Lowercased hostnames; empty sends no filter.
+    pub allowed_domains: Vec<String>,
+    pub user_location: Option<UserLocation>,
+    /// Anthropic `max_uses`, 1..=10.
+    pub max_uses: Option<u32>,
+    /// Responses `search_context_size` (`low` when the caller named none).
+    pub context_size: Option<String>,
+    /// Responses: also request `include: ["web_search_call.action.sources"]`.
+    pub include_sources: bool,
+}
+
+/// `user_location` of type `approximate`; at least one field is set.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct UserLocation {
+    pub country: Option<String>,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    pub timezone: Option<String>,
+}
+
+/// Effort in the route's wire values: `initial_effort` goes in the request's
+/// reasoning options; each entry of `updates` is a configuration update that
+/// takes effect at that message index of [`ModelRequest::messages`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EffortProjection {
+    pub initial_effort: String,
+    pub updates: BTreeMap<usize, String>,
+}
+
+/// A sampling temperature: finite and non-negative.
+#[derive(Clone, Copy, Debug)]
+pub struct Temperature(f64);
+
+impl Temperature {
+    /// `None` for a NaN, infinite or negative value.
+    pub fn new(value: f64) -> Option<Self> {
+        (value.is_finite() && value >= 0.0).then_some(Self(value))
+    }
+    pub fn get(self) -> f64 {
+        self.0
+    }
+}
+
+// Sound: the constructor excludes NaN.
+impl PartialEq for Temperature {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for Temperature {}
+
+/// Thread identity of a request (Codex `thread-id`, `x-codex-window-id`,
+/// `client_metadata`, `x-codex-turn-metadata`). The session id is
+/// [`RequestOptions::session_id`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RequestThread {
+    pub id: ThreadId,
+    /// The thread's context window: 0 until its first compaction, one more
+    /// per compaction. The Codex window id is `<id>:<window>`.
+    pub window: u64,
+    /// The turn this request serves, which scopes `x-codex-turn-state`;
+    /// `None` for a request outside a turn (prewarm).
+    pub turn: Option<TurnId>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -232,6 +369,9 @@ pub enum StopReason {
     StopSequence,
     ContentFilter,
     Refusal,
+    /// The response ended without ending the turn (Responses
+    /// `end_turn: false`): the loop continues the turn as for `pause_turn`.
+    ContinueTurn,
     /// Provider value outside the shared set, carried verbatim.
     Other(String),
 }
@@ -245,6 +385,23 @@ pub struct Usage {
     pub reasoning_tokens: u64,
     /// The provider's usage object verbatim (ledger detail, service tier).
     pub raw: Option<JsonValue>,
+    /// What the provider billed for the request, when it reports it (xAI
+    /// `cost_in_usd_ticks`, OpenRouter `cost`); never computed from prices.
+    pub cost: Option<UsdTicks>,
+}
+
+/// An amount in xAI's unit: 1 tick = 10⁻¹⁰ USD.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub struct UsdTicks(pub u64);
+
+impl UsdTicks {
+    pub const PER_USD: u64 = 10_000_000_000;
+
+    /// From a USD amount (OpenRouter `cost`), rounded to the nearest tick;
+    /// `None` for a NaN, infinite or negative amount.
+    pub fn from_usd(usd: f64) -> Option<Self> {
+        (usd.is_finite() && usd >= 0.0).then(|| Self((usd * Self::PER_USD as f64).round() as u64))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -284,8 +441,11 @@ pub enum StreamEvent {
     /// sets the display state `waitingOnProvider`; never progress, never death.
     ProviderKeepalive,
     /// The wire's terminal event. Exactly one per completed attempt, last.
+    /// `stop` is `None` when the wire named no stop reason (Node
+    /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
+    /// never invents one from tool calls or a clean finish.
     Completed {
-        stop: StopReason,
+        stop: Option<StopReason>,
     },
 }
 
@@ -307,6 +467,15 @@ pub enum ErrorKind {
     Policy,
     ServiceTierUnavailable,
     InvalidRequest,
+    /// The provider rejected an image in the request (unsupported format,
+    /// size or count); the agent drops or downsizes images and resends.
+    ImageRejected,
+    /// The provider rejected replayed provider state (reasoning signature,
+    /// encrypted content, previous response id); the agent resends without it.
+    ReplayRejected,
+    /// The provider rejected a tool definition's schema; the agent resends
+    /// with the offending schema simplified or the tool removed.
+    ToolSchemaRejected,
     Transient,
     Unknown,
 }
@@ -329,6 +498,9 @@ impl ErrorKind {
                     | Self::RequestTooLarge
                     | Self::ServiceTierUnavailable
                     | Self::InvalidRequest
+                    | Self::ImageRejected
+                    | Self::ReplayRejected
+                    | Self::ToolSchemaRejected
             )
     }
 }
@@ -411,6 +583,37 @@ pub struct ProviderError {
     pub transport: Option<TransportFault>,
     /// Provider message for logs; never matched.
     pub message: String,
+    /// The usage the stream reported before it failed (its last
+    /// `StreamEvent::Usage`, or the usage the failing frame carried). Set on
+    /// every error that ends a stream after usage was reported; the ledger
+    /// records it as-is and never infers usage. A cancelled attempt (the
+    /// stream dropped) records the last `StreamEvent::Usage` its consumer saw.
+    /// Boxed to keep `Result<_, ProviderError>` small.
+    pub partial_usage: Option<Box<Usage>>,
+    /// A page the user must open to unblock the account (Antigravity
+    /// `VALIDATION_REQUIRED`: the `google.rpc.Help` link, else
+    /// `metadata.validation_url`, else `metadata.validation_link`). Read from
+    /// the error's structured details, never from `message`.
+    /// Boxed to keep `Result<_, ProviderError>` small.
+    pub verification_url: Option<Box<str>>,
+    /// `ToolSchemaRejected`: the request tool whose schema the provider
+    /// rejected, as named in the request's [`ToolDefinition::name`]; read from
+    /// the error's structured fields, never from `message`. `None` when the
+    /// provider did not name one.
+    pub rejected_tool: Option<Box<str>>,
+    /// The account itself is blocked, not the request or the model (Node
+    /// `accountBlocked`; Antigravity `VALIDATION_REQUIRED` / 403): account
+    /// rotation cools the whole account and rotates even when
+    /// `unsafe_to_retry` is set.
+    pub account_blocked: bool,
+    /// Re-sending this request is unsafe (Node `unsafeToRetry`) for a reason
+    /// [`Exposure`] does not record, e.g. reasoning already streamed; set by
+    /// the sender that knows it, never inferred downstream.
+    pub unsafe_to_retry: bool,
+    /// The server's id of the limit the refusal named (Node `quotaLimit`), as
+    /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
+    /// small.
+    pub quota_limit: Option<Box<str>>,
 }
 
 impl ProviderError {
@@ -428,6 +631,12 @@ impl ProviderError {
             delivery,
             transport: None,
             message: String::new(),
+            partial_usage: None,
+            verification_url: None,
+            rejected_tool: None,
+            account_blocked: false,
+            unsafe_to_retry: false,
+            quota_limit: None,
         }
     }
 
@@ -444,6 +653,10 @@ impl ProviderError {
 
 /// Incremental decoder for one attempt. Fed transport units in arrival
 /// order: body chunks for HTTP, one message per call for WebSocket.
+// `ProviderError` is the contract's flat classification record (PW §3), built once per failed
+// attempt and read field by field; its size is fixed by the contract, and boxing it would put
+// an allocation and an indirection into every implementer's signature for no gain.
+#[allow(clippy::result_large_err)]
 pub trait WireDecoder: Send {
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError>;
     /// End of body or connection close. If the terminal event was not seen,
@@ -454,6 +667,8 @@ pub trait WireDecoder: Send {
 }
 
 /// Pure wire translation for one provider family: no I/O, no clock.
+// See `WireDecoder`: the `ProviderError` size is fixed by the contract.
+#[allow(clippy::result_large_err)]
 pub trait WireCodec: Send + Sync {
     fn transport(&self) -> TransportKind;
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError>;
@@ -482,4 +697,58 @@ pub trait ProviderAdapter: Send + Sync {
         &self,
         request: Arc<ModelRequest>,
     ) -> Result<Box<dyn ModelStream>, ProviderError>;
+    /// The provider's model listing. Every product adapter returns `Some`;
+    /// the default `None` only keeps this addition non-breaking for adapters
+    /// that have not implemented it yet.
+    fn models(&self) -> Option<&dyn ModelListing> {
+        None
+    }
+}
+
+/// One model as the provider lists it, before catalog enrichment (pricing
+/// and capability metadata from LiteLLM/models.dev are merged by the
+/// catalog, PW §9). Capabilities the provider does not state are `None`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+pub struct ModelRecord {
+    pub id: String,
+    pub display_name: Option<String>,
+    pub context_window: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub supports_reasoning: Option<bool>,
+    /// Reasoning effort levels the model accepts, in the provider's order.
+    pub reasoning_levels: Vec<String>,
+    /// One of `reasoning_levels`.
+    pub default_reasoning_level: Option<String>,
+    pub supports_images: Option<bool>,
+    /// Listed by the provider but not offered in pickers (Codex `visibility: hide`).
+    pub hidden: bool,
+    /// The provider's record verbatim (service tiers, upgrade notes, …).
+    pub raw: Option<JsonValue>,
+}
+
+impl ModelRecord {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            display_name: None,
+            context_window: None,
+            max_output_tokens: None,
+            supports_reasoning: None,
+            reasoning_levels: Vec::new(),
+            default_reasoning_level: None,
+            supports_images: None,
+            hidden: false,
+            raw: None,
+        }
+    }
+}
+
+/// A provider's model list (PW §9): its native list endpoint, or the
+/// provider's own static list where it has none (Vertex).
+#[async_trait]
+pub trait ModelListing: Send + Sync {
+    /// One fetch: no retry, no cache, no fallback list. Refresh and caching
+    /// belong to the catalog; a failure is a typed error, never an empty list.
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError>;
 }

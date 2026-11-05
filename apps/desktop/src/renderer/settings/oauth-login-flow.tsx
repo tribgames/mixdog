@@ -70,32 +70,17 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
   useEffect(() => {
     if (!flowId || flowState !== 'pending') return undefined;
     let cancelled = false;
-    let timer = 0;
-    const poll = async () => {
-      const next = await latest.current.run<RecordValue>(
-        latest.current.statusCapability,
-        [flowId],
-        `oauth-status-${keyId}`,
-        false,
-        true
-      );
-      if (cancelled) return;
-      if (!next) {
-        setError(latest.current.statusError);
-        return;
-      }
-      const nextFlow = record(next);
-      setFlow((current) => mergeFlowStatus(current, nextFlow));
-      if (String(nextFlow.state || 'pending') === 'pending') {
-        timer = window.setTimeout(() => void poll(), 500);
-      }
-    };
-    timer = window.setTimeout(() => void poll(), 500);
+    // Progress is pushed on the flow's scoped feed (`login:<flowId>`, `login/updated`; desktop-services.md §15 P8).
+    const unsubscribe = window.mixdogDesktop?.sections?.subscribeLoginUpdated((update) => {
+      if (cancelled || update.flowId !== flowId) return;
+      const nextFlow = record(update.state);
+      setFlow((current) => mergeFlowStatus(current, { flowId, ...nextFlow }));
+    });
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      unsubscribe?.();
     };
-  }, [flowId, flowState, keyId]);
+  }, [flowId, flowState]);
   useEffect(() => {
     if (!flowId || flowState !== 'complete' || completedFlowRef.current === flowId) return;
     completedFlowRef.current = flowId;

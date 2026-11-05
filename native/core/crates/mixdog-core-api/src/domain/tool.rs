@@ -100,6 +100,8 @@ pub struct ToolContext {
     pub approvals: Arc<dyn ApprovalGate>,
     pub files: Arc<dyn FileService>,
     pub processes: Arc<dyn ProcessManager>,
+    /// This call's options from the caller.
+    pub options: CallOptions,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -126,12 +128,53 @@ pub struct FollowUpMessage {
     pub meta: Option<String>,
 }
 
-/// Content-addressed cut point; renders to the existing marker templates.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Content-addressed cut point; renders to the existing marker templates
+/// (`[<unit> a-b of N; offset:N for more]` for a window, `[output capped at
+/// <limit>; …; full output: <path>]` for a cap).
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TruncationNote {
     pub shown: u64,
     pub total: u64,
     pub next_offset: Option<u64>,
+    pub kind: TruncationKind,
+    /// The unit the window counts (`lines`, `rows`, …), as the marker prints it.
+    pub unit: String,
+    /// The cap that cut the output; `None` for a window no cap shortened.
+    pub limit: Option<CapLimit>,
+    /// Where the complete output was saved (`full output: <path>`).
+    pub full_path: Option<AbsPath>,
+}
+
+/// Which marker a cut renders to; the two are never mixed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TruncationKind {
+    /// The caller asked for this slice: units `from`-`to` (1-based, inclusive).
+    Window { from: u64, to: u64 },
+    /// The tool cut the output.
+    Cap,
+}
+
+/// A cap as the marker prints it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum CapLimit {
+    /// Printed as `N bytes` below 1 KiB, else `N KB`.
+    Bytes(u64),
+    /// A ready label (`500 rows`, `200 matches`).
+    Label(String),
+}
+
+/// What the caller passes with one call besides the model's arguments.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct CallOptions {
+    /// `edit` in a same-anchor batch retry: consume the first of the
+    /// `expected` remaining occurrences of `old_string` (Node
+    /// `options.editOccurrence`); set only when two or more remain.
+    pub edit_occurrence: Option<EditOccurrence>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct EditOccurrence {
+    pub expected: u32,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -142,6 +185,10 @@ pub struct ToolOutput {
     pub truncation: Option<TruncationNote>,
     /// A mutation may or may not have happened.
     pub outcome_unknown: bool,
+    /// Tool meta carried with the result to the client's tool item, never
+    /// model text (`visualize` owner meta, `browser` file-type results);
+    /// passed through as the tool returned it.
+    pub meta: Option<JsonValue>,
 }
 
 /// Closed error-code set (T §1.9). Each renders to today's model text.
@@ -164,6 +211,19 @@ pub enum ToolErrorCode {
     OutcomeUnknown,
     Io { os_code: Option<i32> },
     Internal { incident_id: String },
+    /// `mcp_error` (T §4.5): the MCP server itself reported the failure, either as a JSON-RPC
+    /// error (`rpc_code` is its code) or as a result with `isError: true` (`rpc_code` is
+    /// `None`). `data` is what the server sent with it (the error's `data`, or the result's
+    /// structured content), already scrubbed of secrets.
+    McpError {
+        server: String,
+        rpc_code: Option<i64>,
+        data: Option<JsonValue>,
+    },
+    /// The operation ran and failed (a command, request or action the tool performed). `reason`
+    /// is the failure text exactly as today's model text shows it; the model text renders it
+    /// verbatim. Not for a capability that is missing (`Unavailable`).
+    Failed { reason: String },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

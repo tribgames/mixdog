@@ -1,0 +1,51 @@
+//! What the lifecycle needs from the rest of the process. The composition root implements
+//! these over the real core, discovery file and process; tests use recorders.
+//!
+//! All methods are synchronous and may block: they run on the thread that caused the
+//! transition or on the release thread, never inside the state lock.
+
+use std::sync::Arc;
+
+use super::model::DiscoveryState;
+use super::model::DrainNotice;
+use super::model::Running;
+
+/// The running core: feed publication, work cancellation and the ordered release steps
+/// (LR §5.3 steps 1–3 and 6).
+pub trait CorePort: Send + Sync {
+    /// Publish `core/drain` on the app feed.
+    fn drain_notice(&self, notice: &DrainNotice);
+    /// Publish `core/health{stalledMs}`; `0` means the runtime is answering again.
+    fn health(&self, stalled_ms: u64);
+    /// Cancel these units of work through their tokens; the tool runtime kills job objects and
+    /// process groups. Each registrant drops its guard as it finishes.
+    fn cancel_running(&self, running: &[Running]);
+    /// The user's `release{pid}` decision on an undecidable prior owner.
+    fn release_decision(&self, pid: u32);
+    /// Every session actor `Clean` or reported `storage_indeterminate`.
+    fn final_barriers(&self);
+    fn close_connections(&self);
+    /// `bye`, then wait for the extension host to exit.
+    fn close_ext_host(&self);
+    fn close_data_handles(&self);
+}
+
+/// The discovery file (LR §4). Owned by the ownership package; the lifecycle supplies only the
+/// state it contributes.
+pub trait Publication: Send + Sync {
+    fn publish(&self, state: &DiscoveryState);
+    /// Remove discovery if it names this instance (LR §5.3 step 5).
+    fn withdraw(&self);
+}
+
+/// Process exit. The real implementation never returns.
+pub trait Exiter: Send + Sync {
+    fn exit(&self);
+}
+
+#[derive(Clone)]
+pub struct Ports {
+    pub core: Arc<dyn CorePort>,
+    pub discovery: Arc<dyn Publication>,
+    pub exiter: Arc<dyn Exiter>,
+}

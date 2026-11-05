@@ -1,0 +1,10 @@
+{
+ "url": "https://wiki.example.org/topic",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Topic - Wiki",
+  "content": "The topic is described in detail across several sentences, each adding information. The topic is described in detail across several sentences, each adding information. The topic is described in detail across several sentences, each adding information. The topic is described in detail across several sentences, each adding information. The topic is described in detail across several sentences, each adding information. The topic is described in detail across several sentences, each adding information.\n\n## Section one\n\nSection one has its own long explanatory text with commas, clauses, and details. Section one has its own long explanatory text with commas, clauses, and details. Section one has its own long explanatory text with commas, clauses, and details. Section one has its own long explanatory text with commas, clauses, and details. Section one has its own long explanatory text with commas, clauses, and details.\n\n- Point A\n- Point B\n- Point C\n\n## Section two\n\nAnother paragraph of reasonable length that belongs to the second section. Another paragraph of reasonable length that belongs to the second section. Another paragraph of reasonable length that belongs to the second section. Another paragraph of reasonable length that belongs to the second section. Another paragraph of reasonable length that belongs to the second section.\n\n| K | V |\n| --- | --- |\n| one | 1 |",
+  "extractor": "readability"
+ }
+}

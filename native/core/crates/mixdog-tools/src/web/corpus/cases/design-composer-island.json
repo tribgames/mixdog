@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/composer-island.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "컴포저 아일랜드 시안",
+  "content": "결제 모듈 이전\n\n메시지 입력…",
+  "extractor": "readability"
+ }
+}

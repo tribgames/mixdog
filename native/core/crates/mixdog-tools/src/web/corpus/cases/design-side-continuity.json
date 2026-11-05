@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/side-continuity.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "사이드 패널 ↔ 작업 영역 연결 시안",
+  "content": "## 사이드 패널 ↔ 작업 영역 연결 시안\n\n실제 앱 값(Mica 모드) 기준으로 그렸습니다. 탭은 현재 적용된 d″(납작한 칸 + 위쪽 줄, 160px)입니다. 오른쪽 패널이 포커스 상태입니다.\n\n  사이드 머리·탭 줄의 아래 경계를 빨간 선으로 표시 (가로선이 이어지는지 확인용)",
+  "extractor": "readability"
+ }
+}

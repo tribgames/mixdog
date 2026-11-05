@@ -1,0 +1,76 @@
+{
+  "name": "ask_user",
+  "description": "Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message. A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) goes to handoff_user, never a request in plain chat. Load handoff_user directly if needed; browser/computer skills are not prerequisites.",
+  "annotations": {
+    "title": "Ask User",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "agentHidden": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "questions": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 4,
+        "items": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "Full question, without the options."
+            },
+            "header": {
+              "type": "string",
+              "maxLength": 12,
+              "description": "Chip label."
+            },
+            "options": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 4,
+              "description": "Distinct; free text is added, never \"Other\".",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "1-5 words."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "One-sentence tradeoff."
+                  }
+                },
+                "required": [
+                  "label",
+                  "description"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "multi_select": {
+              "type": "boolean"
+            },
+            "recommended": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Recommended option index."
+            }
+          },
+          "required": [
+            "question",
+            "header",
+            "options"
+          ]
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "trigger": "Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat."
+}

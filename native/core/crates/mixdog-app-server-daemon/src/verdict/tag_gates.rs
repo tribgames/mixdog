@@ -1,0 +1,630 @@
+//! LR §11 gates 1–5 against the real 1.4.5 tag (69fe41b05), on temp data dirs only.
+//!
+//! Ignored by default: run with `--ignored` and `MIXDOG_TAG_TREE` naming a
+//! `git archive 69fe41b05` extraction with its `node_modules`
+//! (`fixtures/lifecycle/tag.json` `extract`). `MIXDOG_TAG_GATE_REPS` sets the
+//! gate 3 repetitions (LR: 200). Every 1.4.5 process gets the temp data dir,
+//! home and runtime root, so the live daemon and data dir are never touched.
+//! Waits here only bound a failing test or let 1.4.5 processes settle; no
+//! verdict depends on them.
+
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "test setup; the real 1.4.5 processes are the point"
+)]
+
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Child;
+use std::process::Command;
+use std::process::Output;
+use std::process::Stdio;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
+
+use mixdog_core_api::domain::ownership::Ownership;
+
+use super::tests::SelfChild;
+use super::tests::TempData;
+use super::tests::marker;
+use super::tests::record;
+use super::*;
+use crate::barrier::CLAIM_LOCK_FILE;
+use crate::barrier::barrier_bytes;
+use crate::ownership;
+use crate::ownership::AcquireError;
+
+const SETTLE: Duration = Duration::from_secs(120);
+
+fn tag_tree() -> PathBuf {
+    let tree = PathBuf::from(
+        std::env::var_os("MIXDOG_TAG_TREE").expect("MIXDOG_TAG_TREE names the 1.4.5 tag tree"),
+    );
+    assert!(tree.join("src/standalone/daemon.mjs").is_file() && tree.join("node_modules").is_dir());
+    tree
+}
+
+/// `node` with the 1.4.5 environment confined to `temp`.
+fn node(temp: &TempData) -> Command {
+    let tree = tag_tree();
+    let home = temp.root.path().join("home");
+    std::fs::create_dir_all(&home).expect("home");
+    let mut command = Command::new("node");
+    command
+        .current_dir(&tree)
+        .env("TAG_TREE", &tree)
+        .env("MIXDOG_DATA_DIR", temp.data())
+        .env("MIXDOG_HOME", &home)
+        .env("MIXDOG_RUNTIME_ROOT", temp.runtime())
+        .env("MIXDOG_DAEMON_SKIP_MEMORY", "1")
+        .env("MIXDOG_DISABLE_MCP", "1")
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .stdin(Stdio::null());
+    command
+}
+
+fn daemon(temp: &TempData) -> Command {
+    let mut command = node(temp);
+    command.arg(tag_tree().join("src/standalone/daemon.mjs"));
+    command
+}
+
+/// Runs `js` from a file: with `-e`, the script would land in
+/// `process.execArgv`, which `spawnDaemonCandidate` passes to every daemon it
+/// forks, so each candidate re-ran the script instead of `daemon.mjs`.
+fn script(temp: &TempData, js: &str) -> Output {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file = temp.data().with_file_name(format!("script-{n}.mjs"));
+    std::fs::write(&file, js).expect("script");
+    node(temp).arg(&file).output().expect("node")
+}
+
+fn kill_tree(child: &mut Child) {
+    #[cfg(windows)]
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .output();
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn wait_bounded(child: &mut Child, bound: Duration) -> Option<std::process::ExitStatus> {
+    let until = Instant::now() + bound;
+    while Instant::now() < until {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            return Some(status);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    None
+}
+
+/// The core: OS lock, then the gate until clear (holding the data dir).
+fn serving_core(temp: &TempData) -> (Arc<CoreOwnership>, Gate) {
+    let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
+    let mut gate = Gate::new(
+        own.clone(),
+        crate::discovery::path(&temp.runtime()),
+        record(),
+    )
+    .expect("gate");
+    assert!(matches!(gate.step().expect("step"), GateStep::Clear));
+    (own, gate)
+}
+
+fn has_barrier(temp: &TempData) -> bool {
+    temp.file(CLAIM_LOCK_FILE)
+        .is_some_and(|b| ClaimLock::parse(b) == ClaimLock::Barrier)
+}
+
+fn bytes(temp: &TempData) -> (Vec<u8>, Vec<u8>) {
+    (
+        temp.file(CLAIM_LOCK_FILE).expect("B"),
+        temp.file(barrier::RECORD_FILE).expect("record"),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// §11.1 barrier unit
+// ---------------------------------------------------------------------------
+
+const UNIT_JS: &str = r#"
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { readFileSync, rmSync, existsSync } from 'node:fs';
+const m = await import(pathToFileURL(join(process.env.TAG_TREE, 'src/runtime/shared/singleton-owner.mjs')).href);
+const rec = join(process.env.MIXDOG_DATA_DIR, 'daemon-owner.json');
+const before = readFileSync(rec);
+const o = {};
+o.claim = m.claimSingletonOwner(rec, { kind: 'mixdog-daemon', isStale: () => true }).owned;
+o.refresh = m.refreshSingletonOwner(rec, { pid: process.pid, kind: 'mixdog-daemon' }).status;
+o.refreshAsync = (await m.refreshSingletonOwnerAsync(rec, { pid: process.pid, kind: 'mixdog-daemon' })).status;
+o.handoff = m.handoffSingletonOwner(rec, process.pid, { kind: 'mixdog-daemon' }).owned;
+o.release = m.releaseSingletonOwner(rec);
+o.recordUnchanged = readFileSync(rec).equals(before);
+rmSync(rec);
+o.claimWithoutRecord = m.claimSingletonOwner(rec, { kind: 'mixdog-daemon', isStale: () => true }).owned;
+o.recordWritten = existsSync(rec);
+console.log(JSON.stringify(o));
+"#;
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_1_tag_modules_honour_the_installed_barrier() {
+    let temp = TempData::new();
+    let (own, _gate) = serving_core(&temp);
+    let (barrier, _) = bytes(&temp);
+    let out = script(&temp, UNIT_JS);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    assert_eq!(
+        observed,
+        serde_json::json!({
+            "claim": false, "refresh": "busy", "refreshAsync": "busy", "handoff": false, "release": false,
+            "recordUnchanged": true, "claimWithoutRecord": false, "recordWritten": false,
+        })
+    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier);
+    assert_eq!(own.revalidate(), Ok(()));
+}
+
+// ---------------------------------------------------------------------------
+// §11.2 real daemon start against the barrier
+// ---------------------------------------------------------------------------
+
+fn daemon_start_exits_for_attach(temp: &TempData) {
+    let before = bytes(temp);
+    let mut child = daemon(temp)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("daemon");
+    let status = wait_bounded(&mut child, SETTLE);
+    let Some(status) = status else {
+        kill_tree(&mut child);
+        panic!("the 1.4.5 daemon kept running against the barrier");
+    };
+    let output = child.wait_with_output().expect("output");
+    let log = std::fs::read_to_string(temp.data().join("daemon.log")).unwrap_or_default();
+    let text = format!(
+        "{log}{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(status.code(), Some(0), "{text}");
+    assert!(
+        text.contains(&record().update_text),
+        "exit reason carries the barrier text:\n{text}"
+    );
+    assert_eq!(bytes(temp), before, "record and B unchanged");
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_2_real_daemon_start_exits_with_and_without_a_serving_core() {
+    let temp = TempData::new();
+    let (own, gate) = serving_core(&temp);
+    daemon_start_exits_for_attach(&temp);
+    assert_eq!(own.revalidate(), Ok(()));
+    drop(gate);
+    drop(own);
+    daemon_start_exits_for_attach(&temp);
+}
+
+// ---------------------------------------------------------------------------
+// Core child process (gates 3 and 4)
+// ---------------------------------------------------------------------------
+
+/// Child entry: one core on `MIXDOG_OWN_CORE_DATA`. Reports `LOCKED_OUT`,
+/// each `BLOCKED <kind> <pid>`, then `SERVING`; answers `REVALIDATE` lines.
+#[test]
+#[ignore = "child process entry for the tag gates"]
+fn core_child() {
+    let Some(data) = std::env::var_os("MIXDOG_OWN_CORE_DATA") else {
+        return;
+    };
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_OWN_CORE_RUNTIME").expect("runtime"));
+    let own = match ownership::acquire(Path::new(&data)) {
+        Ok(own) => Arc::new(own),
+        Err(AcquireError::AlreadyOwned) => return marker("LOCKED_OUT"),
+        Err(error) => panic!("{error:?}"),
+    };
+    let mut gate =
+        Gate::new(own.clone(), crate::discovery::path(&runtime), record()).expect("gate");
+    let interrupt = Interrupt::new().expect("interrupt");
+    loop {
+        match gate.step().expect("step") {
+            GateStep::Clear => break,
+            GateStep::Blocked(blocked) => {
+                marker(&format!(
+                    "BLOCKED {:?} {}",
+                    blocked.kind, blocked.process.identity.pid
+                ));
+                blocked.wait(&interrupt).expect("wait");
+            }
+        }
+    }
+    marker("SERVING");
+    for line in std::io::BufRead::lines(std::io::stdin().lock()).map_while(Result::ok) {
+        if line == "REVALIDATE" {
+            marker(&format!("REVALIDATE {:?}", own.revalidate()));
+        }
+    }
+}
+
+fn core_process(temp: &TempData) -> SelfChild {
+    SelfChild::spawn(
+        "verdict::tag_gates::core_child",
+        &[
+            ("MIXDOG_OWN_CORE_DATA", temp.data().display().to_string()),
+            (
+                "MIXDOG_OWN_CORE_RUNTIME",
+                temp.runtime().display().to_string(),
+            ),
+        ],
+    )
+}
+
+// ---------------------------------------------------------------------------
+// §11.3 simultaneous starts
+// ---------------------------------------------------------------------------
+
+/// A data dir a dead 1.4.5 daemon left behind.
+fn tag_dir(temp: &TempData) {
+    let mut dead = Command::new("node").args(["-e", ""]).spawn().expect("node");
+    let pid = dead.id();
+    dead.wait().expect("wait");
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    temp.write(
+        barrier::RECORD_FILE,
+        format!(
+            r#"{{"kind":"mixdog-daemon","pid":{pid},"claimedAt":"2026-01-01T00:00:00.000Z","protocol":1,"revision":3,"version":"1.4.5","heartbeatAt":"2026-01-01T00:00:00.000Z","livenessPort":{port}}}"#
+        )
+        .as_bytes(),
+    );
+}
+
+/// The lock-holding core's last state once it stops changing for `quiet`.
+fn settled_core(
+    cores: &[SelfChild],
+    states: &mut [Option<String>],
+    quiet: Duration,
+    until: Instant,
+) {
+    loop {
+        let mut changed = false;
+        for (core, state) in cores.iter().zip(states.iter_mut()) {
+            while let Some(marker) = core.next_within(Duration::from_millis(1)) {
+                *state = Some(marker);
+                changed = true;
+            }
+        }
+        if !changed && states.iter().all(Option::is_some) {
+            std::thread::sleep(quiet);
+            if cores
+                .iter()
+                .all(|core| core.next_within(Duration::from_millis(1)).is_none())
+            {
+                return;
+            }
+        }
+        assert!(Instant::now() < until, "cores did not settle: {states:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn simultaneous(prepare: fn(&TempData), tag_dir_case: bool) {
+    let reps: usize = std::env::var("MIXDOG_TAG_GATE_REPS")
+        .ok()
+        .map_or(200, |n| n.parse().expect("reps"));
+    let mut daemon_won = 0;
+    let mut fresh_dir_wins = Vec::new();
+    for rep in 0..reps {
+        let temp = TempData::new();
+        std::fs::create_dir_all(temp.data()).unwrap();
+        prepare(&temp);
+        let mut daemons = Vec::new();
+        let mut cores = Vec::new();
+        for _ in 0..10 {
+            cores.push(core_process(&temp));
+            daemons.push(
+                daemon(&temp)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .expect("daemon"),
+            );
+        }
+        let until = Instant::now() + SETTLE;
+        // Losing 1.4.5 daemons exit 0; at most one may keep serving.
+        let mut live = Vec::new();
+        loop {
+            live.clear();
+            for daemon in &mut daemons {
+                match daemon.try_wait().expect("try_wait") {
+                    Some(status) => {
+                        assert_eq!(status.code(), Some(0), "rep {rep}: a 1.4.5 daemon failed")
+                    }
+                    None => live.push(daemon.id()),
+                }
+            }
+            if live.len() <= 1 {
+                break;
+            }
+            assert!(
+                Instant::now() < until,
+                "rep {rep}: {} 1.4.5 daemons still running",
+                live.len()
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let mut states = vec![None; cores.len()];
+        settled_core(&cores, &mut states, Duration::from_secs(2), until);
+        let owners: Vec<&String> = states
+            .iter()
+            .flatten()
+            .filter(|s| *s != "LOCKED_OUT")
+            .collect();
+        assert_eq!(
+            owners.len(),
+            1,
+            "rep {rep}: exactly one core holds the OS lock: {states:?}"
+        );
+        // Who serves comes from the lock-holding core's verdict, not from which
+        // daemons happen to be alive: a loser may still be on its way to exit 0.
+        let diagnostics = |daemons: &mut Vec<Child>| {
+            let live: Vec<u32> = daemons
+                .iter_mut()
+                .filter_map(|d| d.try_wait().unwrap().is_none().then(|| d.id()))
+                .collect();
+            let file = |name| {
+                temp.file(name)
+                    .map(|b| String::from_utf8_lossy(&b).into_owned())
+            };
+            format!(
+                "cores {states:?}; live daemons {live:?}; B {:?}; record {:?}",
+                file(CLAIM_LOCK_FILE),
+                file(barrier::RECORD_FILE)
+            )
+        };
+        if owners[0] == "SERVING" {
+            assert!(has_barrier(&temp), "rep {rep}: {}", diagnostics(&mut daemons));
+            // Every 1.4.5 daemon honours the barrier and exits 0.
+            for daemon in &mut daemons {
+                let pid = daemon.id();
+                match wait_bounded(daemon, until.saturating_duration_since(Instant::now())) {
+                    Some(status) => assert_eq!(status.code(), Some(0), "rep {rep}: daemon {pid}"),
+                    None => {
+                        let state = diagnostics(&mut daemons);
+                        panic!("rep {rep}: 1.4.5 daemon {pid} runs beside a serving core: {state}")
+                    }
+                }
+            }
+        } else if let Some(pid) = owners[0].strip_prefix("BLOCKED WaitExit ") {
+            let state = diagnostics(&mut daemons);
+            // Recorded, not asserted here, so one run lists every such rep; the
+            // rest of the rep (single owner, no barrier) is still checked.
+            if !tag_dir_case {
+                fresh_dir_wins.push(rep);
+            }
+            let pid: u32 = pid.parse().expect("pid");
+            for daemon in &mut daemons {
+                let live = daemon.try_wait().unwrap().is_none();
+                if daemon.id() == pid {
+                    assert!(live, "rep {rep}: the core waits on an exited daemon: {state}");
+                } else {
+                    assert!(
+                        wait_bounded(daemon, until.saturating_duration_since(Instant::now()))
+                            .is_some_and(|s| s.code() == Some(0)),
+                        "rep {rep}: a second 1.4.5 daemon serves: {state}"
+                    );
+                }
+            }
+            assert!(
+                !has_barrier(&temp),
+                "rep {rep}: no barrier while a 1.4.5 daemon serves: {state}"
+            );
+            eprintln!("rep {rep}: 1.4.5 daemon {pid} served; {state}");
+            daemon_won += 1;
+        } else {
+            panic!("rep {rep}: unexpected core state: {}", diagnostics(&mut daemons));
+        }
+        for daemon in &mut daemons {
+            kill_tree(daemon);
+        }
+        drop(cores);
+    }
+    eprintln!("simultaneous starts: {reps} reps, a 1.4.5 daemon served in {daemon_won}");
+    assert!(
+        fresh_dir_wins.is_empty(),
+        "a 1.4.5 daemon served a fresh dir in reps {fresh_dir_wins:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_3a_simultaneous_starts_on_a_fresh_dir() {
+    simultaneous(|_| {}, false);
+}
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_3b_simultaneous_starts_on_a_1_4_5_dir() {
+    simultaneous(tag_dir, true);
+}
+
+// ---------------------------------------------------------------------------
+// §11.4 stale-heartbeat reclaim while the core is suspended
+// ---------------------------------------------------------------------------
+
+#[cfg(windows)]
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn NtSuspendProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32;
+    fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32;
+}
+
+fn suspend(pid: u32, on: bool) {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::OpenProcess;
+        use windows_sys::Win32::System::Threading::PROCESS_SUSPEND_RESUME;
+        let handle = OpenProcess(PROCESS_SUSPEND_RESUME, 0, pid);
+        assert!(!handle.is_null(), "OpenProcess");
+        let status = if on {
+            NtSuspendProcess(handle)
+        } else {
+            NtResumeProcess(handle)
+        };
+        CloseHandle(handle);
+        assert!(status >= 0, "NtSuspend/ResumeProcess: NTSTATUS {status:#x}");
+    }
+    #[cfg(unix)]
+    unsafe {
+        assert_eq!(
+            libc::kill(pid as i32, if on { libc::SIGSTOP } else { libc::SIGCONT }),
+            0
+        );
+    }
+}
+
+const ENSURE_JS: &str = r#"
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+const m = await import(pathToFileURL(join(process.env.TAG_TREE, 'src/standalone/session-client.mjs')).href);
+try { await m.ensureDaemon({ attempts: 3, readyTimeoutMs: 60000 }); console.log('RESOLVED'); }
+catch (e) { console.log('REJECTED ' + e.message); }
+process.exit(0);
+"#;
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag); suspends the core for 61 s"]
+fn gate_4_contenders_against_a_suspended_core_all_exit() {
+    let temp = TempData::new();
+    let mut core = core_process(&temp);
+    assert_eq!(core.expect("SERVING"), "");
+    let before = bytes(&temp);
+    suspend(core.pid(), true);
+    std::thread::sleep(Duration::from_secs(61));
+    // C1: daemon starts; C5: the launcher's ensureDaemon.
+    let mut starts: Vec<Child> = (0..3)
+        .map(|_| {
+            daemon(&temp)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("daemon")
+        })
+        .collect();
+    let ensure = script(&temp, ENSURE_JS);
+    for start in &mut starts {
+        let status = wait_bounded(start, SETTLE);
+        if status.is_none() {
+            kill_tree(start);
+        }
+        assert_eq!(
+            status.and_then(|s| s.code()),
+            Some(0),
+            "C1 exits 0 for attach"
+        );
+    }
+    let said = String::from_utf8_lossy(&ensure.stdout);
+    assert!(
+        said.starts_with("REJECTED") && said.contains(&record().update_text),
+        "C5: {said}"
+    );
+    assert_eq!(bytes(&temp), before);
+    suspend(core.pid(), false);
+    core.send("REVALIDATE");
+    assert_eq!(core.expect("REVALIDATE "), "Ok(())");
+}
+
+// ---------------------------------------------------------------------------
+// §11.5 prior owner: blocked until the OS confirms the 1.4.5 daemon's exit
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+fn gate_5_live_1_4_5_daemon_blocks_until_its_os_exit() {
+    let temp = TempData::new();
+    let mut tag_daemon = daemon(&temp)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("daemon");
+    let pid = tag_daemon.id();
+    // Settle until the daemon published its record and owns its liveness socket.
+    let until = Instant::now() + SETTLE;
+    loop {
+        let port = temp
+            .file(barrier::RECORD_FILE)
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| {
+                (v["pid"] == pid)
+                    .then(|| v["livenessPort"].as_u64())
+                    .flatten()
+            });
+        if let Some(port) = port
+            && OsProcessTable.listens(pid, port as u16).unwrap()
+        {
+            break;
+        }
+        assert!(Instant::now() < until, "1.4.5 daemon never published");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
+    let mut gate = Gate::new(
+        own.clone(),
+        crate::discovery::path(&temp.runtime()),
+        record(),
+    )
+    .expect("gate");
+    let GateStep::Blocked(blocked) = gate.step().unwrap() else {
+        panic!("a live 1.4.5 owner must block")
+    };
+    assert_eq!(
+        (
+            blocked.kind,
+            blocked.process.identity.pid,
+            blocked.releasable
+        ),
+        (BlockedKind::WaitExit, pid, false)
+    );
+    assert!(matches!(
+        gate.release(pid),
+        Err(ReleaseError::NotReleasable(_))
+    ));
+    assert!(!has_barrier(&temp), "no barrier while it lives");
+
+    let waiter = std::thread::spawn(move || blocked.wait(&Interrupt::new().unwrap()).unwrap());
+    std::thread::sleep(Duration::from_secs(1));
+    assert!(!waiter.is_finished(), "still blocked while the daemon runs");
+    kill_tree(&mut tag_daemon);
+    waiter.join().unwrap();
+    // The barrier (and so migration) comes only after the OS reports the exit.
+    assert!(
+        OsProcessTable.query(u64::from(pid)).unwrap().is_none(),
+        "woken by the OS exit"
+    );
+    assert!(!has_barrier(&temp));
+    assert!(matches!(gate.step().unwrap(), GateStep::Clear));
+    assert_eq!(
+        temp.file(CLAIM_LOCK_FILE).unwrap(),
+        barrier_bytes(own.instance_id())
+    );
+    assert_eq!(own.revalidate(), Ok(()));
+}

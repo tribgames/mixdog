@@ -1,0 +1,10 @@
+{
+ "url": "https://example.org/dir/page.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Links",
+  "content": "[Up](<https://example.org/up>) bad [frag](<https://example.org/dir/page.html#frag>) [empty](<https://example.org/dir/page.html>)  ftp tel\n\n![Alt one](<https://example.org/img/a.png>)\n\n> Quote line one\n> \n> \n> \n> Quote two\n\n---\n\nafter rule",
+  "extractor": "dom-markdown"
+ }
+}

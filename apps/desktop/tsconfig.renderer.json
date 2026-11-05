@@ -7,6 +7,7 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "types": ["vite/client"]
   },
@@ -18,6 +19,7 @@
     "src/renderer/monaco-basic-languages.d.ts",
     "src/renderer/monaco-locales.d.ts",
     "src/renderer/renderer-logic.d.mts",
+    "src/renderer/virtual-modules.d.ts",
     "src/renderer/App.tsx",
     "src/renderer/main.tsx"
   ]

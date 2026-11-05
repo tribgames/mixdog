@@ -1,0 +1,1 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Nested tables</title></head><body><main><table><tr><td>outer<table><tr><td>inner</td></tr></table></td><td>x</td></tr></table></main></body></html>

@@ -1,0 +1,10 @@
+{
+ "url": "https://docs.example.com/guide/start",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Getting started | Example Docs",
+  "content": "# Getting started\n\nInstall the ` example ` CLI with **npm** or *yarn*.\n\n## Install\n\n```bash\nnpm install -g example\nexample --version\n```\n\nSee the [reference](<https://docs.example.com/reference>) and [GitHub](<https://github.com/example/example>).\n\n- First item\n- Second [mail](<mailto:a@b.co>)\n- Third\n  \n  - Nested one\n  - Nested two\n\n3. Three\n4. Four",
+  "extractor": "dom-markdown"
+ }
+}

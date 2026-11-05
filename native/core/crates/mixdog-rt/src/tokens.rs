@@ -9,7 +9,10 @@
 //! closure arguments, so lane-bound functions (`fn read_tail(lane: &InLane<InteractiveIo>, …)`)
 //! cannot be called from an async task or from another lane.
 
+use std::future::Future;
 use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +21,7 @@ use crate::lanes::JobHandle;
 use crate::lanes::LaneFull;
 use crate::lanes::LaneKind;
 use crate::lanes::QueuedJob;
+use crate::lanes::SubmitWaitError;
 use crate::lanes::ThreadKind;
 
 mod sealed {
@@ -70,6 +74,75 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
         crate::backend().submit(QueuedJob::new(Self::KIND, cancel.clone(), run))?;
         Ok(JobHandle::new(rx))
     }
+
+    /// Like [`submit`](Self::submit), but waits for room instead of answering [`LaneFull`].
+    /// For internal producers that can afford to wait (never a request path: those answer
+    /// `overloaded`, RL §0.2).
+    ///
+    /// Cancel-safe: dropping the future before it resolves enqueues nothing and runs
+    /// nothing. Cancelling `cancel` while waiting resolves `Err(Cancelled)`. Once it resolves
+    /// `Ok`, the job is queued exactly as after `submit`. Waiters retry on a wake-up with no
+    /// FIFO guarantee among themselves; `rejected` in the lane snapshot also counts the
+    /// refused attempts of waiters.
+    fn submit_wait<'a, R, F>(
+        self,
+        cancel: &'a CancellationToken,
+        job: F,
+    ) -> impl Future<Output = Result<JobHandle<R>, SubmitWaitError>> + Send + 'a
+    where
+        F: FnOnce(&InLane<Self>) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        async move {
+            let backend = crate::backend();
+            let (tx, rx) = oneshot::channel();
+            // A refused submit drops its `QueuedJob`; the job and its result sender stay in
+            // this slot for the next attempt. The accepted attempt's closure empties it.
+            let slot: JobSlot<R, F> =Arc::new(Mutex::new(Some((job, tx))));
+            let Some(freed) = backend.capacity_notify(Self::KIND) else {
+                return match backend.submit(queued(cancel, &slot)) {
+                    Ok(()) => Ok(JobHandle::new(rx)),
+                    Err(full) => Err(SubmitWaitError::Full(full)),
+                };
+            };
+            loop {
+                // Registered before the attempt, so a slot freed in between is not missed.
+                let notified = freed.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if cancel.is_cancelled() {
+                    return Err(SubmitWaitError::Cancelled);
+                }
+                if backend.submit(queued(cancel, &slot)).is_ok() {
+                    return Ok(JobHandle::new(rx));
+                }
+                if cancel.run_until_cancelled(notified).await.is_none() {
+                    return Err(SubmitWaitError::Cancelled);
+                }
+            }
+        }
+    }
+}
+
+/// The job and its result sender, kept across refused `submit_wait` attempts.
+type JobSlot<R, F> = Arc<Mutex<Option<(F, oneshot::Sender<R>)>>>;
+
+/// One enqueue attempt of the job in `slot`; running it empties the slot.
+fn queued<L, R, F>(cancel: &CancellationToken, slot: &JobSlot<R, F>) -> QueuedJob
+where
+    L: LaneToken,
+    F: FnOnce(&InLane<L>) -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let slot = slot.clone();
+    let run = Box::new(move || {
+        let taken = slot.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some((job, tx)) = taken {
+            let proof = InLane::<L>::new();
+            let _ = tx.send(job(&proof));
+        }
+    });
+    QueuedJob::new(L::KIND, cancel.clone(), run)
 }
 
 /// A dedicated-thread executor. Implemented only by the tokens of this module.

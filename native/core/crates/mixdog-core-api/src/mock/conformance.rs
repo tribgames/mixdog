@@ -14,8 +14,19 @@
 //!     Arc::new(MockFeed::new(FeedId::from("app"), epoch(9), Arc::new(EchoView), limits))
 //! });
 //! ```
+//!
+//! Every `ScopedFeeds` implementation runs [`run_scoped`] with a factory for the given limits:
+//!
+//! ```
+//! use std::sync::Arc;
+//! use mixdog_core_api::mock::{conformance, MockScopedFeeds};
+//!
+//! conformance::run_scoped(&|limits| Arc::new(MockScopedFeeds::new(limits)));
+//! ```
 
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 
 use bytes::Bytes;
 
@@ -23,6 +34,7 @@ use super::EchoView;
 use super::MockConnection;
 use super::MockLimits;
 use super::event;
+use crate::error::CoreError;
 use crate::feed::AttachMode;
 use crate::feed::Attached;
 use crate::feed::Feed;
@@ -30,15 +42,25 @@ use crate::feed::FeedPosition;
 use crate::feed::FeedSource;
 use crate::feed::FeedView;
 use crate::feed::ResumeFrom;
+use crate::feed::ScopedFeed;
+use crate::feed::ScopedFeeds;
 use crate::feed::Window;
 use crate::feed::subscribe;
 use crate::ids::ConnectionId;
 use crate::ids::FeedEpoch;
+use crate::ids::FeedId;
 use crate::ids::SubscriptionId;
+use crate::sink::BudgetFull;
 use crate::sink::ConnectionSink;
+use crate::sink::Lane;
+use crate::sink::LaneRecovery;
+use crate::sink::LaneRelease;
+use crate::sink::Reservation;
+use crate::sink::SinkClosed;
+use crate::sink::SnapshotSlot;
 
 /// Builds an empty feed for the given limits.
-pub type FeedFactory = dyn Fn(MockLimits) -> Arc<dyn Feed>;
+pub type FeedFactory<'a> = dyn Fn(MockLimits) -> Arc<dyn Feed> + 'a;
 
 pub fn run_all(make: &FeedFactory) {
     snapshot_then_live(make);
@@ -83,7 +105,7 @@ fn attach(
     subscribe(&source, sub(name), window, resume_from, conn).expect("attach to an open connection")
 }
 
-fn respond(conn: &MockConnection, attached: Attached, text: &str) {
+fn respond(conn: &dyn ConnectionSink, attached: Attached, text: &str) {
     conn.send_control_release(Bytes::from(text.to_owned()), attached.release)
         .expect("connection open");
 }
@@ -402,5 +424,240 @@ pub fn concurrent_attach_is_gapless(make: &FeedFactory) {
             expected,
             "subscriber s{i}"
         );
+    }
+}
+
+/// Builds a scoped-feed factory whose feeds have the given limits.
+pub type ScopedFeedsFactory = dyn Fn(MockLimits) -> Arc<dyn ScopedFeeds>;
+
+/// A scoped feed attaches through the one algorithm, so it passes [`run_all`]; then the
+/// scoped scenarios.
+pub fn run_scoped(make: &ScopedFeedsFactory) {
+    run_all(&|limits| {
+        let feed: Arc<dyn Feed> =
+            make(limits).create(FeedId::from("search:conformance"), Arc::new(EchoView));
+        feed
+    });
+    recreated_feed_snapshots(make);
+    scoped_feeds_are_independent(make);
+    close_ends_every_subscription(make);
+}
+
+/// Subscribes to a scoped feed the way a subscribing method's `Reply::Subscribe` is served.
+fn scoped_attach(
+    feed: &Arc<dyn ScopedFeed>,
+    conn: &dyn ConnectionSink,
+    name: &str,
+    resume: Option<FeedPosition>,
+) -> Result<Attached, CoreError> {
+    let source: Arc<dyn FeedSource> = feed.clone();
+    let resume_from = resume.map(|position| ResumeFrom {
+        position,
+        window: Window::Fixed,
+    });
+    subscribe(&source, sub(name), Window::Fixed, resume_from, conn)
+}
+
+/// A feed created again under the same id has a new epoch, so a position in its predecessor
+/// snapshots even where the seq would be replayable.
+pub fn recreated_feed_snapshots(make: &ScopedFeedsFactory) {
+    let limits = MockLimits::default();
+    let feeds = make(limits);
+    let id = FeedId::from("fs:w1");
+    let first = feeds.create(id.clone(), Arc::new(EchoView));
+    publish(first.as_ref(), 1..=3);
+    let old = first.position();
+    first.close();
+
+    let second = feeds.create(id, Arc::new(EchoView));
+    publish(second.as_ref(), 1..=5);
+    assert_ne!(second.position().epoch, old.epoch);
+    let conn = MockConnection::new(ConnectionId(1), limits);
+    let attached = scoped_attach(&second, &conn, "a", Some(old)).expect("open feed attaches");
+    assert_eq!(attached.decision.mode, AttachMode::Snapshot);
+    assert_eq!(attached.decision.start_seq, 6);
+    respond(&conn, attached, "resp");
+    assert_eq!(conn.drain_text(), ["control:resp", "a:snapshot@5"]);
+}
+
+/// One scoped feed's burst, slow subscriber and held lock never hold up another feed of the
+/// same factory. A probe lane runs `b`'s publish and a `b` attach inside `a`'s publish, that
+/// is, while `a`'s lock is held, so feeds sharing a lock deadlock here. The subscriber that
+/// cannot keep up with `a`'s burst lags alone and recovers through attach; every other lane
+/// receives every frame.
+pub fn scoped_feeds_are_independent(make: &ScopedFeedsFactory) {
+    let limits = small_limits();
+    let roomy = MockLimits {
+        queue_bytes: 1 << 20,
+        ..limits
+    };
+    let feeds = make(limits);
+    let a = feeds.create(FeedId::from("search:a"), Arc::new(EchoView));
+    let b = feeds.create(FeedId::from("search:b"), Arc::new(EchoView));
+    let slow = MockConnection::new(ConnectionId(1), limits);
+    let fast = Arc::new(MockConnection::new(ConnectionId(2), roomy));
+    let probe = ProbeConnection::new(ConnectionId(3), roomy);
+    let subscriptions: [(&dyn ConnectionSink, &Arc<dyn ScopedFeed>, &str); 4] = [
+        (&slow, &a, "sa"),
+        (fast.as_ref(), &a, "fa"),
+        (fast.as_ref(), &b, "fb"),
+        (&probe, &a, "pa"),
+    ];
+    for (conn, feed, name) in subscriptions {
+        let attached = scoped_attach(feed, conn, name, None).expect("open feed attaches");
+        respond(conn, attached, name);
+    }
+    slow.drain();
+    fast.drain();
+    probe.inner.drain();
+
+    let late = Arc::new(Mutex::new(None));
+    probe.arm({
+        let b = b.clone();
+        let fast = fast.clone();
+        let late = late.clone();
+        move || {
+            publish(b.as_ref(), 1..=1);
+            let attached =
+                scoped_attach(&b, fast.as_ref(), "fb-late", None).expect("open feed attaches");
+            *late.lock().unwrap_or_else(PoisonError::into_inner) = Some(attached);
+        }
+    });
+    publish(a.as_ref(), 1..=40);
+    let attached = late
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
+        .expect("the probe ran inside a's publish");
+    respond(fast.as_ref(), attached, "resp-late");
+
+    let all: Vec<String> = (1..=40).map(|seq| format!("evt@{seq}")).collect();
+    let written = fast.drain_text();
+    assert_eq!(written[0], "control:resp-late");
+    assert_eq!(lane(&written, "fa"), all);
+    assert_eq!(lane(&written, "fb"), ["evt@1"]);
+    assert_eq!(lane(&written, "fb-late"), ["snapshot@1"]);
+    assert_eq!(lane(&probe.inner.drain_text(), "pa"), all);
+    assert_eq!(slow.drain_text(), ["sa:snapshot@40"]);
+}
+
+/// `close` ends every subscription: lanes close and return their bytes, later publishes reach
+/// no lane, and a later attach answers `connectionClosed` without registering.
+pub fn close_ends_every_subscription(make: &ScopedFeedsFactory) {
+    let limits = MockLimits::default();
+    let feed = make(limits).create(FeedId::from("fs:w"), Arc::new(EchoView));
+    let conn = MockConnection::new(ConnectionId(1), limits);
+    let attached = scoped_attach(&feed, &conn, "a", None).expect("open feed attaches");
+    respond(&conn, attached, "resp");
+    publish(feed.as_ref(), 1..=1);
+    assert_eq!(
+        conn.drain_text(),
+        ["control:resp", "a:snapshot@0", "a:evt@1"]
+    );
+
+    publish(feed.as_ref(), 2..=3);
+    feed.close();
+    assert_eq!(
+        conn.event_free(),
+        limits.event_budget_bytes(),
+        "closed lanes hold no bytes"
+    );
+    publish(feed.as_ref(), 4..=4);
+    let error = scoped_attach(&feed, &conn, "b", None).expect_err("a closed feed registers nothing");
+    assert_eq!(error, CoreError::ConnectionClosed);
+    feed.close();
+    assert!(conn.drain_text().is_empty());
+    assert_eq!(conn.event_free(), limits.event_budget_bytes());
+}
+
+type Hook = Box<dyn FnOnce() + Send>;
+
+/// A connection whose lanes run the armed hook inside their next `push`, that is, inside the
+/// publishing feed's lock.
+struct ProbeConnection {
+    inner: MockConnection,
+    hook: Arc<Mutex<Option<Hook>>>,
+}
+
+impl ProbeConnection {
+    fn new(id: ConnectionId, limits: MockLimits) -> Self {
+        Self {
+            inner: MockConnection::new(id, limits),
+            hook: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn arm(&self, hook: impl FnOnce() + Send + 'static) {
+        *self.hook.lock().unwrap_or_else(PoisonError::into_inner) = Some(Box::new(hook));
+    }
+}
+
+impl ConnectionSink for ProbeConnection {
+    fn id(&self) -> ConnectionId {
+        self.inner.id()
+    }
+
+    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
+        self.inner.send_control(frame)
+    }
+
+    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
+        self.inner.send_control_release(frame, release)
+    }
+
+    fn open_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        let (inner, release) = self.inner.open_lane(sub, recovery)?;
+        let lane = ProbeLane {
+            inner,
+            hook: self.hook.clone(),
+        };
+        Ok((Arc::new(lane), release))
+    }
+}
+
+struct ProbeLane {
+    inner: Arc<dyn Lane>,
+    hook: Arc<Mutex<Option<Hook>>>,
+}
+
+impl Lane for ProbeLane {
+    fn sub(&self) -> SubscriptionId {
+        self.inner.sub()
+    }
+
+    fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
+        self.inner.try_reserve(bytes)
+    }
+
+    fn push(&self, reservation: Reservation, frame: Bytes) {
+        let hook = self
+            .hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(hook) = hook {
+            hook();
+        }
+        self.inner.push(reservation, frame);
+    }
+
+    fn push_slot(&self, reservation: Reservation) -> SnapshotSlot {
+        self.inner.push_slot(reservation)
+    }
+
+    fn lag(&self) -> usize {
+        self.inner.lag()
+    }
+
+    fn is_lagged(&self) -> bool {
+        self.inner.is_lagged()
+    }
+
+    fn close(&self) {
+        self.inner.close()
     }
 }

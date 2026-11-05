@@ -1,6 +1,6 @@
 {
   "command": "see benchmarks/rust-core/README.md",
-  "fileCount": 16,
+  "fileCount": 18,
   "files": [
     {
       "bytes": 3900,
@@ -18,9 +18,9 @@
       "sha256": "4fef8e5fa252b53011417f9c7f15e8cbf5d0e2f64b08cde8cc5297ff7043c985"
     },
     {
-      "bytes": 4117,
+      "bytes": 17419,
       "path": "lsp/corpus.json",
-      "sha256": "79dcfb8727f5154106a1056fad49f00c2c0ec4129d9127062a2a10eae0dea19e"
+      "sha256": "81b00a2cc0305989628947a7a08941e1f2c2f3a95991614aa8b877a0292f12f6"
     },
     {
       "bytes": 27301,
@@ -53,6 +53,11 @@
       "sha256": "fd7aab315c746866a19c759b87c246d439becc176e710c908b29ae966d875889"
     },
     {
+      "bytes": 1878785,
+      "path": "settings/config-patch-twin.json",
+      "sha256": "3ff32f03cd3b63c1c80b14dd832522b248816e16bcf7ccb2468aee315609b89e"
+    },
+    {
       "bytes": 914396,
       "path": "settings/config-twin.json",
       "sha256": "93edcf30e737bd0ebb25b2967dbdd2d3713d323434c2b077abdcc0ad079a9aa3"
@@ -61,6 +66,11 @@
       "bytes": 7394,
       "path": "settings/corpus.json",
       "sha256": "c790168ec0cac00c3c93a8c25c7acad0860e9e5a62a2ae362165bfb7c92ff67a"
+    },
+    {
+      "bytes": 49430,
+      "path": "settings/local-provider-status.json",
+      "sha256": "6f8040fce2b47743a0c114aa17beb5757e2d0b557a2fa491bd68209b08a0caa7"
     },
     {
       "bytes": 15175,
@@ -73,23 +83,23 @@
       "sha256": "06db5ffc1f6955e7893c19cc18ac5b2dda1f7e301e174126964d899070bf0d24"
     },
     {
-      "bytes": 2684,
+      "bytes": 2251,
       "path": "terminal/corpus.json",
-      "sha256": "30da02b536eab6247c06259acb669c120d2208f28ef9fcef761b263543e9dc87"
+      "sha256": "95c74701dc3b950cef89052b84da319e001c4968c9b565f04f48a4fbae7add62"
     },
     {
-      "bytes": 3799,
+      "bytes": 3663,
       "path": "transfer/corpus.json",
-      "sha256": "78e8b2ade65289ac5bd536e7c56951c365e54487de7bb18821950d8154a8180a"
+      "sha256": "11b2d45ad5af5aec98f6f637f72eea182b0d912f11b233eda56e850497f4a090"
     }
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
+    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
+      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -104,11 +114,11 @@
     "settings:16",
     "github:11",
     "terminal:15",
-    "lsp:8",
+    "lsp:14",
     "notifications:12",
     "transfer:14",
     "remote-relay:10"
   ],
   "set": "desktop",
-  "totalBytes": 3801601
+  "totalBytes": 5742549
 }

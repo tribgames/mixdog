@@ -1,0 +1,112 @@
+//! The one error of the workspace domain. `reason` is the stable machine value
+//! (wire `data.reason`); `message` keeps today's user-visible text.
+
+use std::fmt;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reason {
+    InvalidParams,
+    /// Path outside the project or the connection's reach.
+    PermissionDenied,
+    NotFound,
+    AlreadyExists,
+    NotAFile,
+    /// Compare-and-set mismatch; `actual` is the current content.
+    PreconditionFailed { expected: Vec<u8>, actual: Vec<u8> },
+    TooLarge,
+    /// The file or folder changed under a transfer or a save.
+    Changed,
+    Expired,
+    Busy,
+    FolderTooLarge,
+    /// A `RECOVERY_*` code of the recovery journal.
+    Recovery(&'static str),
+    InvalidEncoding,
+    Unsupported,
+    Overloaded,
+    Cancelled,
+    Io,
+}
+
+impl Reason {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidParams => "invalidParams",
+            Self::PermissionDenied => "permissionDenied",
+            Self::NotFound => "notFound",
+            Self::AlreadyExists => "alreadyExists",
+            Self::NotAFile => "notAFile",
+            Self::PreconditionFailed { .. } => "preconditionFailed",
+            Self::TooLarge => "tooLarge",
+            Self::Changed => "changed",
+            Self::Expired => "expired",
+            Self::Busy => "busy",
+            Self::FolderTooLarge => "folderTooLarge",
+            Self::Recovery(code) => code,
+            Self::InvalidEncoding => "invalidEncoding",
+            Self::Unsupported => "unsupported",
+            Self::Overloaded => "overloaded",
+            Self::Cancelled => "cancelled",
+            Self::Io => "io",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WsError {
+    pub reason: Reason,
+    pub message: String,
+}
+
+pub type WsResult<T> = Result<T, WsError>;
+
+impl WsError {
+    pub fn new(reason: Reason, message: impl Into<String>) -> Self {
+        Self { reason, message: message.into() }
+    }
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Self::new(Reason::InvalidParams, message)
+    }
+    pub fn denied(message: impl Into<String>) -> Self {
+        Self::new(Reason::PermissionDenied, message)
+    }
+    pub fn changed() -> Self {
+        Self::new(Reason::Changed, "The file changed on the host.")
+    }
+    pub fn expired() -> Self {
+        Self::new(Reason::Expired, "This download is no longer available.")
+    }
+    pub fn precondition(expected: &str, actual: &str) -> Self {
+        Self::new(
+            Reason::PreconditionFailed { expected: expected.into(), actual: actual.into() },
+            "File changed on disk. Reload or keep your edits before saving.",
+        )
+    }
+}
+
+impl fmt::Display for WsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.reason.code(), self.message)
+    }
+}
+
+impl std::error::Error for WsError {}
+
+impl From<std::io::Error> for WsError {
+    fn from(error: std::io::Error) -> Self {
+        use std::io::ErrorKind as K;
+        let reason = match error.kind() {
+            K::NotFound => Reason::NotFound,
+            K::PermissionDenied => Reason::PermissionDenied,
+            K::AlreadyExists => Reason::AlreadyExists,
+            _ => Reason::Io,
+        };
+        Self::new(reason, error.to_string())
+    }
+}
+
+impl From<mixdog_rt::LaneFull> for WsError {
+    fn from(full: mixdog_rt::LaneFull) -> Self {
+        Self::new(Reason::Overloaded, full.to_string())
+    }
+}

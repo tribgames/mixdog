@@ -1,0 +1,26 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>",
+    "<ROOT>/reg/outer",
+    "<ROOT>/reg/outer/inner",
+    "<ROOT>/reg/outer/inner/i.mjs",
+    "<ROOT>/reg/outer/src/o.mjs"
+  ],
+  "input": {
+    "files": [
+      "<ROOT>/reg/outer/src/o.mjs",
+      "<ROOT>/reg/outer/inner/i.mjs"
+    ],
+    "mode": "overview"
+  },
+  "isError": false,
+  "registered": [
+    "reg/outer",
+    "reg/outer/inner",
+    "reg/other"
+  ],
+  "text": "# overview <ROOT>/reg/outer/src/o.mjs\n# project outer [<ROOT>/reg/outer]\nfile: src/o.mjs\nlanguage: javascript\noutline:\nexport function outerFn (L1-3)  function outerFn()\n\n# overview <ROOT>/reg/outer/inner/i.mjs\n# project inner [<ROOT>/reg/outer/inner]\nfile: i.mjs\nlanguage: javascript\noutline:\nexport function innerFn (L1-3)  function innerFn()",
+  "tool": "code_graph"
+}

@@ -12,4 +12,5 @@ pub mod record;
 pub mod sql;
 
 #[cfg(test)]
+#[allow(clippy::disallowed_types, reason = "schema tests run the DDL on raw connections")]
 mod tests;

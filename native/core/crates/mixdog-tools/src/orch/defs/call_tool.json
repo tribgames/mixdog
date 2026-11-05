@@ -1,0 +1,32 @@
+{
+  "name": "call_tool",
+  "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+  "annotations": {
+    "title": "call_tool",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "agentHidden": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "Exact tool name."
+      },
+      "arguments": {
+        "type": "object",
+        "description": "Arguments for that tool."
+      }
+    },
+    "required": [
+      "name",
+      "arguments"
+    ],
+    "additionalProperties": false
+  }
+}

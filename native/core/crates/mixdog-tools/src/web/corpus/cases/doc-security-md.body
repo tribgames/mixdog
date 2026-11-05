@@ -1,0 +1,26 @@
+<!doctype html><html><head><title>SECURITY.md</title></head><body><div id="app"><aside>menu</aside><article><h1>Security Policy</h1>
+<h2>Supported versions</h2>
+<p>Only the latest release of Mixdog receives security fixes. Update before
+reporting, and check whether the problem still occurs.</p>
+<h2>Reporting a vulnerability</h2>
+<p><strong>Do not report vulnerabilities in public issues, discussions, or pull requests.</strong></p>
+<p>Report privately through
+<a href="https://github.com/tribgames/mixdog/security/advisories/new">GitHub private vulnerability reporting</a>.
+Include:</p>
+<ul>
+<li>What an attacker can do, and what they need first (local access, a crafted
+file, a malicious website, a signed-in account).</li>
+<li>Steps to reproduce or a proof of concept, against the latest release.</li>
+<li>The affected version and operating system.</li>
+</ul>
+<p>Keep the details private until a fix is released. We credit reporters in the
+release notes unless you ask us not to.</p>
+<h2>Out of scope</h2>
+<ul>
+<li>A dependency with a known CVE, without showing that Mixdog actually reaches
+the vulnerable code.</li>
+<li>Actions that need the user to run commands or approve tools they were warned
+about.</li>
+<li>Problems in third-party model providers or MCP servers themselves.</li>
+</ul>
+</article></div></body></html>

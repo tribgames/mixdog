@@ -25,6 +25,7 @@ use super::ext::ExtError;
 use super::ext::ExtFrame;
 use super::ext::ExtPool;
 use super::fs::FileService;
+use super::fs::FsError;
 use super::fs::FsErrorKind;
 use super::fs::ReadRange;
 use super::fs::SearchRequest;
@@ -34,6 +35,7 @@ use super::fs::WriteRequest;
 use super::keepalive::KeepaliveSchedule;
 use super::keepalive::LinkLiveness;
 use super::keepalive::TransportKeepalive;
+use super::login::LoginFailure;
 use super::login::LoginFlow;
 use super::login::LoginState;
 use super::media::MediaFrameSource;
@@ -49,12 +51,17 @@ use super::process::ProcessError;
 use super::process::ProcessEvent;
 use super::process::ProcessManager;
 use super::process::ProcessOwner;
+use super::process::ProcessQueue;
 use super::process::PtySize;
 use super::process::SpawnRequest;
 use super::provider::DeliveryState;
 use super::provider::ErrorKind;
+use super::provider::MessageSource;
 use super::provider::ModelRequest;
 use super::provider::ProviderAdapter;
+use super::provider::ErrorResponse;
+use super::provider::RequestThread;
+use super::provider::Role;
 use super::provider::ProviderError;
 use super::provider::StreamEvent;
 use super::provider::TransportFault;
@@ -83,6 +90,7 @@ use super::retry::Verdict;
 use super::tool::Tool;
 use super::tool::ToolContext;
 use super::tool::ToolErrorCode;
+use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProcessHandle;
 
 async fn drain<T: Send>(source: &mut dyn EventSource<T>) -> Vec<T> {
@@ -148,12 +156,21 @@ pub async fn check_provider_attempt(
         }
     };
     let mut ended = false;
+    let mut usage_seen = None;
     while let Some(item) = stream.next().await {
         assert!(!ended, "nothing after the terminal event or error");
         match item {
             Ok(StreamEvent::Completed { .. }) => ended = true,
+            Ok(StreamEvent::Usage(usage)) => usage_seen = Some(usage),
             Err(err) => {
                 check_error_delivery(&err, reached);
+                if let Some(usage) = &usage_seen {
+                    assert_eq!(
+                        err.partial_usage.as_deref(),
+                        Some(usage),
+                        "an error after reported usage carries it, cost included"
+                    );
+                }
                 ended = true;
             }
             Ok(_) => {}
@@ -170,11 +187,103 @@ pub async fn check_provider_attempt(
     );
 }
 
+/// The adapter lists its models: at least one, ids unique, limits positive,
+/// and a default reasoning level that is one of the listed levels.
+pub async fn check_model_listing(adapter: &dyn ProviderAdapter) {
+    let models = adapter
+        .models()
+        .expect("a product adapter lists its models")
+        .list_models()
+        .await
+        .expect("list models");
+    assert!(!models.is_empty(), "a listing is never empty");
+    let mut ids = std::collections::HashSet::new();
+    for model in &models {
+        assert!(!model.id.is_empty());
+        assert!(ids.insert(model.id.as_str()), "model ids are unique");
+        assert_ne!(model.context_window, Some(0));
+        assert_ne!(model.max_output_tokens, Some(0));
+        if let Some(level) = &model.default_reasoning_level {
+            assert!(
+                model.reasoning_levels.contains(level),
+                "the default level is a listed level"
+            );
+        }
+    }
+}
+
+/// `request` ends with a [`MessageSource::TailReminder`] user message whose
+/// text is `reminder` (plain ASCII, so it appears verbatim in the body): the
+/// codec sends it.
+pub fn check_tail_reminder(codec: &dyn WireCodec, request: &ModelRequest, reminder: &str) {
+    let last = request.messages.last().expect("a message");
+    assert_eq!(last.source, Some(MessageSource::TailReminder));
+    let wire = codec.encode(request).expect("encode");
+    let body = String::from_utf8_lossy(&wire.body);
+    assert!(body.contains(reminder), "the tail reminder is sent");
+}
+
+/// `request.options.hosted_tools` names a tool the codec's wire hosts: the
+/// body carries it (differs from the same request without hosted tools), and
+/// the function tools still encode.
+pub fn check_hosted_tools(codec: &dyn WireCodec, request: &ModelRequest) {
+    assert!(!request.options.hosted_tools.is_empty(), "fixture sets a hosted tool");
+    let with = codec.encode(request).expect("encode with a hosted tool");
+    let mut bare = request.clone();
+    bare.options.hosted_tools.clear();
+    let without = codec.encode(&bare).expect("encode without hosted tools");
+    assert_ne!(with.body, without.body, "the hosted tool reaches the body");
+    assert_eq!(with.url, without.url, "a hosted tool never changes where the request goes");
+}
+
+/// For a codec on the turn-scoped layout: an assistant message of `request`
+/// carries [`super::provider::Message::turn_reminder`] `stored` (plain ASCII), which the body
+/// re-sends as a `clear_at` system message; the message's own text is not
+/// changed by it.
+pub fn check_turn_reminder_replay(codec: &dyn WireCodec, request: &ModelRequest, stored: &str) {
+    assert!(
+        request
+            .messages
+            .iter()
+            .any(|m| m.role == Role::Assistant && m.turn_reminder.as_deref() == Some(stored)),
+        "fixture stores the reminder on an assistant turn"
+    );
+    let wire = codec.encode(request).expect("encode");
+    let body: JsonValue = serde_json::from_slice(&wire.body).expect("a JSON body");
+    let resent = body["messages"].as_array().into_iter().flatten().any(|m| {
+        m["role"] == "system"
+            && m["clear_at"] == "next_user_message"
+            && m["content"][0]["text"] == stored
+    });
+    assert!(resent, "the stored reminder is re-sent as a clear_at system message");
+}
+
+/// `request.options.thread` is set: the identity encodes with and without a
+/// turn (prewarm), and never changes where the request goes.
+pub fn check_request_thread(codec: &dyn WireCodec, request: &ModelRequest) {
+    let thread = request.options.thread.clone().expect("fixture sets a thread");
+    let with_turn = codec.encode(request).expect("encode with a turn");
+    let mut prewarm = request.clone();
+    prewarm.options.thread = Some(RequestThread { turn: None, ..thread });
+    let without_turn = codec.encode(&prewarm).expect("encode without a turn");
+    let mut anonymous = request.clone();
+    anonymous.options.thread = None;
+    let without_thread = codec.encode(&anonymous).expect("encode without a thread");
+    for other in [&without_turn, &without_thread] {
+        assert_eq!(other.transport, with_turn.transport);
+        assert_eq!(other.method, with_turn.method);
+        assert_eq!(other.url, with_turn.url);
+    }
+}
+
 fn check_error_delivery(err: &ProviderError, reached: DeliveryState) {
     assert_eq!(
         err.delivery, reached,
         "an error reports the delivery state the transport reached"
     );
+    if let Some(url) = &err.verification_url {
+        assert!(url.starts_with("https://"), "a verification URL is a page");
+    }
     if err.status.is_some() {
         assert_eq!(
             err.delivery,
@@ -227,7 +336,44 @@ pub fn check_transport_keepalive(
     );
 }
 
+/// Each `(response, kind)` classifies to `kind`; the request-rejection kinds
+/// (image, replay, tool schema) are never retried unchanged.
+pub fn check_error_classification(codec: &dyn WireCodec, cases: &[(ErrorResponse, ErrorKind)]) {
+    for (response, kind) in cases {
+        let err = codec.classify(response);
+        assert_eq!(err.kind, *kind, "status {:?}", response.status);
+        if matches!(
+            kind,
+            ErrorKind::ImageRejected | ErrorKind::ReplayRejected | ErrorKind::ToolSchemaRejected
+        ) {
+            assert!(kind.is_deterministic(), "a rejected request is not retried unchanged");
+        }
+    }
+}
+
+/// `request` sets every send option: it encodes, and toggling the options
+/// never changes where the request goes.
+pub fn check_request_options(codec: &dyn WireCodec, request: &ModelRequest) {
+    let options = &request.options;
+    assert!(options.parent_session_id.is_some() && options.parallel_tool_calls.is_some());
+    assert!(options.temperature.is_some());
+    let set = codec.encode(request).expect("encode with options");
+    let mut bare = request.clone();
+    bare.options.parent_session_id = None;
+    bare.options.parallel_tool_calls = None;
+    bare.options.temperature = None;
+    let unset = codec.encode(&bare).expect("encode without options");
+    assert_eq!(set.transport, unset.transport);
+    assert_eq!(set.method, unset.method);
+    assert_eq!(set.url, unset.url);
+}
+
 pub fn check_retry_policy(policy: &RetryPolicy) {
+    assert_ne!(
+        policy.empty_response_reasks,
+        Some(0),
+        "no re-ask is `None`, not a zero bound"
+    );
     for class in [
         RetryClass::Request,
         RetryClass::Midstream,
@@ -788,6 +934,41 @@ pub async fn check_tool_cancelled(
     }
 }
 
+/// `args` make `server` report a failure (a JSON-RPC error or an `isError` result): the call
+/// fails as `McpError` naming that server, never as `Internal`, and tells the model.
+pub async fn check_mcp_error(
+    tool: &dyn Tool,
+    ctx: &ToolContext,
+    args: mixdog_protocol::JsonValue,
+    server: &str,
+) {
+    let err = tool
+        .call(ctx, args)
+        .await
+        .expect_err("the server reports a failure");
+    match err.code {
+        ToolErrorCode::McpError { server: named, .. } => assert_eq!(named, server),
+        other => panic!("a server-reported failure is McpError, got {other:?}"),
+    }
+    assert!(!err.message_for_model.is_empty());
+}
+
+/// `args` make the tool's operation run and fail: the call fails as `Failed`, and the model
+/// text shows its `reason` verbatim.
+pub async fn check_operation_failed(tool: &dyn Tool, ctx: &ToolContext, args: mixdog_protocol::JsonValue) {
+    let err = tool.call(ctx, args).await.expect_err("the operation fails");
+    match err.code {
+        ToolErrorCode::Failed { reason } => {
+            assert!(!reason.is_empty(), "a failure carries its text");
+            assert!(
+                err.message_for_model.contains(&reason),
+                "the model sees the failure text verbatim"
+            );
+        }
+        other => panic!("an operation that ran and failed is Failed, got {other:?}"),
+    }
+}
+
 pub async fn check_approval_gate(gate: &dyn ApprovalGate, ask: ApprovalAsk) {
     let _resolution = gate.request(ask).await;
 }
@@ -942,6 +1123,31 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
     assert_eq!(found.len(), 1);
     assert_eq!((found[0].line, found[0].column), (2, 1));
 
+    let invalid = drain(
+        fs.search_text(
+            lanes.maintenance,
+            SearchRequest {
+                root: root.clone(),
+                pattern: "(needle".into(),
+                regex: true,
+                case_sensitive: true,
+                include_globs: Vec::new(),
+                exclude_globs: Vec::new(),
+                include_hidden: false,
+                respect_ignore: false,
+            },
+        )
+        .as_mut(),
+    )
+    .await;
+    match invalid.as_slice() {
+        [Err(FsError { kind: FsErrorKind::InvalidPattern { message }, .. })] => assert!(
+            message.starts_with("regex parse error"),
+            "the parser's text passes through: {message}"
+        ),
+        other => panic!("an unparsable regex is one InvalidPattern error, got {other:?}"),
+    }
+
     fs.remove(lanes.durability, b.clone(), false)
         .await
         .expect("remove");
@@ -1056,6 +1262,50 @@ pub async fn check_process_manager(pm: &dyn ProcessManager, fx: ProcessFixture) 
     assert!(
         matches!(missing, Err(ProcessError::ProgramNotFound { .. })),
         "missing program is typed"
+    );
+}
+
+/// A full admission queue answers `Overloaded` naming that queue, and admits nothing.
+/// `saturate` fills the named queue of `pm` for the rest of the check (the implementation's
+/// test hook); `fx.long_running` must keep running with stdin piped.
+pub async fn check_process_overloaded(
+    pm: &dyn ProcessManager,
+    fx: ProcessFixture,
+    saturate: &dyn Fn(ProcessQueue),
+) {
+    let mut long = spawn_request("conf-overload", fx.long_running.clone(), &fx.cwd);
+    long.stdin_piped = true;
+    let handle = long.handle.clone();
+    pm.spawn(long).await.expect("spawn before saturation");
+
+    saturate(ProcessQueue::Input);
+    assert_eq!(
+        pm.write_stdin(&handle, b"x".to_vec()).await,
+        Err(ProcessError::Overloaded {
+            queue: ProcessQueue::Input
+        })
+    );
+
+    saturate(ProcessQueue::Spawn);
+    let refused = pm
+        .spawn(spawn_request("conf-refused", fx.long_running, &fx.cwd))
+        .await;
+    assert_eq!(
+        refused.expect_err("a full spawn queue admits nothing"),
+        ProcessError::Overloaded {
+            queue: ProcessQueue::Spawn
+        }
+    );
+    let refused = ProcessHandle::from("conf-refused");
+    assert!(pm.list().iter().all(|p| p.handle != refused));
+
+    pm.kill(&handle).expect("kill");
+    let written = events_until_exit(pm, &handle).await;
+    assert!(
+        written
+            .iter()
+            .all(|e| !matches!(e, ProcessEvent::Output { bytes, .. } if bytes == b"x")),
+        "refused input is not written"
     );
 }
 
@@ -1207,6 +1457,40 @@ pub async fn check_frame_source(source: &mut dyn MediaFrameSource, frames: usize
     }
 }
 
+/// `next_frame` is cancel-safe: a future polled once and dropped (the media
+/// loop on a control change) consumes nothing. The source then still yields
+/// a frame whose `seq` follows `last_seq`; with `lossless` (a source that
+/// skips no frames, like a fixture) it is exactly `last_seq + 1`.
+pub async fn check_frame_source_cancel_safe(
+    source: &mut dyn MediaFrameSource,
+    last_seq: u64,
+    lossless: bool,
+) {
+    {
+        let mut pending = source.next_frame();
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        if let std::task::Poll::Ready(result) =
+            std::future::Future::poll(pending.as_mut(), &mut cx)
+        {
+            // A frame that was ready is delivered, not consumed silently.
+            let frame = result.expect("frame").expect("source not ended");
+            assert!(frame.seq > last_seq, "seq increases");
+            return;
+        }
+    }
+    let frame = source
+        .next_frame()
+        .await
+        .expect("frame after a dropped call")
+        .expect("source not ended");
+    if lossless {
+        assert_eq!(frame.seq, last_seq + 1, "the dropped call consumed no frame");
+    } else {
+        assert!(frame.seq > last_seq, "seq increases");
+    }
+}
+
 pub fn check_video_track(track: &dyn VideoTrack) {
     assert_eq!(track.codec(), VideoCodec::Vp8, "VP8 only");
     let mut params = track.encoding();
@@ -1236,6 +1520,9 @@ pub async fn check_login_flow(flow: &dyn LoginFlow) {
     let last = states.last().expect("states").clone();
     assert!(last.is_terminal(), "terminal state is last");
     assert_eq!(session.state(), last, "snapshot equals the last state");
+    if let LoginState::Failed(LoginFailure::VerificationRequired { url, .. }) = &last {
+        assert!(url.starts_with("https://"), "a verification URL is a page");
+    }
 }
 
 pub async fn check_login_cancel(flow: &dyn LoginFlow) {
@@ -1291,10 +1578,14 @@ mod tests {
     use crate::domain::ownership::FenceReason;
     use crate::domain::provider::Content;
     use crate::domain::provider::ErrorResponse;
+    use crate::domain::provider::HostedTool;
+    use crate::domain::provider::HostedWebSearch;
     use crate::domain::provider::Message;
+    use crate::domain::provider::UserLocation;
     use crate::domain::provider::ProviderReplay;
     use crate::domain::provider::RequestOptions;
-    use crate::domain::provider::Role;
+    use crate::domain::provider::Temperature;
+    use crate::domain::provider::UsdTicks;
     use crate::domain::repo::ObjectId;
     use crate::domain::tool::SurfaceKind;
     use crate::domain::tool::ToolIo;
@@ -1353,11 +1644,84 @@ mod tests {
                 }),
                 DeliveryState::Accepted,
             ),
+            (
+                MockAttempt::Body(b"u:3,5,1200\nt:a\n".to_vec()),
+                DeliveryState::Accepted,
+            ),
+            (
+                MockAttempt::Body(b"t:part\ncont\n".to_vec()),
+                DeliveryState::Accepted,
+            ),
+            (
+                MockAttempt::Rejected(ErrorResponse {
+                    status: Some(403),
+                    headers: Vec::new(),
+                    body: b"https://accounts.google.com/signin/continue".to_vec(),
+                }),
+                DeliveryState::Accepted,
+            ),
         ];
         let provider = MockProvider::new(script.iter().map(|(attempt, _)| attempt.clone()));
         for (_, reached) in script {
             check_provider_attempt(&provider, request(), reached).await;
         }
+        check_model_listing(&provider).await;
+    }
+
+    #[test]
+    fn request_shape() {
+        let mut reminder = Message::new(Role::User, Content::Text("REMINDER-1".into()));
+        reminder.source = Some(MessageSource::TailReminder);
+        let mut request = (*request()).clone();
+        request.messages.push(reminder);
+        check_tail_reminder(&MockCodec, &request, "REMINDER-1");
+
+        request.options.thread = Some(RequestThread {
+            id: ThreadId::from("t"),
+            window: 1,
+            turn: Some(TurnId::from("r")),
+        });
+        check_request_thread(&MockCodec, &request);
+
+        request.options.parent_session_id = Some("parent".into());
+        request.options.parallel_tool_calls = Some(false);
+        request.options.temperature = Temperature::new(0.7);
+        check_request_options(&MockCodec, &request);
+
+        request.options.hosted_tools = vec![HostedTool::WebSearch(HostedWebSearch {
+            tool_type: "web_search".into(),
+            allowed_domains: vec!["example.com".into()],
+            user_location: Some(UserLocation {
+                country: Some("KR".into()),
+                ..UserLocation::default()
+            }),
+            max_uses: None,
+            context_size: Some("low".into()),
+            include_sources: true,
+        })];
+        check_hosted_tools(&MockCodec, &request);
+
+        let rejected = |status| ErrorResponse {
+            status: Some(status),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        check_error_classification(
+            &MockCodec,
+            &[
+                (rejected(409), ErrorKind::ReplayRejected),
+                (rejected(415), ErrorKind::ImageRejected),
+                (rejected(422), ErrorKind::ToolSchemaRejected),
+            ],
+        );
+        assert_eq!(UsdTicks::from_usd(0.00012), Some(UsdTicks(1_200_000)));
+    }
+
+    #[test]
+    fn retry_policy_reask_bound() {
+        let mut policy = RetryPolicy::codex_default();
+        policy.empty_response_reasks = Some(2);
+        check_retry_policy(&policy);
     }
 
     #[test]
@@ -1424,6 +1788,7 @@ mod tests {
             approvals: Arc::new(MockApprovalGate::default()),
             files: Arc::new(MockFileService::default()),
             processes: Arc::new(MockProcessManager::default()),
+            options: Default::default(),
         }
     }
 
@@ -1435,6 +1800,27 @@ mod tests {
             &EchoTool::default(),
             &tool_context(cancel),
             serde_json::json!({"a": 1}),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn mcp_error() {
+        check_mcp_error(
+            &FailingMcpTool::default(),
+            &tool_context(CancellationToken::new()),
+            serde_json::json!({"why": "boom"}),
+            "mock",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn operation_failed() {
+        check_operation_failed(
+            &FailingTool::default(),
+            &tool_context(CancellationToken::new()),
+            serde_json::json!({"why": "fatal: not a git repository"}),
         )
         .await;
     }
@@ -1541,6 +1927,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_overloaded() {
+        let argv = |program: &str| CommandSpec::Argv {
+            program: program.into(),
+            args: Vec::new(),
+        };
+        let pm = MockProcessManager::default();
+        check_process_overloaded(
+            &pm,
+            ProcessFixture {
+                cwd: root(),
+                hello: argv("echo"),
+                long_running: argv("sleep"),
+                missing: argv("missing"),
+            },
+            &|queue| pm.saturate(queue),
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn repo_inspector() {
         let tokens = mixdog_rt::testing::tokens();
         let repo = RepoRef {
@@ -1584,6 +1990,10 @@ mod tests {
             Some(VideoCodec::Vp8)
         );
         assert_eq!(negotiate_codec(&["video/H264".into()]), None);
+
+        let mut source = MockFrameSource::new(FrameSourceKind::SecureDesktop, 3);
+        let first = source.next_frame().await.unwrap().unwrap();
+        check_frame_source_cancel_safe(&mut source, first.seq, true).await;
     }
 
     #[tokio::test]
@@ -1609,6 +2019,17 @@ mod tests {
             vec![LoginState::Waiting],
         );
         check_login_cancel(&provider).await;
+        let verify = MockLoginFlow::new(
+            LoginTarget::Provider(ProviderId::from("antigravity")),
+            vec![
+                LoginState::Waiting,
+                LoginState::Failed(LoginFailure::VerificationRequired {
+                    url: "https://accounts.google.com/signin/continue".into(),
+                    account: Some("user@example.com".into()),
+                }),
+            ],
+        );
+        check_login_flow(&verify).await;
     }
 
     #[test]

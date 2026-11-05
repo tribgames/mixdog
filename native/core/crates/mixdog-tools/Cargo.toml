@@ -10,5 +10,52 @@ workspace = true
 [dependencies]
 mixdog-ai = { workspace = true }
 mixdog-sandboxing = { workspace = true }
+mixdog-js = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-scm = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+base64 = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt", "macros", "net"] }
+tokio-util = { workspace = true }
+# web (WP-TOOLS-WEB)
+reqwest = { workspace = true, features = ["gzip", "brotli", "deflate"] }
+url = { workspace = true }
+regex = { workspace = true }
+regress = { workspace = true }
+encoding_rs = { workspace = true }
+dom_query = { workspace = true }
+dom_smoothie = { workspace = true }
+futures = { workspace = true, features = ["std", "alloc"] }
+chrono = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+# code_graph / git / github (WP-GRAPH-GIT). mixdog-graph is linked as a library by path; it is
+# not a workspace member (its own lockfile and release profile stay untouched).
+mixdog-rt = { workspace = true }
+mixdog-graph = { path = "../../../mixdog-graph" }
+# exec (WP-TOOLS-EXEC): the shell and task tools register their tasks in WP-PROC's TaskRegistry.
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+rayon = { workspace = true }
+shlex = { workspace = true }
+# fs tools (WP-TOOLS-FS)
+globset = { workspace = true }
+# policy (WP-SANDBOX)
+sha2 = { workspace = true }
+
+[dev-dependencies]
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Globalization"] }
+# computer: in-process input injection, input-desktop identity and screen frames (WP-COMPUTER).
+mixdog-secure-desktop = { path = "../../../mixdog-secure-desktop" }

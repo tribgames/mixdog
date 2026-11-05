@@ -1,0 +1,9 @@
+{
+  "browser": "chromium",
+  "scenario": "pli",
+  "width": 640,
+  "height": 360,
+  "firstFrameMs": 447,
+  "pliCount": 1,
+  "keyFramesDecoded": 1
+}

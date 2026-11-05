@@ -1,0 +1,74 @@
+[
+ {
+  "text": "",
+  "tokens": 0
+ },
+ {
+  "text": "hello world!",
+  "tokens": 3
+ },
+ {
+  "text": "안녕하세요 반갑습니다",
+  "tokens": 16
+ },
+ {
+  "text": "こんにちは世界",
+  "tokens": 9
+ },
+ {
+  "text": "漢字テスト",
+  "tokens": 6
+ },
+ {
+  "text": "café naïve",
+  "tokens": 4
+ },
+ {
+  "text": "emoji 😀🎉 ✔️",
+  "tokens": 9
+ },
+ {
+  "text": "Привет мир",
+  "tokens": 8
+ },
+ {
+  "text": "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+  "tokens": 16
+ },
+ {
+  "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "tokens": 65
+ },
+ {
+  "text": "ab12cd34ef56 gh78ij90kl12 mn34op56qr78 plain words here",
+  "tokens": 23
+ },
+ {
+  "text": "[\n{\"a\":1},\n{\"b\":2},\n{\"c\":3}\n]",
+  "tokens": 14
+ },
+ {
+  "text": "{\"name\":\"t\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"description\":\"long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text long text \"}}}}",
+  "tokens": 125
+ },
+ {
+  "text": "line one\r\nline two\r\nline three\r\n",
+  "tokens": 8
+ },
+ {
+  "text": "a b c d",
+  "tokens": 4
+ },
+ {
+  "text": "<a href=\"x\">|y|</a>\n<b>=c</b>\n<i>:d</i>",
+  "tokens": 19
+ },
+ {
+  "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+  "tokens": 60
+ },
+ {
+  "text": "Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9",
+  "tokens": 20
+ }
+]

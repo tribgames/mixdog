@@ -1,0 +1,231 @@
+<!doctype html><html><head><title>README.md</title></head><body><header><nav><a href="/">Home</a></nav></header><main><article class="markdown-body"><p align="center">
+  <img src="https://raw.githubusercontent.com/tribgames/mixdog/main/apps/desktop/build/mixdog.png" width="80" alt="Mixdog">
+</p>
+
+<h1 align="center">Mixdog</h1>
+
+<p align="center">
+  The open-source coding agent that uses 63% fewer tokens.
+  <br>
+  <a href="#installation"><b>Download ↓</b></a>
+</p>
+
+<p><a href="https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0">https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0</a></p>
+<p align="center">
+  <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-windows.svg" alt="Download for Windows" height="48"></a>
+  &nbsp;
+  <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-macos.svg" alt="Download for macOS" height="48"></a>
+  &nbsp;
+  <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-linux.svg" alt="Download for Linux" height="48"></a>
+  <br>
+  <sub>macOS button is for Apple Silicon (M1 and later). Intel Mac? <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg">Download for Intel Mac</a>. Linux button is the x64 AppImage; .deb and ARM64 builds are listed below.</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/tribgames/mixdog/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tribgames/mixdog?style=flat-square"></a>
+  <a href="https://www.npmjs.com/package/mixdog"><img alt="npm" src="https://img.shields.io/npm/v/mixdog?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+  <a href="https://github.com/sponsors/JYP8877"><img alt="GitHub Sponsors" src="https://img.shields.io/github/sponsors/JYP8877?style=flat-square&logo=githubsponsors&label=Sponsors"></a>
+</p>
+
+<p align="center">
+  <a href="https://mixdog.ai/"><b>Website</b></a> ·
+  <a href="benchmarks/terminal-bench-2.1/"><b>Benchmarks</b></a> ·
+  <a href="#documentation"><b>Docs</b></a>
+</p>
+
+<h2>Highlights</h2>
+<ul>
+<li><a href="#benchmarks">63% fewer tokens</a> than Codex CLI on the same model, at the
+same success rate.</li>
+<li><a href="docs/auto-reasoning-effort.md"><strong>Auto reasoning effort</strong></a> — each message
+and tool step gets the effort it needs, judged in about 0.1 s by a 150 MB
+model that runs locally on the CPU. On by default.</li>
+<li>Use the <strong>Claude, ChatGPT, Grok, or Muse Code</strong> subscription you already have, API
+keys, or local models on your own GPU.</li>
+<li>Mix models by role and scale from <strong>Solo to Swarm</strong> — a strong model leads
+while cheaper ones search, edit, and review in parallel. Switch the workflow
+or mode mid-conversation, and set fallback models for usage limits.</li>
+<li><strong>Bots and rooms</strong> — your own bots with their own models, tools, and
+permissions, group rooms where they talk together, and a representative bot
+that sits above the composer on your desktop.</li>
+<li>A full workspace: editor, terminals, Git and GitHub, code graph, and
+language servers, with themes and photo skins.</li>
+<li>Keeps working on its own with <strong>Goals, schedules, and webhooks</strong> — and
+continues from your phone, end-to-end encrypted.</li>
+<li>Goes beyond code with <strong>browser and desktop control</strong>, Office and PDF
+documents, and image and video generation.</li>
+<li>Runs on Windows, macOS, and Linux. No config files.</li>
+</ul>
+<h2>Installation</h2>
+<p>Download the desktop app:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Download</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Windows (x64)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe"><code>mixdog-desktop-win-x64.exe</code></a></td>
+</tr>
+<tr>
+<td>macOS (Apple Silicon)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg"><code>mixdog-desktop-mac-arm64.dmg</code></a></td>
+</tr>
+<tr>
+<td>macOS (Intel)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg"><code>mixdog-desktop-mac-x64.dmg</code></a></td>
+</tr>
+<tr>
+<td>Linux (x64, AppImage)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage"><code>mixdog-desktop-linux-x86_64.AppImage</code></a></td>
+</tr>
+<tr>
+<td>Linux (x64, .deb)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-amd64.deb"><code>mixdog-desktop-linux-amd64.deb</code></a></td>
+</tr>
+<tr>
+<td>Linux (ARM64, AppImage)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.AppImage"><code>mixdog-desktop-linux-arm64.AppImage</code></a></td>
+</tr>
+<tr>
+<td>Linux (ARM64, .deb)</td>
+<td><a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.deb"><code>mixdog-desktop-linux-arm64.deb</code></a></td>
+</tr>
+</tbody></table>
+<p>Then sign in with a ChatGPT, Claude, Grok, or Muse Code account, or paste an API key. A
+five-step tutorial walks you through the rest.</p>
+<blockquote>
+<p>[!NOTE]
+The Windows installer and app are code-signed, and the Mac app is signed and
+notarized. If SmartScreen still appears, choose <strong>More info → Run anyway</strong>.</p>
+</blockquote>
+<p>Or run it in the terminal (Node.js 22.19+ or 24+):</p>
+<pre><code class="language-bash">npm install -g mixdog
+mixdog
+</code></pre>
+<details>
+<summary>Supported providers</summary>
+
+<ul>
+<li>Anthropic API keys and Claude account OAuth</li>
+<li>OpenAI API keys and ChatGPT/Codex account OAuth</li>
+<li>Google Gemini API keys</li>
+<li>xAI API keys and Grok account OAuth</li>
+<li>Muse Code (Meta) account OAuth</li>
+<li>OpenRouter, DeepSeek, and OpenCode Go</li>
+<li>Built-in <strong>Local Provider</strong> — download and run models in the app
+(Windows x64 with an NVIDIA GPU)</li>
+</ul>
+<p>Cursor, Antigravity (Gemini), and MiMo OAuth are off by default under
+<strong>Settings → Developer</strong>; using them through OAuth risks account restrictions.</p>
+</details>
+
+<details>
+<summary>Headless <code>mixdog exec</code></summary>
+
+<p><code>mixdog exec</code> runs one non-interactive, single-model session without personal
+memory, prior sessions, skills, MCP servers, or plugins:</p>
+<pre><code class="language-bash">mixdog exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh &quot;fix the failing test&quot;
+</code></pre>
+<p>Web search is off by default (<code>--web-search</code> enables it). This does not block
+shell networking — headless exec is not an offline sandbox. Run
+<code>mixdog --help</code> for the full reference.</p>
+</details>
+
+<h2>Benchmarks</h2>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-light.svg">
+    <img alt="Bar chart: Mixdog vs Codex CLI on Terminal-Bench 2.1" src="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-light.svg">
+  </picture>
+</p>
+
+<p align="center">
+  <i>All 89 Terminal-Bench 2.1 tasks × 5 trials on GPT-5.6 Sol xhigh, scored by the official Harbor verifier.</i>
+</p>
+
+<p>Mixdog used fewer tokens on 87 of 89 tasks. With Claude Opus 5, it solved 2
+more tasks than Claude Code at 19% lower cost. Every verdict, log, and script
+is published in <a href="benchmarks/terminal-bench-2.1/"><code>benchmarks/terminal-bench-2.1/</code></a>,
+and <a href="docs/context-efficiency.md">Context efficiency</a> explains where the
+savings come from.</p>
+<details>
+<summary><b>Benchmark history</b></summary>
+
+<p>Newest first. Each run links to its details, records, and caveats.</p>
+<table>
+<thead>
+<tr>
+<th>Run</th>
+<th>Model · trials</th>
+<th>vs</th>
+<th>Score</th>
+<th>Cost</th>
+<th>Final context</th>
+<th>Time / trial</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="benchmarks/terminal-bench-2.1/#bench-log">2026-10-15</a></td>
+<td>GPT-6.1 Sol xhigh · <code>k=1</code></td>
+<td>Codex CLI</td>
+<td>77 vs 78 /89</td>
+<td><strong>−55%</strong></td>
+<td><strong>−68%</strong> (10.8K vs 33.6K)</td>
+<td>344s vs 380s</td>
+</tr>
+<tr>
+<td><a href="benchmarks/terminal-bench-2.1/#gpt-56-sol-xhigh-vs-codex-cli">2026-08-25</a></td>
+<td>GPT-5.6 Sol xhigh · <code>k=5</code></td>
+<td>Codex CLI</td>
+<td>385 vs 383 /445</td>
+<td><strong>−39%</strong></td>
+<td><strong>−46%</strong> (18.5K vs 34.3K)</td>
+<td>415s vs 437s</td>
+</tr>
+<tr>
+<td><a href="benchmarks/terminal-bench-2.1/#claude-opus-5-vs-claude-code">2026-08-25</a></td>
+<td>Claude Opus 5 · <code>k=1</code></td>
+<td>Claude Code</td>
+<td>79 vs 77 /89</td>
+<td><strong>−19%</strong></td>
+<td><strong>−28%</strong> (27.6K vs 38.2K)</td>
+<td>610s vs 708s</td>
+</tr>
+</tbody></table>
+<p>The 2026-10-15 run is the first full run with the
+<a href="docs/auto-reasoning-effort.md">effort judge</a> active on OpenAI routes, with web
+search on for both sides. It is a single pass, so the <code>k=5</code> chart above stays
+the reference.</p>
+</details>
+
+<h2>Documentation</h2>
+<ul>
+<li><a href="docs/context-efficiency.md">Context efficiency</a></li>
+<li><a href="docs/auto-reasoning-effort.md">Auto reasoning effort</a></li>
+<li><a href="benchmarks/terminal-bench-2.1/">Benchmarks</a></li>
+<li><a href="docs/code-tidy.md">Code Tidy</a></li>
+<li><a href="docs/git-github-integration.md">Git &amp; GitHub</a></li>
+<li><a href="docs/ssh-remote.md">SSH servers</a> (Korean, with an English summary)</li>
+<li><a href="docs/language-servers.md">Language servers</a></li>
+<li><a href="src/runtime/office/README.md">Office runtime</a></li>
+<li><a href="docs/development.md">Development, configuration, and testing</a></li>
+</ul>
+<h2>Feedback</h2>
+<p>Found a bug or missing a feature?
+<a href="https://github.com/tribgames/mixdog/issues">Open an issue</a>. If Mixdog saves
+you tokens, a star helps others find it.</p>
+<h2>Sponsor</h2>
+<p>Mixdog is free and open source. Sponsorship pays for development time and the
+model tokens used for testing:
+<a href="https://github.com/sponsors/JYP8877">github.com/sponsors/JYP8877</a>.</p>
+<h3>Supporters</h3>
+<p>Your name here — <a href="https://github.com/sponsors/JYP8877">become a sponsor</a>.</p>
+<h2>License</h2>
+<p>Mixdog is licensed under <a href="LICENSE">Apache-2.0</a>. Third-party components retain
+their respective licenses; see <a href="NOTICE.md">NOTICE.md</a>.</p>
+</article></main><footer>© docs</footer></body></html>

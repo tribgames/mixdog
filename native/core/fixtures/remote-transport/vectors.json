@@ -1,0 +1,6967 @@
+{
+  "note": "Operations on the MXT stream core with the results the Node product produced; replayed by mixdog-remote.",
+  "ops": [
+    {
+      "op": "consts",
+      "result": {
+        "ackRanges": 1815,
+        "assemblyPool": 75497472,
+        "bulk": 7339992,
+        "charge": [
+          65466,
+          65466,
+          70000,
+          2000000
+        ],
+        "chunk": 65441,
+        "chunkHeader": 25,
+        "controlPlaintext": 65421,
+        "fits": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true
+        ],
+        "fragment": 786348,
+        "futureBudget": 8388608,
+        "headReserve": 9437344,
+        "inFlight": 128,
+        "maxFragments": 86,
+        "maxMessage": 65466,
+        "maxRecord": 1048616,
+        "mediaChunkChars": 87424,
+        "mediaRecord": 87586,
+        "receiveBudget": 17825952
+      }
+    },
+    {
+      "len": 1000,
+      "op": "encode_record",
+      "result": [
+        {
+          "len": 1005,
+          "sha": "0bb1e685e17eeb7672d4d7622e989cd65399eb88e85b9726a54196efda0825bb"
+        }
+      ],
+      "seq": 1
+    },
+    {
+      "len": 65441,
+      "op": "encode_record",
+      "result": [
+        {
+          "len": 65446,
+          "sha": "36a4fb01460b13d09e2bab6cb2ee91f454358c75dac5485d0bc7d4f31ed73f55"
+        }
+      ],
+      "seq": 2
+    },
+    {
+      "len": 65442,
+      "op": "encode_record",
+      "result": [
+        {
+          "len": 65466,
+          "sha": "abc0149e33b084bdef328cd684f6c66a7b82f59cd0bc5bb80c46e02ad06ed21c"
+        },
+        {
+          "len": 26,
+          "sha": "bd0e75f38a4959cea163e969b24cf60be5c953cf3e6bf91204efc4aa3cb844cc"
+        }
+      ],
+      "seq": 3
+    },
+    {
+      "len": 200000,
+      "op": "encode_record",
+      "result": [
+        {
+          "len": 65466,
+          "sha": "b0249c2e021ddf5e22f87c9f52795e83c091e6b1cbd0f05cca93894ea395cc3b"
+        },
+        {
+          "len": 65466,
+          "sha": "e63a0e52dd5dcc99535736a699d0dbfe6409416cff366daf3a967ced207dcf23"
+        },
+        {
+          "len": 65466,
+          "sha": "ca230a700ddd3fba70d20e59e31b343896caccf97de532dbaa90fd6a308dabd1"
+        },
+        {
+          "len": 3702,
+          "sha": "1bda10113be7ba4e291af31313d8de5cc0de2193a1965d670d6b1138afde5c2f"
+        }
+      ],
+      "seq": 4
+    },
+    {
+      "len": 1048616,
+      "op": "encode_record",
+      "result": [
+        {
+          "len": 65466,
+          "sha": "7b19873157ee74ef201bee44d2905d13e22bce4cd8fa0855f659511414eb2490"
+        },
+        {
+          "len": 65466,
+          "sha": "5018a926f1343dbe7d332d0c8bb240e596d497fa0c123749dcc736c3c6ccb825"
+        },
+        {
+          "len": 65466,
+          "sha": "db7246e5aa5c1f8e44842597ccc570431a7f07991fc26dcfc39927b32508f99e"
+        },
+        {
+          "len": 65466,
+          "sha": "98b306244b8a440da45210122045afaffe10ed6c656689af9df6983f4affaed9"
+        },
+        {
+          "len": 65466,
+          "sha": "ed6bcf7d2a624054e66bdcbb9961ad5bc40a1aa16adb9b56011fb7410e8ffb2b"
+        },
+        {
+          "len": 65466,
+          "sha": "365a1e003315572f3decdbac3a01a17842742f66d1eef3eb35945b41ed9fde69"
+        },
+        {
+          "len": 65466,
+          "sha": "d81d84264904ec98169414f1a148b09d539d47da40dae7cf7ee44b8af272bff0"
+        },
+        {
+          "len": 65466,
+          "sha": "c2ffc62763459ed05c9b307ae855028e8afed7e4dec5f6fa52488459cbaef18b"
+        },
+        {
+          "len": 65466,
+          "sha": "a4b6abede33203868ef9b85bca40da1083968e9bf7cea23c4817cb600b69051b"
+        },
+        {
+          "len": 65466,
+          "sha": "d31e409251078e9df4e1d03e66e022095e60d915dd11313f22d52c74e96a8e94"
+        },
+        {
+          "len": 65466,
+          "sha": "07bec3ad691698133311176bdaa0d6cc184e471060bf42310ecda8fbf5dcd5ec"
+        },
+        {
+          "len": 65466,
+          "sha": "1a5459bb9ae58c546f739283873d529e13d956c3c2f9f5ff00fd1f0c2e1b4924"
+        },
+        {
+          "len": 65466,
+          "sha": "62f3a0c72e26731c8899e107ce1335858d0ee4ff508d9d7d11937b3cebe4569c"
+        },
+        {
+          "len": 65466,
+          "sha": "3340af0b50458be52793e3d9b131870da5bfa6f5de7c73ab0952d470b770d6f0"
+        },
+        {
+          "len": 65466,
+          "sha": "cef91ea4cc4bf244eb0989a8332fc99049f652af810e74bef2f12a22fbcd160b"
+        },
+        {
+          "len": 65466,
+          "sha": "1dffacc858ceb78c12a5459f901b8269684d34ab4cf64dcab9210ad2f494bc25"
+        },
+        {
+          "len": 1585,
+          "sha": "1ed51a22ec64b2668e6047dc8998d54fbee3f2c3915bb358ef9deb0521e6c56d"
+        }
+      ],
+      "seq": 5
+    },
+    {
+      "len": 1048617,
+      "op": "encode_record",
+      "result": {
+        "error": "remote transport: invalid record size."
+      },
+      "seq": 6
+    },
+    {
+      "len": 39,
+      "op": "encode_record",
+      "result": {
+        "error": "remote transport: invalid application box."
+      },
+      "seq": 7
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "op": "decode_record",
+      "result": {
+        "kind": "app",
+        "len": 1000,
+        "sequence": 1
+      },
+      "seq": 1
+    },
+    {
+      "index": 0,
+      "len": 200000,
+      "op": "decode_record",
+      "result": {
+        "count": 4,
+        "index": 0,
+        "kind": "chunk",
+        "len": 65441,
+        "sequence": 4,
+        "total": 200000
+      },
+      "seq": 4
+    },
+    {
+      "index": 3,
+      "len": 200000,
+      "op": "decode_record",
+      "result": {
+        "count": 4,
+        "index": 3,
+        "kind": "chunk",
+        "len": 3677,
+        "sequence": 4,
+        "total": 200000
+      },
+      "seq": 4
+    },
+    {
+      "index": 15,
+      "len": 1048616,
+      "op": "decode_record",
+      "result": {
+        "count": 17,
+        "index": 15,
+        "kind": "chunk",
+        "len": 65441,
+        "sequence": 5,
+        "total": 1048616
+      },
+      "seq": 5
+    },
+    {
+      "hex": "00",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid message size."
+      }
+    },
+    {
+      "hex": "4d585401",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid message size."
+      }
+    },
+    {
+      "hex": "4d58540109",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid message kind."
+      }
+    },
+    {
+      "hex": "4d5854ff01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid message magic."
+      }
+    },
+    {
+      "hex": "4d58540101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid application box."
+      }
+    },
+    {
+      "hex": "4d585401034d584301000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "op": "decode_raw",
+      "result": {
+        "kind": "control",
+        "len": 64
+      }
+    },
+    {
+      "hex": "4d585401034d5843010000000000000000000000000000000000000000",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid control box."
+      }
+    },
+    {
+      "hex": "4d58540102000000000000000000000000000000000000000000000000000000000000",
+      "op": "decode_raw",
+      "result": {
+        "error": "remote transport: invalid chunk sequence."
+      }
+    },
+    {
+      "count": 2,
+      "dataLen": 100,
+      "index": 0,
+      "op": "decode_forged",
+      "result": {
+        "error": "remote transport: invalid chunk total."
+      },
+      "seq": 1,
+      "total": 100
+    },
+    {
+      "count": 3,
+      "dataLen": 65441,
+      "index": 0,
+      "op": "decode_forged",
+      "result": {
+        "error": "remote transport: invalid chunk index."
+      },
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "count": 2,
+      "dataLen": 100,
+      "index": 2,
+      "op": "decode_forged",
+      "result": {
+        "error": "remote transport: invalid chunk index."
+      },
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "count": 2,
+      "dataLen": 5,
+      "index": 1,
+      "op": "decode_forged",
+      "result": {
+        "error": "remote transport: invalid chunk length."
+      },
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "count": 2,
+      "dataLen": 65441,
+      "index": 0,
+      "op": "decode_forged",
+      "result": {
+        "error": "remote transport: invalid chunk sequence."
+      },
+      "seq": 0,
+      "total": 100000
+    },
+    {
+      "count": 2,
+      "dataLen": 34559,
+      "index": 1,
+      "op": "decode_forged",
+      "result": {
+        "count": 2,
+        "index": 1,
+        "kind": "chunk",
+        "len": 34559,
+        "sequence": 1,
+        "total": 100000
+      },
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "len": 39,
+      "op": "encode_control",
+      "result": {
+        "error": "remote transport: invalid control box."
+      }
+    },
+    {
+      "len": 40,
+      "op": "encode_control",
+      "result": {
+        "len": 45,
+        "sha": "7e273a1e194ac5e62ebd7c577a34c45f3202572354018423fe8540a7ab2a37ab"
+      }
+    },
+    {
+      "len": 100,
+      "op": "encode_control",
+      "result": {
+        "len": 105,
+        "sha": "d2c15b5b6b08f8c0097731870f282c16c1073d26f1990d006f6d3e1735a2e426"
+      }
+    },
+    {
+      "len": 65441,
+      "op": "encode_control",
+      "result": {
+        "len": 65446,
+        "sha": "53691a0f950389b899d5c85385603d124f52b65bf3fd5b55ae697c001d59de65"
+      }
+    },
+    {
+      "len": 65442,
+      "op": "encode_control",
+      "result": {
+        "len": 65447,
+        "sha": "80a4b70adad16a633a0c8f6c6aa7eb536e60b1d8b688a9ca6c33860ab398bfd4"
+      }
+    },
+    {
+      "op": "encode_control_app_box",
+      "result": {
+        "error": "remote transport: invalid control box."
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "ranges": [],
+        "t": "ack",
+        "through": 5
+      },
+      "value": {
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "ranges": [
+          [
+            7,
+            9
+          ],
+          [
+            11,
+            11
+          ]
+        ],
+        "t": "ack",
+        "through": 5
+      },
+      "value": {
+        "ranges": [
+          [
+            7,
+            9
+          ],
+          [
+            11,
+            11
+          ]
+        ],
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "ranges": [
+          [
+            6,
+            9
+          ]
+        ],
+        "t": "ack",
+        "through": 5
+      },
+      "value": {
+        "ranges": [
+          [
+            6,
+            9
+          ]
+        ],
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid ack range."
+      },
+      "value": {
+        "ranges": [
+          [
+            7,
+            9
+          ],
+          [
+            10,
+            12
+          ]
+        ],
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid ack range."
+      },
+      "value": {
+        "ranges": [
+          [
+            7,
+            6
+          ]
+        ],
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "ranges": [
+          [
+            7,
+            133
+          ]
+        ],
+        "t": "ack",
+        "through": 5
+      },
+      "value": {
+        "ranges": [
+          [
+            7,
+            133
+          ]
+        ],
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid ack range."
+      },
+      "value": {
+        "ranges": [
+          [
+            7,
+            134
+          ]
+        ],
+        "t": "ack",
+        "through": 5,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid version."
+      },
+      "value": {
+        "t": "ack",
+        "through": 5,
+        "v": 2
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid ack."
+      },
+      "value": {
+        "t": "ack",
+        "through": -1,
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "sequences": [
+          3,
+          5,
+          9
+        ],
+        "t": "repair"
+      },
+      "value": {
+        "sequences": [
+          3,
+          5,
+          9
+        ],
+        "t": "repair",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid repair."
+      },
+      "value": {
+        "sequences": [],
+        "t": "repair",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid repair order."
+      },
+      "value": {
+        "sequences": [
+          5,
+          5
+        ],
+        "t": "repair",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid repair."
+      },
+      "value": {
+        "sequences": [
+          0
+        ],
+        "t": "repair",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "id": 3,
+        "sent": null,
+        "t": "ping"
+      },
+      "value": {
+        "id": 3,
+        "t": "ping",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "id": 3,
+        "sent": 12,
+        "t": "ping"
+      },
+      "value": {
+        "id": 3,
+        "sent": 12,
+        "t": "ping",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "id": 3,
+        "sent": null,
+        "t": "pong"
+      },
+      "value": {
+        "id": 3,
+        "sent": 12,
+        "t": "pong",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid ping id."
+      },
+      "value": {
+        "id": 0,
+        "t": "ping",
+        "v": 1
+      }
+    },
+    {
+      "cseq": 4,
+      "op": "read_control",
+      "result": {
+        "error": "remote transport: invalid ping sent."
+      },
+      "value": {
+        "id": 3,
+        "sent": -1,
+        "t": "ping",
+        "v": 1
+      }
+    },
+    {
+      "op": "read_control_stale",
+      "result": null
+    },
+    {
+      "op": "control_json",
+      "result": [
+        "{\"v\":1,\"t\":\"ack\",\"through\":7}",
+        "{\"v\":1,\"t\":\"ack\",\"through\":7,\"ranges\":[[9,10],[12,12]]}",
+        "{\"v\":1,\"t\":\"repair\",\"sequences\":[3,4]}",
+        "{\"v\":1,\"t\":\"ping\",\"id\":5}",
+        "{\"v\":1,\"t\":\"ping\",\"id\":5,\"sent\":9}",
+        "{\"v\":1,\"t\":\"pong\",\"id\":5}"
+      ]
+    },
+    {
+      "n": "r1",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "r1",
+      "now": 1,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 3
+    },
+    {
+      "index": 2,
+      "len": 150000,
+      "n": "r1",
+      "now": 2,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 2
+    },
+    {
+      "index": 0,
+      "len": 150000,
+      "n": "r1",
+      "now": 2,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 2
+    },
+    {
+      "index": 1,
+      "len": 150000,
+      "n": "r1",
+      "now": 2,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 2
+    },
+    {
+      "index": 1,
+      "len": 150000,
+      "n": "r1",
+      "now": 3,
+      "op": "r_accept",
+      "result": "duplicate",
+      "seq": 2
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "r1",
+      "now": 3,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 200
+    },
+    {
+      "n": "r1",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 215466,
+        "bufferedRecords": 2,
+        "deliveredThrough": 0,
+        "discarded": 0,
+        "duplicates": 1,
+        "evicted": 0,
+        "futureBytes": 215466,
+        "headBytes": 0
+      }
+    },
+    {
+      "n": "r1",
+      "now": 4,
+      "op": "r_ack_due",
+      "result": null
+    },
+    {
+      "index": 1,
+      "len": 70000,
+      "n": "r1",
+      "now": 4,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "index": 0,
+      "len": 70000,
+      "n": "r1",
+      "now": 4,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "n": "r1",
+      "op": "r_next",
+      "result": {
+        "len": 70000,
+        "sequence": 1,
+        "sha": "570f8a53f0d2858f149be964af434caa798c5486d9d88d63e78a19823308087e"
+      }
+    },
+    {
+      "n": "r1",
+      "now": 5,
+      "op": "r_commit",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "r1",
+      "op": "r_next",
+      "result": {
+        "len": 150000,
+        "sequence": 2,
+        "sha": "13eb63c40e3b0c67ca9439c9b7c49035500e48ef60aa3d05e77be667b632e720"
+      }
+    },
+    {
+      "n": "r1",
+      "now": 5,
+      "op": "r_commit",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "n": "r1",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 3,
+        "sha": "93105bbf9e05926df61a8375bc00182121d272fc876030165d325fcbc92dbc65"
+      }
+    },
+    {
+      "n": "r1",
+      "now": 5,
+      "op": "r_commit",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "n": "r1",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "n": "r1",
+      "now": 5,
+      "op": "r_ack_due",
+      "result": {
+        "ranges": [],
+        "through": 3
+      }
+    },
+    {
+      "n": "r1",
+      "op": "r_ack_sent",
+      "result": null,
+      "through": 3
+    },
+    {
+      "n": "r1",
+      "now": 6,
+      "op": "r_ack_due",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 150000,
+      "n": "r1",
+      "now": 7,
+      "op": "r_accept",
+      "result": "duplicate",
+      "seq": 2
+    },
+    {
+      "n": "r1",
+      "now": 7,
+      "op": "r_ack_due",
+      "result": {
+        "ranges": [],
+        "through": 3
+      }
+    },
+    {
+      "n": "r1",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 0,
+        "bufferedRecords": 0,
+        "deliveredThrough": 3,
+        "discarded": 0,
+        "duplicates": 2,
+        "evicted": 0,
+        "futureBytes": 0,
+        "headBytes": 0
+      }
+    },
+    {
+      "n": "r2",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "count": 2,
+      "dataLen": 65441,
+      "headerSeq": 9,
+      "index": 0,
+      "n": "r2",
+      "now": 1,
+      "op": "r_accept_forged",
+      "result": "mismatch",
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "count": 2,
+      "dataLen": 65441,
+      "headerSeq": 1,
+      "index": 0,
+      "n": "r2",
+      "now": 1,
+      "op": "r_accept_forged",
+      "result": "buffered",
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "count": 2,
+      "dataLen": 65441,
+      "headerSeq": 1,
+      "index": 0,
+      "n": "r2",
+      "now": 2,
+      "op": "r_accept_forged",
+      "result": "buffered",
+      "seq": 1,
+      "total": 90000
+    },
+    {
+      "count": 2,
+      "dataLen": 65441,
+      "headerSeq": 1,
+      "index": 0,
+      "n": "r2",
+      "now": 3,
+      "op": "r_accept_forged",
+      "result": "buffered",
+      "seq": 1,
+      "total": 80000
+    },
+    {
+      "n": "r2",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 170000,
+        "bufferedRecords": 1,
+        "deliveredThrough": 0,
+        "discarded": 0,
+        "duplicates": 0,
+        "evicted": 1,
+        "futureBytes": 0,
+        "headBytes": 170000
+      }
+    },
+    {
+      "count": 2,
+      "dataLen": 34559,
+      "fill": 1,
+      "index": 1,
+      "n": "r2",
+      "now": 4,
+      "op": "r_accept_forged",
+      "result": "buffered",
+      "seq": 1,
+      "total": 100000
+    },
+    {
+      "n": "r2",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "n": "r2",
+      "op": "r_discard",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "r2",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 180000,
+        "bufferedRecords": 1,
+        "deliveredThrough": 0,
+        "discarded": 0,
+        "duplicates": 0,
+        "evicted": 2,
+        "futureBytes": 0,
+        "headBytes": 180000
+      }
+    },
+    {
+      "index": 0,
+      "len": 100000,
+      "n": "r2",
+      "now": 5,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "index": 1,
+      "len": 100000,
+      "n": "r2",
+      "now": 5,
+      "op": "r_accept",
+      "result": "duplicate",
+      "seq": 1
+    },
+    {
+      "n": "r2",
+      "op": "r_next",
+      "result": {
+        "len": 100000,
+        "sequence": 1,
+        "sha": "8b4966ab5297107e9d8ca7e0c1e650de706d3c0d024924e85a1bb4eba8e9229d"
+      }
+    },
+    {
+      "n": "r2",
+      "now": 6,
+      "op": "r_repair_due",
+      "result": [
+        1
+      ],
+      "rtt": null
+    },
+    {
+      "n": "r2",
+      "now": 7,
+      "op": "r_commit",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "r2",
+      "now": 7,
+      "op": "r_commit",
+      "result": {
+        "error": "remote transport: invalid commit slot."
+      },
+      "seq": 2
+    },
+    {
+      "n": "r3",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 2,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 2
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 3,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 3
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 4,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 4
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 5,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 5
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 6,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 6
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 7,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 7
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 8,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 8
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 9,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 9
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 10,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 10
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 11,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 11
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 12,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 12
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 13,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 13
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 14,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 14
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 15,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 15
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 16,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 16
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 17,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 17
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 18,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 18
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 19,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 19
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 20,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 20
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 21,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 21
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 22,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 22
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 23,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 23
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 24,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 24
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 25,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 25
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 26,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 26
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 27,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 27
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 28,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 28
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 29,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 29
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 30,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 30
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 31,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 31
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 32,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 32
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 33,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 33
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 34,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 34
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 35,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 35
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 36,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 36
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 37,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 37
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 38,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 38
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 39,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 39
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 40,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 40
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 41,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 41
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 42,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 42
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 43,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 43
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 44,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 44
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 45,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 45
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 46,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 46
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 47,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 47
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 48,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 48
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 49,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 49
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 50,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 50
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 51,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 51
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 52,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 52
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 53,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 53
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 54,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 54
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 55,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 55
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 56,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 56
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 57,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 57
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 58,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 58
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 59,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 59
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 60,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 60
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 61,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 61
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 62,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 62
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 63,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 63
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 64,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 64
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 65,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 65
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 66,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 66
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 67,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 67
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 68,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 68
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 69,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 69
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 70,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 70
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 71,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 71
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 72,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 72
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 73,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 73
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 74,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 74
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 75,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 75
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 76,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 76
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 77,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 77
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 78,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 78
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 79,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 79
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 80,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 80
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 81,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 81
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 82,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 82
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 83,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 83
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 84,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 84
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 85,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 85
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 86,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 86
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 87,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 87
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 88,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 88
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 89,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 89
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 90,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 90
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 91,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 91
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 92,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 92
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 93,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 93
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 94,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 94
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 95,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 95
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 96,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 96
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 97,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 97
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 98,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 98
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 99,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 99
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 100,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 100
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 101,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 101
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 102,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 102
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 103,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 103
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 104,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 104
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 105,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 105
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 106,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 106
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 107,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 107
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 108,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 108
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 109,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 109
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 110,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 110
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 111,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 111
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 112,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 112
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 113,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 113
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 114,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 114
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 115,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 115
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 116,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 116
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 117,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 117
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 118,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 118
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 119,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 119
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 120,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 120
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 121,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 121
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 122,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 122
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 123,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 123
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 124,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 124
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 125,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 125
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 126,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 126
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 127,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 127
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 128,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 128
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 129,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 129
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 130,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 130
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 131,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 131
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 132,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 132
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 133,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 133
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 134,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 134
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 135,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 135
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 136,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 136
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 137,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 137
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 138,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 138
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 139,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 139
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 140,
+      "op": "r_accept",
+      "result": "out-of-window",
+      "seq": 140
+    },
+    {
+      "n": "r3",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 8314182,
+        "bufferedRecords": 127,
+        "deliveredThrough": 0,
+        "discarded": 0,
+        "duplicates": 0,
+        "evicted": 0,
+        "futureBytes": 8314182,
+        "headBytes": 0
+      }
+    },
+    {
+      "index": 0,
+      "len": 100,
+      "n": "r3",
+      "now": 200,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 1,
+        "sha": "16c5d48f80669defe7c6fbca9cadce9e938a8e6706b2909807bd98f387b160c5"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 2,
+        "sha": "38dc12c86276f16dd51318a71e557c7b28c03b712e9b2cad5ba59c41fb86a162"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 3,
+        "sha": "09e201d71b935fb0dfaf263096c7e3ff5d79f6e70ae35d2b82669493094fd871"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 4,
+        "sha": "88a087c50238f5049448524487673b7bedc0ae60afe4b4dce2e1bf86a7820642"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 4
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 5,
+        "sha": "da992cf95b18de53e7df8b641daf3875847b00da3e671b3b3915621d53e1c66d"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 5
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 6,
+        "sha": "6d1af68f1c000db7398aa8212a2b27b44d8a440eaf9b1993210af00b9686a867"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 6
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 7,
+        "sha": "cde7dedcb9b95d3e6dafff4945f8ebfe0dd2ccafce77fa4cf01a0ce71f169283"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 7
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 8,
+        "sha": "8d98840f399af77f6f5599e15b9a1e1701eb2e7582ba01a11529adb2e67eadb7"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 8
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 9,
+        "sha": "a58a912891a904ffaa112822b851c9988463d163ed6fea071e6b0e5185a7a9f0"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 9
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 10,
+        "sha": "e06e52a87be3ceb3e67fa17286b4db9bc296f8f0a92c483e8ab03d5eb5343956"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 10
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 11,
+        "sha": "822abc743bde8fee09b6464452c5ea7309b9e752636d746dd13a5eec0bc50e3d"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 11
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 12,
+        "sha": "147bebd53d8d4fd5263d41afed333068086482a5438bb8bebc21499c8a59310f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 12
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 13,
+        "sha": "943a33436ef2b98086bf0d9b70e2f18cf7692b14a299b3da0588999f9dc5c25c"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 13
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 14,
+        "sha": "0e1522c27552a664c8cceeaf816625459549bb22d6fccd2775b4f1eab3316e56"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 14
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 15,
+        "sha": "f836e26743bd943cc12f27c83caeb4318bda34ae2aa0f692e97f21852815694d"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 15
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 16,
+        "sha": "94117cf2118aa63cecb90232041ef5b35e2df45dc7b278c8e61af51861792e31"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 16
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 17,
+        "sha": "763260c1adde470f761168c154e0874b2fe1de18e4b1253dd5b5cfad5904f1f6"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 17
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 18,
+        "sha": "ea187b6df9818b8e9affe78e84ba3661278aec41788431b7258bf35642a443e5"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 18
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 19,
+        "sha": "4ed51733659e09b425f59f2036f2ce67ccb439ff6a8bd11125b9fb5298ac9cfb"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 19
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 20,
+        "sha": "a9eadb2754a8b38fbb009e9bad8f4faed1705382b90555f26e8802ee6a6a0dee"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 20
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 21,
+        "sha": "a5931c60b8fe82079255dcc6cb025860488e11870a31b610560c0e10b3cab31a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 21
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 22,
+        "sha": "faa0f641a62cd0c28c3e77051945a7f3c58a1744af004ac44bd2971bfe2ae4f4"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 22
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 23,
+        "sha": "d88a4676e0f686e3df3a967e2597699d7f6d314ea6638894ff84d10a88627cf7"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 23
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 24,
+        "sha": "f108457fde213fdcc485d8dee91484f74811c04c450da9fa4aa426cbaf94e26a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 24
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 25,
+        "sha": "d1c9828aa3705b6ed78b847b65be36f4ba43235d1a92c38fc67e82a93c7ab657"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 25
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 26,
+        "sha": "ed020a64a814ca067962142ea094ca8f1297675f0714aea0b0eb2bbe1a8f0516"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 26
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 27,
+        "sha": "c9040624992a22dc4b97b6c6b384ae23376b1baf21577a783322a78a15a07bfd"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 27
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 28,
+        "sha": "d66ef7eb92fad3863cfafde3f09073e474e8dcc1799e7250ea40e1c84aab35f3"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 28
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 29,
+        "sha": "d699f41fc2aa456194a9924d731f6dbb26a97b57a3d1166627bafa91cf6c3df6"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 29
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 30,
+        "sha": "ae6bdb2b74450d6500ea8881ab14185389451f5ada7712325e1ba8bce8565bf9"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 30
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 31,
+        "sha": "f7faaafb764b70cdc3acd5b40ad8392e1550b106f874d8c0e6543e7f2e9321b5"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 31
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 32,
+        "sha": "cb56b3b6b7d6393ba0e207ab8fc5d747c87e61a53bb2d9b7da9cb093fd2c33a2"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 32
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 33,
+        "sha": "6532989c0a4b0bb924118d7889593bbd89324ab58acebc2ec9cec5c4c673a92e"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 33
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 34,
+        "sha": "e36fac725af382a133e239f90600282cc0e3d6241f0e8dc2d294a972ec2f8768"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 34
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 35,
+        "sha": "7d42af9a6e981c87ee9147e7b5754179fbb86e77a53fc2195ac2a8717242b132"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 35
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 36,
+        "sha": "7fbc5d733bd957fcff66b90b3645df4ff2e96253919ac5e10d95230b2579d591"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 36
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 37,
+        "sha": "e662b34a3babf7b114052f2d6fb41ba7f18477010af37722f479e273f81d6fe9"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 37
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 38,
+        "sha": "ea5cf54b23ecad8e0a997ed85a816366c3a5fd2299178316776a3bfe94308789"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 38
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 39,
+        "sha": "23290ee87837ee78c9445fea30687e2e84e9cb6a6160e8e9520c93ba5bc3ab9f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 39
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 40,
+        "sha": "00039abddb6cd811c7af7da12459f649949f3d5d0b899861bf33f4f381999acf"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 40
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 41,
+        "sha": "2ef23059ae19689d1b6a72d91ded556dc3490950d6eb44b12c5aa77d1b0d5525"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 41
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 42,
+        "sha": "112f0ee836dbe2a9edf7b1b2fabf9c91277a09e2c9e22df043eb3341c187b72f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 42
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 43,
+        "sha": "d863027660b3fd3c5395f7bd784b29be84450e93447cab7b74990849553a754f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 43
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 44,
+        "sha": "278b754dc4eefdef78e8665c93df865ecae6e31f9121ce12b9baa814e39ed866"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 44
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 45,
+        "sha": "10ebcbde0d3965dd51dbd34e6ad4acf02c7f58416df5248022cd445c9eebfc45"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 45
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 46,
+        "sha": "80559c5e4434b523ecfc9df1fbd78487f8e8c7b0fd5b3475862f96a4b230cb0b"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 46
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 47,
+        "sha": "4387a51b19256370d4b49c5d5170777f311717de97387ce1ed0368327a066090"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 47
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 48,
+        "sha": "87628ed8f5a2373a9362f4e39f32e503d50efec09dbc5386832b4c53cf35bccd"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 48
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 49,
+        "sha": "53bd7b165698629fc608db4e458c54f2ae0f62b9c1ef9d6e5e748a0f75aefde8"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 49
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 50,
+        "sha": "6353d721651982d52ca138fdbc54fd7db91840d16ffac29010d540d6cbf09ef0"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 50
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 51,
+        "sha": "ffe907fda475e1833c88ac7e7e16a1f8f8029b0224b47e2b6570521866f1f9bb"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 51
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 52,
+        "sha": "1c9d46457150b3934aa8a5a469a8fb7bb573e3d6771e123885891e369294bb46"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 52
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 53,
+        "sha": "1b9e612b3f92843c5201b209dce1e8a8af6fd1756e7acf1199bef56231a2c6fa"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 53
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 54,
+        "sha": "1713037e0ccdc110f378f04ef9b9755dfa0af29e24aa669e8f4cf58c8c797dbe"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 54
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 55,
+        "sha": "ad8e9a6e6d1d6b7d997eb44202ccaea72b458d7882338bae8cdc8aba8ebe3783"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 55
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 56,
+        "sha": "4408c008077b7643e88382f1b7c6a1189f4ce840a05ccbd5d229d024968d624c"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 56
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 57,
+        "sha": "c4a5b1adbe067715feb1ee67cd6c3b30825a40af025c339a7dfc9f20fbbac213"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 57
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 58,
+        "sha": "d5a7ed0b844d01af3ee089e50aef826bace5349d345d95f3d1ad8f0ab6aedd7f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 58
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 59,
+        "sha": "7dcf9ee15e7c23c033ad52d8f2455a8407fb4aa9a5970f0fad986b342fb9991e"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 59
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 60,
+        "sha": "0bcff1dee78187ef77859aecc4cf707cfd3b5cdb7be348a72b43a5ea49d91865"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 60
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 61,
+        "sha": "4f44df81b64af914b7a5b29ee2c6033fdf8f037150f7d055d5c4b5949c32aa4e"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 61
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 62,
+        "sha": "35bbdf57bf9a7263c9b381429f9983c1bfb78f7dd0fbb317fd9cedcb28d7ac7b"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 62
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 63,
+        "sha": "0ba68da05739c17672ac4e5a6d9c4fd1db33a623c23936b75a90c95f68cbed74"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 63
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 64,
+        "sha": "60083661e09b2e45ec806bcafa9e098914c3343309364fcf217f92b2cc12a081"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 64
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 65,
+        "sha": "ae805be13da8a996ced5302353a2dee21927c084aff16df7216a13a07faa1d54"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 65
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 66,
+        "sha": "44ee282487cce64c33aa610b58c519b704b0680027d90f56f722c5eeed066bbb"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 66
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 67,
+        "sha": "6f9ba975739fe18d7f8f7a2719e50021646c7cf69b3731799e6083cbf72c5685"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 67
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 68,
+        "sha": "f20690d1762d52e0d52eab52760388927d36797c085162c70501ca927933186d"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 68
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 69,
+        "sha": "fe200e63054ce6495dafc5301221254b7f005ff4a1fd77184a062ee4445ab146"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 69
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 70,
+        "sha": "489c4b314976a1e76adeeed14d65ecc1c163cd5fc864ebd1b0d6677cae101e46"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 70
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 71,
+        "sha": "e0491a83f9e2db387583024b44c512e89e3cfebc03c6df99616f658555324d4a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 71
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 72,
+        "sha": "a7c83b0f1f59302e725f2bc56fa322155416dcd930242d3ec8952d38c6985e77"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 72
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 73,
+        "sha": "b1438c4c630b1a27b295be4c77699b4e0730fb66174962c1a28a146cf221ec2c"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 73
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 74,
+        "sha": "a3bcc6328a1824b52559aac8e13f71212cad5937f4972b78f9275ff6d7191866"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 74
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 75,
+        "sha": "bf6134d0fbcb158b529d81e582051fa49481e20eaed0cad27d22cbbbd326f7cc"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 75
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 76,
+        "sha": "5b925dc4c2d11bbe5e287c4c9a0803f4a7c146e9fe8a82a84ffe68ef8f4ae4f7"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 76
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 77,
+        "sha": "148ebdf9a8c316d447d3f7b0f6ff9720f1f89e9a5c86aa99ff9a151057944d3a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 77
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 78,
+        "sha": "ff429939397cce02c86da2163a046e5060ed189c5a0b310b35db6924c7614442"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 78
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 79,
+        "sha": "0dcfe1109f707e40643dfa3e2d642fbbc3578ddf30322e2f4e7042958ce4a335"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 79
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 80,
+        "sha": "1bca696af2ce2c61af8a39f824f88c14fffb890a02f04d518ff33401514f785a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 80
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 81,
+        "sha": "94191008a94005b3ed3c7e47ba99ac9902c5120fa57d0c7779325683fbd069e8"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 81
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 82,
+        "sha": "1cca1017072a5d9fecd925d8388418e60241c33490385511f53af026dea46859"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 82
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 83,
+        "sha": "e210f41bab85efd5742c873e4224e0c117b70d6575039937d20a17581ded3aae"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 83
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 84,
+        "sha": "8326d3902e15557d44bd22702a6735c35f689b00207171992242a92d42d44759"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 84
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 85,
+        "sha": "0d14ba34a49c0bb08df2c59adb8f9536e0d63e9617013d10820dd1d7a4f32b1e"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 85
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 86,
+        "sha": "d2282c57dd6953f1d21561dd967062df1c48d6cd3a957d4352335d7fa609af4a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 86
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 87,
+        "sha": "fb0d1498edfac4a7ec57ecd308c4ec71b317f3e97d6bb1e9d4b6aa1d0ae48183"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 87
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 88,
+        "sha": "9b19428cb5e9e22cee0f82bb548466fa18d00ce5ca41f77773843ea99d8f3fac"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 88
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 89,
+        "sha": "cefc6d2835f8585e8cecd00459a0fe47289d5b8a42b49c10086149292ba3806e"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 89
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 90,
+        "sha": "1f6d92551b4f4c2d94478f8c2a8092a39bb51093b94f1ed205218f93478b8874"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 90
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 91,
+        "sha": "34b3beccffffff761912ceff4d07cccfaeeece7d061f307c732d1a624ee839da"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 91
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 92,
+        "sha": "a31e46f05374096e334c5306b585f2f4abd1eda62b39c1c2fd26ab98f10835ff"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 92
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 93,
+        "sha": "ac444cd15ac567ccb6000ee8fc3c52a051cfebb435c180187251d4b7266dbdb6"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 93
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 94,
+        "sha": "fce8e263096ae66ef1422a831228fc69bd96204988c0bb72f8c9ec4679148e29"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 94
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 95,
+        "sha": "6c0eb8a52bd8d5cdde1d2fe3135e82d96f08a245891119123ab342a07ecaddd3"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 95
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 96,
+        "sha": "80ed5b8a0e19ad3a0ea19af16ca2da4c0a85b5c570c3280af656b5c04100e55f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 96
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 97,
+        "sha": "0405099fba407d578dd8b1a13f2e9e349bdd759c4cdd37dc713b1d6bdf537553"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 97
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 98,
+        "sha": "83927c90007dd37cee20b93cb0016b9a25e14acc430c9d9a4ecd42be6ad15a6a"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 98
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 99,
+        "sha": "0e9f3e6e87ad121abb9cca0e67ccbc7e6aa012aa2cb7aeff3636917f267b7927"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 99
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 100,
+        "sha": "9214db3f8dd3d45591988a3dfaac107a4cc0ae95dfdad1205c2d141ad49f69bc"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 100
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 101,
+        "sha": "8f98996749d2cdc0bd073cde2b5efe57ec3416a248ffcacb0cb799e9e04709b5"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 101
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 102,
+        "sha": "df92ac88e6c201332dc748c0884dc50c635d8d9a060d929d8390046d1b5fa6ed"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 102
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 103,
+        "sha": "baf9f595c0dacfa84cf79060de6352752f222ae5d51b74950fe790da1b043038"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 103
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 104,
+        "sha": "07aa9b7aea94aa680c1bedc15e59dba5823ba8a667f22affbde7985010a48e04"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 104
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 105,
+        "sha": "946f93f46c14a4a1d60bb357c0b695dad29227e3e5244903c7af11b60a6a3634"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 105
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 106,
+        "sha": "cee370f916b057282240819249eb6a6c3ac1b09a7cc60fb1dd31082c45830322"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 106
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 107,
+        "sha": "a318b5a53ece07f1a123a586e3ded86efb091a0ad957cc0049be998b591c3717"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 107
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 108,
+        "sha": "9f261508fc35c156cb230b79322239db5e06c68879c0fab18caa06edc4d42509"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 108
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 109,
+        "sha": "7f5994c88b72d3515c2a9b21fc9717b2baac9a1636ad27dc40e1d80add0b7dde"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 109
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 110,
+        "sha": "e5393ba52f197600c711111a4e66ca2b5cd6db6668e6e0fef48dbb1facd1c819"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 110
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 111,
+        "sha": "f15e35ab087649499129908175491df88c22e4b6fff29ad3b7cb114e994b63e2"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 111
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 112,
+        "sha": "6f3adc35d9b16821b3294e5375b7e87826a867e3bfc132b2e18049fb8c25d69f"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 112
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 113,
+        "sha": "27c51fbefb65716e93d04521ff8cb82e04850fab2170b0937f5bad5e7f94e6f6"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 113
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 114,
+        "sha": "6effd47e837c6217eabd0fc7826fef5b39765ac62dbc302ea04cf366b660a7a3"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 114
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 115,
+        "sha": "ec027150e123807c8d929c6ac8e3e12b74054e721f136a9d2f125a3f9df1e9cd"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 115
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 116,
+        "sha": "b3b5dbace7f0fb6c015a5c0393d02d3e2817c991342630b0ad5d5901e428dd92"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 116
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 117,
+        "sha": "ecd06311029d6c2900839f914e997cdb2f6666fbe0108c968ef7249c7a3c054c"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 117
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 118,
+        "sha": "203557a4953d887e0ce23f5a4f5e95229639b3f2092620cc3f3fa5f97dac68e6"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 118
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 119,
+        "sha": "7c608e003767120ca5174c70dbc0dbd78b8f7ae2f51ef808b7fe68331ec8a2c0"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 119
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 120,
+        "sha": "f23ce8354328589ea0d2eb3d334c70e4e07dd2aa7e3fdb02e9964a0716b4fedf"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 120
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 121,
+        "sha": "f68e1aa0444db85eee282611aa0a100d0135048cc9f0de5aab8e43e18d42c729"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 121
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 122,
+        "sha": "5b64d3fd1116f24ffa1cfce30d6670529db14b2f89255fa1be5eb92a90250b97"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 122
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 123,
+        "sha": "d419105983df0269a3d28a905f43f232a570f70b34352a5ae118d6acab1e5654"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 123
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 124,
+        "sha": "9c102a382aaa548aabab1636081addadc4c46ece3500a5d89b8004f49b6d75c1"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 124
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 125,
+        "sha": "114aba390e23cd42afed76382859b2a1af6023735fbf366848b09ef948732138"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 125
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 126,
+        "sha": "59ac850be86f4209597893f6d836504e716217d6538b1210e931bfb4a2eba199"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 126
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 127,
+        "sha": "104fc97ceda49708d60b5e40efc4e685fe12b93c8eb497e7974cb9f85f037926"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 127
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": {
+        "len": 100,
+        "sequence": 128,
+        "sha": "5d631321c7c56aef1747e1d579a9c32ee5428af520b94eb254b8292a2a0428e1"
+      }
+    },
+    {
+      "n": "r3",
+      "now": 201,
+      "op": "r_commit",
+      "result": null,
+      "seq": 128
+    },
+    {
+      "n": "r3",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "n": "r3",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 0,
+        "bufferedRecords": 0,
+        "deliveredThrough": 128,
+        "discarded": 0,
+        "duplicates": 0,
+        "evicted": 0,
+        "futureBytes": 0,
+        "headBytes": 0
+      }
+    },
+    {
+      "n": "r3",
+      "now": 202,
+      "op": "r_ack_due",
+      "result": {
+        "ranges": [],
+        "through": 128
+      }
+    },
+    {
+      "n": "s1",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "len": 1000,
+      "n": "s1",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid sender sequence 2, expected 1."
+      },
+      "seq": 2,
+      "stream": null
+    },
+    {
+      "len": 1000,
+      "n": "s1",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "len": 1000,
+      "n": "s1",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid sender sequence 1, expected 2."
+      },
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "len": 5000,
+      "n": "s1",
+      "op": "s_push",
+      "result": 2,
+      "seq": 2,
+      "stream": null
+    },
+    {
+      "len": 70000,
+      "n": "s1",
+      "op": "s_push",
+      "result": 3,
+      "seq": 3,
+      "stream": null
+    },
+    {
+      "len": 2000,
+      "n": "s1",
+      "op": "s_push",
+      "result": 4,
+      "seq": 4,
+      "stream": null
+    },
+    {
+      "len": 3000,
+      "n": "s1",
+      "op": "s_push",
+      "result": 5,
+      "seq": 5,
+      "stream": null
+    },
+    {
+      "budget": null,
+      "n": "s1",
+      "now": 10,
+      "op": "s_due",
+      "result": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "budget": 6000,
+      "n": "s1",
+      "now": 10,
+      "op": "s_due",
+      "result": [
+        1,
+        2
+      ]
+    },
+    {
+      "budget": 0,
+      "n": "s1",
+      "now": 10,
+      "op": "s_due",
+      "result": []
+    },
+    {
+      "carrier": "relay",
+      "n": "s1",
+      "now": 11,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "carrier": "relay",
+      "n": "s1",
+      "now": 12,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "carrier": "relay",
+      "n": "s1",
+      "now": 13,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "carrier": "relay",
+      "n": "s1",
+      "now": 14,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 4
+    },
+    {
+      "carrier": "relay",
+      "n": "s1",
+      "now": 15,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 5
+    },
+    {
+      "budget": null,
+      "n": "s1",
+      "now": 20,
+      "op": "s_due",
+      "result": []
+    },
+    {
+      "cseq": 1,
+      "n": "s1",
+      "now": 21,
+      "op": "s_ack",
+      "ranges": [],
+      "result": {
+        "error": "remote transport: invalid ack (beyond sent)."
+      },
+      "through": 9
+    },
+    {
+      "cseq": 2,
+      "n": "s1",
+      "now": 22,
+      "op": "s_ack",
+      "ranges": [
+        [
+          4,
+          4
+        ]
+      ],
+      "result": 2,
+      "through": 2
+    },
+    {
+      "n": "s1",
+      "op": "s_stats",
+      "result": {
+        "ackedThrough": 2,
+        "bulkBytes": 0,
+        "nextSequence": 6,
+        "outstandingBytes": 200932,
+        "retainedRecords": 3,
+        "retransmits": 0
+      }
+    },
+    {
+      "cseq": 3,
+      "n": "s1",
+      "now": 23,
+      "op": "s_ack",
+      "ranges": [],
+      "result": 0,
+      "through": 1
+    },
+    {
+      "buffered": 0,
+      "carrier": "relay",
+      "n": "s1",
+      "op": "s_probe_through",
+      "result": 5
+    },
+    {
+      "buffered": 60000,
+      "carrier": "relay",
+      "n": "s1",
+      "op": "s_probe_through",
+      "result": 2
+    },
+    {
+      "carrier": "relay",
+      "hold": 300,
+      "n": "s1",
+      "now": 100,
+      "op": "s_carrier_failed",
+      "result": 3
+    },
+    {
+      "budget": null,
+      "n": "s1",
+      "now": 150,
+      "op": "s_due",
+      "result": []
+    },
+    {
+      "budget": null,
+      "n": "s1",
+      "now": 450,
+      "op": "s_due",
+      "result": [
+        3,
+        5
+      ]
+    },
+    {
+      "cseq": 4,
+      "n": "s1",
+      "now": 460,
+      "op": "s_ack",
+      "ranges": [
+        [
+          4,
+          4
+        ]
+      ],
+      "result": 0,
+      "through": 2
+    },
+    {
+      "budget": null,
+      "n": "s1",
+      "now": 460,
+      "op": "s_due",
+      "result": [
+        3,
+        5
+      ]
+    },
+    {
+      "cseq": 5,
+      "n": "s1",
+      "op": "s_repair",
+      "result": 2,
+      "sequences": [
+        4,
+        5,
+        99
+      ]
+    },
+    {
+      "budget": null,
+      "n": "s1",
+      "now": 461,
+      "op": "s_due",
+      "result": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "carrier": "direct:a",
+      "n": "s1",
+      "now": 462,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "carrier": "direct:a",
+      "n": "s1",
+      "now": 462,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 4
+    },
+    {
+      "carrier": "direct:a",
+      "n": "s1",
+      "now": 462,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 5
+    },
+    {
+      "cseq": 6,
+      "n": "s1",
+      "now": 470,
+      "op": "s_ack",
+      "ranges": [],
+      "result": 3,
+      "through": 5
+    },
+    {
+      "n": "s1",
+      "op": "s_stats",
+      "result": {
+        "ackedThrough": 5,
+        "bulkBytes": 0,
+        "nextSequence": 6,
+        "outstandingBytes": 0,
+        "retainedRecords": 0,
+        "retransmits": 3
+      }
+    },
+    {
+      "n": "s1",
+      "now": 100000,
+      "op": "s_expired",
+      "result": false
+    },
+    {
+      "n": "s2",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "len": 1000,
+      "n": "s2",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s2",
+      "now": 1,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "len": 1000,
+      "n": "s2",
+      "op": "s_push",
+      "result": 2,
+      "seq": 2,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s2",
+      "now": 1,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "len": 1000,
+      "n": "s2",
+      "op": "s_push",
+      "result": 3,
+      "seq": 3,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s2",
+      "now": 1,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "len": 1000,
+      "n": "s2",
+      "op": "s_push",
+      "result": 4,
+      "seq": 4,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s2",
+      "now": 1,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 4
+    },
+    {
+      "cseq": 10,
+      "n": "s2",
+      "op": "s_repair",
+      "result": 1,
+      "sequences": [
+        2
+      ]
+    },
+    {
+      "cseq": 9,
+      "n": "s2",
+      "now": 2,
+      "op": "s_ack",
+      "ranges": [
+        [
+          2,
+          3
+        ]
+      ],
+      "result": 0,
+      "through": 0
+    },
+    {
+      "budget": null,
+      "n": "s2",
+      "now": 3,
+      "op": "s_due",
+      "result": [
+        2
+      ]
+    },
+    {
+      "carrier": "relay",
+      "n": "s2",
+      "now": 3,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "cseq": 11,
+      "n": "s2",
+      "now": 4,
+      "op": "s_ack",
+      "ranges": [
+        [
+          2,
+          3
+        ]
+      ],
+      "result": 0,
+      "through": 0
+    },
+    {
+      "carrier": "relay",
+      "hold": 1000,
+      "n": "s2",
+      "now": 5,
+      "op": "s_carrier_failed",
+      "result": 4
+    },
+    {
+      "budget": null,
+      "n": "s2",
+      "now": 6,
+      "op": "s_due",
+      "result": []
+    },
+    {
+      "cseq": 12,
+      "n": "s2",
+      "now": 7,
+      "op": "s_ack",
+      "ranges": [
+        [
+          3,
+          3
+        ]
+      ],
+      "result": 0,
+      "through": 0
+    },
+    {
+      "budget": null,
+      "n": "s2",
+      "now": 7,
+      "op": "s_due",
+      "result": [
+        1,
+        4
+      ]
+    },
+    {
+      "cseq": 13,
+      "n": "s2",
+      "now": 8,
+      "op": "s_ack",
+      "ranges": [
+        [
+          3,
+          3
+        ]
+      ],
+      "result": 0,
+      "through": 0
+    },
+    {
+      "budget": null,
+      "n": "s2",
+      "now": 8,
+      "op": "s_due",
+      "result": [
+        1,
+        4
+      ]
+    },
+    {
+      "n": "s2",
+      "now": 100,
+      "op": "s_probe_due",
+      "pto": 50,
+      "result": true
+    },
+    {
+      "n": "s3",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "len": 1000,
+      "n": "s3",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s3",
+      "now": 1000,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "s3",
+      "now": 1100,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": true
+    },
+    {
+      "n": "s3",
+      "now": 1200,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": false
+    },
+    {
+      "n": "s3",
+      "now": 1300,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": true
+    },
+    {
+      "n": "s3",
+      "now": 1400,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": false
+    },
+    {
+      "n": "s3",
+      "now": 1600,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": false
+    },
+    {
+      "n": "s3",
+      "now": 1700,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": true
+    },
+    {
+      "n": "s3",
+      "now": 2000,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": false
+    },
+    {
+      "n": "s3",
+      "now": 2100,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": false
+    },
+    {
+      "cseq": 1,
+      "n": "s3",
+      "now": 2200,
+      "op": "s_ack",
+      "ranges": [],
+      "result": 1,
+      "through": 1
+    },
+    {
+      "n": "s3",
+      "now": 9000,
+      "op": "s_probe_due",
+      "pto": 100,
+      "result": false
+    },
+    {
+      "n": "s4",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "len": 1000,
+      "n": "s4",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s4",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "len": 1000,
+      "n": "s4",
+      "op": "s_push",
+      "result": 2,
+      "seq": 2,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s4",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "len": 1000,
+      "n": "s4",
+      "op": "s_push",
+      "result": 3,
+      "seq": 3,
+      "stream": null
+    },
+    {
+      "carrier": "relay",
+      "n": "s4",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "n": "s4",
+      "now": 60099,
+      "op": "s_expired",
+      "result": false
+    },
+    {
+      "n": "s4",
+      "now": 60100,
+      "op": "s_expired",
+      "result": true
+    },
+    {
+      "cseq": 1,
+      "n": "s4",
+      "now": 50000,
+      "op": "s_ack",
+      "ranges": [],
+      "result": 1,
+      "through": 1
+    },
+    {
+      "n": "s4",
+      "now": 60100,
+      "op": "s_expired",
+      "result": false
+    },
+    {
+      "n": "s4",
+      "now": 110000,
+      "op": "s_expired",
+      "result": true
+    },
+    {
+      "n": "s4",
+      "now": 110000,
+      "op": "s_expired",
+      "result": true
+    },
+    {
+      "cseq": 2,
+      "n": "s4",
+      "now": 110000,
+      "op": "s_ack",
+      "ranges": [],
+      "result": 2,
+      "through": 3
+    },
+    {
+      "n": "s4",
+      "now": 999999,
+      "op": "s_expired",
+      "result": false
+    },
+    {
+      "n": "s5",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "buffered": 1048577,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": false,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 2,
+      "seq": 2,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 3,
+      "seq": 3,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 4,
+      "seq": 4,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 5,
+      "seq": 5,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 6,
+      "seq": 6,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 7,
+      "seq": 7,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 8,
+      "seq": 8,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 9,
+      "seq": 9,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 10,
+      "seq": 10,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 11,
+      "seq": 11,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 12,
+      "seq": 12,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m1"
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": 13,
+      "seq": 13,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": false,
+      "stream": "m1"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": "m2"
+    },
+    {
+      "buffered": 0,
+      "n": "s5",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 80000,
+      "n": "s5",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid bulk credit."
+      },
+      "seq": 14,
+      "stream": "m1"
+    },
+    {
+      "len": 90000,
+      "n": "s5",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid bulk record size."
+      },
+      "seq": 14,
+      "stream": "m2"
+    },
+    {
+      "len": 2000000,
+      "n": "s5",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid record size."
+      },
+      "seq": 14,
+      "stream": null
+    },
+    {
+      "n": "s5",
+      "op": "s_stats",
+      "result": {
+        "ackedThrough": 0,
+        "bulkBytes": 1040000,
+        "nextSequence": 14,
+        "outstandingBytes": 1040000,
+        "retainedRecords": 13,
+        "retransmits": 0
+      }
+    },
+    {
+      "n": "s6",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 2,
+      "seq": 2,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 3,
+      "seq": 3,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 4,
+      "seq": 4,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 5,
+      "seq": 5,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 6,
+      "seq": 6,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": true,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": 7,
+      "seq": 7,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": false,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid sender window."
+      },
+      "seq": 8,
+      "stream": null
+    },
+    {
+      "buffered": 0,
+      "n": "s6",
+      "op": "s_can_admit",
+      "result": false,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid sender sequence 9, expected 8."
+      },
+      "seq": 9,
+      "stream": null
+    },
+    {
+      "len": 1048616,
+      "n": "s6",
+      "op": "s_push",
+      "result": {
+        "error": "remote transport: invalid sender sequence 9, expected 8."
+      },
+      "seq": 9,
+      "stream": null
+    },
+    {
+      "n": "s6",
+      "op": "s_stats",
+      "result": {
+        "ackedThrough": 0,
+        "bulkBytes": 0,
+        "nextSequence": 8,
+        "outstandingBytes": 7340312,
+        "retainedRecords": 7,
+        "retransmits": 0
+      }
+    },
+    {
+      "n": "m1",
+      "now": 0,
+      "op": "new_monitor",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 374.625,
+        "pto": 1024,
+        "smoothed": 333
+      }
+    },
+    {
+      "args": [
+        100
+      ],
+      "n": "m1",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 112.5,
+        "pto": 325,
+        "smoothed": 100
+      }
+    },
+    {
+      "args": [
+        120
+      ],
+      "n": "m1",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 135,
+        "pto": 297.5,
+        "smoothed": 102.5
+      }
+    },
+    {
+      "args": [
+        80
+      ],
+      "n": "m1",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 112.1484375,
+        "pto": 274.6875,
+        "smoothed": 99.6875
+      }
+    },
+    {
+      "args": [
+        400
+      ],
+      "n": "m1",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 450,
+        "pto": 575.0390625,
+        "smoothed": 137.2265625
+      }
+    },
+    {
+      "args": [
+        90
+      ],
+      "n": "m1",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 147.7386474609375,
+        "pto": 513.1591796875,
+        "smoothed": 131.3232421875
+      }
+    },
+    {
+      "args": [
+        5000,
+        0
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        5999,
+        0
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        6000,
+        0
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": "silent"
+    },
+    {
+      "args": [
+        6000
+      ],
+      "n": "m1",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "args": [
+        8000,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        9000
+      ],
+      "n": "m1",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "args": [
+        13999,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        13999
+      ],
+      "n": "m1",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "args": [
+        14000,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": "no-progress"
+    },
+    {
+      "args": [
+        14000
+      ],
+      "n": "m1",
+      "op": "m_ack_advanced",
+      "result": null
+    },
+    {
+      "args": [
+        19999,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": "silent"
+    },
+    {
+      "args": [
+        20000,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": "silent"
+    },
+    {
+      "args": [
+        900000,
+        20000
+      ],
+      "n": "m1",
+      "op": "m_buffered",
+      "result": null
+    },
+    {
+      "args": [
+        800000,
+        25000
+      ],
+      "n": "m1",
+      "op": "m_buffered",
+      "result": null
+    },
+    {
+      "args": [
+        25000
+      ],
+      "n": "m1",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "args": [
+        30999,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        31000
+      ],
+      "n": "m1",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "args": [
+        31000,
+        5000
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": "no-progress"
+    },
+    {
+      "args": [
+        40000
+      ],
+      "n": "m1",
+      "op": "m_reset",
+      "result": null
+    },
+    {
+      "n": "m1",
+      "op": "m_values",
+      "result": {
+        "idle": 6000,
+        "lossDelay": 374.625,
+        "pto": 1024,
+        "smoothed": 333
+      }
+    },
+    {
+      "args": [
+        45999,
+        1
+      ],
+      "n": "m1",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "n": "m2",
+      "now": 0,
+      "op": "new_monitor",
+      "result": null
+    },
+    {
+      "args": [
+        5000
+      ],
+      "n": "m2",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "m2",
+      "op": "m_values",
+      "result": {
+        "idle": 45075,
+        "lossDelay": 5625,
+        "pto": 15025,
+        "smoothed": 5000
+      }
+    },
+    {
+      "args": [
+        6000,
+        0
+      ],
+      "n": "m2",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        50000,
+        0
+      ],
+      "n": "m2",
+      "op": "m_stalled",
+      "result": "silent"
+    },
+    {
+      "n": "mr",
+      "now": 0,
+      "op": "new_monitor",
+      "result": null
+    },
+    {
+      "args": [
+        100
+      ],
+      "n": "mr",
+      "op": "m_rtt_sample",
+      "result": null
+    },
+    {
+      "n": "l1",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l1",
+      "now": 100,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "n": "l1",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 1,
+        "sha": "81277de8ac5375878e7261b24a0847c172ba84ea78e7af26975b79840f02bba1"
+      }
+    },
+    {
+      "n": "l1",
+      "now": 100,
+      "op": "r_commit",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "l1",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l1",
+      "now": 110,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 3
+    },
+    {
+      "n": "l1",
+      "now": 110,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 221,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 222,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l1",
+      "now": 230,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 6
+    },
+    {
+      "n": "l1",
+      "now": 230,
+      "op": "r_repair_due",
+      "result": [
+        2
+      ],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 400,
+      "op": "r_repair_due",
+      "result": [
+        4,
+        5
+      ],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 530,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 540,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 1000,
+      "op": "r_repair_due",
+      "result": [
+        2,
+        4
+      ],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "now": 2000,
+      "op": "r_repair_due",
+      "result": [
+        2,
+        4
+      ],
+      "rtt": "mr"
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l1",
+      "now": 2001,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 2
+    },
+    {
+      "n": "l1",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 2,
+        "sha": "3f060bcb23a4473564494cb8de1957ec50aec7c69ac1eb04b86db594783de2c3"
+      }
+    },
+    {
+      "n": "l1",
+      "now": 2001,
+      "op": "r_commit",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "n": "l1",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 3,
+        "sha": "93105bbf9e05926df61a8375bc00182121d272fc876030165d325fcbc92dbc65"
+      }
+    },
+    {
+      "n": "l1",
+      "now": 2001,
+      "op": "r_commit",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "n": "l1",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "n": "l1",
+      "now": 2002,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l1",
+      "op": "r_stats",
+      "result": {
+        "bufferedBytes": 65466,
+        "bufferedRecords": 1,
+        "deliveredThrough": 3,
+        "discarded": 0,
+        "duplicates": 0,
+        "evicted": 0,
+        "futureBytes": 65466,
+        "headBytes": 0
+      }
+    },
+    {
+      "n": "l2",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l2",
+      "now": 0,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "n": "l2",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 1,
+        "sha": "81277de8ac5375878e7261b24a0847c172ba84ea78e7af26975b79840f02bba1"
+      }
+    },
+    {
+      "n": "l2",
+      "now": 0,
+      "op": "r_commit",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "l2",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "n": "l2",
+      "now": 50,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l2",
+      "now": 60,
+      "op": "r_probe",
+      "result": null,
+      "sent": 3
+    },
+    {
+      "n": "l2",
+      "now": 100,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l2",
+      "now": 170,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l2",
+      "now": 171,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": "mr"
+    },
+    {
+      "n": "l2",
+      "now": 380,
+      "op": "r_repair_due",
+      "result": [
+        2,
+        3
+      ],
+      "rtt": "mr"
+    },
+    {
+      "n": "l2",
+      "now": 1000,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": null
+    },
+    {
+      "n": "l3",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 150000,
+      "n": "l3",
+      "now": 0,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "idle": null,
+      "n": "l3",
+      "now": 5999,
+      "op": "r_sweep",
+      "result": 0
+    },
+    {
+      "idle": null,
+      "n": "l3",
+      "now": 6000,
+      "op": "r_sweep",
+      "result": 1
+    },
+    {
+      "n": "l3",
+      "now": 6000,
+      "op": "r_repair_due",
+      "result": [
+        1
+      ],
+      "rtt": null
+    },
+    {
+      "index": 0,
+      "len": 150000,
+      "n": "l3",
+      "now": 6001,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "idle": 10000,
+      "n": "l3",
+      "now": 12001,
+      "op": "r_sweep",
+      "result": 0
+    },
+    {
+      "idle": 10000,
+      "n": "l3",
+      "now": 16001,
+      "op": "r_sweep",
+      "result": 1
+    },
+    {
+      "n": "l3",
+      "now": 16001,
+      "op": "r_repair_due",
+      "result": [
+        1
+      ],
+      "rtt": null
+    },
+    {
+      "n": "l3",
+      "now": 16002,
+      "op": "r_repair_due",
+      "result": [],
+      "rtt": null
+    },
+    {
+      "n": "l4",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l4",
+      "now": 0,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "n": "l4",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 1,
+        "sha": "81277de8ac5375878e7261b24a0847c172ba84ea78e7af26975b79840f02bba1"
+      }
+    },
+    {
+      "n": "l4",
+      "op": "r_discard",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "l4",
+      "op": "r_discard",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "l4",
+      "now": 1,
+      "op": "r_repair_due",
+      "result": [
+        1
+      ],
+      "rtt": null
+    },
+    {
+      "index": 0,
+      "len": 1000,
+      "n": "l4",
+      "now": 2,
+      "op": "r_accept",
+      "result": "buffered",
+      "seq": 1
+    },
+    {
+      "n": "l4",
+      "op": "r_next",
+      "result": {
+        "len": 1000,
+        "sequence": 1,
+        "sha": "81277de8ac5375878e7261b24a0847c172ba84ea78e7af26975b79840f02bba1"
+      }
+    },
+    {
+      "n": "l4",
+      "now": 2,
+      "op": "r_commit",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "n": "l4",
+      "op": "r_next",
+      "result": null
+    },
+    {
+      "n": "l4",
+      "now": 3,
+      "op": "r_carrier_changed",
+      "result": null
+    },
+    {
+      "n": "l4",
+      "now": 3,
+      "op": "r_ack_due",
+      "result": {
+        "ranges": [],
+        "through": 1
+      }
+    },
+    {
+      "n": "l4",
+      "op": "r_ack_sent",
+      "result": null,
+      "through": 1
+    },
+    {
+      "n": "l4",
+      "now": 4,
+      "op": "r_ack_due",
+      "result": null
+    },
+    {
+      "n": "d1",
+      "op": "new_sender",
+      "result": null
+    },
+    {
+      "n": "dm",
+      "now": 0,
+      "op": "new_monitor",
+      "result": null
+    },
+    {
+      "n": "d2",
+      "op": "new_receiver",
+      "result": null
+    },
+    {
+      "len": 20000,
+      "n": "d1",
+      "op": "s_push",
+      "result": 1,
+      "seq": 1,
+      "stream": null
+    },
+    {
+      "len": 20000,
+      "n": "d1",
+      "op": "s_push",
+      "result": 2,
+      "seq": 2,
+      "stream": null
+    },
+    {
+      "len": 20000,
+      "n": "d1",
+      "op": "s_push",
+      "result": 3,
+      "seq": 3,
+      "stream": null
+    },
+    {
+      "len": 20000,
+      "n": "d1",
+      "op": "s_push",
+      "result": 4,
+      "seq": 4,
+      "stream": null
+    },
+    {
+      "carrier": "direct:a",
+      "n": "d1",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 1
+    },
+    {
+      "carrier": "direct:a",
+      "n": "d1",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "carrier": "direct:a",
+      "n": "d1",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "carrier": "direct:a",
+      "n": "d1",
+      "now": 100,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 4
+    },
+    {
+      "args": [
+        261864,
+        100
+      ],
+      "n": "dm",
+      "op": "m_outstanding",
+      "result": null
+    },
+    {
+      "args": [
+        100
+      ],
+      "n": "dm",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "cseq": 1,
+      "n": "d1",
+      "now": 500,
+      "op": "d_ack",
+      "ranges": [],
+      "result": 1,
+      "through": 1
+    },
+    {
+      "args": [
+        500
+      ],
+      "n": "dm",
+      "op": "m_ack_advanced",
+      "result": null
+    },
+    {
+      "args": [
+        500
+      ],
+      "n": "dm",
+      "op": "m_inbound",
+      "result": null
+    },
+    {
+      "args": [
+        6499,
+        196398
+      ],
+      "n": "dm",
+      "op": "m_stalled",
+      "result": null
+    },
+    {
+      "args": [
+        6500,
+        196398
+      ],
+      "n": "dm",
+      "op": "m_stalled",
+      "result": "silent"
+    },
+    {
+      "carrier": "direct:a",
+      "hold": 0,
+      "n": "d1",
+      "now": 6500,
+      "op": "s_carrier_failed",
+      "result": 3
+    },
+    {
+      "budget": null,
+      "n": "d1",
+      "now": 6500,
+      "op": "s_due",
+      "result": [
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "carrier": "relay",
+      "n": "d1",
+      "now": 6501,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 2
+    },
+    {
+      "carrier": "relay",
+      "n": "d1",
+      "now": 6501,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 3
+    },
+    {
+      "carrier": "relay",
+      "n": "d1",
+      "now": 6501,
+      "op": "s_mark_sent",
+      "result": null,
+      "seq": 4
+    },
+    {
+      "cseq": 2,
+      "n": "d1",
+      "now": 6600,
+      "op": "s_ack",
+      "ranges": [],
+      "result": 3,
+      "through": 4
+    },
+    {
+      "n": "d1",
+      "op": "s_stats",
+      "result": {
+        "ackedThrough": 4,
+        "bulkBytes": 0,
+        "nextSequence": 5,
+        "outstandingBytes": 0,
+        "retainedRecords": 0,
+        "retransmits": 3
+      }
+    },
+    {
+      "id": 1,
+      "len": 100,
+      "name": "small",
+      "op": "split",
+      "result": [
+        {
+          "len": 100,
+          "sha": "b7b60eb42721509014cd6c7f13c13fec70d8c14e560257ab4c75bfef6e66919f"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "len": 1048576,
+      "name": "edge",
+      "op": "split",
+      "result": [
+        {
+          "len": 1048576,
+          "sha": "cf2e1c8fa47b340df5cebd0e8260cdf7b538d98cd6b561a7f7ba19afcd16cac5"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "len": 1048577,
+      "name": "over",
+      "op": "split",
+      "result": [
+        {
+          "len": 1048530,
+          "sha": "dd75f61a4ecce50cfbbbec01cb20e45e28c78e6998b58051fe8b20c4a376fb7c"
+        },
+        {
+          "len": 349705,
+          "sha": "6f11973ab399503430b14f8e239bb43ac78d274f72fbf1c4f50ed4923b14ee45"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "len": 2500000,
+      "name": "big",
+      "op": "split",
+      "result": [
+        {
+          "len": 1048530,
+          "sha": "cae0a267e7d868d038d8ecc2a9ba8f66cc867cb0977f5a68193c91390b3510a3"
+        },
+        {
+          "len": 1048530,
+          "sha": "5f8c93923a7bdaf88b107c2240cf43f8fc0a425000ec7f3b60725af240fb71de"
+        },
+        {
+          "len": 1048530,
+          "sha": "b9a95c55b85e1ae8e794d066ab573a309a5b8eec635b6cb3ffbffeadcfe8c1f9"
+        },
+        {
+          "len": 188008,
+          "sha": "dbef08ae59a2413ec28dbb5c53b800e473f669253c3b0d37837c062849fdc68b"
+        }
+      ]
+    },
+    {
+      "id": 0,
+      "len": 2500000,
+      "name": "bad",
+      "op": "split",
+      "result": {
+        "error": "remote transport: invalid fragment id."
+      }
+    },
+    {
+      "op": "split_limit",
+      "result": 67108864
+    },
+    {
+      "n": "a1",
+      "op": "a_new",
+      "pool": null,
+      "result": null
+    },
+    {
+      "index": 0,
+      "n": "a1",
+      "now": 10,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "index": 1,
+      "n": "a1",
+      "now": 11,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "index": 2,
+      "n": "a1",
+      "now": 12,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "n": "a1",
+      "op": "a_state",
+      "result": {
+        "idle": false,
+        "pending": 2359044,
+        "reserved": 3145392,
+        "stalled": false
+      }
+    },
+    {
+      "index": 2,
+      "n": "a1",
+      "now": 20,
+      "op": "a_accept",
+      "result": {
+        "error": "remote transport: invalid fragment order."
+      },
+      "split": "big"
+    },
+    {
+      "n": "a1",
+      "op": "a_state",
+      "result": {
+        "pending": 0,
+        "reserved": 0
+      }
+    },
+    {
+      "n": "a2",
+      "op": "a_new",
+      "pool": null,
+      "result": null
+    },
+    {
+      "index": 0,
+      "n": "a2",
+      "now": 10,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "index": 1,
+      "n": "a2",
+      "now": 10,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "index": 2,
+      "n": "a2",
+      "now": 10,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "n": "a2",
+      "op": "a_close",
+      "result": null
+    },
+    {
+      "n": "a2",
+      "op": "a_state",
+      "result": {
+        "pending": 0,
+        "reserved": 0
+      }
+    },
+    {
+      "n": "a3",
+      "op": "a_new",
+      "pool": null,
+      "result": null
+    },
+    {
+      "index": 1,
+      "n": "a3",
+      "now": 1,
+      "op": "a_accept",
+      "result": {
+        "error": "remote transport: invalid fragment order."
+      },
+      "split": "big"
+    },
+    {
+      "index": 0,
+      "n": "a3",
+      "now": 1,
+      "op": "a_accept",
+      "result": {
+        "len": 100,
+        "sha": "b7b60eb42721509014cd6c7f13c13fec70d8c14e560257ab4c75bfef6e66919f",
+        "state": "complete"
+      },
+      "split": "small"
+    },
+    {
+      "n": "a4",
+      "op": "a_new",
+      "pool": null,
+      "result": null
+    },
+    {
+      "index": 0,
+      "n": "a4",
+      "now": 1,
+      "op": "a_accept",
+      "result": {
+        "len": 100,
+        "sha": "b7b60eb42721509014cd6c7f13c13fec70d8c14e560257ab4c75bfef6e66919f",
+        "state": "complete"
+      },
+      "split": "small"
+    },
+    {
+      "index": 0,
+      "n": "a4",
+      "now": 1,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "index": 0,
+      "n": "a4",
+      "now": 2,
+      "op": "a_accept",
+      "result": {
+        "error": "remote transport: invalid message interleaved with a fragmented one."
+      },
+      "split": "small"
+    },
+    {
+      "capacity": 4000000,
+      "op": "new_pool",
+      "p": "pool",
+      "result": null
+    },
+    {
+      "n": "a5",
+      "op": "a_new",
+      "pool": "pool",
+      "result": null
+    },
+    {
+      "n": "a6",
+      "op": "a_new",
+      "pool": "pool",
+      "result": null
+    },
+    {
+      "index": 0,
+      "n": "a5",
+      "now": 1,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "index": 0,
+      "n": "a6",
+      "now": 1,
+      "op": "a_accept",
+      "result": {
+        "state": "wait"
+      },
+      "split": "big"
+    },
+    {
+      "op": "pool_used",
+      "p": "pool",
+      "result": 3145392
+    },
+    {
+      "n": "a5",
+      "op": "a_close",
+      "result": null
+    },
+    {
+      "index": 0,
+      "n": "a6",
+      "now": 2,
+      "op": "a_accept",
+      "result": {
+        "state": "partial"
+      },
+      "split": "big"
+    },
+    {
+      "op": "pool_used",
+      "p": "pool",
+      "result": 3145392
+    },
+    {
+      "n": "a7",
+      "op": "a_new",
+      "pool": null,
+      "result": null
+    },
+    {
+      "n": "a7",
+      "now": 5,
+      "op": "a_all",
+      "result": {
+        "len": 2500000,
+        "sha": "f8323db5ba1284a609a96580951892d536fa087e31b4cabe4e0ed32bfbfc9a35",
+        "state": "complete"
+      },
+      "split": "big"
+    }
+  ],
+  "recorder": "record-remote-transport.mjs"
+}

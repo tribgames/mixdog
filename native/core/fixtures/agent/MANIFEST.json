@@ -1,0 +1,270 @@
+{
+  "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
+  "fileCount": 49,
+  "files": [
+    {
+      "bytes": 10707,
+      "path": "compact/golden/conversation.json",
+      "sha256": "ca5c75d95ec15b2b422723c17f0531eb87742c6acb6129d6d9b855630b6f92de"
+    },
+    {
+      "bytes": 27973,
+      "path": "compact/golden/fresh.json",
+      "sha256": "c11e86db60b7155ff576b5e885d14e31cdf9b44d2a30dd7917b00528b04480c2"
+    },
+    {
+      "bytes": 63163,
+      "path": "compact/golden/handoff.json",
+      "sha256": "df2fd09bab84691a1f632639281efbcb9e4fa1961f823f904d986b2cbfb134e7"
+    },
+    {
+      "bytes": 4562,
+      "path": "compact/golden/meter.json",
+      "sha256": "2fbe9d15048aec8939bc23c2936fe0f4b6579241d041fdbb35b70e2b2e969829"
+    },
+    {
+      "bytes": 23095,
+      "path": "compact/golden/summary.json",
+      "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
+    },
+    {
+      "bytes": 15799,
+      "path": "compact/record.mjs",
+      "sha256": "42629193e00c062e8da58f330a97cb815ccb5752c38953ac8168d929d10df009"
+    },
+    {
+      "bytes": 1549,
+      "path": "golden/empty_incomplete_nudge.json",
+      "sha256": "85783bb69392d5a52aa3e12f55986199166821443667b7a5814731c75ea4d7cd"
+    },
+    {
+      "bytes": 1604,
+      "path": "golden/empty_max_tokens_nudge_spelling.json",
+      "sha256": "87dfacf14a0acbc94781b3d2954988229cca3fb6d065eafa041704ba0ab72162"
+    },
+    {
+      "bytes": 3867,
+      "path": "golden/empty_nudge.json",
+      "sha256": "e202ace4ba5cfed34b17cd991767dceca70587ffe501b7ff4a59aca9a52914b8"
+    },
+    {
+      "bytes": 2831,
+      "path": "golden/intra_turn_dedup.json",
+      "sha256": "932427856748cae6a717d4074cb934a5a284e99f4665ca1dc696defbf6f5bee5"
+    },
+    {
+      "bytes": 2113,
+      "path": "golden/output_limit_escalation.json",
+      "sha256": "54b566ce41e874b656b617a40b6f52a1b6b7a74c229dc2c6951f475b4ad10f6a"
+    },
+    {
+      "bytes": 5904,
+      "path": "golden/output_limit_exhausted.json",
+      "sha256": "9d326f1695ba9b768edfcbf66b688663c5a5a4b5ff73533c6b9a78e1acbbe465"
+    },
+    {
+      "bytes": 1223,
+      "path": "golden/pause_turn.json",
+      "sha256": "3240d2774e0b87abceed194efd9e7a598f7a15cf1a69b3b3cb285db51907ec3c"
+    },
+    {
+      "bytes": 1825,
+      "path": "golden/refusal_twice.json",
+      "sha256": "79e5b33cad8a3b4f50335c983d6a291e2471f44dce4ede68a0ecccca7ed8c34e"
+    },
+    {
+      "bytes": 6216,
+      "path": "golden/repeat_failure_guard.json",
+      "sha256": "762357aff12855635b380a49833d19877b015c3b61e0d9ed1cb9a10418958049"
+    },
+    {
+      "bytes": 2892,
+      "path": "golden/stale_ids_renamed.json",
+      "sha256": "168dae94310893fbcb10d5287b5a6476d297ba6bbb5024f8d8bfe2e01338fc11"
+    },
+    {
+      "bytes": 1956,
+      "path": "golden/steering_pre_send.json",
+      "sha256": "a7d2f0384240ce231eb27f5672346f148d44452de63139622d8beb91078f0099"
+    },
+    {
+      "bytes": 1566,
+      "path": "golden/steering_terminal.json",
+      "sha256": "6d070b4356d02fe8c929528c98333a20228f4a803a10b61319c7c864cbc1b265"
+    },
+    {
+      "bytes": 2104,
+      "path": "golden/tail_reminder_korean.json",
+      "sha256": "b8e1595299e91126aa55ba94a2c4e87001908b9de93edff5711e54d5a3978fe2"
+    },
+    {
+      "bytes": 701,
+      "path": "golden/tail_reminder_other_language.json",
+      "sha256": "c6a32cc714495b73a268e568df57c70fdfbb09c21ddbb021fb52457e7ee69144"
+    },
+    {
+      "bytes": 1688,
+      "path": "golden/tool_round.json",
+      "sha256": "0d0fa91a6cdf5475597731fd77ad8560fb310f34afb301c41f60bcfd5b42772b"
+    },
+    {
+      "bytes": 3006,
+      "path": "golden/turn_limits.json",
+      "sha256": "61057c3ff244c581b789aa162d383673e1c8262d3a11d7ada42c6eb4d0509c4a"
+    },
+    {
+      "bytes": 2126,
+      "path": "golden/two_calls_in_order.json",
+      "sha256": "b55f817a87376a756d52278433c26e46dfe8329be6362e2a3deb55e74dfed9df"
+    },
+    {
+      "bytes": 1815,
+      "path": "golden/unknown_tool_redirect.json",
+      "sha256": "158d0df8fc4b1fec6ffa29b422de1e148604af61a26715710dc66a652932b44d"
+    },
+    {
+      "bytes": 1712,
+      "path": "golden/unknown_tool_suggestion.json",
+      "sha256": "7dea0c7d8d78857eb9849d80ad8193833ebdb869cd6207b37f190bf5e0545a22"
+    },
+    {
+      "bytes": 2258,
+      "path": "record-tail-reminder.mjs",
+      "sha256": "ada124dd29e22ec5e845e0a36c0d855a5694e3ac5d60ced401b81613c4a4d13d"
+    },
+    {
+      "bytes": 4176,
+      "path": "record-text-only.mjs",
+      "sha256": "21b6dcad67a315a6a4fdf79c2f7a555be6dcc6acddeb205bdc8c06d6e488a951"
+    },
+    {
+      "bytes": 9326,
+      "path": "record.mjs",
+      "sha256": "e25b2ad8094df64e7da8fd570bfd29d06fb6e8dd5f02d3c164623cda0b5532ad"
+    },
+    {
+      "bytes": 311,
+      "path": "scenarios/empty_incomplete_nudge.json",
+      "sha256": "1f5791c4659b29ac56d604992205fe70eb7220b1cdf952ffe050009712edf9d1"
+    },
+    {
+      "bytes": 343,
+      "path": "scenarios/empty_max_tokens_nudge_spelling.json",
+      "sha256": "1b8eae57582d9613ebe14d996ec58912cc791ecc54dfe5514e2bf1f4228867ad"
+    },
+    {
+      "bytes": 233,
+      "path": "scenarios/empty_nudge.json",
+      "sha256": "2b40e13129ebd7e9eb25c15066d46754d526d0cbc24b9ae0f41f0b299cfc235e"
+    },
+    {
+      "bytes": 565,
+      "path": "scenarios/intra_turn_dedup.json",
+      "sha256": "3d9d1a243d76b87fe2df9894be2bb972bdc34a91244a6610c4d6d7ffec60e463"
+    },
+    {
+      "bytes": 422,
+      "path": "scenarios/output_limit_escalation.json",
+      "sha256": "5d164889559bf4a4ac5d440e4ac8fd8505f58058d98818000cb15de988288e6b"
+    },
+    {
+      "bytes": 482,
+      "path": "scenarios/output_limit_exhausted.json",
+      "sha256": "e750c3f1fed3a356714015eeb95fa455c08523a68e08bbd2f187af6f37e70aad"
+    },
+    {
+      "bytes": 308,
+      "path": "scenarios/pause_turn.json",
+      "sha256": "38ae48ac9aa6dbe9109b2b5a0fc5de53c79e0b6dd76dbd5b82c4d85e7058acfd"
+    },
+    {
+      "bytes": 234,
+      "path": "scenarios/refusal_twice.json",
+      "sha256": "1848b7583a5e68a26e48342a14516abf9b3b6fefeb91a9b183beb443f135a95d"
+    },
+    {
+      "bytes": 1146,
+      "path": "scenarios/repeat_failure_guard.json",
+      "sha256": "33d8f7bb2805a86d658dfda919daf5bd9130fa6d496d344e8eb937bcde8a8e8d"
+    },
+    {
+      "bytes": 664,
+      "path": "scenarios/stale_ids_renamed.json",
+      "sha256": "73b33e7806945eb29e0a2c301c4f2f83eb94af64b58033f6ceaaaab63475a9c4"
+    },
+    {
+      "bytes": 474,
+      "path": "scenarios/steering_pre_send.json",
+      "sha256": "35c81a438fb9ee575013b777065ac3cd52b666c1113636757007032970fd1aae"
+    },
+    {
+      "bytes": 381,
+      "path": "scenarios/steering_terminal.json",
+      "sha256": "8fd572683701b8645ec46a0845f7509a34f755adf58495fdaa7881f8e330928b"
+    },
+    {
+      "bytes": 579,
+      "path": "scenarios/tail_reminder_korean.json",
+      "sha256": "a635a5e8032a85f6258dce24e89ecd4a32ee6b2bf99845319d03a861a1d6739a"
+    },
+    {
+      "bytes": 355,
+      "path": "scenarios/tail_reminder_other_language.json",
+      "sha256": "e7a805b4ff44cb0ec7c6688e2fb1d0628957f76fcd6dd3bde6a9c7e9373ca95b"
+    },
+    {
+      "bytes": 444,
+      "path": "scenarios/tool_round.json",
+      "sha256": "5156bf4432d9f1c0378cc446f5c45d4a39c6b61fee965ce475a909880b92531a"
+    },
+    {
+      "bytes": 600,
+      "path": "scenarios/turn_limits.json",
+      "sha256": "131d95b70e90012db5f5dbb5217b2b809794d725991c730d28f53cc67087c5a1"
+    },
+    {
+      "bytes": 563,
+      "path": "scenarios/two_calls_in_order.json",
+      "sha256": "e4207709010afbe0e0fa4621f3aa7b4fbeca267d480f949da58041c62f44168a"
+    },
+    {
+      "bytes": 458,
+      "path": "scenarios/unknown_tool_redirect.json",
+      "sha256": "662aec475d71ada6c4109c2dc5c7208bc887b916440e1edb0123ea99ffb7f209"
+    },
+    {
+      "bytes": 413,
+      "path": "scenarios/unknown_tool_suggestion.json",
+      "sha256": "3b5a17ccf93ff0ad3ceb49aec3b24fba604567a03b4adbbd5d01feea39a1c113"
+    },
+    {
+      "bytes": 32835,
+      "path": "tail_reminder/cases.json",
+      "sha256": "39536ff4e578a94998b6c1f3a10612d33f5e4c01519b529423348a9b64968b2f"
+    },
+    {
+      "bytes": 14060,
+      "path": "text_only/cases.json",
+      "sha256": "29ab61a9ec03797565e234806556c1608f3d44556069a6c8fc115a85d4254312"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "native/core/fixtures/agent/record.mjs",
+  "set": "agent",
+  "totalBytes": 263627
+}

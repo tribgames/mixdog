@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/robots.txt",
+ "contentType": "text/plain; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "",
+  "content": "User-agent: *\nDisallow: /private\n",
+  "extractor": "raw"
+ }
+}

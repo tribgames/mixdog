@@ -32,6 +32,7 @@ import type { ConnectionIdentity, ConnectionProgress } from './contract';
 import { createReattachReport } from './reattach-report';
 import type { ServerPortForwards } from './server-port-forwards';
 import { createServiceTerminalHost } from './terminal-host';
+import type { ProtocolConnection } from '../protocol/connection';
 
 /** How long a server's tunnel may take to accept its first connection. */
 export const REMOTE_TUNNEL_READY_TIMEOUT_MS = 90_000;
@@ -46,6 +47,9 @@ export interface DesktopConnection extends ConnectionIdentity {
   /** The ssh destination; null for this PC. */
   readonly target: string | null;
   readonly client: DesktopServiceClient;
+  /** This process's one protocol connection to the connection's core: pushed sections, detail calls, host role.
+   *  Null for a target whose core endpoint is not wired yet (server tunnels). */
+  readonly protocol: ProtocolConnection | null;
   /** The current ssh session; reopening after a terminal failure replaces it. */
   readonly remote: RemoteSession | null;
   /** What the server window shows about its link; null for this PC. */
@@ -82,27 +86,25 @@ export interface DesktopConnection extends ConnectionIdentity {
 }
 
 export interface DesktopConnectionDependencies {
+  /** The Node service module this PC's local connection runs until the core replaces it (K1). */
   moduleUrl(): string;
   /** Settles once this process's environment is final (local daemon spawn). */
   environmentReady(): Promise<unknown>;
   sessionOptions(): SerializableDesktopServiceOptions;
   loadModelProxyRuntime(): Promise<ModelProxyRuntime>;
   appVersion: string;
-  /** Local path of the desktop service bundle uploaded to servers. */
-  bundlePath: string;
   remoteGraceMs?: string;
   initialSnapshot?(): SessionSnapshot;
   onDiagnostic?(connection: ConnectionIdentity, event: string, data: Record<string, unknown>): void;
   onServiceReady?(connection: ConnectionIdentity, context: { generation: number }): void;
+  /** The protocol connection of `connection`'s core, or null when its endpoint is not available. A server's
+   *  endpoint is its SSH tunnel, reached through `connector`; this PC's has none. */
+  createProtocol?(connection: ConnectionIdentity, connector: RemoteDaemonConnector | null): ProtocolConnection | null;
   /** The host's provider consent: may this server's turns use `provider`
    *  with this PC's sign-in? Absent, or a host without a list: all may. */
   isProviderAllowed?(connection: ConnectionIdentity, provider: string): boolean;
-  /** A server connection's port forwards; `scan` asks its daemon what listens. */
-  createPortForwards?(
-    connection: ConnectionIdentity,
-    target: string,
-    scan: () => Promise<DesktopServerPort[]>
-  ): ServerPortForwards;
+  /** A server connection's port forwards; the listening ports reach them through `update`. */
+  createPortForwards?(connection: ConnectionIdentity, target: string): ServerPortForwards;
 }
 
 export interface DesktopConnectionSpec extends ConnectionIdentity {
@@ -131,7 +133,6 @@ interface RemoteBinding {
   config: RemoteSessionConfig;
   session: RemoteSession;
   readonly connector: RemoteDaemonConnector;
-  userDataPath: string | null;
   /** The saved settings (identity file, ...) the connect attempt that created
    *  this connection ran under; later reconnects run outside any attempt. */
   settings: SshHostSettings | undefined;
@@ -145,18 +146,11 @@ function underSettings<T>(binding: RemoteBinding, run: () => T): T {
   return runWithSshContext({ ...current, settings: binding.settings }, run);
 }
 
-function bindRemote(
-  spec: DesktopConnectionSpec,
-  deps: DesktopConnectionDependencies,
-  options: DesktopConnectionOptions
-): RemoteBinding {
+function bindRemote(spec: DesktopConnectionSpec, options: DesktopConnectionOptions): RemoteBinding {
   if (!spec.target) throw new Error('An ssh connection needs a target.');
   const config: RemoteSessionConfig = {
     target: spec.target,
     remoteCwd: spec.remoteCwd ?? null,
-    graceMs: spec.graceMs !== undefined ? String(spec.graceMs) : (deps.remoteGraceMs ?? ''),
-    appVersion: deps.appVersion,
-    bundlePath: deps.bundlePath,
     tunnelReadyTimeoutMs: REMOTE_TUNNEL_READY_TIMEOUT_MS,
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
     ...(options.forceRestart ? { forceRestart: true } : {}),
@@ -171,15 +165,10 @@ function bindRemote(
   const binding: RemoteBinding = {
     config,
     session: first,
-    userDataPath: null,
     settings: currentSshContext()?.settings,
     connector: {
       display: first.display,
-      async connect(log) {
-        const endpoint = await underSettings(binding, () => binding.session.connect(log));
-        binding.userDataPath = endpoint.remapOptions(deps.sessionOptions()).userDataPath;
-        return endpoint;
-      },
+      connect: (log) => underSettings(binding, () => binding.session.connect(log)),
       currentDiscovery: () => binding.session.currentDiscovery(),
       invalidate: () => binding.session.invalidate(),
       fail: (error) => binding.session.fail(error),
@@ -251,6 +240,7 @@ function createServerPanels({
   graceMs,
   binding,
   client,
+  protocol,
   emitNotice,
 }: {
   spec: DesktopConnectionSpec;
@@ -259,13 +249,16 @@ function createServerPanels({
   graceMs: number;
   binding: RemoteBinding;
   client: DesktopServiceClient;
+  protocol: ProtocolConnection | null;
   emitNotice(notice: DesktopConnectionNotice): void;
 }): ServerPanels {
-  const ports =
-    deps.createPortForwards?.(identity, binding.config.target, async () => {
-      const value = await client.invokeDesktopOperation('listListeningPorts', []);
-      return Array.isArray(value) ? (value as DesktopServerPort[]) : [];
-    }) ?? null;
+  const ports = deps.createPortForwards?.(identity, binding.config.target) ?? null;
+  // The server's listening ports are the core's pushed `ports` section (sampled only while a window views them).
+  if (ports) {
+    protocol?.watchSection('ports', (entry) => {
+      if (Array.isArray(entry?.value)) ports.update(entry.value as DesktopServerPort[]);
+    });
+  }
   const link = createConnectionLink(spec, graceMs, binding, client);
   const reattach = createReattachReport({
     sources: {
@@ -338,7 +331,8 @@ function createServiceClient({
     },
     onServiceReady: (context) => {
       if (live.panels && binding) {
-        live.panels.link.setTerminalsAvailable(binding.session.terminalsAvailable);
+        // The core always serves terminals; no per-server capability remains to ask.
+        live.panels.link.setTerminalsAvailable(true);
         live.panels.link.serviceRestored();
       }
       // Attached (first time or again): the saved forwards run again.
@@ -401,15 +395,16 @@ export function createDesktopConnection(
   options: DesktopConnectionOptions = {}
 ): DesktopConnection {
   const identity: ConnectionIdentity = { id: spec.id, kind: spec.kind, name: spec.name };
-  const binding = spec.kind === 'ssh' ? bindRemote(spec, deps, options) : null;
+  const binding = spec.kind === 'ssh' ? bindRemote(spec, options) : null;
   const graceMs = spec.graceMs ?? remoteClientGraceMs(deps.remoteGraceMs);
+  const protocol = deps.createProtocol?.(identity, binding?.connector ?? null) ?? null;
   const live: ClientLive = { transport: null, panels: null };
   const client = createServiceClient({ spec, deps, identity, binding, graceMs, live });
   const notices = new Set<(notice: DesktopConnectionNotice) => void>();
   const emitNotice = (notice: DesktopConnectionNotice): void => {
     for (const listener of notices) listener(notice);
   };
-  const panels = binding ? createServerPanels({ spec, deps, identity, graceMs, binding, client, emitNotice }) : null;
+  const panels = binding ? createServerPanels({ spec, deps, identity, graceMs, binding, client, protocol, emitNotice }) : null;
   live.panels = panels;
   const serverLogins = (): boolean => bindingModelLogin(binding) === 'server';
   const modelProxy = createConnectionModelProxy({
@@ -443,6 +438,7 @@ export function createDesktopConnection(
     ...identity,
     target: spec.kind === 'ssh' ? (spec.target ?? null) : null,
     client,
+    protocol,
     get remote() {
       return binding?.session ?? null;
     },
@@ -483,14 +479,16 @@ export function createDesktopConnection(
       return () => loginWatchers.delete(watcher);
     },
     serviceUserDataPath() {
+      // A server's core keeps its own data; only this PC's profile is addressable from here.
       if (spec.kind === 'local') return deps.sessionOptions().userDataPath;
-      if (!binding?.userDataPath) throw new Error(`The connection to ${spec.name} is not attached yet.`);
-      return binding.userDataPath;
+      throw new Error(`The connection to ${spec.name} is not attached yet.`);
     },
     async start() {
       await client.start();
+      // The core is serving once the service attached; windows read sections from here on.
+      await protocol?.start();
       if (panels && binding) {
-        panels.link.setTerminalsAvailable(binding.session.terminalsAvailable);
+        panels.link.setTerminalsAvailable(true);
         panels.link.start();
       }
     },
@@ -520,6 +518,7 @@ export function createDesktopConnection(
         unsubscribeModelProxy();
         modelProxy.dispose();
         try {
+          await protocol?.close().catch(() => undefined);
           await client.dispose();
         } finally {
           await binding?.session.close();

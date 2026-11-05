@@ -41,6 +41,18 @@ pub struct Frame {
     pub pixels: Vec<u8>,
 }
 
+/// Origin and size of the virtual screen in physical pixels.
+pub fn virtual_screen_rect() -> (i32, i32, u32, u32) {
+    unsafe {
+        (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) as u32,
+            GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) as u32,
+        )
+    }
+}
+
 /// Capture the whole virtual screen (all monitors) from the thread's current
 /// desktop. Must be called with the thread attached to the input desktop.
 pub fn capture_virtual_screen() -> io::Result<Frame> {

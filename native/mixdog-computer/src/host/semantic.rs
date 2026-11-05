@@ -274,7 +274,7 @@ impl Host {
             let mut element = obj! {
                 "mark" => position + 1,
                 "ref" => reference.clone(),
-                "source" => self.desktop.name(),
+                "source" => self.desktop.element_source(),
                 "role" => node.role.clone(),
                 "name" => format_value(&node.name, 200),
                 "value" => format_value(&node.value, 300),
@@ -411,7 +411,7 @@ impl Host {
             .iter()
             .any(|node| is_interactive(&node.role));
         if interactive {
-            return Ok(obj! { "interactive" => true, "source" => self.desktop.name() });
+            return Ok(obj! { "interactive" => true, "source" => self.desktop.element_source() });
         }
         Ok(obj! { "interactive" => false })
     }

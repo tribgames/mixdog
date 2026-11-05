@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 띵킹 아이콘 v5</title>
+<style>
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --n-head:#f4f4f5; --m-head:#b4b4b8; --b-head:#8cc2ff; --a-head:url(#aurora-d);
+    --ref-brand:#d97757;
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --n-head:#18181b; --m-head:#55555b; --b-head:#1a5fd0; --a-head:url(#aurora-l);
+    --ref-brand:#c15f3c;
+  }
+  body[data-color="neutral"] .t, body[data-color="neutral"].t { --head:var(--n-head); }
+  body[data-color="muted"] .t, body[data-color="muted"].t { --head:var(--m-head); }
+  body[data-color="blue"] .t, body[data-color="blue"].t { --head:var(--b-head); }
+  body[data-color="aurora"] .t, body[data-color="aurora"].t { --head:var(--a-head); }
+  :root { --k:1; --sw:1.8; --glyph:14px; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p,ul { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 11px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .defs { position:absolute; width:0; height:0; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; margin:20px 0 26px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+  section { margin-bottom:32px; }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+
+  /* References */
+  .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr)); gap:10px; }
+  .ref { padding:12px 14px; display:grid; grid-template-columns:28px 1fr; gap:4px 12px; align-items:center; }
+  .ref .demo { grid-row:span 2; width:28px; height:28px; display:grid; place-items:center; }
+  .ref .demo svg { width:18px; height:18px; }
+  .ref b { font-size:12px; font-weight:600; }
+  .ref span { font-size:12px; color:var(--muted); line-height:17px; }
+  .glyph-text { font:16px/1 "Segoe UI Symbol","Apple Symbols",sans-serif; color:var(--ref-brand); width:18px; text-align:center; }
+  .principles { margin-top:12px; padding:12px 16px 12px 32px; font-size:13px; line-height:21px; color:var(--muted); }
+  .principles b { color:var(--text); font-weight:550; }
+  .r-ring { animation:spin 900ms linear infinite; transform-box:view-box; transform-origin:12px 12px; }
+  .r-track { fill:none; stroke:var(--muted); stroke-width:2; opacity:.2; }
+  .r-arc { fill:none; stroke:var(--muted); stroke-width:2; stroke-linecap:round; }
+
+  /* Candidates */
+  .variants { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:11px; flex:none; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { padding:14px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .mini .tile > svg { width:64px; height:64px; }
+  .sizes { display:flex; align-items:end; gap:12px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .still { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+  .still svg { width:14px; height:14px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .live-icon svg { width:var(--glyph); height:var(--glyph); }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:760px) { body .page { padding:20px 14px 40px; } }
+
+  /* Glyph */
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  .arc { fill:none; stroke:var(--head); stroke-width:var(--sw); stroke-linecap:round; stroke-dasharray:0 360; }
+  .track { fill:none; stroke:var(--head); stroke-width:var(--sw); stroke-linecap:round; stroke-dasharray:80 40; stroke-dashoffset:-20; opacity:.28; }
+  .star { fill:var(--head); }
+  /* Reduced-motion / paused pose: the exact mark, nothing moving. */
+  .pose .arc { stroke-dasharray:80 280; stroke-dashoffset:-20; animation:none !important; }
+  .pose .star { animation:none !important; }
+</style>
+<style id="generated"></style>
+</head>
+<body class="t theme-dark" data-color="aurora">
+<svg class="defs" aria-hidden="true">
+  <defs>
+    <linearGradient id="aurora-d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fc0ff"/><stop offset="1" stop-color="#c3a6ff"/></linearGradient>
+    <linearGradient id="aurora-l" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d63e0"/><stop offset="1" stop-color="#7140d8"/></linearGradient>
+  </defs>
+</svg>
+<div class="page">
+  <h1>띵킹 아이콘 v5 · 레퍼런스 기반 재설계</h1>
+  <p class="intro">선 두께를 레퍼런스 수준(24칸 기준 1.8, 14px에서 약 1px)으로 낮추고, 로고 형태를 유지한 채 움직임을 세 가지 방식으로 다시 만들었습니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">색감</span>
+      <div class="segments" data-group="color">
+        <button data-v="muted"><span class="swatch" style="background:#b4b4b8"></span>뮤트</button>
+        <button data-v="neutral"><span class="swatch" style="background:#f4f4f5;border:1px solid #888"></span>뉴트럴</button>
+        <button data-v="blue"><span class="swatch" style="background:#8cc2ff"></span>블루</button>
+        <button data-v="aurora" aria-pressed="true"><span class="swatch" style="background:linear-gradient(135deg,#7fc0ff,#c3a6ff)"></span>오로라</button>
+      </div></div>
+    <div class="control"><span class="control-label">선 두께</span>
+      <div class="segments" data-group="sw"><button data-v="1.5">얇게</button><button data-v="1.8" aria-pressed="true">기본</button><button data-v="2.2">조금 굵게</button><button data-v="3">v4(이전)</button></div></div>
+    <div class="control"><span class="control-label">줄 아이콘</span>
+      <div class="segments" data-group="glyph"><button data-v="14px" aria-pressed="true">14px</button><button data-v="16px">16px</button></div></div>
+    <div class="control"><span class="control-label">속도</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1" aria-pressed="true">기본</button><button data-v="0.75">빠르게</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <section>
+    <p class="section-title">레퍼런스 (C:\Project\refs)</p>
+    <div class="refs">
+      <div class="tile t theme-dark ref"><div class="demo"><span class="glyph-text" id="ref-cc">·</span></div><b>Claude Code</b><span>· ✢ ✳ ✶ ✻ ✽ 를 앞뒤로 재생. 모양이 피어나며 상태를 표현</span></div>
+      <div class="tile t theme-dark ref"><div class="demo"><svg viewBox="0 0 24 24"><circle class="r-track" cx="12" cy="12" r="9"/><g class="r-ring"><circle class="r-arc" cx="12" cy="12" r="9" pathLength="100" stroke-dasharray="28 72" transform="rotate(-90 12 12)"/></g></svg></div><b>OpenCode</b><span>20% 트랙 + 둥근 원호, 900ms 등속 회전, 뮤트 단색</span></div>
+      <div class="tile t theme-dark ref"><div class="demo"><svg viewBox="0 0 24 24"><g class="r-ring"><path class="r-arc" d="M21 12a9 9 0 1 1-6.22-8.56"/></g></svg></div><b>Lobe Chat</b><span>Lucide 로더 회전. 선 두께 2/24, 설명 텍스트 색</span></div>
+      <div class="tile t theme-dark ref"><div class="demo"><span class="glyph-text" id="ref-grok" style="color:var(--muted)">⋅</span></div><b>Grok</b><span>⋅ : ⸬ ⁙ 점 개수가 늘어나는 단계식</span></div>
+    </div>
+    <ul class="principles tile t theme-dark">
+      <li><b>얇은 선</b> — 공통적으로 24칸 기준 2 안팎(14px에서 1px대). v4의 3은 확실히 굵었습니다.</li>
+      <li><b>형태는 항상 보이게</b> — 흐린 트랙 위로 밝은 부분만 움직여, 어느 순간에도 모양이 읽힙니다.</li>
+      <li><b>회전보다 성장</b> — 모양이 피어나고 접히는 것으로 "생각 중"을 표현하면 차분하고 고급스럽습니다.</li>
+      <li><b>색은 하나</b> — 뮤트 단색 또는 브랜드 한 색. 장식 색을 여러 개 쓰지 않습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <p class="section-title">v5 시안</p>
+    <div class="variants" id="variants"></div>
+  </section>
+</div>
+
+<script>
+  const STAR = 'M12 8.6Q12.55 11.45 15.4 12 12.55 12.55 12 15.4 11.45 12.55 8.6 12 11.45 11.45 12 8.6Z';
+  const TAU = Math.PI * 2;
+  const r2 = (n) => Math.round(n * 100) / 100;
+
+  // Motion curves over one cycle t∈[0,1]: arc tail/length in orbit degrees
+  // (circles use pathLength=360, base rotation −120 so 20..100 is the logo arc),
+  // star turn and scale. Keyframes are sampled from these curves.
+  const motions = {
+    // A · 흐름: arcs travel forward, lingering long on the logo pose.
+    a: { ms: 2000, arc: true,
+      tail: (t) => 120 * t + (42 * Math.sin(TAU * t)) / TAU - 17.5 * (1 - Math.cos(TAU * t)),
+      len: (t) => 35 * (1 - Math.cos(TAU * t)),
+      rot: (t) => 90 * t - 45,
+      scale: (t) => 0.82 + 0.26 * (1 - Math.cos(TAU * t)) / 2 },
+    // B · 피어남: nothing travels; arcs bloom out of their centres while the
+    // star folds in, then the reverse — the forward-and-back of a bloom.
+    b: { ms: 2400, arc: true,
+      tail: (t) => 60 - (4 + 76 * (1 - Math.cos(TAU * t)) / 2) / 2,
+      len: (t) => 4 + 76 * (1 - Math.cos(TAU * t)) / 2,
+      rot: (t) => 90 * (t - Math.sin(TAU * t) / TAU),
+      scale: (t) => 1.18 - 0.36 * (1 - Math.cos(TAU * t)) / 2 },
+    // C · 트레이스: the logo stays as a faint track; a light runs along it,
+    // slowing on each arc and slipping quickly across the gaps.
+    c: { ms: 1800, arc: true, traced: true,
+      tail: (t) => 360 * t + 12 * Math.sin(3 * TAU * t) - 18,
+      len: () => 36,
+      rot: (t) => 90 * t,
+      scale: (t) => 0.92 + 0.14 * (1 - Math.cos(3 * TAU * t)) / 2 },
+  };
+
+  const STEPS = 72;
+  let css = '';
+  for (const [key, m] of Object.entries(motions)) {
+    let arc = '';
+    let star = '';
+    for (let i = 0; i <= STEPS; i++) {
+      const t = i / STEPS;
+      const pct = r2(t * 100);
+      const L = m.len(t);
+      arc += `${pct}%{stroke-dasharray:${r2(L)} ${r2(360 - L)};stroke-dashoffset:${r2(-m.tail(t))}}`;
+      star += `${pct}%{transform:rotate(${r2(m.rot(t))}deg) scale(${r2(m.scale(t))})}`;
+    }
+    css += `@keyframes arc-${key}{${arc}}@keyframes star-${key}{${star}}`;
+    css += `.m-${key} .arc{animation:arc-${key} calc(var(--k) * ${m.ms}ms) linear infinite}`;
+    css += `.m-${key} .star{animation:star-${key} calc(var(--k) * ${m.ms}ms) linear infinite}`;
+  }
+  document.getElementById('generated').textContent = css;
+
+  const circle = (cls, rot, extra = '') => `<circle class="${cls}" cx="12" cy="12" r="8.5" pathLength="360" transform="rotate(${rot} 12 12)"${extra}/>`;
+  let maskSeq = 0;
+  const glyph = (key, pose = false) => {
+    const m = motions[key];
+    const cls = `m-${key}${pose ? ' pose' : ''}`;
+    if (m.traced && !pose) {
+      // The moving light is masked to the logo arcs, so it only ever lights the mark.
+      const id = `trace-${maskSeq++}`;
+      return `<svg viewBox="0 0 24 24" class="${cls}"><defs><mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">${circle('track-mask', -120, ' fill="none" stroke="#fff" style="stroke-width:var(--sw)" stroke-linecap="round" stroke-dasharray="80 40" stroke-dashoffset="-20"')}</mask></defs>${circle('track', -120)}<g mask="url(#${id})">${circle('arc', -120)}</g><path class="o star" d="${STAR}"/></svg>`;
+    }
+    return `<svg viewBox="0 0 24 24" class="${cls}"><g>${[-120, 0, 120].map((rot) => circle('arc', rot)).join('')}</g><path class="o star" d="${STAR}"/></svg>`;
+  };
+  const live = (svg) => `<div class="live"><span class="live-icon">${svg}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  const cards = [
+    { key: 'a', letter: 'A', name: '흐름', tag: '루프 · 리듬',
+      desc: '<b>원호가 앞으로 흐르다 로고 모양에서 느려지고, 접힐 때 다시 빨라집니다.</b> v4의 "머무는 숨"을 얇은 선으로 다시 다듬었습니다. 계속 도는 루프감이 가장 강합니다. 2초 주기.' },
+    { key: 'b', letter: 'B', name: '피어남', tag: '차분 · 고급',
+      desc: '<b>제자리에서 원호가 피어나며 로고가 되고, 그동안 별은 접혔다가 다시 펼쳐집니다.</b> Claude Code처럼 회전 대신 형태의 성장으로 리듬을 만듭니다. 가장 조용하고 고급스럽습니다. 2.4초 주기.' },
+    { key: 'c', letter: 'C', name: '트레이스', tag: '형태 항상 유지',
+      desc: '<b>로고는 흐린 선으로 항상 보이고, 그 위를 빛이 따라 돕니다.</b> 원호 위에서는 천천히, 틈은 빠르게 지나가서 세 박자 리듬이 생깁니다. OpenCode의 트랙 구조를 로고에 적용했습니다. 1.8초 주기.' },
+  ];
+
+  document.getElementById('variants').innerHTML = cards.map((c) => `
+    <article class="card">
+      <div class="card-head"><span class="letter">${c.letter}</span><h2>${c.name}</h2><span class="tag">${c.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">
+            ${glyph(c.key)}
+            <div class="sizes">${[24, 16, 14, 12].map((s) => `<figure><span style="display:block;width:${s}px;height:${s}px">${glyph(c.key).replace('<svg', `<svg width="${s}" height="${s}"`)}</span><figcaption>${s}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">
+        ${['theme-dark', 'theme-light'].map((theme) => `<div class="tile t ${theme}">${live(glyph(c.key))}<span class="still">${glyph(c.key, true)}정지</span></div>`).join('')}
+      </div>
+      <p class="desc">${c.desc}</p>
+    </article>`).join('');
+
+  // Reference demos: text-frame sequences played forward then back.
+  const playFrames = (el, frames, ms) => {
+    const seq = [...frames, ...[...frames].reverse()];
+    let i = 0;
+    setInterval(() => {
+      if (document.body.classList.contains('paused')) return;
+      el.textContent = seq[i++ % seq.length];
+    }, ms);
+  };
+  playFrames(document.getElementById('ref-cc'), ['·', '✢', '✳', '✶', '✻', '✽'], 120);
+  playFrames(document.getElementById('ref-grok'), ['⋅', ':', '⸬', '⁙'], 160);
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'color') document.body.dataset.color = value;
+      if (kind === 'sw') document.documentElement.style.setProperty('--sw', value);
+      if (kind === 'glyph') document.documentElement.style.setProperty('--glyph', value);
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

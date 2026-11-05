@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/short",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Short",
+  "content": "Just a short page without any semantic container.",
+  "extractor": "readability"
+ }
+}

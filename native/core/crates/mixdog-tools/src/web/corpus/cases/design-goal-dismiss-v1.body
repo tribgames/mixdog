@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>완료된 Goal 닫기 · 시안 v1</title>
+<style>
+  /* Dark theme values from apps/desktop/src/renderer/desktop/01-tokens.css;
+     sizes from 15-composer.css and 22-markdown.css. */
+  :root {
+    --sheet: #111113;
+    --frame: color-mix(in srgb, #222225 62%, #1c1c1f);
+    --text: #e9e9e9;
+    --soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --muted: #a8a8a8;
+    --accent: #5bb0ff;
+    --ok: #3ddc6e;
+    --border: rgba(255, 255, 255, 0.125);
+    --rule: rgba(255, 255, 255, 0.09);
+    --hover: rgba(255, 255, 255, 0.08);
+    --track: color-mix(in srgb, #e9e9e9 13%, transparent);
+    --raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 0.5px #ffffff29, 0 -0.5px 0 #ffffff0f;
+    --button: 0 0 0 0.5px #ffffff33;
+  }
+  [data-state] { --tint: var(--accent); --fill: var(--accent); }
+  [data-state="complete"] { --tint: var(--ok); --fill: var(--ok); }
+  [data-state="stopped"] { --tint: var(--muted); --fill: var(--muted); }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 40px 72px;
+    background: #0b0b0d;
+    color: var(--text);
+    font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  }
+  main { max-width: 1320px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+  h2 { display: flex; align-items: center; gap: 8px; margin: 40px 0 6px; font-size: 15px; font-weight: 600; }
+  h2 em {
+    padding: 0 8px;
+    border-radius: 999px;
+    color: var(--ok);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 45%, transparent);
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  .lead { max-width: 900px; margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+  .legend { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+  .legend i { width: 18px; height: 12px; border-radius: 4px; outline: 1.5px dashed var(--accent); outline-offset: 1px; }
+  .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+  .row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .row.phone-row { grid-template-columns: 390px minmax(0, 1fr); }
+  figure { margin: 0; min-width: 0; display: flex; flex-direction: column; }
+  figcaption { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+  figcaption b { color: var(--soft); font-weight: 500; }
+  .frame {
+    flex: 1 1 auto;
+    min-height: 176px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 40px 20px 16px;
+    border-radius: 12px;
+    background: var(--sheet);
+    box-shadow: 0 0 0 1px var(--rule);
+  }
+
+  svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  svg.s16 { width: 16px; height: 16px; }
+  .new { outline: 1.5px dashed var(--accent); outline-offset: 3px; }
+
+  /* Composer island: collapsed pill and the open Goal tab. */
+  .anchor { position: relative; display: flex; justify-content: center; max-width: 100%; }
+  .island {
+    max-width: 100%;
+    overflow: hidden;
+    border-radius: 18px;
+    color: var(--text);
+    background: var(--frame);
+    box-shadow: inset 0 0 0 0.5px var(--border), var(--raised);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: -0.005em;
+  }
+  .island.pill { border-radius: 999px; }
+  .pillrow { height: 34px; display: flex; align-items: center; padding: 0 4px; white-space: nowrap; }
+  .goal { display: flex; align-items: center; }
+  .trigger {
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+  }
+  .trigger:hover { background: var(--hover); }
+  .state { display: inline-flex; color: var(--tint); }
+  .pips { width: 56px; height: 4px; display: flex; flex: none; gap: 2px; }
+  .pips i { flex: 1 1 0; border-radius: 2px; background: var(--track); }
+  .pips i.c { background: var(--fill); }
+  .label { color: var(--tint); }
+  .meta { display: inline-flex; align-items: center; gap: 4px; }
+  .time { color: var(--muted); font-weight: 400; }
+  .dismiss {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    margin: 0 1px 0 -2px;
+    border-radius: 999px;
+    color: var(--muted);
+  }
+  .dismiss:hover, .dismiss.hover { color: var(--text); background: var(--hover); }
+  .dismiss.new { outline-offset: 1px; }
+  .tip {
+    position: absolute;
+    top: -34px;
+    right: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: var(--text);
+    background: #2c2c30;
+    box-shadow: var(--raised);
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+  }
+
+  .panel { width: 560px; }
+  .phead {
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    border-bottom: 0.5px solid var(--rule);
+  }
+  .tab {
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 11px;
+    border-radius: 999px;
+    background: var(--hover);
+    font-variant-numeric: tabular-nums;
+  }
+  .pclose {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    margin-left: auto;
+    border-radius: 999px;
+    color: var(--muted);
+  }
+  .body { display: grid; gap: 8px; padding: 10px 14px 12px; }
+  .objective { margin: 0; font-weight: 400; }
+  .statusline { display: flex; gap: 6px; margin: 0; color: var(--soft); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .statusline b { color: var(--tint); font-weight: 500; }
+  .tasks { margin: 0; padding: 0; list-style: none; }
+  .tasks li {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    column-gap: 10px;
+    padding: 7px 8px;
+    border-radius: 9px;
+    font-weight: 400;
+  }
+  .tasks li > span:first-child { height: 20px; display: grid; place-items: center; color: var(--ok); }
+  .controls { display: flex; justify-content: flex-end; gap: 6px; padding-top: 8px; }
+  .ctl {
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    color: var(--text);
+    background: transparent;
+    box-shadow: var(--button);
+    font: inherit;
+    cursor: pointer;
+  }
+  .ctl:hover { background: var(--hover); }
+
+  /* Composer under the island (context only). */
+  .composer {
+    position: relative;
+    width: 100%;
+    max-width: 600px;
+    height: 84px;
+    margin-top: 8px;
+    border-radius: 16px;
+    color: var(--muted);
+    background: #19191c;
+    box-shadow: inset 0 0 0 0.5px var(--border);
+    font-size: 13px;
+  }
+  .c-plus { position: absolute; left: 14px; bottom: 13px; display: flex; }
+  .c-model { position: absolute; left: 40px; bottom: 11px; color: var(--soft); }
+  .c-model i { color: var(--muted); font-style: normal; }
+  .c-right { position: absolute; right: 12px; bottom: 9px; display: flex; align-items: center; gap: 12px; }
+  .c-send { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #2c2c30; }
+
+  /* Phone sizes (html[data-mixdog-mobile-tabs] in 15-composer.css). */
+  .phone .island { font-size: 13px; }
+  .phone .pillrow { height: 36px; }
+  .phone .trigger { height: 28px; padding: 0 11px; }
+  .phone .dismiss { width: 28px; height: 28px; margin-left: -3px; }
+  .phone .composer { height: 76px; }
+
+  .notes { margin: 0; padding-left: 18px; color: var(--soft); }
+  .notes li + li { margin-top: 4px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.4 6.6 11.4 12.5 5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M5 5l6 6M11 5l-6 6"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4.5" y="4.5" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 16 16"><rect x="6" y="2.5" width="4" height="7" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v1.5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 12.5V3.8M4.5 7 8 3.5 11.5 7"/></symbol>
+</svg>
+
+<template id="composer">
+  <div class="composer">
+    <span class="c-plus"><svg><use href="#i-plus"/></svg></span>
+    <span class="c-model">Claude Opus 5.5 <i>Max</i></span>
+    <span class="c-right"><svg><use href="#i-mic"/></svg><span class="c-send"><svg><use href="#i-up"/></svg></span></span>
+  </div>
+</template>
+
+<template id="drawer-tasks">
+  <p class="objective">v1.2.0을 배포하고 릴리즈 파일·릴레이·휴대폰 앱 배포까지 확인한다.</p>
+  <p class="statusline"><b>완료</b><span>·</span><span>3:15:01 소요</span></p>
+  <ul class="tasks">
+    <li><span><svg><use href="#i-check"/></svg></span><span>최종 검사 통과: 타입·번역·전체 테스트 실패 0</span></li>
+    <li><span><svg><use href="#i-check"/></svg></span><span>최종 리뷰 6개 영역 모두 승인</span></li>
+    <li><span><svg><use href="#i-check"/></svg></span><span>커밋·#54·#57 병합·push</span></li>
+    <li><span><svg><use href="#i-check"/></svg></span><span>v1.2.0 배포(Deploy minor, 휴대폰 앱 포함)</span></li>
+    <li><span><svg><use href="#i-check"/></svg></span><span>배포 결과 확인: 릴리즈 파일·릴레이·APK·TestFlight</span></li>
+  </ul>
+</template>
+
+<main>
+  <h1>완료된 Goal 닫기 · 시안 v1</h1>
+  <p class="lead">끝난(완료·중지된) Goal 표시를 화면에서 치우는 버튼 위치입니다. 진행 중인 Goal에는 나오지 않습니다.
+    실제 앱의 어두운 테마 색과 크기를 그대로 썼습니다.</p>
+  <span class="legend"><i></i>파란 점선 = 새로 추가되는 버튼</span>
+
+  <h2>지금 — 닫을 방법이 없음</h2>
+  <div class="row">
+    <figure>
+      <div class="frame">
+        <div class="anchor">
+          <div class="island pill"><div class="pillrow">
+            <div class="goal" data-state="complete">
+              <span class="trigger">
+                <span class="state"><svg><use href="#i-check"/></svg></span>
+                <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+                <span class="label">완료</span>
+                <span class="meta"><span>5/5</span><span class="time">3h 15m</span></span>
+              </span>
+            </div>
+          </div></div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>접힌 상태</b> — 누르면 펼쳐지기만 합니다.</figcaption>
+    </figure>
+    <figure>
+      <div class="frame">
+        <div class="island panel" data-state="complete">
+          <div class="phead">
+            <span class="tab">
+              <span class="state"><svg><use href="#i-check"/></svg></span>
+              <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+              <span class="meta"><span>5/5</span><span class="time">· 3:15:01</span></span>
+            </span>
+            <span class="pclose" title="닫기"><svg class="s16"><use href="#i-close"/></svg></span>
+          </div>
+          <div class="body" data-tasks></div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>펼친 상태</b> — 아래 버튼 줄이 통째로 없고, 오른쪽 위 ×는 창만 접습니다.</figcaption>
+    </figure>
+  </div>
+
+  <h2>A안 — 펼친 창 아래에 '목표 닫기'</h2>
+  <p class="lead">진행 중일 때 일시정지·수정·중단 버튼이 있던 자리입니다. 끝난 셸 작업의 '닫기'와 같은 방식입니다.
+    접힌 상태에서는 한 번 펼친 뒤 누릅니다(두 번 클릭).</p>
+  <div class="row">
+    <figure>
+      <div class="frame">
+        <div class="anchor">
+          <div class="island pill"><div class="pillrow">
+            <div class="goal" data-state="complete">
+              <span class="trigger">
+                <span class="state"><svg><use href="#i-check"/></svg></span>
+                <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+                <span class="label">완료</span>
+                <span class="meta"><span>5/5</span><span class="time">3h 15m</span></span>
+              </span>
+            </div>
+          </div></div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>접힌 상태</b> — 지금과 같습니다.</figcaption>
+    </figure>
+    <figure>
+      <div class="frame">
+        <div class="island panel" data-state="complete">
+          <div class="phead">
+            <span class="tab">
+              <span class="state"><svg><use href="#i-check"/></svg></span>
+              <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+              <span class="meta"><span>5/5</span><span class="time">· 3:15:01</span></span>
+            </span>
+            <span class="pclose" title="닫기"><svg class="s16"><use href="#i-close"/></svg></span>
+          </div>
+          <div class="body"><div data-tasks style="display:grid;gap:8px"></div>
+            <div class="controls"><button type="button" class="ctl new">목표 닫기</button></div>
+          </div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>펼친 상태</b> — 오른쪽 아래 '목표 닫기'. 누르면 표시가 사라집니다.</figcaption>
+    </figure>
+  </div>
+
+  <h2>B안 — A안 + 접힌 표시줄 끝에 × <em>추천</em></h2>
+  <p class="lead">접힌 상태에서도 바로 한 번에 닫습니다. 펼친 창에는 A안 버튼이 그대로 있습니다.
+    끝난 Goal에만 ×가 붙어서, 진행 중인 표시줄은 지금과 같습니다.</p>
+  <div class="row three">
+    <figure>
+      <div class="frame">
+        <div class="anchor">
+          <div class="island pill"><div class="pillrow">
+            <div class="goal" data-state="complete">
+              <span class="trigger">
+                <span class="state"><svg><use href="#i-check"/></svg></span>
+                <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+                <span class="label">완료</span>
+                <span class="meta"><span>5/5</span><span class="time">3h 15m</span></span>
+              </span>
+              <span class="dismiss new" title="목표 닫기"><svg><use href="#i-close"/></svg></span>
+            </div>
+          </div></div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>완료</b> — 표시줄 끝에 ×.</figcaption>
+    </figure>
+    <figure>
+      <div class="frame">
+        <div class="anchor">
+          <div class="island pill"><div class="pillrow">
+            <div class="goal" data-state="complete">
+              <span class="trigger">
+                <span class="state"><svg><use href="#i-check"/></svg></span>
+                <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+                <span class="label">완료</span>
+                <span class="meta"><span>5/5</span><span class="time">3h 15m</span></span>
+              </span>
+              <span class="dismiss hover"><svg><use href="#i-close"/></svg></span>
+            </div>
+          </div></div>
+          <span class="tip">목표 닫기</span>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>마우스를 올렸을 때</b> — '목표 닫기' 툴팁.</figcaption>
+    </figure>
+    <figure>
+      <div class="frame">
+        <div class="anchor">
+          <div class="island pill"><div class="pillrow">
+            <div class="goal" data-state="stopped">
+              <span class="trigger">
+                <span class="state"><svg><use href="#i-stop"/></svg></span>
+                <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i></i><i></i></span>
+                <span class="label">중지됨</span>
+                <span class="meta"><span>3/5</span><span class="time">42m</span></span>
+              </span>
+              <span class="dismiss new" title="목표 닫기"><svg><use href="#i-close"/></svg></span>
+            </div>
+          </div></div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>중지됨</b> — 모델이 그만둔 Goal도 같은 ×.</figcaption>
+    </figure>
+  </div>
+  <div class="row phone-row" style="margin-top:16px">
+    <figure>
+      <div class="frame phone">
+        <div class="anchor">
+          <div class="island pill"><div class="pillrow">
+            <div class="goal" data-state="complete">
+              <span class="trigger">
+                <span class="state"><svg><use href="#i-check"/></svg></span>
+                <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+                <span class="label">완료</span>
+                <span class="meta"><span>5/5</span><span class="time">3h 15m</span></span>
+              </span>
+              <span class="dismiss new" title="목표 닫기"><svg><use href="#i-close"/></svg></span>
+            </div>
+          </div></div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>휴대폰</b> — ×를 28px로 키워 손가락으로 누르기 쉽게.</figcaption>
+    </figure>
+    <figure>
+      <div class="frame">
+        <div class="island panel" data-state="complete">
+          <div class="phead">
+            <span class="tab">
+              <span class="state"><svg><use href="#i-check"/></svg></span>
+              <span class="pips"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span>
+              <span class="meta"><span>5/5</span><span class="time">· 3:15:01</span></span>
+            </span>
+            <span class="pclose" title="닫기"><svg class="s16"><use href="#i-close"/></svg></span>
+          </div>
+          <div class="body"><div data-tasks style="display:grid;gap:8px"></div>
+            <div class="controls"><button type="button" class="ctl new">목표 닫기</button></div>
+          </div>
+        </div>
+        <div data-composer></div>
+      </div>
+      <figcaption><b>펼친 상태</b> — A안과 같습니다.</figcaption>
+    </figure>
+  </div>
+
+  <h2>동작 (A·B 공통)</h2>
+  <ul class="notes">
+    <li>누르면 표시가 바로 사라집니다. 이미 끝난 Goal이라 확인 창은 띄우지 않습니다.</li>
+    <li>기록은 지우지 않고 보관합니다. 다음 메시지를 보냈을 때와 같은 처리입니다.</li>
+    <li>진행 중·일시정지·답변 대기인 Goal에는 나오지 않습니다. 그때는 지금처럼 일시정지·수정·중단입니다.</li>
+    <li>펼친 창 오른쪽 위 ×는 지금처럼 창만 접습니다.</li>
+    <li>PC와 휴대폰이 같은 화면 코드라 둘 다 적용됩니다.</li>
+  </ul>
+</main>
+
+<script>
+  const composer = document.getElementById('composer');
+  const tasks = document.getElementById('drawer-tasks');
+  for (const slot of document.querySelectorAll('[data-composer]')) slot.replaceWith(composer.content.cloneNode(true));
+  for (const slot of document.querySelectorAll('[data-tasks]')) slot.append(tasks.content.cloneNode(true));
+</script>
+</body>
+</html>

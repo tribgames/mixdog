@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "cwd": "proj/src",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "file": ".",
+    "mode": "references",
+    "symbol": "alpha"
+  },
+  "isError": false,
+  "text": "# declaration\n# best declaration candidate\nsrc/a.mjs:1-3:17 (javascript, export function, matches=1)\nsignature: function alpha()\n\n# references\nsrc/b.mjs:4:10\tcall\towner=beta\treturn alpha();",
+  "tool": "code_graph"
+}

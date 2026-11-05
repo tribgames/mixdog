@@ -31,6 +31,10 @@ export interface ServerLoginConnection {
    *  The attachment waits for a returned promise before it closes, so a call
    *  to the server made here still reaches it. */
   onEnd(listener: () => void | Promise<void>): () => void;
+  /** Calls `listener` with each `login/updated` push of the server's core (the scoped feed `login:<flowId>`,
+   *  desktop-services.md §5.4). Absent while the server's core endpoint is not wired: its login is then read
+   *  on the dialog's own events (focus, paste), never on a timer. Returns the unsubscribe. */
+  onLoginUpdated?(listener: (update: { flowId: string; state: unknown }) => void): () => void;
 }
 
 /** A forward of one callback port; closing it stops its ssh child. */
@@ -231,7 +235,12 @@ const isHttpUrl = (url: string | null): url is string => {
 
 export function createServerLoginHandlers(deps: ServerLoginDeps): {
   logins(id: unknown): Promise<DesktopSshServerLogins>;
-  begin(id: unknown, provider: unknown): Promise<DesktopSshServerLoginFlow>;
+  /** `onUpdate` receives each later state of the started login as the server pushes it. */
+  begin(
+    id: unknown,
+    provider: unknown,
+    onUpdate?: (flow: DesktopSshServerLoginFlow) => void
+  ): Promise<DesktopSshServerLoginFlow>;
   status(id: unknown, flowId: unknown): Promise<DesktopSshServerLoginFlow>;
   complete(id: unknown, flowId: unknown, redirectUrl: unknown): Promise<DesktopSshServerLoginFlow>;
   cancel(id: unknown, flowId: unknown): Promise<void>;
@@ -413,7 +422,7 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
       return { connected: true, modelLogin: 'server', busySessions, providers, ...(keychain ? { keychain } : {}) };
     },
 
-    async begin(id, provider) {
+    async begin(id, provider, onUpdate) {
       const { host, server } = await serverConnection(id);
       // The server never opens a browser of its own: this PC's does.
       const started = flowOf(
@@ -438,7 +447,18 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
         // A cancel queued for an older login that had this id is stale now.
         queuedCancels.delete(key);
         pendingLogins.set(key, own);
-        own.unwatch = server.onEnd(() => endLogin(key, own));
+        const stopEnd = server.onEnd(() => endLogin(key, own));
+        // The server pushes the login's progress; a state that ends it also closes its forward.
+        const stopFeed = server.onLoginUpdated?.((update) => {
+          if (update.flowId !== started.flowId) return;
+          void settle(key, { ...record(update.state), flowId: started.flowId, provider: started.provider })
+            .then((flow) => onUpdate?.(flow))
+            .catch(() => undefined);
+        });
+        own.unwatch = () => {
+          stopEnd();
+          stopFeed?.();
+        };
       }
       let forward: CallbackForward | null = null;
       if (port !== null) {

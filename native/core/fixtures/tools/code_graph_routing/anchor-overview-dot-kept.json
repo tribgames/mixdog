@@ -1,0 +1,14 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "file": ".",
+    "mode": "overview"
+  },
+  "isError": false,
+  "text": "files\t2\nedges\t1\njavascript\t2",
+  "tool": "code_graph"
+}

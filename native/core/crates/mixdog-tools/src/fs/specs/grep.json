@@ -1,0 +1,89 @@
+{
+ "src": "builtin-tools",
+ "name": "grep",
+ "annotations": {
+  "title": "Grep",
+  "readOnlyHint": true,
+  "destructiveHint": false,
+  "idempotentHint": true,
+  "openWorldHint": false,
+  "compressible": true
+ },
+ "schema": {
+  "type": "object",
+  "properties": {
+   "pattern": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 10
+     }
+    ],
+    "description": "Ripgrep regex(es); escape literal metacharacters."
+   },
+   "path": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+       "type": "string"
+      }
+     }
+    ],
+    "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+   },
+   "glob": {
+    "type": "string",
+    "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+   },
+   "mode": {
+    "type": "string",
+    "enum": [
+     "content",
+     "files",
+     "count"
+    ],
+    "description": "content default; files lists matching paths; count totals all patterns together per file."
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": 0,
+    "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+   },
+   "offset": {
+    "type": "integer",
+    "minimum": 0
+   },
+   "context": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 200,
+    "description": "Omit for automatic context; 0 for matches only."
+   },
+   "include_noise": {
+    "type": "boolean",
+    "description": "Also search gitignored trees."
+   },
+   "text": {
+    "type": "boolean",
+    "description": "Search binary data as text (archives/Git objects not decoded)."
+   }
+  },
+  "required": [
+   "pattern"
+  ],
+  "additionalProperties": false
+ },
+ "descLen": 277
+}

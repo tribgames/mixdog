@@ -1,0 +1,238 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ConversationNotificationOverride": {
+      "properties": {
+        "setting": {
+          "$ref": "#/definitions/ConversationNotificationSetting"
+        },
+        "target": {
+          "$ref": "#/definitions/NotificationTarget"
+        }
+      },
+      "required": [
+        "setting",
+        "target"
+      ],
+      "type": "object"
+    },
+    "ConversationNotificationSetting": {
+      "description": "An override in force; \"inherit\" is the absence of an entry.",
+      "oneOf": [
+        {
+          "description": "Notifies whatever the device scope says (quiet hours still apply).",
+          "properties": {
+            "mode": {
+              "enum": [
+                "always"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`until`: epoch ms, or `null` for no end.",
+          "properties": {
+            "mode": {
+              "enum": [
+                "muted"
+              ],
+              "type": "string"
+            },
+            "until": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "NotificationDevicePreferences": {
+      "description": "One device's preferences (this PC under device id `pc`, a paired device under its client id).",
+      "properties": {
+        "automaticRuns": {
+          "default": true,
+          "description": "Final answers and errors of turns a schedule or webhook started.",
+          "type": "boolean"
+        },
+        "events": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/NotificationEvents"
+            }
+          ],
+          "default": {
+            "approval": true,
+            "error": false,
+            "finished": true,
+            "question": true
+          }
+        },
+        "holdWhileDesktopActive": {
+          "default": true,
+          "description": "Paired devices: wait while this PC has recent user input.",
+          "type": "boolean"
+        },
+        "quietHours": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/NotificationQuietHours"
+            }
+          ],
+          "default": {
+            "allowWaiting": false,
+            "days": "every",
+            "enabled": false,
+            "end": "08:00",
+            "start": "23:00"
+          }
+        },
+        "scope": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/NotificationScope"
+            }
+          ],
+          "default": "all"
+        },
+        "taskbarFlash": {
+          "default": true,
+          "description": "This PC: flash the taskbar.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NotificationEvents": {
+      "description": "Which kinds of event notify.",
+      "properties": {
+        "approval": {
+          "default": true,
+          "type": "boolean"
+        },
+        "error": {
+          "default": false,
+          "type": "boolean"
+        },
+        "finished": {
+          "default": true,
+          "type": "boolean"
+        },
+        "question": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NotificationQuietDays": {
+      "enum": [
+        "every",
+        "weekdays",
+        "weekends"
+      ],
+      "type": "string"
+    },
+    "NotificationQuietHours": {
+      "properties": {
+        "allowWaiting": {
+          "default": false,
+          "description": "Questions and approvals still notify inside quiet hours.",
+          "type": "boolean"
+        },
+        "days": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/NotificationQuietDays"
+            }
+          ],
+          "default": "every"
+        },
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "end": {
+          "default": "08:00",
+          "type": "string"
+        },
+        "start": {
+          "default": "23:00",
+          "description": "`HH:MM` on the PC's local clock; an end at or before the start spans midnight.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "NotificationScope": {
+      "enum": [
+        "all",
+        "bots",
+        "off"
+      ],
+      "type": "string"
+    },
+    "NotificationTarget": {
+      "description": "What a conversation override is attached to.",
+      "properties": {
+        "id": {
+          "description": "1–200 of `[A-Za-z0-9_.:-]`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/NotificationTargetKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "NotificationTargetKind": {
+      "enum": [
+        "session",
+        "agent",
+        "room"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "The value of config key `notifications`.",
+  "properties": {
+    "devices": {
+      "additionalProperties": {
+        "$ref": "#/definitions/NotificationDevicePreferences"
+      },
+      "default": {},
+      "description": "By device id.",
+      "type": "object"
+    },
+    "migratedAt": {
+      "default": 0,
+      "description": "When the store was first written: devices paired before it keep today's behaviour.",
+      "format": "int64",
+      "type": "integer"
+    },
+    "overrides": {
+      "default": [],
+      "items": {
+        "$ref": "#/definitions/ConversationNotificationOverride"
+      },
+      "type": "array"
+    }
+  },
+  "title": "NotificationPreferences",
+  "type": "object"
+}

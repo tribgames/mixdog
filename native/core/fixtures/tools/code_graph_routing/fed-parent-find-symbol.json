@@ -1,0 +1,16 @@
+{
+  "complete": true,
+  "cwd": "multi",
+  "dependencyRoots": [
+    "<ROOT>/multi",
+    "<ROOT>/multi/alpha",
+    "<ROOT>/multi/beta"
+  ],
+  "input": {
+    "mode": "find_symbol",
+    "symbol": "onlyBeta"
+  },
+  "isError": false,
+  "text": "# project alpha [<ROOT>/multi/alpha]\n(no symbol matches in cwd=<ROOT>/multi/alpha)\ngraph: nodes=1\n\n# project beta [<ROOT>/multi/beta]\n# best declaration candidate\nlib/b.mjs:5-7:17 (javascript, export function, matches=1)\n5: export function onlyBeta() {\n6:   return 3;\n7: }",
+  "tool": "code_graph"
+}

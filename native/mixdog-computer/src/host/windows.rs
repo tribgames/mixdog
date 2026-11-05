@@ -14,7 +14,7 @@ fn window_row(info: &WindowInfo, with_app: bool) -> Value {
         "app": if with_app { info.app.clone() } else { String::new() },
         "pid": info.pid,
         "parent_pid": info.parent_pid,
-        "content_pid": info.pid,
+        "content_pid": if info.content_pid != 0 { info.content_pid } else { info.pid },
         "owner_id": info.owner_id(),
         "focused": info.focused,
         "minimized": info.minimized,
@@ -124,22 +124,48 @@ impl Host {
         })
     }
 
-    /// The composited capture already renders exact windows on this platform;
-    /// there is no separate window-owned surface to read.
+    /// The window's own rendering where the platform keeps one; elsewhere the
+    /// composited capture already renders exact windows.
     pub(super) fn window_capture(&self, req: &Req) -> Res<Obj> {
+        use base64::Engine;
         let info = self.resolve_window(req)?;
-        Err(format!(
-            "capture_source_unavailable: {} has no native window surface backend; the composited capture covers {}",
-            self.desktop.name(),
-            info.id()
-        ))
+        if let Some(backend) = req.str("capture_backend") {
+            if backend != "print_window" {
+                return Err("capture_source_unavailable|unknown window capture backend".into());
+            }
+        }
+        let surface = self.desktop.window_surface(info.handle)?;
+        Ok(obj! {
+            "text" => format!("native window capture: {}", info.title),
+            "title" => info.title,
+            "window_id" => info.id(),
+            "x" => surface.x,
+            "y" => surface.y,
+            "width" => surface.width,
+            "height" => surface.height,
+            "capture_source" => "window_surface",
+            "capture_cleanup" => json!({ "status": "confirmed" }),
+            "image_base64" => base64::engine::general_purpose::STANDARD.encode(&surface.png),
+        })
     }
 
-    /// Integrity levels are a Windows boundary; these desktops have none, so
+    /// Integrity levels are a Windows boundary; other desktops have none, so
     /// it is known that no window is ever above this host. Answering "unknown"
-    /// instead made the desktop refuse every foreground input here.
+    /// instead made the desktop refuse every foreground input there.
     pub(super) fn window_integrity(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
+        if let Some(level) = self.desktop.integrity(info.handle) {
+            return Ok(obj! {
+                "text" => format!("window integrity: {}", level.target_name),
+                "window_id" => info.id(),
+                "known" => level.known(),
+                "higher" => level.higher(),
+                "own_rid" => level.own_rid,
+                "target_rid" => level.target_rid,
+                "own_name" => level.own_name,
+                "target_name" => level.target_name,
+            });
+        }
         Ok(obj! {
             "text" => "window integrity: not applicable",
             "window_id" => info.id(),

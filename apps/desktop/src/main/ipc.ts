@@ -22,6 +22,8 @@ import type { DesktopSettingsStore } from './settings-store';
 import type { BrowserHost } from './browser/host';
 import type { BrowserLoginPopup } from './browser/login-popup';
 import { registerBrowserIpc } from './ipc-browser';
+import type { ProtocolConnection } from './protocol/connection';
+import { registerProtocolWindowIpc } from './protocol/window-ipc';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
@@ -212,6 +214,8 @@ interface DesktopIpcDependencies {
   pcHost?: PcQuotaHost;
   /** This window's pane layout file in the profile (see pane-layout-file.ts). */
   paneLayoutFile?: PaneLayoutFile;
+  /** The connection's protocol link: pushed sections and detail calls for the renderer. */
+  protocol?: ProtocolConnection | null;
 }
 
 export function registerDesktopIpc(
@@ -243,6 +247,7 @@ export function registerDesktopIpc(
     serviceUserDataPath,
     pcHost,
     paneLayoutFile,
+    protocol,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -412,6 +417,18 @@ export function registerDesktopIpc(
     powerMonitor: powerMonitorRef,
     updater,
   });
+  const disposeProtocolIpc = protocol
+    ? registerProtocolWindowIpc({
+        connection: protocol,
+        handle,
+        send: (channel, value) => {
+          if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
+          window.webContents.send(channel, value);
+          return true;
+        },
+        removeHandler: (channel) => ipcMain.removeHandler(channel),
+      })
+    : () => undefined;
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
   const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
@@ -470,6 +487,7 @@ export function registerDesktopIpc(
     if (removed) return;
     removed = true;
     stateBridge.dispose();
+    disposeProtocolIpc();
     void server?.dispose();
     disposeTerminalIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);

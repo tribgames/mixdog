@@ -4,6 +4,14 @@ import { test } from 'node:test';
 import { createUpdaterController, startUnattendedInstall } from './updater-controller.ts';
 import { normalizeUpdaterDevFeed } from './updater-feed.ts';
 
+/** The local core as the controller sees it; each answer defaults to an idle core. */
+const coreOf = ({
+  running = async () => 0,
+  hold = async () => 0,
+  release = async () => {},
+  stop = async () => {},
+} = {}) => ({ running, hold, release, stop });
+
 function setup({ currentVersion = '1.0.0', enabled = true, ready: initialReady, latestVersion = '2.0.0', busy } = {}) {
   const calls = [];
   const scheduledInstalls = [];
@@ -39,7 +47,7 @@ function setup({ currentVersion = '1.0.0', enabled = true, ready: initialReady, 
       stop: async () => {
         calls.push('stop');
       },
-      busy,
+      core: busy ? coreOf({ running: busy }) : undefined,
       scheduleInstall: (install) => {
         calls.push('schedule-install');
         scheduledInstalls.push(install);
@@ -170,10 +178,12 @@ test('the busy check is the last step before teardown: busy at commit never call
       quitAndInstall() {},
     },
     persistence: { get: () => undefined, set() {}, clear() {} },
-    busy: async () => {
-      checks += 1;
-      return 1;
-    },
+    core: coreOf({
+      running: async () => {
+        checks += 1;
+        return 1;
+      },
+    }),
     stop: async () => {
       disposed = true;
     },
@@ -185,7 +195,7 @@ test('the busy check is the last step before teardown: busy at commit never call
   assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0', busyTasks: 1 });
 });
 
-async function withBarrier(closeAnswer, { stopFails = false } = {}) {
+async function withBarrier(closeAnswer, { stopFails = false, coreStopFails = false } = {}) {
   const calls = [];
   const controller = createUpdaterController({
     enabled: true,
@@ -196,16 +206,19 @@ async function withBarrier(closeAnswer, { stopFails = false } = {}) {
       quitAndInstall: () => calls.push('install'),
     },
     persistence: { get: () => undefined, set() {}, clear() {} },
-    busy: async () => 0,
-    barrier: {
-      close: async () => {
+    core: coreOf({
+      hold: async () => {
         calls.push('barrier-close');
         return closeAnswer;
       },
       release: async () => {
         calls.push('barrier-release');
       },
-    },
+      stop: async ({ abort }) => {
+        calls.push(`core-stop${abort ? '-abort' : ''}`);
+        if (coreStopFails) throw new Error('core did not exit');
+      },
+    }),
     stop: async () => {
       calls.push('stop');
       if (stopFails) throw new Error('teardown failed');
@@ -230,23 +243,30 @@ test('barrier unknown: admission is reopened and nothing is disposed', async () 
   assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0', busyTasks: null });
 });
 
-test('barrier idle: admission closes before teardown and the install proceeds', async () => {
+test('barrier idle: the old core is gone before the app tears down and the installer runs', async () => {
   const { calls, controller } = await withBarrier(0);
   await controller.install();
-  assert.deepEqual(calls, ['barrier-close', 'stop', 'install']);
+  assert.deepEqual(calls, ['barrier-close', 'core-stop', 'stop', 'install']);
 });
 
 test('an abandoned install releases the barrier so the daemon takes work again', async () => {
   const { calls, controller } = await withBarrier(0, { stopFails: true });
   await assert.rejects(controller.install(), /teardown failed/);
-  assert.deepEqual(calls, ['barrier-close', 'stop', 'barrier-release']);
+  assert.deepEqual(calls, ['barrier-close', 'core-stop', 'stop', 'barrier-release']);
   assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0' });
 });
 
-test('a confirmed install does not need the barrier', async () => {
+test('a core that does not exit stops the install before the app tears down and releases the barrier', async () => {
+  const { calls, controller } = await withBarrier(0, { coreStopFails: true });
+  await assert.rejects(controller.install(), /core did not exit/);
+  assert.deepEqual(calls, ['barrier-close', 'core-stop', 'barrier-release']);
+  assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('a confirmed install skips the barrier and aborts the work the user was shown', async () => {
   const { calls, controller } = await withBarrier(5);
   await controller.install({ confirmed: true });
-  assert.deepEqual(calls, ['stop', 'install']);
+  assert.deepEqual(calls, ['core-stop-abort', 'stop', 'install']);
 });
 
 test('unattended install: an unknown hold does not re-enter, a fresh idle view installs once', async () => {
@@ -263,7 +283,7 @@ test('unattended install: an unknown hold does not re-enter, a fresh idle view i
       quitAndInstall: () => calls.push('install'),
     },
     persistence: { get: () => undefined, set() {}, clear() {} },
-    busy: async () => view,
+    core: coreOf({ running: async () => view }),
     stop: async () => {
       calls.push('stop');
     },
@@ -315,7 +335,7 @@ function unattendedSetup({ view = 0, launchFails = false, stopFails = false } = 
       },
     },
     persistence: { get: () => undefined, set() {}, clear() {} },
-    busy: async () => view,
+    core: coreOf({ running: async () => view }),
     stop: async () => {
       calls.push('stop');
       if (stopFails) throw new Error('teardown failed');

@@ -1,5 +1,8 @@
 //! Domain services: every non-thread namespace of the method table (config, account, agent,
-//! project, terminal, git, remote, …), registered by the composition root.
+//! project, terminal, git, remote, …), registered by the composition root. A service that
+//! streams to subscribers (`fs/watch`, `search/start`) is given a
+//! [`crate::feed::ScopedFeeds`] at construction and answers the subscribing request with
+//! [`Reply::Subscribe`] over the feed it created.
 
 use std::future::Future;
 use std::pin::Pin;

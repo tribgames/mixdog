@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/docs/README.md",
+ "contentType": "text/plain",
+ "expected": {
+  "ok": true,
+  "title": "",
+  "content": "# Readme\n\ntext\n",
+  "extractor": "raw"
+ }
+}

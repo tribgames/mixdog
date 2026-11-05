@@ -40,15 +40,12 @@
     "office/snapshot-csv",
     "office/error-unknown-action",
     "office/error-missing-path",
-    "office/error-no-session",
-    "memory/list-empty",
-    "memory/add",
-    "memory/list-after-add",
-    "memory/error-edit-missing",
-    "memory/error-bad-op"
+    "office/error-no-session"
   ],
-  "extraImpossible": [],
-  "fileCount": 109,
+  "extraImpossible": [
+    "memory"
+  ],
+  "fileCount": 147,
   "files": [
     {
       "bytes": 702,
@@ -171,6 +168,186 @@
       "sha256": "47dadad03eff0728e83ddf149300cb5e88c5ee8ea60225857dff989664b3a513"
     },
     {
+      "bytes": 304,
+      "path": "code_graph_routing/anchor-callees-dot.json",
+      "sha256": "17535fbd6bfeb53a8c176cffb6611227c6c97a7a2a0d23abd9f7a6d1cfd0c54e"
+    },
+    {
+      "bytes": 288,
+      "path": "code_graph_routing/anchor-callers-dot.json",
+      "sha256": "37baf468e3f91362dbe95528eea4318d260e5394b6b5e8e6458241b28740bbed"
+    },
+    {
+      "bytes": 377,
+      "path": "code_graph_routing/anchor-find-symbol-abs-cwd.json",
+      "sha256": "d8adab8ea9c84e5ad14ec206ac734ae2d6070d009f85eb6de44609f9896d036a"
+    },
+    {
+      "bytes": 367,
+      "path": "code_graph_routing/anchor-find-symbol-dot.json",
+      "sha256": "41c5a0783f685360b4620bae22040a7c868e136df40ab6352c94b20abf57345e"
+    },
+    {
+      "bytes": 400,
+      "path": "code_graph_routing/anchor-imports-dot-kept.json",
+      "sha256": "37a830b47cff74efe43a8ed48decfacbc0c74a0793eb9cc1395acffe25bde281"
+    },
+    {
+      "bytes": 523,
+      "path": "code_graph_routing/anchor-mixed-files-kept.json",
+      "sha256": "8fb3a2d7cf18685a90bdfb059e063026310ac9b04ad3607da7e6e9790b5a1709"
+    },
+    {
+      "bytes": 235,
+      "path": "code_graph_routing/anchor-overview-dot-kept.json",
+      "sha256": "9c0af971c509cec5a78a5462fc954b767a6705e25a12641de45b36fca510c0c0"
+    },
+    {
+      "bytes": 425,
+      "path": "code_graph_routing/anchor-references-dot.json",
+      "sha256": "c9f54a42715955d0d35764e395935dceaccf47556850a791c308e3186bad443f"
+    },
+    {
+      "bytes": 322,
+      "path": "code_graph_routing/anchor-search-dot.json",
+      "sha256": "f391b149a093930625561e7e50743737e20b93a378ca3abec52454327e60eabe"
+    },
+    {
+      "bytes": 429,
+      "path": "code_graph_routing/anchor-subfolder-cwd.json",
+      "sha256": "4d5ed169076615b23b64b83bf47a4538f082d9fa9fc2952f5021f1f8fa00a784"
+    },
+    {
+      "bytes": 281,
+      "path": "code_graph_routing/anchor-symbols-files-dot.json",
+      "sha256": "6d0f79865caddba55ad00ba06d8e93238f88428aa51b739b3c44994c2d46823d"
+    },
+    {
+      "bytes": 293,
+      "path": "code_graph_routing/anchor-symbols-files-dots.json",
+      "sha256": "faa2ae8b6dbb09687f99713d5f463145103d28634a58e67931d448437ae49a9b"
+    },
+    {
+      "bytes": 925,
+      "path": "code_graph_routing/fed-child-cap.json",
+      "sha256": "1fc6bce007630c24e85fbdf34b8c37fe1e2e420f10cb130014f518f898bdaed7"
+    },
+    {
+      "bytes": 414,
+      "path": "code_graph_routing/fed-parent-dot-overview.json",
+      "sha256": "b2a337f613a8ae1c3829d3e1d5c97dd52b1d6e1046aa5a20a8f4399432fc2fea"
+    },
+    {
+      "bytes": 480,
+      "path": "code_graph_routing/fed-parent-dot-symbols.json",
+      "sha256": "d44951344fcd3cf8d216937e5b2c1cf5e83bd529c9c5fa35f82a470ca8b60591"
+    },
+    {
+      "bytes": 413,
+      "path": "code_graph_routing/fed-parent-file-anchor.json",
+      "sha256": "cb1aab842cf649fb781d265ece3baf05279248ec5ae12a5c4fd204d85b4cd63e"
+    },
+    {
+      "bytes": 507,
+      "path": "code_graph_routing/fed-parent-files-two-projects.json",
+      "sha256": "085a47bdf537a0fc74faa3401d77bfc89be27d2ecb8b4d14f4d22ac4ddf391a9"
+    },
+    {
+      "bytes": 548,
+      "path": "code_graph_routing/fed-parent-find-symbol.json",
+      "sha256": "bd8c964f6e6077d5616b1fd48ac8450fed04560d2b91a3a6741aa0eadcb26fa0"
+    },
+    {
+      "bytes": 554,
+      "path": "code_graph_routing/fed-parent-imports-refused.json",
+      "sha256": "5e64ee17aaabbd750dbc86a198824bab0f85659ec9998c1c8eb8317de7a727bc"
+    },
+    {
+      "bytes": 382,
+      "path": "code_graph_routing/fed-parent-overview.json",
+      "sha256": "37e246209e060a7eb884ad598e781ce5b8f6caadcf49b4f4ef697ffca3a88974"
+    },
+    {
+      "bytes": 549,
+      "path": "code_graph_routing/fed-parent-symbol-search.json",
+      "sha256": "4b9516cbd82dcf471920e36795dda65f15924526b553c44817541f296497de34"
+    },
+    {
+      "bytes": 840,
+      "path": "code_graph_routing/fed-root-files.json",
+      "sha256": "2964ebf8eb83b523932e0f32d69179a0f4a57261a693ea52b5cca72055731d48"
+    },
+    {
+      "bytes": 748,
+      "path": "code_graph_routing/fed-root-find-symbol.json",
+      "sha256": "e00ceb402dc0201c35a1c9d93de8c858be5644bb2bf6421f5419d74d9582dc3e"
+    },
+    {
+      "bytes": 593,
+      "path": "code_graph_routing/fed-root-imports.json",
+      "sha256": "3a23af17ff6fb392587ae24909be709b5442875cca5b19cb7c2d5512d451df4d"
+    },
+    {
+      "bytes": 380,
+      "path": "code_graph_routing/fed-root-missing-file.json",
+      "sha256": "bcf2a078dda09a9b2ec6de67f0cd5d77aba7dbe371040765f302843908f4c957"
+    },
+    {
+      "bytes": 515,
+      "path": "code_graph_routing/fed-root-nothing-trusted.json",
+      "sha256": "71716c6eae798737e7f56199cfbbd4a00fbd4d29b5cadf2516c06f4bb3314233"
+    },
+    {
+      "bytes": 564,
+      "path": "code_graph_routing/fed-root-overview.json",
+      "sha256": "3ecb361516051718cccbbfe535130ca85260e4b9b37854b6381d381681d878ac"
+    },
+    {
+      "bytes": 311,
+      "path": "code_graph_routing/fed-root-selected-only.json",
+      "sha256": "eff5f8f2137034d47db8594e5c0ef90638e319f9d0d1c293986d0554a9b53aca"
+    },
+    {
+      "bytes": 323,
+      "path": "code_graph_routing/fed-root-selected-subfolder.json",
+      "sha256": "2ffdb8c14cc017264c65edf132e3f69ae16b064bf6628969c5e704ec778e01e3"
+    },
+    {
+      "bytes": 491,
+      "path": "code_graph_routing/fed-root-symbols-files.json",
+      "sha256": "af5047abcc9e4a6af4a547d80af259c10136a686d660938a316485f7b713bb63"
+    },
+    {
+      "bytes": 403,
+      "path": "code_graph_routing/fed-root-untrusted-file.json",
+      "sha256": "c7149379c7a034fa0def8017a89fdd83e274c71de74db857c263e0d6b620cf4a"
+    },
+    {
+      "bytes": 401,
+      "path": "code_graph_routing/fed-root-wildcard.json",
+      "sha256": "8ade84cce2933f03871ba82cc2afd985c2924f26d6623563b44842beb359218c"
+    },
+    {
+      "bytes": 273,
+      "path": "code_graph_routing/fed-single-child.json",
+      "sha256": "a3a124b8d60e559573cec5ebb9ca3f2c0a060454dadb41505c8680e34355ec26"
+    },
+    {
+      "bytes": 364,
+      "path": "code_graph_routing/plain-tree-find-symbol.json",
+      "sha256": "93872c1a294721cd3e96b784ea47e8a51ba1c8b3719d9d08cff6a2eee45e4d16"
+    },
+    {
+      "bytes": 232,
+      "path": "code_graph_routing/plain-tree-overview.json",
+      "sha256": "1822282e6f976544748821018da9be2e40c01b19abca207ad9bb020e7fc21166"
+    },
+    {
+      "bytes": 2376,
+      "path": "code_graph_routing/workspace.json",
+      "sha256": "8b882ec9317d10b7927816bc0d3260af2a7a6edad9d21aa7e46adf4c4082e5a6"
+    },
+    {
       "bytes": 298,
       "path": "edit/edit-no-match.json",
       "sha256": "eaa21105b717116d20cda857cd79b3fdd9fbbb4057f33af742743f62cb36499f"
@@ -196,9 +373,9 @@
       "sha256": "8439ca930c4c5aeeb3dcaa7f25166ab6faac77a371e70aedc299f03e43f0ebe0"
     },
     {
-      "bytes": 23,
+      "bytes": 125,
       "path": "extra-impossible.json",
-      "sha256": "152b4760709ac86c720f1f4d0225feadecc0d72fb2550b2c5d72941f7b3faa27"
+      "sha256": "c31057e11423dcade9fdf1858479b9d9f00a540b71e4c9da32602288cf0c19d5"
     },
     {
       "bytes": 109,
@@ -371,6 +548,16 @@
       "sha256": "e99b16326060376ffc8a5131c32d95e31b61f43c69d5ae68b34e6fd098cb097f"
     },
     {
+      "bytes": 8505,
+      "path": "memory/sensitive/golden.json",
+      "sha256": "9627db0859150b60c19a6f3db1ffb8302b6f25827a8d62850596b7b2112de262"
+    },
+    {
+      "bytes": 10212,
+      "path": "memory/service/recall.json",
+      "sha256": "cec7cec16cc43b7f303abf98e9ded8a173998efe9bad8319fb1262651c2aaa7e"
+    },
+    {
       "bytes": 1908,
       "path": "office/create-docx.json",
       "sha256": "d428c06a3a1dcc1d15e6819f8bc3c81831073add0a569f7809a6dd9401541f51"
@@ -401,9 +588,9 @@
       "sha256": "a490d5ec3ec016d059944cfba33067ca91bc1e0ed9abe0e5edb76107698ba944"
     },
     {
-      "bytes": 1413,
+      "bytes": 1002,
       "path": "office/detect.json",
-      "sha256": "57fecbd4892be2ac3f761fa2ea90a3410e854c0f8885aa1ca802b35542b687a7"
+      "sha256": "9f342a52e0fdf07a3b2bb2a8b7a2bedbd1181cf205bb2710b0f9fdc87a5e5a9c"
     },
     {
       "bytes": 246,
@@ -597,22 +784,22 @@
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
+    "appsSha256": "9e5eb15ace3a768cb481d4856bcbf9d1f1a73470ed0ee9bfb67901954824c336",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 9227,
     "refComparison": {
-      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "commitFilesMissingFromTree": 6,
+      "exact": false,
+      "filesDifferingFromCommit": 202
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs",
   "set": "tools",
-  "totalBytes": 491322
+  "totalBytes": 527560
 }

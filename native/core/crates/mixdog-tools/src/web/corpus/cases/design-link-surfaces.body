@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>링크 · 파일 표시 전체 정리 시안</title>
+<style>
+  :root {
+    --deep: #101013; --sheet: #111113; --base: #222225; --l1: #2a2a2d; --l2: #323236; --l3: #3d3d41;
+    --text: #e9e9e9; --muted: #a8a8a8; --soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --accent: #79b8ff; --border-muted: rgba(255,255,255,.09); --border: rgba(255,255,255,.125); --hover: rgba(255,255,255,.08);
+    --red: #f17471; --green: #6bd586; --amber: #f59e0b; --blue: #79b8ff; --grey: #aeaeae; --yellow: #f2cf76; --violet: #b287f8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--deep); color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 26px 30px 60px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 18px; max-width: 1150px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 30px 0 4px; }
+  .desc { color: var(--soft); font-size: 13px; margin: 0 0 12px; max-width: 1150px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1250px; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border-muted); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.keep { color: var(--green); } td.change { color: var(--yellow); }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(540px, 1fr)); gap: 18px; max-width: 1400px; }
+  .cap { font-size: 12px; color: var(--muted); margin-bottom: 6px; } .cap b { color: var(--text); font-weight: 600; }
+  .stage { background: var(--sheet); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-muted); padding: 18px 20px; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 18px; }
+  .type { font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+  .type.pdf { color: var(--red); } .type.xlsx { color: var(--green); } .type.pptx { color: var(--amber); } .type.docx { color: var(--blue); } .type.code { color: var(--violet); } .type.txt { color: var(--grey); }
+  .btn { flex: none; min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--text); background: var(--hover); font: inherit; font-size: 13px; }
+
+  /* 문서 첫 페이지 (변환 결과 흉내) */
+  .pg { position: absolute; inset: 0; background: #fff; padding: 10% 9%; display: flex; flex-direction: column; gap: 6%; }
+  .pg i { display: block; height: 5%; background: #d5d8dc; border-radius: 1px; } .pg i.h { height: 9%; width: 70%; background: #2b2f33; } .pg i.s { width: 60%; } .pg i.m { width: 85%; }
+  .pg.sheet { padding: 0; gap: 0; display: grid; grid-template-columns: 22% 26% 26% 26%; grid-auto-rows: 11%; }
+  .pg.sheet b { border-right: 1px solid #e3e6ea; border-bottom: 1px solid #e3e6ea; background: #fff; } .pg.sheet b.hd { background: #e8f3ec; } .pg.sheet b.c { background: #f6f8fa; }
+  .pg.slide { background: #1e3a5f; padding: 12%; } .pg.slide i.h { background: #fff; width: 75%; } .pg.slide i { background: #8fb3dc; }
+
+  /* 미니맵 섬네일 (코드/텍스트 내용에서 생성) */
+  .mini { position: absolute; inset: 0; background: #17171a; padding: 8px 9px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .mini .ln { display: flex; gap: 1.5px; height: 3px; flex: none; }
+  .mini .ln b { height: 3px; border-radius: 1.5px; display: block; flex: none; }
+  .mini.paper { background: #f4f1ea; padding: 9px 10px; gap: 3px; }
+  .mini.paper .ln b { background: #b9b4a8; } .mini.paper .ln.h b { background: #4a463e; height: 4px; } .mini.paper .gap { height: 3px; flex: none; }
+
+  /* 변환 전 대체 SVG */
+  .ph { position: absolute; inset: 0; display: grid; place-items: center; background: var(--l2); }
+
+  /* 대화 속 파일 카드 (안 A) */
+  .fc { width: 340px; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .fc .thumb { position: relative; width: 44px; height: 56px; flex: none; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px var(--border-muted); }
+  .fc .thumb.wide { width: 64px; height: 40px; }
+  .fc .body { min-width: 0; flex: 1; display: grid; gap: 1px; }
+  .fc .body b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fc .body small { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .fc.gone { opacity: .55; }
+
+  /* 첨부 카드 */
+  .ak { width: 104px; height: 80px; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border); background: var(--l2); display: flex; flex-direction: column; position: relative; }
+  .ak .shot { position: relative; flex: 1; overflow: hidden; }
+  .ak .shot .pg { inset: 6px 14px -12px; border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .ak .shot .pg.sheet { inset: 6px 8px -12px; } .ak .shot .pg.slide { inset: 8px 8px auto; height: 30px; }
+  .ak .shot .mini { inset: 6px 8px -10px; border-radius: 3px; box-shadow: 0 1px 4px rgba(0,0,0,.35); padding: 6px 7px; gap: 2.5px; }
+  .ak .shot .mini .ln, .ak .shot .mini .ln b { height: 2.5px; }
+  .ak .bar { height: 24px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-top: 1px solid var(--border-muted); background: var(--l1); }
+  .ak .bar span { font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .ak .bar .type { font-size: 9.5px; flex: none; }
+  .ak.img { box-shadow: none; } .ak.img .photo { position: absolute; inset: 0; border-radius: 10px; background: linear-gradient(160deg, #3b5b7a, #a77b52 70%, #2d2d30); }
+  .ak.img .photo::after { content: ""; position: absolute; left: 18%; bottom: 22%; width: 30%; height: 30%; border-radius: 50%; background: #f2cf76; opacity: .8; }
+  .cbox { border-radius: 16px; background: var(--l1); padding: 10px 10px 0; box-shadow: 0 0 0 1px rgba(255,255,255,.16); }
+  .composer { margin: 10px -10px 0; height: 44px; border-radius: 0 0 16px 16px; box-shadow: inset 0 1px 0 var(--border-muted); display: flex; align-items: center; padding: 0 14px; color: var(--muted); font-size: 13px; }
+
+  /* 본문 링크 */
+  .prose { font-size: 15px; line-height: 26px; margin: 0; }
+  .prose a { color: var(--accent); text-decoration: none; }
+  .glyph { display: inline-grid; place-items: center; width: 16px; height: 16px; vertical-align: -3px; margin-right: 3px; }
+  .fav { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 3px; font: 700 8px/1 "Segoe UI", sans-serif; color: #fff; vertical-align: -2px; margin-right: 4px; }
+  .fav.gh { background: #24292f; } .fav.mdn { background: #1b1b1b; box-shadow: inset 0 0 0 1px #444; }
+  .inlineimg { display: inline-block; width: 120px; height: 80px; border-radius: 8px; vertical-align: middle; background: linear-gradient(160deg, #3b5b7a, #a77b52 70%, #2d2d30); box-shadow: inset 0 0 0 1px var(--border-muted); margin: 4px 0; }
+
+  /* 브라우저 카드 (Codex식) */
+  .tcard { width: min(100%, 460px); display: flex; gap: 12px; align-items: stretch; padding: 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .tcard .thumb { width: 104px; height: 66px; flex: none; border-radius: 6px; overflow: hidden; position: relative; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .tcard .body { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+  .tcard .site { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .tcard .title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tcard .path { font-size: 12.5px; color: var(--muted); }
+  .tcard .side { display: flex; align-items: center; }
+
+  /* 이미지 · 영상 결과물 */
+  .media { position: relative; width: 220px; height: 160px; border-radius: 10px; overflow: hidden; background: linear-gradient(160deg, #2c4a66, #8a5f3e 70%, #232326); box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .media .cap2 { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 10px 7px; font-size: 12px; color: rgb(255 255 255 / 85%); background: linear-gradient(to bottom, transparent, rgb(0 0 0 / 55%)); }
+  .media .play { position: absolute; inset: 0; display: grid; place-items: center; }
+  .media .play span { width: 36px; height: 36px; border-radius: 50%; background: rgb(0 0 0 / 45%); display: grid; place-items: center; color: #fff; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>링크 · 파일 표시 전체 정리 시안</h1>
+<p class="lead">대화에 링크·파일이 나오는 모든 곳을 코드에서 뽑아 하나씩 정했습니다. 원칙: <b>실제 내용으로 만든 섬네일을 우선</b>(문서 첫 페이지, 웹 페이지 스크린샷, 코드·글은 미니맵), 그게 없을 때만 새로 그린 SVG. 종류는 그라데이션 대신 작은 색 글자 하나로 구분. 외부 서비스로 주소를 보내지 않습니다.</p>
+
+<h2>0. 전체 목록</h2>
+<table>
+  <tr><th style="width:18%">어디</th><th style="width:26%">지금</th><th>정리안</th></tr>
+  <tr><td>본문 웹 링크</td><td>지구 아이콘 + 파란 글자</td><td class="change">내장 브라우저가 연 적 있는 사이트는 사이트 아이콘, 처음 보는 사이트는 지구 아이콘 그대로</td></tr>
+  <tr><td>본문 파일·폴더 경로 링크</td><td>탐색기와 같은 파일 종류 아이콘 · 폴더 아이콘</td><td class="keep">유지 (탐색기와 통일된 아이콘이라 이미 일관됨)</td></tr>
+  <tr><td>본문 속 로컬 이미지 <code>![](a.png)</code></td><td>인라인 섬네일 → 누르면 크게 보기</td><td class="keep">유지</td></tr>
+  <tr><td>브라우저 페이지 카드</td><td>지구 아이콘 + 호스트 + 경로</td><td class="change">Codex식: 페이지 스크린샷 + 사이트 아이콘 + 제목 + 경로</td></tr>
+  <tr><td>이미지·영상 결과물</td><td>실제 이미지 / 영상 첫 장면 타일</td><td class="keep">유지 (이미 실제 섬네일)</td></tr>
+  <tr><td>문서 결과물 (PDF·워드·엑셀·PPT·CSV)</td><td>160×160 형식 글자 타일</td><td class="change">가로 카드 + 첫 페이지 섬네일 + 쪽수·크기. CSV는 표 미니맵. 변환 전엔 문서 SVG</td></tr>
+  <tr><td>지워진 파일</td><td>흐린 형식 타일 + "삭제됨"</td><td class="change">같은 가로 카드를 흐리게 + "삭제됨"</td></tr>
+  <tr><td>첨부: 이미지</td><td>이미지 자체가 카드</td><td class="keep">유지</td></tr>
+  <tr><td>첨부: PDF·오피스</td><td>색 그라데이션 + 색 태그</td><td class="change">첫 페이지 섬네일 + 이름 줄</td></tr>
+  <tr><td>첨부: 코드·텍스트 파일, 붙여넣기</td><td>색 그라데이션 + 앞부분 글자</td><td class="change">내용으로 만든 미니맵 (코드는 문법 색 막대, 글은 종이 위 줄 막대)</td></tr>
+  <tr><td>도구 카드 속 파일 이름</td><td>파일 종류 아이콘 + 이름</td><td class="keep">유지 (본문 경로 링크와 같은 모양)</td></tr>
+</table>
+
+<h2>1. 첨부 카드 (입력창 · 보낸 메시지)</h2>
+<div class="row">
+  <div><div class="cap"><b>정리안</b> · 이미지 · PDF · 엑셀 · PPT · 코드 · 붙여넣기 · 마크다운</div>
+    <div class="stage"><div class="cbox"><div class="wrap">
+      <div class="ak img"><div class="photo"></div></div>
+      <div class="ak"><div class="shot"><div class="pg"><i class="h"></i><i class="m"></i><i></i><i class="s"></i><i class="m"></i></div></div><div class="bar"><span>검토보고서.pdf</span><span class="type pdf">PDF</span></div></div>
+      <div class="ak"><div class="shot"><div class="pg sheet"><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b></div></div><div class="bar"><span>월별_매출.xlsx</span><span class="type xlsx">XLSX</span></div></div>
+      <div class="ak"><div class="shot"><div class="pg slide"><i class="h"></i><i class="m"></i></div></div><div class="bar"><span>분기_발표.pptx</span><span class="type pptx">PPTX</span></div></div>
+      <div class="ak"><div class="shot"><div class="mini" data-code="checkout"></div></div><div class="bar"><span>checkout.ts</span><span class="type code">TS</span></div></div>
+      <div class="ak"><div class="shot"><div class="mini" data-code="pasted"></div></div><div class="bar"><span>붙여넣기 · 42줄</span><span class="type code">JS</span></div></div>
+      <div class="ak"><div class="shot"><div class="mini paper" data-text="notes"></div></div><div class="bar"><span>회의_메모.md</span><span class="type txt">MD</span></div></div>
+    </div><div class="composer">메시지 입력…</div></div>
+    <div class="note">코드는 실제 내용의 첫 14줄을 토큰 종류별 색 막대로(키워드 보라, 문자열 초록, 숫자 주황, 나머지 회색), 들여쓰기도 그대로. 글은 종이색 위에 문단·제목 길이대로 막대. 글자는 안 읽혀도 "무슨 종류의 내용인지"는 한눈에 보입니다. 붙여넣기는 언어를 추정해 코드면 코드 미니맵, 아니면 종이 미니맵.</div></div></div>
+</div>
+
+<h2>2. 대화 속 파일 카드 (에이전트가 만든 파일)</h2>
+<div class="row">
+  <div><div class="cap"><b>정리안</b> · 첫 페이지 / 미니맵 / 변환 중 / 삭제됨</div>
+    <div class="stage"><div style="display:grid;gap:8px">
+      <div class="fc"><div class="thumb"><div class="pg"><i class="h"></i><i class="m"></i><i></i><i class="s"></i><i class="m"></i><i class="s"></i></div></div><div class="body"><b>결제모듈_검토보고서.pdf</b><small><span class="type pdf">PDF</span>12쪽 · 1.4MB</small></div><button class="btn">열기</button></div>
+      <div class="fc"><div class="thumb wide"><div class="pg sheet"><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b></div></div><div class="body"><b>orders_2026Q3.csv</b><small><span class="type xlsx">CSV</span>1,284행 · 8열</small></div><button class="btn">열기</button></div>
+      <div class="fc"><div class="thumb wide"><div class="pg slide"><i class="h"></i><i class="m"></i><i class="s"></i></div></div><div class="body"><b>분기_발표.pptx</b><small><span class="type pptx">PPTX</span>슬라이드 18장 · 4.2MB</small></div><button class="btn">열기</button></div>
+      <div class="fc"><div class="thumb"><div class="ph" data-sheet="docx"></div></div><div class="body"><b>회의록_초안.docx</b><small><span class="type docx">DOCX</span>미리보기 만드는 중…</small></div><button class="btn">열기</button></div>
+      <div class="fc gone"><div class="thumb"><div class="ph" data-sheet="pdf"></div></div><div class="body"><b>smoke_test_output.pdf</b><small><span class="type pdf">PDF</span>삭제됨</small></div></div>
+    </div>
+    <div class="note">변환 전·실패·삭제된 파일은 새로 그린 문서 SVG(접힌 모서리 + 본문 줄 + 종류 색 띠)를 씁니다. 회색 아이콘 칸보다 "문서"로 바로 읽힙니다.</div></div></div>
+
+  <div><div class="cap"><b>새로 그린 문서 SVG</b> · 변환 전 대체용 (실제 크기 / 2배)</div>
+    <div class="stage"><div class="wrap" id="sheets"></div>
+    <div class="note">종이 흰색 대신 테마 회색 위 밝은 종이, 아래 3px 띠에만 종류 색. 아이콘 세트(lucide)의 1.5px 선 굵기와 같은 비율.</div></div></div>
+</div>
+
+<h2>3. 본문 링크 · 브라우저 페이지 카드 · 이미지/영상 결과물</h2>
+<div class="row">
+  <div><div class="cap"><b>본문</b> · 웹 링크(사이트 아이콘) / 파일·폴더 경로 / 로컬 이미지</div>
+    <div class="stage">
+      <p class="prose">자세한 내용은 <a href="#"><span class="fav mdn">M</span>MDN의 fetch 문서</a>와 <a href="#"><span class="fav gh">G</span>이 PR</a>, 처음 보는 <a href="#"><span class="glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>example.org 문서</a>를 참고하세요.</p>
+      <p class="prose">수정한 파일은 <a href="#"><span class="glyph" style="color:#519aba"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="3"/></svg></span>src/payments/client.ts</a>, 폴더는 <a href="#"><span class="glyph" style="color:#a8a8a8"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>src/payments</a> 입니다. (유지)</p>
+      <span class="inlineimg"></span> <span style="font-size:12px;color:var(--muted)">← 로컬 이미지 인라인 섬네일 (유지)</span>
+    </div></div>
+  <div><div class="cap"><b>브라우저 페이지 카드</b> · Codex식 (확정)</div>
+    <div class="stage">
+      <div class="tcard"><div class="thumb"><div class="pg" style="padding:0"><div style="height:14%;background:#f6f8fa;border-bottom:1px solid #e1e4e8"></div><div style="margin:6% 6% 0;height:16%;width:60%;background:#1f2328;border-radius:2px"></div><div style="margin:4% 6% 0;height:5%;width:75%;background:#d0d7de"></div><div style="margin:4% 6% 0;height:5%;width:55%;background:#d0d7de"></div></div></div>
+        <div class="body"><div class="site"><span class="fav gh" style="margin:0">G</span>github.com</div><div class="title">Composer island by mixdog · Pull Request #412</div><div class="path">/mixdog/mixdog/pull/412</div></div><div class="side"><button class="btn">열기</button></div></div>
+    </div></div>
+  <div><div class="cap"><b>이미지 · 영상 결과물</b> · 이미 실제 섬네일이라 유지</div>
+    <div class="stage"><div class="wrap">
+      <div class="media"><div class="cap2">hero_v2.png</div></div>
+      <div class="media" style="background:linear-gradient(160deg,#1f3b2f,#6b8f5c 70%,#232326)"><div class="play"><span>▶</span></div><div class="cap2">demo.mp4 · 0:12</div></div>
+    </div></div></div>
+</div>
+
+<script>
+// 코드 미니맵: 실제 코드 → 토큰 종류별 색 막대
+const SAMPLES = {
+  checkout: `import { cart } from './cart';
+import { tax } from './tax';
+
+export async function checkout(user, items) {
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+  const discount = await cart.discountFor(user);
+  if (discount > 0) {
+    log('discount applied', discount);
+  }
+  const total = tax.apply(subtotal - discount, 'KR');
+  return {
+    id: crypto.randomUUID(),
+    total,
+    status: 'pending',
+  };
+}`,
+  pasted: `const total = items.reduce(
+  (s, i) => s + i.price, 0);
+if (total > 50000) {
+  applyCoupon('FREESHIP');
+}
+// TODO: 세금 계산 순서 확인
+for (const row of rows) {
+  console.log(row.id, row.total);
+}
+export default total;`,
+};
+const NOTES = [['h', 18], ['g'], [30], [34], [22], ['g'], ['h', 12], [32], [28], [33], [16], ['g'], [26], [30]];
+const KW = /^(import|from|export|async|function|const|let|await|if|return|for|of|default)$/;
+function tokens(line) {
+  const out = []; const re = /(\s+)|('[^']*'|`[^`]*`|"[^"]*")|(\d+)|(\/\/.*)|([A-Za-z_$][\w$]*)|([^\s\w])/g; let m;
+  while ((m = re.exec(line))) {
+    if (m[1]) out.push({ w: m[1].length, c: 'transparent' });
+    else if (m[2]) out.push({ w: m[2].length, c: '#7fc98f' });
+    else if (m[3]) out.push({ w: m[3].length, c: '#e3a46a' });
+    else if (m[4]) out.push({ w: m[4].length, c: '#6a6f78' });
+    else if (m[5]) out.push({ w: m[5].length, c: KW.test(m[5]) ? '#b48cf2' : '#c9ccd1' });
+    else out.push({ w: 1, c: '#7d828b' });
+  }
+  return out;
+}
+// Punctuation joins its neighbour; adjacent same-colour runs merge into one bar,
+// so a line reads as a few clean strokes instead of a row of dots.
+function strokes(line) {
+  const merged = [];
+  for (const t of tokens(line)) {
+    const prev = merged.at(-1);
+    const punct = t.c === '#7d828b';
+    if (prev && prev.c !== 'transparent' && (punct || prev.c === t.c) && t.c !== 'transparent') { prev.w += t.w; continue; }
+    merged.push({ ...t });
+  }
+  return merged;
+}
+document.querySelectorAll('.mini[data-code]').forEach((el) => {
+  const lines = SAMPLES[el.dataset.code].split('\n').slice(0, 14);
+  const unit = 1.2;
+  el.innerHTML = lines.map((line) => '<div class="ln">' + strokes(line).map((t) => '<b style="width:' + Math.max(2, t.w * unit).toFixed(1) + 'px;background:' + t.c + '"></b>').join('') + '</div>').join('');
+});
+document.querySelectorAll('.mini[data-text]').forEach((el) => {
+  el.innerHTML = NOTES.map(([a, b]) => a === 'g' ? '<div class="gap"></div>' : a === 'h' ? '<div class="ln h"><b style="width:' + b * 2 + 'px"></b></div>' : '<div class="ln"><b style="width:' + a * 2 + 'px"></b></div>').join('');
+});
+// 새로 그린 문서 SVG
+const SHEET_COLORS = { pdf: '#f17471', docx: '#79b8ff', xlsx: '#6bd586', pptx: '#f59e0b', csv: '#6bd586', md: '#aeaeae' };
+function sheetSvg(kind, w = 44, h = 56) {
+  const c = SHEET_COLORS[kind] || '#aeaeae';
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 44 56"><path d="M9 4.5h18.5L36 13v36.5a2.5 2.5 0 0 1-2.5 2.5h-24A2.5 2.5 0 0 1 7 49.5V7a2.5 2.5 0 0 1 2-2.5Z" fill="#3d3d41" stroke="rgba(255,255,255,.22)" stroke-width="1.2"/>' +
+    '<path d="M27.5 4.5V11a2 2 0 0 0 2 2H36" fill="#4a4a4f" stroke="rgba(255,255,255,.22)" stroke-width="1.2" stroke-linejoin="round"/>' +
+    '<rect x="12" y="19" width="16" height="2" rx="1" fill="#8b8b91"/><rect x="12" y="24" width="20" height="2" rx="1" fill="#6e6e74"/><rect x="12" y="29" width="18" height="2" rx="1" fill="#6e6e74"/><rect x="12" y="34" width="13" height="2" rx="1" fill="#6e6e74"/>' +
+    '<rect x="7.6" y="46" width="27.8" height="3" fill="' + c + '"/></svg>';
+}
+document.querySelectorAll('.ph[data-sheet]').forEach((el) => { el.innerHTML = sheetSvg(el.dataset.sheet); });
+document.getElementById('sheets').innerHTML = ['pdf', 'docx', 'xlsx', 'pptx', 'csv', 'md'].map((k) =>
+  '<div style="display:grid;justify-items:center;gap:4px">' + sheetSvg(k) + '<span class="type ' + (k === 'csv' ? 'xlsx' : k === 'md' ? 'txt' : k) + '">' + k.toUpperCase() + '</span></div>').join('') +
+  '<div style="width:16px"></div>' + ['pdf', 'xlsx'].map((k) => sheetSvg(k, 88, 112)).join('');
+</script>
+</body>
+</html>

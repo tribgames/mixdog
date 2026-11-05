@@ -128,9 +128,6 @@ crate::notification_definitions! {
     AgentMessageDelta => "item/agentMessage/delta" (ItemDeltaParams) @thread,
     ReasoningTextDelta => "item/reasoning/textDelta" (ItemDeltaParams) @thread,
     ReasoningSummaryTextDelta => "item/reasoning/summaryTextDelta" (ItemDeltaParams) @thread,
-    CommandExecutionOutputDelta => "item/commandExecution/outputDelta" (ItemDeltaParams) @thread,
-    PlanDelta => "item/plan/delta" (ItemDeltaParams) @thread,
-    McpToolCallProgress => "item/mcpToolCall/progress" (ItemProgressParams) @thread,
     ThreadHistoryReset => "thread/historyReset" (ThreadHistoryResetParams) @thread,
     ThreadRuntimeUpdated => "thread/runtime/updated" (ThreadSectionParams<ThreadRuntime>) @thread,
     ThreadRouteUpdated => "thread/route/updated" (ThreadSectionParams<ThreadRoute>) @thread,
@@ -143,7 +140,8 @@ crate::notification_definitions! {
     ThreadWorkspaceUpdated => "thread/workspace/updated" (ThreadSectionParams<Option<JsonValue>>) @thread,
     ThreadApprovalsUpdated => "thread/approvals/updated" (ThreadSectionParams<ThreadApprovals>) @thread,
     ThreadPromptRestore => "thread/promptRestore" (ThreadSectionParams<Option<PromptRestore>>) @thread,
-    ThreadProviderAccountChanged => "thread/providerAccount/changed" (ThreadSectionParams<ProviderAccountChange>) @thread,
+    ThreadProviderAccountChanged => "thread/providerAccount/changed" (ThreadSectionParams<Option<ProviderAccountChange>>) @thread,
+    ThreadPromptHistoryUpdated => "thread/promptHistory/updated" (ThreadSectionParams<PromptHistoryChange>) @thread,
     ThreadRemoteUpdated => "thread/remote/updated" (ThreadSectionParams<bool>) @thread,
     /// Section `reviewDiff`, key = thread id.
     ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @thread,
@@ -173,6 +171,7 @@ crate::notification_definitions! {
     ModelCatalogUpdated => "model/catalog/updated" (SectionUpdate) @app,
     WorkflowListUpdated => "workflow/list/updated" (SectionUpdate) @app,
     WebSearchUpdated => "webSearch/updated" (SectionUpdate) @app,
+    ToolModulesUpdated => "toolModules/updated" (SectionUpdate) @app,
     /// Sections `providerSetup` and `providerAccounts`.
     AccountUpdated => "account/updated" (SectionUpdate) @app,
     UsageUpdated => "usage/updated" (SectionUpdate) @app,

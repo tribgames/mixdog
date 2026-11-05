@@ -41,21 +41,34 @@ test('terminal output feed is view-owned: attached once, survives pane unmount, 
   assert.equal(listener, null);
 });
 
-test('editor disk polling owns no timer while the window is hidden and checks once on return', () => {
-  const clock = createRendererClock();
+test('editor disk watch is the core file watch: it owns no timer, checks on its own fs/changed only, and releases the watch', async () => {
+  const calls = [];
+  let deliver = () => {};
+  let listeners = 0;
+  const host = {
+    sections: {
+      call: async (method, params) => void calls.push([method, params]),
+      subscribeFsChanged: (listener) => {
+        listeners += 1;
+        deliver = listener;
+        return () => (listeners -= 1);
+      },
+    },
+  };
   let checks = 0;
-  const stop = startEditorDiskWatch(clock.win, () => {
-    checks += 1;
-  });
-  assert.equal(clock.timers.size, 1);
-  clock.visibility('hidden');
-  assert.equal(clock.timers.size, 0);
-  clock.visibility('visible');
+  const stop = startEditorDiskWatch(host, 'C:/p/', '/doc.md', () => (checks += 1));
+  assert.deepEqual(calls[0][0], 'fs/watch');
+  assert.equal(calls[0][1].path, 'C:/p/doc.md');
+  const { watchId } = calls[0][1];
+  deliver({ watchId: 'other', changedPaths: [] });
+  assert.equal(checks, 0);
+  deliver({ watchId, changedPaths: ['C:/p/doc.md'] });
   assert.equal(checks, 1);
-  assert.equal(clock.timers.size, 1);
   stop();
-  assert.equal(clock.timers.size, 0);
-  assert.equal(clock.win.listenerCount() + clock.doc.listenerCount(), 0);
+  stop();
+  assert.equal(listeners, 0);
+  assert.deepEqual(calls.map((call) => call[0]), ['fs/watch', 'fs/unwatch']);
+  assert.equal(startEditorDiskWatch(undefined, 'C:/p', 'a', () => {})(), undefined, 'a host without sections watches nothing');
 });
 
 test('folder watch registry closes a watcher whose native watch errored', () => {

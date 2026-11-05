@@ -1,0 +1,10 @@
+{
+  "roster": "agents: 3 · tasks: 2\n- alpha  running/tool_running  reading files\n- t1  spawn  running  alpha\n- idle/closed agents: 2 (latest 2; pass tag=<text> to find one)\n- gamma  closed\n- beta  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- t2  spawn  failed  - error=bad thing",
+  "start_ack": "agent task: t9\nstatus: running\ntype: spawn\ntarget: w s1\nnotification: completion will be delivered; end the turn.",
+  "start_ack_status": "agent task: t9\nstatus: running\ntype: spawn\ntarget: w s1\nagent: coder\nnotification: completion will be delivered; end the turn.",
+  "done": "agent task: t9\nstatus: completed\n\ndone",
+  "queued": "agent message queued\ntarget: w s\nqueueDepth: 1",
+  "closed": "agent close: ok\ntag: w\ntask_id: t1\nforgotten: true",
+  "content": "agent result tag=w p/m\nhi",
+  "empty": "agents: 0 · tasks: 0\n(no agents or tasks)"
+}

@@ -113,14 +113,13 @@ function fakeTunnels() {
   return { made, create };
 }
 
-function portsFixture({ store = memoryStore(), busy = new Set(), scan = async () => [] } = {}) {
+function portsFixture({ store = memoryStore(), busy = new Set() } = {}) {
   const tunnels = fakeTunnels();
   let nextFree = 50_000;
   const ssh = [];
   const ports = createServerPortForwards({
     hostId: 'box',
     store,
-    scan: () => scan(),
     createTunnel: tunnels.create,
     runSsh: async (run) => {
       ssh.push('run');
@@ -201,37 +200,31 @@ test('forwards are saved per server: stop forgets one, closing the window keeps 
 
 test('new listening ports are suggested, never forwarded on their own', async () => {
   let listening = [{ port: 22, addresses: ['0.0.0.0'] }];
-  const f = portsFixture({ scan: async () => listening });
+  const f = portsFixture();
   const pushed = [];
   f.ports.subscribe((view) => pushed.push(view));
-  assert.deepEqual((await f.ports.refresh()).suggested, [], 'what listened before the first look is not new');
+  f.ports.update(listening);
+  assert.deepEqual(f.ports.view().suggested, [], 'what listened before the first look is not new');
   listening = [
     ...listening,
     { port: 3000, addresses: ['127.0.0.1'], process: 'node' },
     { port: 5000, addresses: ['::'] },
   ];
-  const view = await f.ports.refresh();
-  assert.deepEqual(view.suggested, [3000, 5000]);
+  f.ports.update(listening);
+  assert.deepEqual(f.ports.view().suggested, [3000, 5000]);
   assert.equal(f.tunnels.made.length, 0, 'nothing forwarded automatically');
   f.ports.dismiss(5000);
   await f.ports.forward(3000);
   assert.deepEqual(f.ports.view().suggested, [], 'a forwarded or ignored port is no longer offered');
   listening = [{ port: 22, addresses: ['0.0.0.0'] }];
-  await f.ports.refresh();
+  f.ports.update(listening);
   assert.deepEqual(
     f.ports.view().detected.map((port) => port.port),
     [22]
   );
   assert.ok(pushed.length > 0);
-  // A failed scan keeps the forwards and says why.
-  const failing = portsFixture({
-    scan: async () => {
-      throw new Error('Listing listening ports is not supported on win32.');
-    },
-  });
-  const failed = await failing.ports.refresh();
-  assert.equal(failed.detected, null);
-  assert.match(failed.scanError, /not supported/);
+  // Before the core pushes the first list nothing is detected.
+  assert.equal(portsFixture().ports.view().detected, null);
 });
 
 test('a forward is one ssh -L child bound to this PC’s loopback', async (t) => {
@@ -253,7 +246,6 @@ test('a forward is one ssh -L child bound to this PC’s loopback', async (t) =>
   const ports = createServerPortForwards({
     hostId: 'box',
     store: memoryStore(),
-    scan: async () => [],
     runSsh: (run) => run(),
     localPortFree: async () => true,
     createTunnel: ({ freePort, onChange }) =>

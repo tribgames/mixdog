@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Code</title></head><body><article><h1>Code samples</h1><p>Inline <code>a `tick` b</code> and <code>x
+y</code>.</p>
+<pre>plain preformatted
+  indented line
+
+after blank</pre>
+<pre><code class="lang-js hljs">const s = ```;
+console.log(s)
+</code></pre><pre><code>no language
+</code></pre><p>Escapes: * _ [ ] \ ` here.</p></article></body></html>

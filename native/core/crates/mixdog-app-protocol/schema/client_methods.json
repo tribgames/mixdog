@@ -1139,6 +1139,48 @@
       ],
       "type": "object"
     },
+    "AggregateCategory": {
+      "description": "One category entry of an aggregate tool card header (`categories` / `doneCategories`).",
+      "properties": {
+        "active": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "done": {
+          "type": "string"
+        },
+        "effect": {
+          "type": "boolean"
+        },
+        "key": {
+          "type": "string"
+        },
+        "noun": {
+          "type": "string"
+        },
+        "pluralNoun": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "active",
+        "category",
+        "count",
+        "done",
+        "effect",
+        "key",
+        "noun",
+        "pluralNoun"
+      ],
+      "type": "object"
+    },
     "AppSubscribeParams": {
       "properties": {
         "resumeFrom": {
@@ -1182,6 +1224,76 @@
         "opId",
         "requestId",
         "secret"
+      ],
+      "type": "object"
+    },
+    "AttachmentKind": {
+      "enum": [
+        "image",
+        "file",
+        "text"
+      ],
+      "type": "string"
+    },
+    "AttachmentOriginal": {
+      "description": "The picked file behind a resized image: its blob is kept while the record exists.",
+      "properties": {
+        "attachmentRef": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attachmentRef",
+        "mimeType"
+      ],
+      "type": "object"
+    },
+    "AutoEffortBase": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "AutoEffortModule": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "info": {
+          "$ref": "#/definitions/EffortJudgeInfo"
+        },
+        "installed": {
+          "description": "The judge model is on disk.",
+          "type": "boolean"
+        },
+        "installing": {
+          "description": "A download is in flight, including the boot download the settings did not start.",
+          "type": "boolean"
+        },
+        "lastError": {
+          "description": "Why the judge last failed to load; empty when it loaded or never failed.",
+          "type": "string"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "supported": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "info",
+        "installed",
+        "installing",
+        "lastError",
+        "ready",
+        "supported"
       ],
       "type": "object"
     },
@@ -1699,6 +1811,15 @@
         "version"
       ],
       "type": "object"
+    },
+    "CompactionStatus": {
+      "description": "How a compaction ended (the `status` of its divider row).",
+      "enum": [
+        "compacted",
+        "failed",
+        "no_change"
+      ],
+      "type": "string"
     },
     "ConfigBatchWriteParams": {
       "additionalProperties": false,
@@ -3050,8 +3171,92 @@
       ],
       "type": "string"
     },
+    "EffortJudgeInfo": {
+      "description": "The auto-effort judge model card (`effortJudgeInfo`).",
+      "properties": {
+        "device": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "modelBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "quantization": {
+          "type": "string"
+        },
+        "ready": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device",
+        "engine",
+        "model",
+        "modelBytes",
+        "quantization",
+        "ready"
+      ],
+      "type": "object"
+    },
+    "EmbeddingInfo": {
+      "description": "The embedding model behind the memory module (`getEmbeddingInfo`).",
+      "properties": {
+        "device": {
+          "description": "Empty until the model is loaded.",
+          "type": "string"
+        },
+        "dimensions": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dtype": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "engine": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "supported": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device",
+        "engine",
+        "model",
+        "supported"
+      ],
+      "type": "object"
+    },
     "EmptyResult": {
       "description": "Empty result `{}`.",
+      "type": "object"
+    },
+    "EnabledModule": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
       "type": "object"
     },
     "FastSetParams": {
@@ -3150,32 +3355,6 @@
       "required": [
         "input",
         "opId"
-      ],
-      "type": "object"
-    },
-    "FileUpdateChange": {
-      "properties": {
-        "diff": {
-          "$ref": "#/definitions/MaybeBlob_for_String"
-        },
-        "kind": {
-          "description": "`add` | `delete` | `update` | `rename`.",
-          "type": "string"
-        },
-        "oldPath": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "diff",
-        "kind",
-        "path"
       ],
       "type": "object"
     },
@@ -3355,13 +3534,36 @@
       ],
       "type": "object"
     },
+    "GitCommitPathsInput": {
+      "description": "Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).",
+      "properties": {
+        "message": {
+          "description": "1–20 000 characters.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "Repository-relative, 1–500 paths.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "message",
+        "paths"
+      ],
+      "type": "object"
+    },
     "GitCommitPathsParams": {
       "description": "Params of `git/commitPaths`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true,
+        "input": {
+          "$ref": "#/definitions/GitCommitPathsInput"
+        },
         "opId": {
           "type": "string"
         }
@@ -3413,13 +3615,27 @@
       ],
       "type": "object"
     },
+    "GitDeleteBranchInput": {
+      "description": "Input of `git/deleteBranch` (`gitDeleteBranch(cwd, branch)`): a local branch.",
+      "properties": {
+        "branch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "branch"
+      ],
+      "type": "object"
+    },
     "GitDeleteBranchParams": {
       "description": "Params of `git/deleteBranch`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true,
+        "input": {
+          "$ref": "#/definitions/GitDeleteBranchInput"
+        },
         "opId": {
           "type": "string"
         }
@@ -3616,13 +3832,31 @@
       ],
       "type": "object"
     },
+    "GitRenameBranchInput": {
+      "description": "Input of `git/renameBranch` (`gitRenameBranch(cwd, branch, nextBranch)`).",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "nextBranch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "branch",
+        "nextBranch"
+      ],
+      "type": "object"
+    },
     "GitRenameBranchParams": {
       "description": "Params of `git/renameBranch`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true,
+        "input": {
+          "$ref": "#/definitions/GitRenameBranchInput"
+        },
         "opId": {
           "type": "string"
         }
@@ -3634,13 +3868,37 @@
       ],
       "type": "object"
     },
+    "GitRequestContextInput": {
+      "description": "Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed repository-relative files (0–500, may be empty) and an optional base branch.",
+      "properties": {
+        "base": {
+          "description": "Absent or empty: no base branch.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
     "GitRequestContextParams": {
       "description": "Params of `git/requestContext`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true
+        "input": {
+          "$ref": "#/definitions/GitRequestContextInput"
+        }
       },
       "required": [
         "cwd",
@@ -4228,6 +4486,153 @@
       },
       "type": "object"
     },
+    "GpuVendor": {
+      "enum": [
+        "NVIDIA",
+        "Apple"
+      ],
+      "type": "string"
+    },
+    "HeldRequest": {
+      "description": "A held request of an unattended run (Node `meta.heldRequest`, `normalizeHeldRequest`). The desktop paints a pending one as an approval card and answers it with `id` through the ordinary approval call; `status` and `device` show how it settled.",
+      "properties": {
+        "account": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "device": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "editable": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`approval` unless the request says otherwise.",
+          "type": "string"
+        },
+        "payload": {
+          "description": "The outbound text the card may show; never a secret.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "remember": {
+          "description": "The remember scopes the request allows.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "run": {
+          "$ref": "#/definitions/HeldRun"
+        },
+        "status": {
+          "$ref": "#/definitions/HeldRequestStatus"
+        },
+        "target": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agentId",
+        "id",
+        "kind",
+        "reason",
+        "run",
+        "status",
+        "target",
+        "tool"
+      ],
+      "type": "object"
+    },
+    "HeldRequestStatus": {
+      "enum": [
+        "pending",
+        "approved",
+        "denied",
+        "expired"
+      ],
+      "type": "string"
+    },
+    "HeldRun": {
+      "description": "The run that was held.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/HeldRunKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    },
+    "HeldRunKind": {
+      "enum": [
+        "schedule",
+        "webhook",
+        "room"
+      ],
+      "type": "string"
+    },
     "HostCapabilities": {
       "description": "The desktop host role (DS §12.2): what this connection serves for the core.",
       "properties": {
@@ -4327,6 +4732,75 @@
       ],
       "type": "object"
     },
+    "ImageChip": {
+      "description": "Byte-free image metadata of a user row (`images`): its chip.",
+      "properties": {
+        "attachmentRef": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageChipId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bytes",
+        "mimeType",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ImageChipId": {
+      "anyOf": [
+        {
+          "format": "int64",
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "`id` of an image chip: the paste number or a string id."
+    },
+    "ImageRef": {
+      "description": "The stored original of one restored `[Image: …]` line (`imageRefs`); an image without a stored original has no `ref`, so later images keep their slot.",
+      "properties": {
+        "line": {
+          "type": "string"
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "line"
+      ],
+      "type": "object"
+    },
     "ImportCancelConversationImportParams": {
       "description": "Params of `import/cancelConversationImport`.",
       "properties": {
@@ -4413,6 +4887,51 @@
       "required": [
         "opId",
         "params"
+      ],
+      "type": "object"
+    },
+    "ImportedTool": {
+      "description": "One tool of an imported run: its name and how many times it ran.",
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "count",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ImportedToolRun": {
+      "description": "A run of tool use inside an imported assistant message's text. `start`/`end` locate the run's canonical line (`[ran tools: shell ×6, Read ×2]`) in `text` as UTF-16 code-unit offsets, Node's string indices; the client keeps a run only where the text still holds that line, and draws the text around the runs as assistant rows. The calls' results were never imported.",
+      "properties": {
+        "end": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "start": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/ImportedTool"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "end",
+        "start",
+        "tools"
       ],
       "type": "object"
     },
@@ -4529,6 +5048,31 @@
         "userAgent"
       ],
       "type": "object"
+    },
+    "InstallableModule": {
+      "description": "A module with a separate install step (`git`, `office`, `tidy`, `visualize`, `media`).",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "installed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "installed"
+      ],
+      "type": "object"
+    },
+    "InstructionFilesMode": {
+      "enum": [
+        "all",
+        "agents",
+        "claude",
+        "off"
+      ],
+      "type": "string"
     },
     "InstructionsGetInstructionFileParams": {
       "description": "Params of `instructions/getInstructionFile`.",
@@ -4667,6 +5211,13 @@
             "null"
           ]
         },
+        "messageId": {
+          "description": "The stable message id of the row's message (`meta.transcript.messageId`): what a compaction's dropped-message ids and a room line's `room.id` name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
           "description": "Human-readable model label.",
           "type": [
@@ -4678,6 +5229,13 @@
           "description": "Actual route id.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "posted": {
+          "description": "Delivered into the thread outside any turn (agent-home delivery).",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -4860,6 +5418,575 @@
       ],
       "type": "object"
     },
+    "LocalDisk": {
+      "properties": {
+        "availableBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LocalGpu": {
+      "description": "One GPU. An Apple GPU reports its name and shared memory only.",
+      "properties": {
+        "freeMemoryBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "index": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "memoryBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vendor": {
+          "$ref": "#/definitions/GpuVendor"
+        }
+      },
+      "required": [
+        "memoryBytes",
+        "name",
+        "vendor"
+      ],
+      "type": "object"
+    },
+    "LocalHardware": {
+      "properties": {
+        "arch": {
+          "type": "string"
+        },
+        "checkedAt": {
+          "description": "Epoch ms of the last completed detection.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "checking": {
+          "description": "Detection still running.",
+          "type": "boolean"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gpu": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalGpu"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gpus": {
+          "items": {
+            "$ref": "#/definitions/LocalGpu"
+          },
+          "type": "array"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "supported": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "arch",
+        "checking",
+        "gpus",
+        "platform",
+        "supported"
+      ],
+      "type": "object"
+    },
+    "LocalInference": {
+      "description": "The model's latest request. A `running` one carries `queueWaitMs` only.",
+      "oneOf": [
+        {
+          "properties": {
+            "queueWaitMs": {
+              "format": "double",
+              "type": "number"
+            },
+            "state": {
+              "enum": [
+                "running"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "queueWaitMs",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An ended request: every member is present, `null` when the request did not measure it.",
+          "properties": {
+            "at": {
+              "description": "ISO time the request ended.",
+              "type": "string"
+            },
+            "durationMs": {
+              "format": "double",
+              "type": "number"
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "firstResponseMs": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "inputTokens": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "outputTokens": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "queueWaitMs": {
+              "format": "double",
+              "type": "number"
+            },
+            "state": {
+              "enum": [
+                "complete"
+              ],
+              "type": "string"
+            },
+            "tokensPerSecond": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "at",
+            "durationMs",
+            "queueWaitMs",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An ended request: every member is present, `null` when the request did not measure it.",
+          "properties": {
+            "at": {
+              "description": "ISO time the request ended.",
+              "type": "string"
+            },
+            "durationMs": {
+              "format": "double",
+              "type": "number"
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "firstResponseMs": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "inputTokens": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "outputTokens": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "queueWaitMs": {
+              "format": "double",
+              "type": "number"
+            },
+            "state": {
+              "enum": [
+                "failed"
+              ],
+              "type": "string"
+            },
+            "tokensPerSecond": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "at",
+            "durationMs",
+            "queueWaitMs",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LocalInstallPhase": {
+      "enum": [
+        "runtime",
+        "model"
+      ],
+      "type": "string"
+    },
+    "LocalInstallState": {
+      "enum": [
+        "running",
+        "failed",
+        "paused",
+        "complete"
+      ],
+      "type": "string"
+    },
+    "LocalInstallation": {
+      "description": "A live installation job, or a paused partial download found on disk (no `jobId`).",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jobId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "percent": {
+          "description": "`null` while unknown.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/LocalInstallPhase"
+        },
+        "receivedBytes": {
+          "description": "Paused partial downloads only.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stage": {
+          "description": "`preparing`, `verifying`, `paused`, `complete`, or a download stage.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/LocalInstallState"
+        },
+        "totalBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "updatedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "phase",
+        "stage",
+        "state"
+      ],
+      "type": "object"
+    },
+    "LocalModel": {
+      "description": "One catalog model (Node's `publicModel`).",
+      "properties": {
+        "architecture": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalModelCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "compatibility": {
+          "type": "string"
+        },
+        "compatible": {
+          "description": "The GPU has the model's minimum VRAM.",
+          "type": "boolean"
+        },
+        "configuredContextWindow": {
+          "description": "The user's context size; `null` runs the default.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "contextWindow": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "defaultContextWindow": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "estimatedVramBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inference": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalInference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "installed": {
+          "description": "The weights file is complete.",
+          "type": "boolean"
+        },
+        "license": {
+          "type": "string"
+        },
+        "loadTimeMs": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "maxContextWindow": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "minContextWindow": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "minimumVramBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "present": {
+          "description": "Some file exists, complete or partial.",
+          "type": "boolean"
+        },
+        "recommended": {
+          "type": "boolean"
+        },
+        "remainingDownloadBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtimeContextWindow": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sizeBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "supportsFunctionCalling": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supportsImages": {
+          "type": "boolean"
+        },
+        "supportsReasoning": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supportsReasoningSettings": {
+          "type": "boolean"
+        },
+        "verification": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalVerification"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "compatibility",
+        "compatible",
+        "contextWindow",
+        "defaultContextWindow",
+        "description",
+        "estimatedVramBytes",
+        "id",
+        "installed",
+        "license",
+        "maxContextWindow",
+        "minContextWindow",
+        "minimumVramBytes",
+        "name",
+        "present",
+        "recommended",
+        "remainingDownloadBytes",
+        "runtimeContextWindow",
+        "sizeBytes",
+        "source",
+        "supportsImages",
+        "supportsReasoningSettings"
+      ],
+      "type": "object"
+    },
+    "LocalModelCapabilities": {
+      "description": "What the running server reported when a model loaded.",
+      "properties": {
+        "audio": {
+          "type": "boolean"
+        },
+        "images": {
+          "type": "boolean"
+        },
+        "reasoningSettings": {
+          "type": "boolean"
+        },
+        "tools": {
+          "description": "Tool support: `null` when the template does not say.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "video": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "audio",
+        "images",
+        "reasoningSettings",
+        "video"
+      ],
+      "type": "object"
+    },
     "LocalProviderCancelLocalProviderInstallationParams": {
       "description": "Params of `localProvider/cancelLocalProviderInstallation`.",
       "properties": {
@@ -4985,6 +6112,153 @@
       "required": [
         "modelId",
         "opId"
+      ],
+      "type": "object"
+    },
+    "LocalProviderModule": {
+      "description": "The `localProvider` module: catalog status, server and queue status, installations and the switches, flattened as Node merges them.",
+      "properties": {
+        "activeModel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "activeRequests": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "disk": {
+          "$ref": "#/definitions/LocalDisk"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "gpu": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalGpu"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hardware": {
+          "$ref": "#/definitions/LocalHardware"
+        },
+        "idleDeadline": {
+          "description": "Epoch ms the idle server unloads, while armed.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "idleTtlSeconds": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "installationCommandError": {
+          "description": "The last installation command's failure, until the next command.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "installations": {
+          "items": {
+            "$ref": "#/definitions/LocalInstallation"
+          },
+          "type": "array"
+        },
+        "installed": {
+          "description": "The runtime is installed and the module is installed.",
+          "type": "boolean"
+        },
+        "lastError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastExit": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalServerExit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastUnloadError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "loadTimeMs": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "models": {
+          "items": {
+            "$ref": "#/definitions/LocalModel"
+          },
+          "type": "array"
+        },
+        "platformSupported": {
+          "type": "boolean"
+        },
+        "queuedRequests": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "runtime": {
+          "$ref": "#/definitions/LocalRuntime"
+        },
+        "starting": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "activeRequests",
+        "available",
+        "disk",
+        "enabled",
+        "hardware",
+        "idleTtlSeconds",
+        "installations",
+        "installed",
+        "models",
+        "platformSupported",
+        "queuedRequests",
+        "running",
+        "runtime",
+        "starting"
       ],
       "type": "object"
     },
@@ -5138,6 +6412,107 @@
       ],
       "type": "object"
     },
+    "LocalRuntime": {
+      "properties": {
+        "backend": {
+          "description": "Empty on an unsupported platform.",
+          "type": "string"
+        },
+        "downloadBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "license": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "downloadBytes",
+        "installed",
+        "license",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "LocalServerExit": {
+      "description": "How the last server process ended.",
+      "properties": {
+        "at": {
+          "description": "ISO time.",
+          "type": "string"
+        },
+        "exitCode": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "expected": {
+          "description": "The stop was asked for.",
+          "type": "boolean"
+        },
+        "log": {
+          "description": "Redacted tail of the server log.",
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "expected",
+        "log",
+        "modelId"
+      ],
+      "type": "object"
+    },
+    "LocalVerification": {
+      "description": "The last integrity check of the model file.",
+      "properties": {
+        "at": {
+          "description": "ISO time of the check.",
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "at",
+        "sha256",
+        "sizeBytes",
+        "valid"
+      ],
+      "type": "object"
+    },
     "LspDocumentParams": {
       "description": "Params of `lsp/document`.",
       "properties": {
@@ -5166,6 +6541,19 @@
       "required": [
         "opId",
         "request",
+        "root"
+      ],
+      "type": "object"
+    },
+    "LspSubscribeParams": {
+      "description": "Params of `lsp/subscribe` and `lsp/unsubscribe`.",
+      "properties": {
+        "root": {
+          "description": "The project root; the feed is `lsp:<root>`.",
+          "type": "string"
+        }
+      },
+      "required": [
         "root"
       ],
       "type": "object"
@@ -5922,6 +7310,29 @@
       ],
       "type": "object"
     },
+    "MemoryModule": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "info": {
+          "$ref": "#/definitions/EmbeddingInfo"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "semanticSearchSupported": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "info",
+        "installed",
+        "semanticSearchSupported"
+      ],
+      "type": "object"
+    },
     "MemoryRecallParams": {
       "description": "Params of `memory/recall`.",
       "properties": {
@@ -5944,6 +7355,140 @@
         "query"
       ],
       "type": "object"
+    },
+    "MessageAttachment": {
+      "description": "One attachment of a user message (`meta.transcript.attachments`, `normalizeMessageAttachments`).",
+      "properties": {
+        "attachmentRef": {
+          "description": "The same hash again: the key the store's census marks as referenced.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The content hash (64 lowercase hex, no `sha256:` prefix) the attachment store keeps the bytes under.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/AttachmentKind"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "original": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AttachmentOriginal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attachmentRef",
+        "id",
+        "kind",
+        "mimeType",
+        "name",
+        "size"
+      ],
+      "type": "object"
+    },
+    "MessageReaction": {
+      "description": "A bot's emoji reaction on a user message, one per bot, in the order left.",
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "emoji": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agentId",
+        "emoji"
+      ],
+      "type": "object"
+    },
+    "MessageSource": {
+      "description": "What a stored user-role message is (Node's `meta.source`). Absent on `UserRowDetails` means a typed prompt. Everything but a typed prompt, `Import`, `RoutineTrigger` and `Steering` is runtime-written text: a client shows it as the notice or card it stands for and never as the user's own words, and the core never sends such text as a plain prompt.",
+      "oneOf": [
+        {
+          "enum": [
+            "compact-summary",
+            "compact-context",
+            "compact-active-turn-continuation",
+            "compact-execution-recovery",
+            "context-ack",
+            "skill-context",
+            "goal-continuation",
+            "goal-closeout",
+            "max-output-recovery",
+            "refusal-recovery",
+            "stream-cut-recovery",
+            "content-filter-recovery",
+            "turn-limit"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Prose imported from another tool; plain text whatever it looks like.",
+          "enum": [
+            "import"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A routine (schedule or webhook) fire; see `routineTrigger`.",
+          "enum": [
+            "routine-trigger"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A message delivered into the running turn.",
+          "enum": [
+            "steering"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A schedule's result posted into its owner's home thread.",
+          "enum": [
+            "schedule-result"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A held request of an unattended run.",
+          "enum": [
+            "held-request"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A delivered task or channel notification.",
+          "enum": [
+            "task-notification"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "ModelListParams": {
       "description": "Params of `model/list`.",
@@ -8200,6 +9745,189 @@
       ],
       "type": "object"
     },
+    "RoomLimit": {
+      "enum": [
+        "rounds",
+        "messages",
+        "usage"
+      ],
+      "type": "string"
+    },
+    "RoomLine": {
+      "description": "The payload of a group-room line (`normalizeRoomRow`, the row's `room`).",
+      "properties": {
+        "at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "failed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fromAgent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromSession": {
+          "description": "A user line another session sent: its sender session, the sending bot and its name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/RoomRowKind"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoomLimit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "messages": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The member's display name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "names": {
+          "description": "The members a collapsed run of failed passes names.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/definitions/RoomPart"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rounds": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "speaker": {
+          "description": "The member id of a speech or pass.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "description": "Addressee ids and their names, index for index.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "toName": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/RoomTool"
+          },
+          "type": "array"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoomUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "RoomPart": {
+      "description": "A stored file reference of a room line (`parts`).",
+      "properties": {
+        "attachmentRef": {
+          "type": "string"
+        },
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mimeType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sizeBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "textKind": {
+          "description": "`paste` | `file`, for a text part.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/definitions/AttachmentKind"
+        }
+      },
+      "required": [
+        "attachmentRef",
+        "type"
+      ],
+      "type": "object"
+    },
     "RoomRemoveParams": {
       "description": "Params of `room/remove`.",
       "properties": {
@@ -8211,6 +9939,33 @@
       "required": [
         "input",
         "opId"
+      ],
+      "type": "object"
+    },
+    "RoomRowKind": {
+      "enum": [
+        "user",
+        "speech",
+        "pass",
+        "cap",
+        "stopped",
+        "interrupted"
+      ],
+      "type": "string"
+    },
+    "RoomTool": {
+      "description": "A tool a member used in its turn, as the speech line summarises it.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "summary"
       ],
       "type": "object"
     },
@@ -8226,6 +9981,33 @@
       "required": [
         "input",
         "opId"
+      ],
+      "type": "object"
+    },
+    "RoomUsage": {
+      "description": "The usage limit a `cap` line stopped at.",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "resetAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "model",
+        "provider"
       ],
       "type": "object"
     },
@@ -8253,6 +10035,35 @@
       "required": [
         "opId",
         "route"
+      ],
+      "type": "object"
+    },
+    "RoutineKind": {
+      "enum": [
+        "schedule",
+        "webhook"
+      ],
+      "type": "string"
+    },
+    "RoutineTrigger": {
+      "description": "The routine fire a turn delivered (`routineTrigger`): painted as its marker row.",
+      "properties": {
+        "event": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/RoutineKind"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
       ],
       "type": "object"
     },
@@ -9172,12 +10983,24 @@
               },
               "type": "array"
             },
+            "countsForPromptHistory": {
+              "description": "Whether the prompt belongs in the composer's prompt history. Computed at commit (migration: for 1.4.5 history).",
+              "type": "boolean"
+            },
+            "details": {
+              "$ref": "#/definitions/UserRowDetails",
+              "description": "Sender, attachments, reactions and the other facts of the row."
+            },
             "device": {
               "description": "Device that submitted the prompt (host-stamped).",
               "type": [
                 "string",
                 "null"
               ]
+            },
+            "displayText": {
+              "description": "The row text Node shows, chips included; the client's `user` row `text`. Computed at commit (migration: for 1.4.5 history).",
+              "type": "string"
             },
             "id": {
               "type": "string"
@@ -9195,6 +11018,8 @@
           },
           "required": [
             "content",
+            "countsForPromptHistory",
+            "displayText",
             "id",
             "type"
           ],
@@ -9204,6 +11029,13 @@
           "properties": {
             "id": {
               "type": "string"
+            },
+            "importedToolRuns": {
+              "description": "Tool use an imported assistant message recorded (Node `importedToolRuns`); the client draws each as tool cards. Empty for every other message.",
+              "items": {
+                "$ref": "#/definitions/ImportedToolRun"
+              },
+              "type": "array"
             },
             "meta": {
               "$ref": "#/definitions/ItemMeta",
@@ -9271,230 +11103,16 @@
               "$ref": "#/definitions/ItemMeta",
               "default": {}
             },
-            "text": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "plan"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "text",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "The `shell` tool.",
-          "properties": {
-            "command": {
-              "type": "string"
-            },
-            "cwd": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "durationMs": {
-              "format": "int64",
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "exitCode": {
-              "format": "int32",
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "id": {
-              "type": "string"
-            },
-            "meta": {
-              "$ref": "#/definitions/ItemMeta",
-              "default": {}
-            },
-            "output": {
+            "status": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/MaybeBlob_for_String"
+                  "$ref": "#/definitions/CompactionStatus"
                 },
                 {
                   "type": "null"
                 }
-              ]
-            },
-            "type": {
-              "enum": [
-                "commandExecution"
               ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "command",
-            "id",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Patch and write tools.",
-          "properties": {
-            "changes": {
-              "items": {
-                "$ref": "#/definitions/FileUpdateChange"
-              },
-              "type": "array"
-            },
-            "id": {
-              "type": "string"
-            },
-            "meta": {
-              "$ref": "#/definitions/ItemMeta",
-              "default": {}
-            },
-            "type": {
-              "enum": [
-                "fileChange"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "changes",
-            "id",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "arguments": true,
-            "error": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "id": {
-              "type": "string"
-            },
-            "meta": {
-              "$ref": "#/definitions/ItemMeta",
-              "default": {}
-            },
-            "result": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/MaybeBlob_for_AnyValue"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "server": {
-              "type": "string"
-            },
-            "tool": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "mcpToolCall"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "arguments",
-            "id",
-            "server",
-            "tool",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "meta": {
-              "$ref": "#/definitions/ItemMeta",
-              "default": {}
-            },
-            "query": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "webSearch"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "query",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "image": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/BlobRef"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "meta": {
-              "$ref": "#/definitions/ItemMeta",
-              "default": {}
-            },
-            "path": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "enum": [
-                "imageView"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "meta": {
-              "$ref": "#/definitions/ItemMeta",
-              "default": {}
+              "description": "How it ended; the divider's label (`Conversation compacted`, `Compact failed`, …) and stats are `meta.label` and `meta.detail`."
             },
             "summary": {
               "anyOf": [
@@ -9575,6 +11193,10 @@
                 }
               ]
             },
+            "run": {
+              "$ref": "#/definitions/ToolRun",
+              "description": "The tool row's shared facts (call id, display args/result, timing, aggregate)."
+            },
             "type": {
               "enum": [
                 "toolCall"
@@ -9591,7 +11213,86 @@
           "type": "object"
         },
         {
-          "description": "`statusdone` / `turndone` rows and notices.",
+          "description": "The end of a turn (Node's `turndone` row). `cancelled` is the interrupted end: the cancel line Node renders, with `elapsedMs` 0 when restored from the cancel text.",
+          "properties": {
+            "checkpointId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "detail": {
+              "description": "A `failed` end's reason, details, error kind and quota stop.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "elapsedMs": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "errorDetails": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "errorKind": {
+              "additionalProperties": true,
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "finalAssistantId": {
+              "description": "The turn's last assistant row, on a `done` end.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "$ref": "#/definitions/ItemMeta",
+              "default": {}
+            },
+            "quota": {
+              "additionalProperties": true,
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/TurnEndStatus"
+            },
+            "type": {
+              "enum": [
+                "turnEnd"
+              ],
+              "type": "string"
+            },
+            "verb": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "elapsedMs",
+            "id",
+            "status",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`statusdone` rows and notices.",
           "properties": {
             "id": {
               "type": "string"
@@ -9618,17 +11319,35 @@
           "type": "object"
         },
         {
-          "description": "A group-room line.",
+          "description": "A group-room line. A client builds Node's row from it: a `user` line is a `user` row, every other kind a `notice` row (tone `info`) whose `room` payload is `room` plus `id` = `meta.messageId` and `at`. `text` is the line's own words (user and speech lines; empty otherwise). Files and reactions sit on the line as on a user message.",
           "properties": {
+            "attachments": {
+              "items": {
+                "$ref": "#/definitions/MessageAttachment"
+              },
+              "type": "array"
+            },
             "id": {
               "type": "string"
+            },
+            "images": {
+              "items": {
+                "$ref": "#/definitions/ImageChip"
+              },
+              "type": "array"
             },
             "meta": {
               "$ref": "#/definitions/ItemMeta",
               "default": {}
             },
-            "speaker": {
-              "type": "string"
+            "reactions": {
+              "items": {
+                "$ref": "#/definitions/MessageReaction"
+              },
+              "type": "array"
+            },
+            "room": {
+              "$ref": "#/definitions/RoomLine"
             },
             "text": {
               "$ref": "#/definitions/MaybeBlob_for_String"
@@ -9642,7 +11361,7 @@
           },
           "required": [
             "id",
-            "speaker",
+            "room",
             "text",
             "type"
           ],
@@ -10834,6 +12553,16 @@
           ]
         },
         "goal": true,
+        "promptHistoryList": {
+          "description": "The composer's Up-arrow recall (today's `promptHistoryList`, Node's merged list): the thread's user prompts over the whole transcript plus the per-folder saved prompt history of its cwd, newest first, trimmed, at most `PROMPT_HISTORY_LIMIT` (50), one entry per whitespace-collapsed text.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "promptRestore": {
           "anyOf": [
             {
@@ -11362,6 +13091,48 @@
       },
       "type": "object"
     },
+    "ToolAggregate": {
+      "description": "What an aggregate tool card (`aggregate: true`, name `__aggregate__`) adds.",
+      "properties": {
+        "callIds": {
+          "default": [],
+          "description": "The calls the card folds, in order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "categories": {
+          "additionalProperties": {
+            "$ref": "#/definitions/AggregateCategory"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "categoryOrder": {
+          "default": [],
+          "description": "First-seen order of the `categories` keys (`args.categoryOrder`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "completedCount": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "doneCategories": {
+          "additionalProperties": {
+            "$ref": "#/definitions/AggregateCategory"
+          },
+          "default": {},
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "ToolApprovalResult": {
       "description": "How the last approval of a thread ended (today's `toolApprovalResult`).",
       "properties": {
@@ -11403,6 +13174,183 @@
         "device",
         "id"
       ],
+      "type": "object"
+    },
+    "ToolMeta": {
+      "description": "A result's side channel: a stable code, the missing capability names and, for a `visualize` call run for another session's work, that owner session.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "missing": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ownerSessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
+    "ToolModuleSettings": {
+      "description": "Value of the `toolModules` section.",
+      "properties": {
+        "autoEffort": {
+          "$ref": "#/definitions/AutoEffortModule"
+        },
+        "autoEffortBase": {
+          "$ref": "#/definitions/AutoEffortBase"
+        },
+        "git": {
+          "$ref": "#/definitions/InstallableModule"
+        },
+        "instructionFiles": {
+          "$ref": "#/definitions/InstructionFilesMode"
+        },
+        "localProvider": {
+          "$ref": "#/definitions/LocalProviderModule"
+        },
+        "media": {
+          "$ref": "#/definitions/InstallableModule"
+        },
+        "memory": {
+          "$ref": "#/definitions/MemoryModule"
+        },
+        "office": {
+          "$ref": "#/definitions/InstallableModule"
+        },
+        "tidy": {
+          "$ref": "#/definitions/InstallableModule"
+        },
+        "visualize": {
+          "$ref": "#/definitions/InstallableModule"
+        },
+        "webSearch": {
+          "$ref": "#/definitions/EnabledModule"
+        }
+      },
+      "required": [
+        "autoEffort",
+        "autoEffortBase",
+        "git",
+        "instructionFiles",
+        "localProvider",
+        "media",
+        "memory",
+        "office",
+        "tidy",
+        "visualize",
+        "webSearch"
+      ],
+      "type": "object"
+    },
+    "ToolRun": {
+      "description": "The facts of a tool row shared by every tool-backed item variant (today's `kind: 'tool'` row). `args`, `result` and `rawResult` are the row's display values; the variant's own fields stay the typed call.",
+      "properties": {
+        "aggregate": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolAggregate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "callId": {
+          "description": "The call id tying the row to its call and result messages.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "completedCount": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "isError": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rawResult": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MaybeBlob_for_String"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MaybeBlob_for_String"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "toolMeta": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The structured side channel of a result (`toolMeta`)."
+        },
+        "uiDiff": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MaybeBlob_for_String"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
       "type": "object"
     },
     "ToolsToolsStatusParams": {
@@ -11768,6 +13716,25 @@
         "status"
       ],
       "type": "object"
+    },
+    "TurnEndStatus": {
+      "description": "How a turn ended (`turndone.status`).",
+      "oneOf": [
+        {
+          "enum": [
+            "done",
+            "failed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The turn was interrupted by the user.",
+          "enum": [
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "TurnError": {
       "description": "Why a turn failed: an error reason object (`{reason, …}`, P §10) and, for provider failures, the typed upstream detail.",
@@ -12182,6 +14149,129 @@
           "type": "object"
         }
       ]
+    },
+    "UserRowDetails": {
+      "description": "Who and what a user row came from, beyond its content.",
+      "properties": {
+        "attachments": {
+          "items": {
+            "$ref": "#/definitions/MessageAttachment"
+          },
+          "type": "array"
+        },
+        "botChain": {
+          "description": "The bots that handed the message on, sender last.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "consumedExecutionIds": {
+          "description": "The executions a woken batch delivered; `null` keeps the position of an entry that named none.",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "fromAgent": {
+          "description": "The bot that sent the message (a bot's `session send`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "heldRequest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HeldRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The request of a `held-request` message; the client's row carries it as `heldRequest`."
+        },
+        "hop": {
+          "description": "Bot-to-bot chain position.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "imageRefs": {
+          "items": {
+            "$ref": "#/definitions/ImageRef"
+          },
+          "type": "array"
+        },
+        "images": {
+          "items": {
+            "$ref": "#/definitions/ImageChip"
+          },
+          "type": "array"
+        },
+        "reactions": {
+          "items": {
+            "$ref": "#/definitions/MessageReaction"
+          },
+          "type": "array"
+        },
+        "roomRow": {
+          "description": "A group-room member turn: the newest user row of the room log its prompt shows.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "routineTrigger": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutineTrigger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sender": {
+          "description": "The sender (`lead` for the user's Lead session).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MessageSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the message is; absent for a typed prompt."
+        },
+        "steered": {
+          "description": "Delivered into the running turn (steering): the row's read mark.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "submissionIds": {
+          "description": "Every submission a merged queued batch delivered as this turn.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     },
     "VisualizeCommandParams": {
       "description": "Params of `visualize/command`.",
@@ -12856,7 +14946,9 @@
       "params": {
         "$ref": "#/definitions/ConfigGetToolModuleSettingsParams"
       },
-      "result": true
+      "result": {
+        "$ref": "#/definitions/ToolModuleSettings"
+      }
     },
     "config/getUpdateSettings": {
       "params": {
@@ -13685,6 +15777,22 @@
         "$ref": "#/definitions/LspRequestParams"
       },
       "result": true
+    },
+    "lsp/subscribe": {
+      "params": {
+        "$ref": "#/definitions/LspSubscribeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/Subscription"
+      }
+    },
+    "lsp/unsubscribe": {
+      "params": {
+        "$ref": "#/definitions/LspSubscribeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
     },
     "mcp/addMcpServer": {
       "params": {

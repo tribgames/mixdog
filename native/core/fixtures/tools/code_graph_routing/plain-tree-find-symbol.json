@@ -1,0 +1,14 @@
+{
+  "complete": true,
+  "cwd": "multi/plain",
+  "dependencyRoots": [
+    "<ROOT>/multi/plain"
+  ],
+  "input": {
+    "mode": "find_symbol",
+    "symbol": "plainFn"
+  },
+  "isError": false,
+  "text": "# best declaration candidate\nc.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function plainFn() {\n2:   return 1;\n3: }",
+  "tool": "code_graph"
+}

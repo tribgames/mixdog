@@ -1,0 +1,21 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>"
+  ],
+  "input": {
+    "files": [
+      "<ROOT>/proj/src/a.mjs"
+    ],
+    "mode": "overview"
+  },
+  "isError": true,
+  "registered": [
+    "reg/outer",
+    "reg/outer/inner",
+    "reg/other"
+  ],
+  "text": "Error: code_graph: file anchor is not owned by a trusted project: <ROOT>/proj/src/a.mjs",
+  "tool": "code_graph"
+}

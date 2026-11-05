@@ -1,0 +1,10 @@
+{
+ "url": "https://docs.example.com/api/options",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Options",
+  "content": "# Options\n\n| Name | Type | Description |\n| --- | --- | --- |\n| ` a\\|b ` | string | Pipe \\| char<br>second line |\n| flag | boolean |  |\n| wide<br>cell |  |  |\n\n| solo |\n| --- |",
+  "extractor": "dom-markdown"
+ }
+}

@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/thinking-spinner-v2.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Mixdog · 띵킹 스피너 아이콘 시안 v2",
+  "content": "선 두께를 14px 기준 1.75px로 올리고, 반투명으로 사라지는 부분을 없앴습니다. 위쪽 비교 칸에서 다크·라이트를 실제 크기로 동시에 보실 수 있습니다. 0번(현재)은 비교용이라 색 설정을 따르지 않습니다.\n\n색감\n\n상세 테마\n\n실사용 크기\n\n속도\n\n실제 크기 · 다크와 라이트 동시 비교\n\n다크\n\n라이트\n\n시안별 상세",
+  "extractor": "readability"
+ }
+}

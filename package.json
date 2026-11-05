@@ -82,7 +82,7 @@
     "test:shellhardening": "npm run build:spawn:test && node scripts/test-direct.mjs \"scripts/shellhardening/*.test.mjs\" scripts/suite-shell-direct-exe-test.mjs",
     "test:providers": "node scripts/test-direct.mjs \"scripts/provider-toolcall/*.test.mjs\" scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs scripts/cursor-provider-test.mjs src/runtime/agent/orchestrator/providers/openai-codex-identity.test.mjs src/runtime/agent/orchestrator/providers/openai-ws-delta-parity.test.mjs",
     "test:embedding-runtime:warmup": "node scripts/verify-embedding-runtime.mjs --warmup",
-    "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node scripts/test-direct.mjs scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs scripts/generate-voice-runtime-manifest.test.mjs",
+    "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node scripts/test-direct.mjs scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs scripts/check-release-version.test.mjs scripts/generate-voice-runtime-manifest.test.mjs",
     "test:native-edit-wire": "node scripts/native-edit-wire-test.mjs",
     "test:release-critical": "npm run test:release-assets && npm run smoke:patch && npm run test:providers",
     "test:spec-advisory": "node scripts/run-advisory-spec.mjs && npm run test:spec-advisory --prefix apps/desktop",

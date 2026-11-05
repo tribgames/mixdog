@@ -1,0 +1,5241 @@
+{
+ "domain": [
+  {
+   "in": "",
+   "out": ""
+  },
+  {
+   "in": "  ",
+   "out": ""
+  },
+  {
+   "in": "Example.COM",
+   "out": "example.com"
+  },
+  {
+   "in": "https://Foo.com/a/b",
+   "out": "foo.com"
+  },
+  {
+   "in": "http://x.org:8080/p",
+   "out": "x.org"
+  },
+  {
+   "in": "a.com/path?q=1",
+   "out": "a.com"
+  },
+  {
+   "in": "HTTPS://UP.com",
+   "out": "up.com"
+  },
+  {
+   "in": "site:a.com",
+   "out": "site:a.com"
+  },
+  {
+   "in": "[::1]",
+   "out": "[::1]"
+  },
+  {
+   "in": "münchen.de",
+   "out": "xn--mnchen-3ya.de"
+  },
+  {
+   "in": "a.b.",
+   "out": "a.b."
+  },
+  {
+   "in": "https://",
+   "out": ""
+  },
+  {
+   "in": "ftp://x.com",
+   "out": "ftp"
+  },
+  {
+   "in": 5,
+   "out": "0.0.0.5"
+  },
+  {
+   "in": null,
+   "out": ""
+  },
+  {
+   "in": "a b",
+   "out": "a b"
+  }
+ ],
+ "domains": [
+  {
+   "in": "",
+   "out": []
+  },
+  {
+   "in": "a.com OR b.com",
+   "out": [
+    "a.com",
+    "b.com"
+   ]
+  },
+  {
+   "in": "a.com, b.com",
+   "out": [
+    "a.com",
+    "b.com"
+   ]
+  },
+  {
+   "in": "site:a.com SITE:b.com",
+   "out": [
+    "a.com",
+    "b.com"
+   ]
+  },
+  {
+   "in": "a.com|b.com a.com",
+   "out": [
+    "a.com",
+    "b.com"
+   ]
+  },
+  {
+   "in": "or OR Or",
+   "out": []
+  },
+  {
+   "in": " https://x.com/p , y.org ",
+   "out": [
+    "x.com",
+    "y.org"
+   ]
+  },
+  {
+   "in": "site:",
+   "out": []
+  },
+  {
+   "in": "A.com a.COM",
+   "out": [
+    "a.com"
+   ]
+  },
+  {
+   "in": null,
+   "out": []
+  },
+  {
+   "in": 7,
+   "out": [
+    "0.0.0.7"
+   ]
+  }
+ ],
+ "tool": [
+  {
+   "args": {},
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {},
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {},
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {},
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {},
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {},
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {},
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {},
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {},
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {},
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {},
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {},
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {},
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "filters": {
+     "allowed_domains": [
+      "a.com",
+      "b.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "allowed_domains": [
+     "a.com",
+     "b.com"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "allowed_domains": [
+     "a.com",
+     "b.com"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "allowed_domains": [
+     "a.com",
+     "b.com"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "a.com OR b.com"
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "allowed_domains": [
+     "a.com",
+     "b.com"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "filters": {
+     "allowed_domains": [
+      "x.org"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 3,
+    "allowed_domains": [
+     "x.org"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 3,
+    "allowed_domains": [
+     "x.org"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 3,
+    "allowed_domains": [
+     "x.org"
+    ]
+   }
+  },
+  {
+   "args": {
+    "site": "x.org",
+    "maxResults": 3
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 3,
+    "allowed_domains": [
+     "x.org"
+    ]
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7
+   }
+  },
+  {
+   "args": {
+    "maxResults": "7"
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 0
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": 99
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": -4
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7.5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7.5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7.5
+   }
+  },
+  {
+   "args": {
+    "maxResults": 7.5
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 7.5
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": "abc"
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": "0x10"
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": true
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 1
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": null
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "maxResults": []
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "high"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "high"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "high"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "high"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": " high "
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "5"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "5"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "5"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "5"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "contextSize": 5
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low",
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": "KR",
+     "city": " Seoul ",
+     "zip": "1"
+    }
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "user_location": {
+     "type": "approximate",
+     "country": "KR",
+     "city": "Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {}
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": []
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "low"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "locale": {
+     "country": ""
+    }
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "medium",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    },
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "medium",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    },
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "openai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "medium",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    },
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "openai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "openai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "openai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "search_context_size": "medium",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    },
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "xai",
+   "type": "web_search",
+   "out": {
+    "type": "web_search",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "xai",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "xai",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "xai",
+   "type": "",
+   "out": {
+    "type": "web_search",
+    "filters": {
+     "allowed_domains": [
+      "a.com"
+     ]
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "gemini",
+   "type": "web_search",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "gemini",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_preview"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "gemini",
+   "type": " google_search ",
+   "out": {
+    "type": "google_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "gemini",
+   "type": "",
+   "out": {
+    "type": "web_search"
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "anthropic",
+   "type": "web_search",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 2,
+    "allowed_domains": [
+     "a.com"
+    ],
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "anthropic",
+   "type": "web_search_preview",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 2,
+    "allowed_domains": [
+     "a.com"
+    ],
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "anthropic",
+   "type": " google_search ",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 2,
+    "allowed_domains": [
+     "a.com"
+    ],
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  },
+  {
+   "args": {
+    "site": "a.com",
+    "locale": {
+     "timezone": "Asia/Seoul"
+    },
+    "contextSize": "medium",
+    "maxResults": 2
+   },
+   "family": "anthropic",
+   "type": "",
+   "out": {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 2,
+    "allowed_domains": [
+     "a.com"
+    ],
+    "user_location": {
+     "type": "approximate",
+     "timezone": "Asia/Seoul"
+    }
+   }
+  }
+ ],
+ "types": [
+  {
+   "route": {},
+   "family": "",
+   "out": [
+    "web_search",
+    "web_search_preview"
+   ]
+  },
+  {
+   "route": {},
+   "family": "gemini",
+   "out": [
+    "google_search"
+   ]
+  },
+  {
+   "route": {},
+   "family": "anthropic",
+   "out": [
+    "web_search"
+   ]
+  },
+  {
+   "route": {},
+   "family": "xai",
+   "out": [
+    "web_search"
+   ]
+  },
+  {
+   "route": {},
+   "family": "openai",
+   "out": [
+    "web_search",
+    "web_search_preview"
+   ]
+  },
+  {
+   "route": {
+    "toolType": " x "
+   },
+   "family": "",
+   "out": [
+    "x"
+   ]
+  },
+  {
+   "route": {
+    "toolType": " x "
+   },
+   "family": "gemini",
+   "out": [
+    "x"
+   ]
+  },
+  {
+   "route": {
+    "toolType": " x "
+   },
+   "family": "anthropic",
+   "out": [
+    "x"
+   ]
+  },
+  {
+   "route": {
+    "toolType": " x "
+   },
+   "family": "xai",
+   "out": [
+    "x"
+   ]
+  },
+  {
+   "route": {
+    "toolType": " x "
+   },
+   "family": "openai",
+   "out": [
+    "x"
+   ]
+  },
+  {
+   "route": {
+    "toolType": 5
+   },
+   "family": "",
+   "out": [
+    "5"
+   ]
+  },
+  {
+   "route": {
+    "toolType": 5
+   },
+   "family": "gemini",
+   "out": [
+    "5"
+   ]
+  },
+  {
+   "route": {
+    "toolType": 5
+   },
+   "family": "anthropic",
+   "out": [
+    "5"
+   ]
+  },
+  {
+   "route": {
+    "toolType": 5
+   },
+   "family": "xai",
+   "out": [
+    "5"
+   ]
+  },
+  {
+   "route": {
+    "toolType": 5
+   },
+   "family": "openai",
+   "out": [
+    "5"
+   ]
+  }
+ ],
+ "messages": [
+  {
+   "in": {},
+   "out": [
+    {
+     "role": "system",
+     "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+     "role": "user",
+     "content": ""
+    }
+   ]
+  },
+  {
+   "in": {
+    "prompt": "hi"
+   },
+   "out": [
+    {
+     "role": "system",
+     "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+     "role": "user",
+     "content": "hi"
+    }
+   ]
+  },
+  {
+   "in": {
+    "prompt": " hi "
+   },
+   "out": [
+    {
+     "role": "system",
+     "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+     "role": "user",
+     "content": " hi "
+    }
+   ]
+  },
+  {
+   "in": {
+    "prompt": 5
+   },
+   "out": [
+    {
+     "role": "system",
+     "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+     "role": "user",
+     "content": 5
+    }
+   ]
+  },
+  {
+   "in": {
+    "prompt": 0
+   },
+   "out": [
+    {
+     "role": "system",
+     "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+     "role": "user",
+     "content": ""
+    }
+   ]
+  },
+  {
+   "in": {
+    "prompt": [
+     "a"
+    ]
+   },
+   "out": [
+    {
+     "role": "system",
+     "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+     "role": "user",
+     "content": [
+      "a"
+     ]
+    }
+   ]
+  }
+ ],
+ "sources": [
+  {
+   "in": {},
+   "out": []
+  },
+  {
+   "in": {
+    "citations": [
+     {
+      "url": "https://a.com",
+      "title": "A",
+      "snippet": "s"
+     },
+     {
+      "uri": "https://b.com",
+      "query": "qq",
+      "text": "tx"
+     },
+     {
+      "href": "h://c",
+      "name": "N",
+      "description": "d",
+      "source": "src",
+      "provider": "prov"
+     },
+     {
+      "source_url": "https://a.com"
+     },
+     {
+      "title": "no url"
+     },
+     "str",
+     null,
+     {
+      "url": " ",
+      "title": "blank"
+     },
+     {
+      "url": 5
+     },
+     {
+      "url": "https://d.com",
+      "source": 0,
+      "provider": ""
+     }
+    ]
+   },
+   "out": [
+    {
+     "title": "A",
+     "url": "https://a.com",
+     "snippet": "s",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "qq",
+     "url": "https://b.com",
+     "snippet": "tx",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "N",
+     "url": "h://c",
+     "snippet": "d",
+     "source": "src",
+     "provider": "prov"
+    },
+    {
+     "title": "5",
+     "url": "5",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "https://d.com",
+     "url": "https://d.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    }
+   ]
+  },
+  {
+   "in": {
+    "webSearchCalls": [
+     {
+      "action": {
+       "query": "find",
+       "sources": [
+        {
+         "url": "https://s1.com"
+        },
+        {
+         "url": "https://s2.com",
+         "title": "T2"
+        }
+       ],
+       "url": "https://u.com",
+       "urls": [
+        "https://x1.com",
+        "https://s1.com",
+        7
+       ]
+      }
+     },
+     {
+      "action": null
+     },
+     null,
+     {
+      "action": {
+       "query": 5,
+       "url": "https://q.com"
+      }
+     },
+     {
+      "action": "str"
+     }
+    ]
+   },
+   "out": [
+    {
+     "title": "find",
+     "url": "https://s1.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "T2",
+     "url": "https://s2.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "find",
+     "url": "https://u.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "find",
+     "url": "https://x1.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "find",
+     "url": "7",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    },
+    {
+     "title": "5",
+     "url": "https://q.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    }
+   ]
+  },
+  {
+   "in": {
+    "citations": [
+     {
+      "url": "https://a.com",
+      "title": "first"
+     }
+    ],
+    "webSearchCalls": [
+     {
+      "action": {
+       "query": "zz",
+       "url": "https://a.com"
+      }
+     }
+    ]
+   },
+   "out": [
+    {
+     "title": "first",
+     "url": "https://a.com",
+     "snippet": "",
+     "source": "native-web-search",
+     "provider": "native-web-search"
+    }
+   ]
+  },
+  {
+   "in": {
+    "citations": "x",
+    "webSearchCalls": {}
+   },
+   "out": []
+  }
+ ]
+}

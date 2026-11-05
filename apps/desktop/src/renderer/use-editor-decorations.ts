@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { t } from './i18n';
 import { monaco, resolveThemeColor } from './monaco-setup';
-import { createGitRefreshScheduler, FILE_DIFF_REFRESH_OPTIONS, watchGitRefreshEvidence } from './git-refresh-scheduler';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { colorWithAlpha, QUICK_DIFF_COLOR_TOKENS } from './editor-monaco-bootstrap';
 import { editorAnsiDecorationPlan, isAnsiOutputPath } from './editor-ansi';
 import { parseEditorQuickDiffStripes } from './editor-pane-model';
@@ -116,10 +116,7 @@ function startEditorQuickDiff({
       decorations.current?.clear();
     }
   };
-  const stopWatching = watchGitRefreshEvidence(
-    projectPath,
-    createGitRefreshScheduler(refresh, FILE_DIFF_REFRESH_OPTIONS)
-  );
+  const stopWatching = watchGitRefreshEvidence(projectPath, createGitRefreshScheduler(refresh));
   return () => {
     live = false;
     stopWatching();

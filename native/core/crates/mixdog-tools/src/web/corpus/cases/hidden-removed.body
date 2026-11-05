@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Hidden</title></head><body><main><p>Visible paragraph.</p><div hidden>Hidden div</div><p aria-hidden="true">Aria hidden</p>
+<div inert>Inert</div><aside>Sidebar aside</aside><script>var x = 1;</script><style>p{color:red}</style>
+<noscript>No script</noscript><template><p>template</p></template><nav>Menu</nav><footer>Foot</footer>
+<p>Second visible.</p></main></body></html>

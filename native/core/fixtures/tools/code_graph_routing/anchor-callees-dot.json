@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "file": ".",
+    "mode": "callees",
+    "symbol": "beta"
+  },
+  "isError": false,
+  "text": "# callees\nalpha\tcallsite src/b.mjs:4:10\tdecl src/a.mjs:1\t(in beta)\tkind=call",
+  "tool": "code_graph"
+}

@@ -5,8 +5,6 @@ import { t } from '../i18n';
 import type { CapabilityApi } from './capability-data';
 import { ConnDialog } from './connection-dialogs';
 
-const HOSTS_REFRESH_MS = 3_000;
-
 /** Accepts `482917`, `482 917`, `482·917`. */
 function normalizeCodeInput(text: string): string {
   return text.replace(/\D/gu, '').slice(0, 6);
@@ -17,7 +15,7 @@ export function savedHostOnline(host: DesktopRemoteHost): boolean | undefined {
   return host.online === undefined ? (host.open ? true : undefined) : host.online;
 }
 
-/** The computers saved here ("PCs I opened"), refreshed on a short heartbeat. */
+/** The computers saved here ("PCs I opened"), re-read when main says they changed. */
 export function useRemoteHosts(api: CapabilityApi): { hosts: DesktopRemoteHost[]; refresh(): void } {
   const [hosts, setHosts] = useState<DesktopRemoteHost[]>([]);
   const refresh = useCallback(() => {
@@ -29,8 +27,8 @@ export function useRemoteHosts(api: CapabilityApi): { hosts: DesktopRemoteHost[]
   useEffect(() => {
     if (!api.listRemoteHosts) return undefined;
     refresh();
-    const timer = window.setInterval(refresh, HOSTS_REFRESH_MS);
-    return () => window.clearInterval(timer);
+    // Main says when a PC was saved, renamed, forgotten, opened or closed, and the core when its presence changed.
+    return api.subscribeHostListsChanged?.(refresh);
   }, [api, refresh]);
   return { hosts, refresh };
 }

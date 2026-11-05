@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use mixdog_protocol::Origin;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -32,22 +33,30 @@ pub enum Caller {
 #[non_exhaustive]
 pub struct CallContext {
     pub caller: Caller,
+    /// The origin the method table scopes this call by. For a connection, the transport's
+    /// `ConnectionOrigin::origin()`, filled by the server when it decodes the request; for an
+    /// internal producer, [`Origin::Local`]. Services read it here, never through a lookup.
+    pub origin: Origin,
     /// Cancelled when the caller's connection closes (RL §4.4): queued lane jobs of the request
     /// are dropped at dequeue; admitted mutations still complete (they carry an op id).
     pub cancel: CancellationToken,
 }
 
 impl CallContext {
-    pub fn connection(id: ConnectionId, cancel: CancellationToken) -> Self {
+    pub fn connection(id: ConnectionId, origin: Origin, cancel: CancellationToken) -> Self {
         Self {
             caller: Caller::Connection(id),
+            origin,
             cancel,
         }
     }
 
+    /// An in-process producer. It runs on this machine, so it has the `Local` origin, which
+    /// every method-table row admits.
     pub fn internal(name: &'static str) -> Self {
         Self {
             caller: Caller::Internal(name),
+            origin: Origin::Local,
             cancel: CancellationToken::new(),
         }
     }

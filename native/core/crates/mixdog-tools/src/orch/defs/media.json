@@ -1,0 +1,88 @@
+{
+  "name": "media",
+  "description": "Generate an image or a video through the Media Studio lanes the user signed in to, and write it to a file. Load the image skill before the first image call and the video skill before the first video call. generate needs kind, prompt, and path. Returns final results in this call.",
+  "annotations": {},
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "list",
+          "generate",
+          "status",
+          "cancel"
+        ],
+        "description": "list: signed-in lanes (narrow with kind, then model); generate: one image or video; status/cancel: a job by id."
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "image",
+          "video"
+        ],
+        "description": "generate: required. list: filter."
+      },
+      "lane": {
+        "type": "string",
+        "description": "Lane id from list; pass it when the user names a source. Omitted = the lane the user last chose for the kind, else the default signed-in lane."
+      },
+      "model": {
+        "type": "string",
+        "description": "Model id from list; omitted = the remembered model on that lane, else the lane default. list: return that model's controls."
+      },
+      "prompt": {
+        "type": "string",
+        "description": "generate: the brief, in the form the image/video skill gives."
+      },
+      "path": {
+        "type": "string",
+        "description": "generate: output file (png/jpg/mp4); relative to the project. status: copy a finished asset here."
+      },
+      "aspect": {
+        "type": "string",
+        "description": "Aspect ratio, e.g. 16:9, 9:16, 1:1; only when the model lists aspectRatio, else omit."
+      },
+      "resolution": {
+        "type": "string",
+        "description": "Resolution token (1k, 2k, 720p, 1080p); only when the model lists it, else omit."
+      },
+      "duration": {
+        "type": "number",
+        "description": "video: seconds, within the model's listed durations."
+      },
+      "quality": {
+        "type": "string",
+        "description": "Quality token; only when the model lists one, else omit."
+      },
+      "background": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "transparent",
+          "opaque"
+        ],
+        "description": "image: transparent for real alpha; only when the model lists background, else omit."
+      },
+      "references": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Reference image file paths (image-to-image, start frame); capped by the model."
+      },
+      "wait": {
+        "type": "boolean",
+        "description": "generate: wait for completion (default true); false returns a job id for status."
+      },
+      "job": {
+        "type": "string",
+        "description": "status/cancel: job id."
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  }
+}

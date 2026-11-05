@@ -7,6 +7,10 @@ description = "Secure-desktop (UAC/lock screen) capture and input bridge for the
 license = "Apache-2.0"
 publish = false
 
+[lib]
+name = "mixdog_secure_desktop"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mixdog-secure-desktop"
 path = "src/main.rs"

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { t } from './i18n';
-import { readGlobalCapabilities } from './global-capability-reads';
+import { sectionStoreFor } from './section-store';
 import { writeStudioAssetReferences, type StudioReferenceStore } from './studio-draft-cache';
 import {
   callCapability,
@@ -20,7 +20,6 @@ const ASSET_PAGE_SIZE = 60;
 /** Pages an external-change sync reads looking for the loaded set. */
 const SYNC_PAGE_LIMIT = 5;
 const MEDIA_KIND_LIST: readonly MediaKind[] = ['image', 'video'];
-const POLL_INTERVAL_MS = 1_500;
 
 interface MediaAssetPage {
   /** The board the page was read for ('' = all). */
@@ -473,27 +472,25 @@ export function useStudioMediaJobs({
   useEffect(() => {
     if (!active || !runningKey) return undefined;
     const ids = runningKey.split(',');
+    // Jobs are pushed (section `mediaJobs`, key = job id; desktop-services.md §15 P9). A job the core announced
+    // and then removed without a result is lost; one it has not announced yet is simply not there yet.
+    const sections = sectionStoreFor(api);
+    if (!sections) return undefined;
     let stopped = false;
-    const misses = new Map<string, number>();
-    const poll = () => {
+    const announced = new Set<string>();
+    const follow = () => {
       void (async () => {
         try {
-          const polled = (await readGlobalCapabilities(
-            api,
-            ids.map((id) => ({
-              capability: 'getMediaJob',
-              args: [id],
-            }))
-          )) as Array<MediaJob | null>;
+          const landed: MediaJob[] = [];
+          const lost: string[] = [];
+          for (const id of ids) {
+            const entry = sections.get('mediaJobs', id);
+            if (entry) {
+              announced.add(id);
+              landed.push(entry.value as MediaJob);
+            } else if (announced.has(id)) lost.push(id);
+          }
           if (stopped) return;
-          const landed = polled.filter(Boolean) as MediaJob[];
-          for (const entry of landed) misses.delete(entry.id);
-          const lost = ids.filter((id, index) => {
-            if (polled[index]) return false;
-            const count = (misses.get(id) || 0) + 1;
-            misses.set(id, count);
-            return count >= 2;
-          });
           if (!landed.length && !lost.length) return;
           const completed = landed.filter((entry) => entry.status === 'done');
           if (completed.length) {
@@ -524,11 +521,11 @@ export function useStudioMediaJobs({
         }
       })();
     };
-    poll();
-    const timer = setInterval(poll, POLL_INTERVAL_MS);
+    const unsubscribe = sections.subscribe('mediaJobs', follow);
+    void sections.ready().then(follow);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      unsubscribe();
     };
   }, [active, api, referenceStore, refreshAssetKind, runningKey, setError]);
 

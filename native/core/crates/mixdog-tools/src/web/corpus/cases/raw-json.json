@@ -1,0 +1,10 @@
+{
+ "url": "https://api.example.com/data",
+ "contentType": "application/json",
+ "expected": {
+  "ok": true,
+  "title": "",
+  "content": "{\"a\":1,\"b\":[1,2,3]}",
+  "extractor": "raw"
+ }
+}

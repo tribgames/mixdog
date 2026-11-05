@@ -1,0 +1,10 @@
+{
+ "url": "https://github.com/example/repo",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "repo",
+  "content": "# Repo\n\nReadme text with [link](<https://github.com/example/docs/a.md>).",
+  "extractor": "dom-markdown"
+ }
+}

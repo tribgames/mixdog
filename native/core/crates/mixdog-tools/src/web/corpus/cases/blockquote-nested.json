@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/quote",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Quotes",
+  "content": "> Outer\n> \n> > Inner quote\n> \n> \n> \n> para",
+  "extractor": "dom-markdown"
+ }
+}

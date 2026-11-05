@@ -386,6 +386,9 @@ pub enum Origin {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DomainErrorDetail {
+    /// An external tool's or host's failure message, for codes whose Node-visible text
+    /// includes it (for example the LibreOffice install failure).
+    ExternalFailure { message: String },
     /// `WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.
     #[serde(rename_all = "camelCase")]
     WorktreeBusyJobs {
@@ -691,6 +694,13 @@ pub enum DomainErrorDetail {
     /// Room and schedule refusals: the public display param.
     #[serde(rename_all = "camelCase")]
     Display { name: String },
+    /// A command failure whose text is shown to the user verbatim (git or
+    /// gh stderr, a refusal sentence); never parsed or reworded.
+    #[serde(rename_all = "camelCase")]
+    CommandFailed { message: String },
+    /// `MERGE_CONFLICT`: the conflicted files, as git listed them.
+    #[serde(rename_all = "camelCase")]
+    MergeConflict { files: Vec<String> },
 }
 
 /// `files` of `WORKTREE_DIRTY`: a path preview, or a count (carry `too-large`).

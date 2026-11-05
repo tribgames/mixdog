@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/x.xhtml",
+ "contentType": "application/xhtml+xml; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "X",
+  "content": "Xhtml text.",
+  "extractor": "dom-markdown"
+ }
+}

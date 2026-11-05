@@ -102,6 +102,9 @@ RECORDS = [
                           "archive": {"seq": 4, "at": 1792567999999,
                                       "origin": {"pending": {"divider": True, "cleared_through": 1, "max_bytes": 33554432}}},
                           "refs": [], "body": {"inline": {"content": "pending archived answer", "role": "assistant"}}}),
+    ("item_user_prompt", {"k": "item", "iid": "msg_p1", "turn": "run_2", "role": "user", "form": "message", "model": True,
+                          "visible": True, "prompt": "fix it [Pasted text #1 +12 lines]", "refs": [],
+                          "body": {"inline": {"content": "fix it\n" + "line\n" * 12, "role": "user"}}}),
     ("item_blob_body", {"k": "item", "iid": "msg_big", "turn": "run_1", "role": "tool", "form": "message", "model": True,
                         "visible": True, "refs": [BIG],
                         "body": {"blob": {"digest": BIG, "bytes": 300000, "mediaType": "application/json"}}}),
@@ -146,6 +149,10 @@ RECORDS = [
         "log_id": "aa00bb11cc22dd33ee44ff55", "covers_ordinal": 70000, "history_rev": 0, "rows": 0, "visible_rows": 0,
         "base": {"session": "sess_daemon_1793306569908_63cc", "log_id": LOG_ID, "end_ordinal_exclusive": 42},
         "runs": [], "approvals": [], "queue": [], "header": {}}}}),
+    ("checkpoint_fork_cut", {"k": "checkpoint", "state": {"inline": {
+        "log_id": "aa00bb11cc22dd33ee44ff55", "covers_ordinal": 45, "history_rev": 1, "rows": 0, "visible_rows": 0,
+        "base": {"session": "sess_daemon_1793306569908_63cc", "log_id": LOG_ID, "end_ordinal_exclusive": 42},
+        "base_cut": 30, "runs": [], "approvals": [], "queue": [], "header": {}}}}),
     ("checkpoint_blob", {"k": "checkpoint", "state": {"blob": {"digest": digest("state"), "bytes": 270000,
                                                                "mediaType": "application/json"}}}),
 ]
@@ -343,6 +350,35 @@ records_doc = {
     "complete": canon(COMPLETE),
     "reason": canon(REASON),
 }
-for name, doc in (("frames.json", frames_doc), ("records.json", records_doc)):
+# Prompt history (FORMAT.md §8.2): the 1.4.5 key `text.trim().replace(/\s+/g, ' ')`, with
+# the ECMAScript WhiteSpace + LineTerminator set (not Python's `str.isspace`, which also
+# takes U+001C..U+001F and U+0085).
+JS_SPACE = set("\t\n\v\f\r \u00a0\u1680\u2028\u2029\u202f\u205f\u3000\ufeff") | {chr(c) for c in range(0x2000, 0x200B)}
+
+
+def prompt_key(text: str) -> str:
+    out, gap = [], False
+    for ch in text:
+        if ch in JS_SPACE:
+            gap = True
+            continue
+        if gap and out:
+            out.append(" ")
+        gap = False
+        out.append(ch)
+    return "".join(out)
+
+
+PROMPT_TEXTS = [
+    "fix the build",
+    "  fix   the\tbuild \n",
+    "\u3000전각\u3000공백\u3000",
+    "keep\u0085next-line and\u001cfile-sep",
+    "\ufeffbom\u00a0nbsp\u2028ls",
+    " \t\n ",
+]
+prompts_doc = {"keys": [{"text": t, "key": prompt_key(t)} for t in PROMPT_TEXTS]}
+
+for name, doc in (("frames.json", frames_doc), ("records.json", records_doc), ("prompts.json", prompts_doc)):
     with open(name, "w", encoding="utf-8", newline="\n") as out:
         out.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")

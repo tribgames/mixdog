@@ -1,0 +1,7 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Getting started | Example Docs</title></head><body><header><a href="/">Example</a></header><nav><ul><li><a href="/a">A</a></li></ul></nav>
+<main><h1>Getting started</h1><p>Install the <code>example</code> CLI with <strong>npm</strong> or <em>yarn</em>.</p>
+<h2 id="install">Install</h2><pre><code class="language-bash">npm install -g example
+example --version</code></pre>
+<p>See the <a href="/reference">reference</a> and <a href="https://github.com/example/example">GitHub</a>.</p>
+<ul><li>First item</li><li>Second <a href="mailto:a@b.co">mail</a></li><li>Third<ul><li>Nested one</li><li>Nested two</li></ul></li></ul>
+<ol start="3"><li>Three</li><li>Four</li></ol></main><footer>© Example</footer></body></html>

@@ -170,7 +170,7 @@ export function useEditorPreviewPoll({
 }) {
   useEffect(() => {
     if (!active || !previewWatched) return undefined;
-    return startEditorDiskWatch(window, () => {
+    return startEditorDiskWatch(api, projectPath, relPath, () => {
       if (document.body.dataset.tabDragging) return;
       void api
         ?.statProjectFile?.(projectPath, relPath, accessToken)

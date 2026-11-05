@@ -1,7 +1,7 @@
 // Maps what a failed connection threw (SshError, RemoteBootstrapError) to the
 // guidance view the connect dialog shows for it.
 import type { DesktopSshFailure } from '../../shared/contract-ssh';
-import { REMOTE_MIN_NODE_MAJOR, RemoteBootstrapError } from './remote-bootstrap';
+import { RemoteBootstrapError } from './remote-bootstrap';
 import { isSshMissingMessage, WINDOWS_SSH_CLIENT_COMMAND } from './ssh-binary';
 import { SshError, type SshTarget } from './ssh-command';
 
@@ -15,8 +15,6 @@ const LOGIN_REFUSED =
 const MAX_MESSAGE_LENGTH = 800;
 
 const boundedMessage = (message: string): string => message.trim().slice(-MAX_MESSAGE_LENGTH);
-
-const NODE_INSTALL_COMMAND = `curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${REMOTE_MIN_NODE_MAJOR}`;
 
 /** The two commands that put this PC's login key on the server. Windows has
  *  no ssh-copy-id, so its second command pipes the public key through ssh. */
@@ -45,19 +43,10 @@ function classifyConnectFailure(error: unknown, target: SshTarget, platform: Nod
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof RemoteBootstrapError) {
     switch (error.code) {
-      case 'node-missing':
-      case 'node-too-old': {
-        const found = /found (\S+?)\.?$/.exec(error.message)?.[1] ?? null;
-        return {
-          kind: 'node',
-          reason: error.code === 'node-missing' ? 'missing' : 'too-old',
-          found: error.code === 'node-missing' ? null : found,
-          required: REMOTE_MIN_NODE_MAJOR,
-          command: NODE_INSTALL_COMMAND,
-        };
-      }
-      case 'npm-missing':
-        return { kind: 'npm-missing', command: NODE_INSTALL_COMMAND };
+      case 'client-outdated':
+        // This desktop is older than the core on the server (LR §8.1): the
+        // fix is updating this PC, which the server's own words say.
+        return { kind: 'failed', message: boundedMessage(message) };
       case 'daemon-not-proxy':
       case 'daemon-model-login': {
         const pid = Number(/\bpid (\d+)/.exec(error.message)?.[1]);
@@ -86,8 +75,6 @@ function classifyConnectFailure(error: unknown, target: SshTarget, platform: Nod
         return { kind: 'daemon-busy', message: boundedMessage(message) };
       case 'port-unavailable':
         return { kind: 'port-unavailable', message: boundedMessage(message) };
-      case 'deps-install':
-        return { kind: 'deps-install', message: boundedMessage(message) };
       case 'daemon-stop':
       case 'daemon-replace':
       case 'daemon-unproven':

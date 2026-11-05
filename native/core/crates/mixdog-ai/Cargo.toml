@@ -10,3 +10,36 @@ workspace = true
 [dependencies]
 mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-core-api = { workspace = true }
+aes-gcm = { workspace = true }
+arc-swap = { workspace = true }
+jsonschema = { workspace = true }
+x25519-dalek = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+ring = { workspace = true }
+chrono = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true, features = ["std"] }
+h2 = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+serde = { workspace = true }
+# preserve_order: wire bodies keep insertion order (prompt-cache prefixes are byte prefixes).
+serde_json = { workspace = true, features = ["preserve_order", "raw_value"] }
+sha2 = { workspace = true }
+socket2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time", "io-util"] }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time", "io-util", "test-util"] }

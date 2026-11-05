@@ -1,0 +1,12 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>"
+  ],
+  "input": {
+    "mode": "overview"
+  },
+  "thrown": "code_graph: cwd '<FSROOT>' is not inside a project (no package.json/.git/Cargo.toml/go.mod/pyproject.toml/setup.py/pom.xml/build.gradle/build.gradle.kts/build.sbt/Package.swift at it or any ancestor). Refusing to index an arbitrary tree. Switch Project with the session tool (set-project), or pass an explicit 'cwd' (repo root) or a 'file' anchor.",
+  "tool": "code_graph"
+}

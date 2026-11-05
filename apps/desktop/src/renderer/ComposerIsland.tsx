@@ -16,11 +16,9 @@ import { clearableAgentNode, dismissFinishedAgentRows, useVisibleAgentPool } fro
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import {
-  AGENT_POOL_RECONCILE_MS,
   agentPoolStore,
   islandAgentRows,
   poolRowKey,
-  refreshAgentPool,
   startAgentPool,
   type IslandAgentRow,
 } from './agent-activity-model';
@@ -53,7 +51,6 @@ import {
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
-import { subscribeSharedPoll } from './shared-pool-poll';
 import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
@@ -1111,14 +1108,9 @@ function useIslandAgentRows(sessionId: string): {
   // Rows the user cleared ("Clear finished") are not listed.
   const pool = useVisibleAgentPool(poolRows);
   const agentRows = useMemo(() => islandAgentRows(pool, sessionId), [pool, sessionId]);
-  const hasActive = agentRows.some((row) => !row.finished);
-  // An off-screen conversation keeps no reconcile poll alive.
-  const surfaceActive = useSurfaceActive();
   useEffect(() => {
     startAgentPool(poolStore);
-    if (!hasActive || !surfaceActive) return undefined;
-    return subscribeSharedPoll(poolStore, () => void refreshAgentPool(poolStore), AGENT_POOL_RECONCILE_MS);
-  }, [hasActive, poolStore, surfaceActive]);
+  }, [poolStore]);
   return { agentRows, poolRows };
 }
 

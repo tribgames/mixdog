@@ -1351,7 +1351,7 @@ crate::client_request_definitions! {
     /// Today's session read action `getToolModuleSettings`.
     ConfigGetToolModuleSettings => "config/getToolModuleSettings" {
         params: ConfigGetToolModuleSettingsParams,
-        result: JsonValue,
+        result: mixdog_protocol::ToolModuleSettings,
         scope: thread_or_shared_read(thread_id, "config"),
         class: C1,
         mutation: none,
@@ -3246,6 +3246,25 @@ crate::client_request_definitions! {
         class: C2,
         mutation: op(Transfer),
         origins: [Local, Ssh],
+    },
+    /// Subscribes the project's language-server feed `lsp:<root>`
+    /// (`lsp/status/updated`, `lsp/diagnostics/updated`).
+    LspSubscribe => "lsp/subscribe" {
+        params: LspSubscribeParams,
+        result: v2::feed::Subscription,
+        scope: keyed("lsp", root),
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Ends the subscription of `lsp/subscribe`.
+    LspUnsubscribe => "lsp/unsubscribe" {
+        params: LspSubscribeParams,
+        result: v2::feed::EmptyResult,
+        scope: keyed("lsp", root),
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
     },
     /// Document sync.
     LspDocument => "lsp/document" {

@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/emptymain",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "EM",
+  "content": "Real content outside the empty main element, long enough to matter. Real content outside the empty main element, long enough to matter. Real content outside the empty main element, long enough to matter. Real content outside the empty main element, long enough to matter. Real content outside the empty main element, long enough to matter. Real content outside the empty main element, long enough to matter.",
+  "extractor": "readability"
+ }
+}

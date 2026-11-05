@@ -22,7 +22,6 @@ const NO_SERVER_LOGINS: DesktopSshServerLogins = {
   busySessions: null,
   providers: null,
 };
-const STATUS_POLL_MS = 1_000;
 const REDIRECT_EXAMPLE = 'http://localhost:…/callback?code=…';
 
 /** The logins stored on the server and its running sessions, as main reads
@@ -288,17 +287,21 @@ export function SshServerLoginsDialog({
   };
 
   const pendingId = flow?.state === 'pending' ? flow.flowId : '';
-  // biome-ignore lint/correctness/useExhaustiveDependencies: polls the pending login only.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follows the pending login only.
   useEffect(() => {
     if (!pendingId) return undefined;
     let live = true;
-    let timer = 0;
-    const poll = (): void => {
+    // The server pushes the login's progress (`login:<flowId>`, desktop-services.md §5.4); a read happens only
+    // when the window returns from the browser sign-in, which is when a server without a push link can have
+    // finished it. No timer.
+    const stopPush = api.subscribeSshServerLoginUpdated?.((update) => {
+      if (live && update.id === host.id) settle(update.flow);
+    });
+    const read = (): void => {
       void Promise.resolve(api.sshServerLoginStatus?.(host.id, pendingId))
         .then((next) => {
           if (!live || !next) return;
           settle(next);
-          if (next.state === 'pending') timer = window.setTimeout(poll, STATUS_POLL_MS);
         })
         .catch((reason: unknown) => {
           if (!live) return;
@@ -310,10 +313,11 @@ export function SshServerLoginsDialog({
           report(reason);
         });
     };
-    timer = window.setTimeout(poll, STATUS_POLL_MS);
+    window.addEventListener('focus', read);
     return () => {
       live = false;
-      window.clearTimeout(timer);
+      stopPush?.();
+      window.removeEventListener('focus', read);
     };
   }, [api, host.id, pendingId]);
 

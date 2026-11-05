@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Links</title></head><body><main><p><a href="../up">Up</a> <a href="javascript:alert(1)">bad</a> <a href="#frag">frag</a> <a href="">empty</a> <a href="/x"></a>
+<a href="ftp://x/y">ftp</a> <a href="tel:123">tel</a></p>
+<p><img src="/img/a.png" alt="Alt [one]"><img src="data:image/png;base64,AAAA" alt="data"><img src="/b.png"></p>
+<blockquote><p>Quote line one</p><p>Quote two</p></blockquote><hr><p>after rule</p></main></body></html>

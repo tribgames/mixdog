@@ -4,6 +4,7 @@ import React, { act } from 'react';
 
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { updateClaimQueue } from '../remote-claim-store.ts';
+import { installSectionStore } from '../section-store.ts';
 import { getCachedConnectionInfo, setCachedConnectionInfo } from './connection-info.ts';
 import { requestConnectionDialog } from './connection-intent.ts';
 import { ConnectionPanel } from './connection-panel.tsx';
@@ -424,20 +425,36 @@ test('Connect a device: browser view has the full-width address with copy plus t
   assert.equal(calls.filter((call) => call[1] === 'release').length, 0, 'every view shares the one code');
 });
 
-test('a pending code request shows the loading tile; the code lands within a second, not after the 8 s heartbeat', async (t) => {
-  let asks = 0;
+test('a pending code request shows the loading tile; the code and its replacement arrive in the remote section, with no re-ask', async (t) => {
+  const listeners = new Set();
+  const empty = { snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => undefined };
+  installSectionStore({
+    snapshot: async () => ({ status: 'ready', entries: [] }),
+    subscribe: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+  });
+  t.after(() => installSectionStore(empty));
+  let revision = 0;
+  const publish = (pairCode) =>
+    act(async () => {
+      const entry = { section: 'remote', key: null, revision: ++revision, value: { pairCode } };
+      for (const listener of [...listeners])
+        listener({ kind: 'sections', changes: [{ section: 'remote', key: null, entry }] });
+    });
+  const asks = [];
   const { document } = await mount(t, {
     pairCode: (action) => {
-      if (action === 'release') return Promise.resolve(null);
-      asks += 1;
-      return Promise.resolve(asks === 1 ? null : { code: '482917', expiresAt: Date.now() + 200_000 });
+      asks.push(action);
+      return Promise.resolve(null);
     },
   });
   await click(buttonNamed(document, 'Connect a device'));
   assert.ok(document.querySelector('[aria-label="Getting a code…"].conn-code-tile--loading'));
   assert.equal(document.querySelector('button[aria-label="New code"]').disabled, true);
-  await act(async () => new Promise((done) => setTimeout(done, 900)));
+  await publish({ code: '482917', expiresAt: Date.now() + 200_000 });
   assert.equal(document.querySelector('.conn-code-tile b').textContent, '482·917');
+  await publish({ code: '731205', expiresAt: Date.now() + 200_000 });
+  assert.equal(document.querySelector('.conn-code-tile b').textContent, '731·205', 'the next code is pushed on expiry');
+  assert.deepEqual(asks, ['ensure'], 'the code was asked for once');
 });
 
 for (const [label, answer] of [

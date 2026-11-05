@@ -1,0 +1,62 @@
+{
+ "src": "builtin-tools",
+ "name": "glob",
+ "annotations": {
+  "title": "Glob",
+  "readOnlyHint": true,
+  "destructiveHint": false,
+  "idempotentHint": true,
+  "openWorldHint": false,
+  "compressible": true
+ },
+ "schema": {
+  "type": "object",
+  "properties": {
+   "pattern": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 10
+     }
+    ],
+    "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+   },
+   "path": {
+    "type": "string",
+    "description": "Known existing base directory; omit for the current Project."
+   },
+   "sort": {
+    "type": "string",
+    "enum": [
+     "natural",
+     "mtime"
+    ],
+    "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": 0,
+    "description": "Max entries; default 100; 0 unlimited."
+   },
+   "offset": {
+    "type": "integer",
+    "minimum": 0
+   },
+   "include_noise": {
+    "type": "boolean",
+    "description": "Also search gitignored trees."
+   }
+  },
+  "required": [
+   "pattern"
+  ],
+  "additionalProperties": false
+ },
+ "descLen": 152
+}

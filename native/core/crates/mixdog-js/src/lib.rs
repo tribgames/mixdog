@@ -1,0 +1,34 @@
+//! JavaScript semantics for the core, in one place: the `\s` white-space set and `trim`,
+//! `slice` by UTF-16 units, `Number(...)` coercion, ECMAScript regular expressions with V8's
+//! error text. Ported from V8 / the Node product; each piece is tested against Node's output.
+
+pub mod device_paths;
+mod json;
+mod locale_compare;
+mod number;
+mod regex;
+mod regex_error;
+mod text;
+pub mod token_estimate;
+
+pub use json::quote as json_quote;
+pub use json::quoted_cut_utf16_len as json_cut_utf16_len;
+pub use json::stringify as json_stringify;
+pub use json::stringify_indent as json_stringify_indent;
+pub use locale_compare::locale_compare;
+pub use number::number_to_string;
+pub use number::string_to_number;
+pub use number::to_number;
+pub use number::value_to_string;
+pub use regex::Caps;
+pub use regex::JsRegex;
+pub use regex_error::js_regex_error;
+pub use text::Utf16Cut;
+pub use text::cut_utf16;
+pub use text::is_js_space;
+pub use text::js_trim;
+pub use text::js_trim_end;
+pub use text::js_trim_start;
+pub use text::js_words;
+pub use text::slice_utf16;
+pub use text::utf16_len;

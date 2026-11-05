@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { installTestDom } from '../test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from '../test-support/test-dom.mjs';
 
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -26,9 +26,11 @@ window.matchMedia = () => ({
   addEventListener() {},
   removeEventListener() {},
 });
+const modules = toolModulesSource();
 window.mixdogDesktop = {
   setTitleBarDimmed() {},
   rendererDiagnostic() {},
+  sections: modules.sections,
 };
 
 const { extensionSectionForSettings } = await import('../extension-sections.ts');
@@ -39,7 +41,7 @@ const { adoptSidebarReferenceHost, resetSidebarReferenceCache, updateSidebarRefe
 const { CategoryPanel } = await import('./capability-panels.tsx');
 
 function panelContext(overrides = {}) {
-  return {
+  const context = {
     api: {
       readSettings: async () => ({
         browserControl: false,
@@ -97,6 +99,9 @@ function panelContext(overrides = {}) {
     async installDesktopUpdate() {},
     ...overrides,
   };
+  // The built-in cards read the core's `toolModules` section: what a test says the core holds is pushed with it.
+  if (context.data.toolModules) modules.publish(context.data.toolModules);
+  return context;
 }
 
 function deferred() {
@@ -504,15 +509,17 @@ test('Browser Use and Computer Use mount at their real state without replaying a
 
 test('project scope stays in the plugin detail and saves from its scope selector', async () => {
   const calls = [];
+  modules.publishSection('projects', [
+    { name: 'alpha', path: 'C:\\work\\alpha', alias: null },
+    { name: 'beta', path: 'C:\\work\\beta', alias: 'Beta' },
+  ]);
   const rendered = await renderPanel('plugins', {
     api: {
       readSettings: async () => ({ browserControl: false, computerControl: false }),
       gitCliStatus: async () => ({ installed: true }),
       invokeCapability: async () => ({}),
-      listProjects: async () => [
-        { name: 'alpha', path: 'C:\\work\\alpha', alias: null },
-        { name: 'beta', path: 'C:\\work\\beta', alias: 'Beta' },
-      ],
+      // The projects are the core's `projects` section, published above.
+      sections: modules.sections,
     },
     data: {
       toolModules: {

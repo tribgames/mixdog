@@ -29,11 +29,11 @@ cmd /c mklink /J tree\apps\desktop\node_modules <main checkout>\apps\desktop\nod
 | Baselines (RL §14) | `node benchmarks/rust-core/recorders/baseline-node.mjs --tree T [--corpora 100,10000[,100000]] [--iterations 20]` | `benchmarks/rust-core/results/baseline-node.json` |
 | Provider recordings | `node benchmarks/rust-core/recorders/record-providers.mjs --tree T` | `native/core/fixtures/providers/` |
 | Tool goldens | `node benchmarks/rust-core/recorders/record-tools.mjs --tree T --native-root <dir with mixdog-{spawn,patch,graph}/target/release>` | `native/core/fixtures/tools/` |
-| Desktop golden twins | `node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree T` | `native/core/fixtures/desktop/` |
+| Desktop golden twins | `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree T` | `native/core/fixtures/desktop/` |
 | `session-state` streams | `cd T/apps/desktop; node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-session-state.mjs --tree T` | `native/core/fixtures/session-state/` |
 | 1.4.5 lifecycle | `node benchmarks/rust-core/recorders/record-lifecycle.mjs --tree T [--tag-tree <git archive 69fe41b05 + node_modules>]` | `native/core/fixtures/lifecycle/` |
 | Provider recordings, intercepted adapters | `node benchmarks/rust-core/recorders/record-providers-intercepted.mjs --tree T [--only <id>]` (about 8 min: adapters retry) | `native/core/fixtures/providers-intercepted/` |
-| Desktop service twins | `node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop-services.mjs --tree T` | `native/core/fixtures/desktop/{settings,github,terminal,lsp,notifications,transfer,remote-relay}/` |
+| Desktop service twins | `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop-services.mjs --tree T` | `native/core/fixtures/desktop/{settings,github,terminal,lsp,notifications,transfer,remote-relay}/` |
 | Extra tool goldens | `node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree T` (after record-tools.mjs) | `native/core/fixtures/tools/{code_graph,office,read,memory}/` |
 | 1.4.5 usage ledger | `node benchmarks/rust-core/recorders/record-ledger-v145.mjs --tree T [--corpus <migration-corpus>]` | `native/core/fixtures/migration/ledger-v145/` |
 | Verify + index | `node benchmarks/rust-core/recorders/verify-manifests.mjs` | exit 1 on any drift |

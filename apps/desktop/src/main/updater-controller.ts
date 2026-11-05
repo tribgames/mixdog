@@ -85,12 +85,18 @@ export function createUpdaterController(input: {
   service: UpdaterService;
   persistence: UpdaterPersistence;
   stop: () => Promise<void>;
-  /** Agent tasks running now; null when that cannot be told. */
-  busy?: () => Promise<number | null>;
-  /** The daemon's admission barrier. `close` refuses new work and reports
-   *  what runs in one step: 0 = idle (admission now closed), a count = busy
-   *  (admission left open), null = unknown. `release` reopens admission. */
-  barrier?: { close(): Promise<number | null>; release(): Promise<void> };
+  /** The local core (LR §5.4). `running` is the work running now; `hold`
+   *  defers new work and reports what runs in one step (0 = idle, the hold
+   *  stays; a count = busy, the hold is released); `release` undoes a hold or
+   *  an unfinished wind-down; `stop` winds the core down and waits for its
+   *  process to exit — the installer replaces its files only after that. Any
+   *  call that throws counts as unknown work. */
+  core?: {
+    running(): Promise<number>;
+    hold(): Promise<number>;
+    release(): Promise<void>;
+    stop(options: { abort: boolean }): Promise<void>;
+  };
   scheduleInstall?: (install: () => void) => void;
   log?: (message: string, data?: object) => void;
 }) {
@@ -159,27 +165,27 @@ export function createUpdaterController(input: {
     transition({ status: 'ready', version, busyTasks: tasks });
   };
 
-  /** Tasks that hold the install back, from the desktop's own view of the
-   *  daemon; undefined when none. Unreadable counts as unknown (null). */
+  /** Tasks that hold the install back, from the core's own view; undefined
+   *  when none. Unreadable counts as unknown (null). */
   const viewTasks = async (): Promise<number | null | undefined> => {
-    if (!input.busy) return undefined;
+    if (!input.core) return undefined;
     let tasks: number | null;
     try {
-      tasks = await input.busy();
+      tasks = await input.core.running();
     } catch {
       tasks = null;
     }
     return tasks === 0 ? undefined : tasks;
   };
 
-  /** The daemon's own answer, with new-work admission closed in the same
-   *  step when idle (the caller keeps it closed until shutdown or release).
-   *  Busy or unknown leaves admission open. */
+  /** The core's own answer, with new work deferred in the same step when idle
+   *  (the caller keeps the hold until the core stops or `releaseBarrier`).
+   *  Busy leaves the hold released; unknown releases whatever was taken. */
   const barrierTasks = async (): Promise<number | null | undefined> => {
-    if (!input.barrier) return undefined;
+    if (!input.core) return undefined;
     let tasks: number | null;
     try {
-      tasks = await input.barrier.close();
+      tasks = await input.core.hold();
     } catch {
       tasks = null;
     }
@@ -190,7 +196,7 @@ export function createUpdaterController(input: {
 
   const releaseBarrier = async (): Promise<void> => {
     try {
-      await input.barrier?.release();
+      await input.core?.release();
     } catch (error) {
       input.log?.('updater barrier release failed', {
         message: error instanceof Error ? error.message : String(error),
@@ -230,10 +236,10 @@ export function createUpdaterController(input: {
       installing = true;
       // Unconfirmed installs stop before touching anything while agent work
       // runs or its status is unknown; a confirmed one is the user's decision.
-      // The daemon's barrier is the last step before teardown: when it
-      // reports idle, new work is already refused and stays so until shutdown.
+      // The core's hold is the last step before teardown: when it reports
+      // idle, new work is already deferred and stays so until the core exits.
       if (!options.confirmed) {
-        // null means unknown, so only undefined falls through to the barrier.
+        // null means unknown, so only undefined falls through to the hold.
         let tasks = await viewTasks();
         if (tasks === undefined) tasks = await barrierTasks();
         if (tasks !== undefined) {
@@ -244,6 +250,11 @@ export function createUpdaterController(input: {
       }
       transition({ status: 'installing', version });
       try {
+        // The old core must be gone before the installer replaces its files
+        // and before the new app starts the next one: one core at a time. The
+        // wind-down refuses new work from its first step; a confirmed install
+        // also aborts the work the user was shown.
+        await input.core?.stop({ abort: options.confirmed === true });
         await input.stop();
         // ipcRenderer.invoke() must receive its acknowledgement before
         // electron-updater destroys the renderer during quitAndInstall().

@@ -1,0 +1,38 @@
+{
+  "name": "explore",
+  "description": "Read-only code search in parallel explorers outside your context; returns one merged answer with path:line evidence. Use when locating needs 3+ searches, spans 2+ files or areas, or covers independent questions; a known file or one lookup: read/grep. Returns final results in this call.",
+  "annotations": {
+    "title": "Explore",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 8
+          }
+        ],
+        "description": "One self-contained question, or an array of independent ones (one explorer each)."
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -10,7 +10,9 @@ pub mod ids;
 pub mod item;
 pub mod json;
 pub mod section;
+pub mod text_class;
 pub mod thread;
+pub mod tool_modules;
 
 pub use approval::*;
 pub use blob::*;
@@ -20,3 +22,4 @@ pub use item::*;
 pub use json::*;
 pub use section::*;
 pub use thread::*;
+pub use tool_modules::*;

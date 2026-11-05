@@ -1,0 +1,368 @@
+//! The step effort judge as the agent loop sees it. The loop awaits the
+//! judgment before its next request, so this future always completes: a
+//! model that is not installed or being installed, a load failure, a run
+//! error, a lane that refuses the job and a worker that dies or panics all
+//! answer `None`, which leaves the step at the effort in force. There are no
+//! timers: a judgment ends when the inference ends.
+//!
+//! Inference runs on the CPU bulk lane, one judgment at a time per model
+//! instance. The model loads on first use and stays resident; a failed load is
+//! remembered until the model is installed or repaired, so a broken model
+//! cannot add a load to every step.
+//!
+//! Install triggers, as Node has them: the first judged step of the instance
+//! refreshes a model that is not the current release (in the background, the
+//! step does not wait); a load failure verifies the files against the manifest
+//! once and fetches only the damaged ones; `prewarm` loads the model ahead of
+//! the first judged step.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use async_trait::async_trait;
+use mixdog_agent::step_effort::{StepEffortJudge, StepInput, StepResult};
+use mixdog_rt::{CpuBulk, TaskClass};
+use serde_json::{Value, json};
+use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
+
+use crate::effort_judge::error::JudgeError;
+use crate::effort_judge::install::{self, Manifest};
+use crate::effort_judge::ladder::StepLadder;
+use crate::effort_judge::model::{JudgeModel, ModelConfig, available};
+use crate::model_install::{InstallError, ProgressSink, run_on_lane};
+use crate::tool_state::{JudgeStatus, StateTick, onnx_runtime_supported};
+
+type Loaded = Option<Result<Arc<JudgeModel>, JudgeError>>;
+
+/// What the host chooses about a judge model.
+#[derive(Clone, Default)]
+pub struct JudgeOptions {
+    /// Bumped whenever `status()` changes.
+    pub tick: StateTick,
+    /// The release to install; the bundled manifest when absent.
+    pub manifest: Option<Manifest>,
+    /// Byte progress of installs the judge starts itself.
+    pub progress: Option<ProgressSink>,
+}
+
+/// The resident model and its serialised access. Shared by every run.
+pub struct EffortJudgeModel {
+    config: ModelConfig,
+    lane: CpuBulk,
+    manifest: Manifest,
+    progress: Option<ProgressSink>,
+    /// One judgment at a time: waiting happens here, not on a lane thread. The
+    /// loaded model (or its remembered load failure) lives under the same lock.
+    turn: Mutex<Loaded>,
+    /// An install or repair is replacing the files: judgments answer at once.
+    installing: AtomicBool,
+    /// Readable without the turn lock, which a running judgment holds.
+    ready: AtomicBool,
+    last_error: std::sync::Mutex<String>,
+    tick: StateTick,
+    refresh_checked: AtomicBool,
+    repair_started: AtomicBool,
+    /// Ends installs this instance started in the background.
+    cancel: CancellationToken,
+}
+
+impl EffortJudgeModel {
+    pub fn new(config: ModelConfig, lane: CpuBulk) -> Result<Arc<Self>, InstallError> {
+        Self::with_options(config, lane, JudgeOptions::default())
+    }
+
+    pub fn with_options(config: ModelConfig, lane: CpuBulk, options: JudgeOptions) -> Result<Arc<Self>, InstallError> {
+        let manifest = match options.manifest {
+            Some(manifest) => manifest,
+            None => Manifest::bundled()?,
+        };
+        Ok(Arc::new(Self {
+            config,
+            lane,
+            manifest,
+            progress: options.progress,
+            turn: Mutex::new(None),
+            installing: AtomicBool::new(false),
+            ready: AtomicBool::new(false),
+            last_error: std::sync::Mutex::new(String::new()),
+            tick: options.tick,
+            refresh_checked: AtomicBool::new(false),
+            repair_started: AtomicBool::new(false),
+            cancel: CancellationToken::new(),
+        }))
+    }
+
+    pub fn config(&self) -> &ModelConfig {
+        &self.config
+    }
+
+    /// `effortJudgeInstalling()`.
+    pub fn is_installing(&self) -> bool {
+        self.installing.load(Ordering::Acquire)
+    }
+
+    /// `effortJudgeAvailable()`: the platform has a binding, the files hold
+    /// data and, for a release install, it is stamped.
+    pub fn is_available(&self) -> bool {
+        onnx_runtime_supported() && available(&self.config)
+    }
+
+    /// `effortJudgeReady()`.
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
+    }
+
+    /// `effortJudgeLastError()`: empty when the model loaded or never failed.
+    pub fn last_error(&self) -> String {
+        self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn set_load_state(&self, ready: bool, error: String) {
+        self.ready.store(ready, Ordering::Release);
+        *self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error;
+        self.tick.bump();
+    }
+
+    /// `effortJudgeInfo()`: what the settings card shows. The installed model
+    /// names its backbone in `calibration.json`; older packs predate the field.
+    pub fn info(&self) -> Value {
+        let model_bytes = std::fs::metadata(self.config.dir.join("model.onnx")).map_or(0, |m| m.len());
+        let backbone = std::fs::read(self.config.dir.join("calibration.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|json| json["backbone"].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
+            .unwrap_or_else(|| "EmbeddingGemma 2 (18 layers)".to_owned());
+        json!({
+            "model": backbone,
+            "quantization": "4-bit",
+            "engine": "ONNX Runtime",
+            "device": "CPU",
+            "modelBytes": model_bytes,
+            "ready": self.is_ready(),
+        })
+    }
+
+    pub fn status(&self) -> JudgeStatus {
+        JudgeStatus {
+            available: self.is_available(),
+            installing: self.is_installing(),
+            ready: self.is_ready(),
+            last_error: self.last_error(),
+            info: self.info(),
+        }
+    }
+
+    async fn lane_job<R, F>(&self, job: F) -> Result<R, JudgeError>
+    where
+        R: Send + 'static,
+        F: FnOnce() -> R + Send + 'static,
+    {
+        run_on_lane(self.lane, job).await.map_err(JudgeError::Worker)
+    }
+
+    /// Loads the model into `state` unless it is already there (or failed).
+    /// A model that is not installed is not remembered: an install can follow.
+    /// A lane refusal is transient and not remembered either; a load failure is.
+    async fn ensure_loaded(&self, state: &mut Loaded) -> Result<Arc<JudgeModel>, JudgeError> {
+        if state.is_none() {
+            if !available(&self.config) {
+                return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()));
+            }
+            let config = self.config.clone();
+            let outcome = self.lane_job(move || JudgeModel::load(&config).map(Arc::new)).await?;
+            match &outcome {
+                Ok(_) => self.set_load_state(true, String::new()),
+                Err(error) => self.set_load_state(false, error.to_string()),
+            }
+            *state = Some(outcome);
+        }
+        match state {
+            Some(outcome) => outcome.clone(),
+            None => Err(JudgeError::Worker("model state missing".into())),
+        }
+    }
+
+    /// Calibrated probabilities over the four levels for one step.
+    pub async fn probs(self: &Arc<Self>, input: StepInput) -> Result<Vec<f64>, JudgeError> {
+        if !onnx_runtime_supported() {
+            return Err(JudgeError::Unsupported);
+        }
+        self.refresh_once();
+        if self.is_installing() {
+            return Err(JudgeError::Installing);
+        }
+        let mut state = self.turn.lock().await;
+        // Checked again under the lock: an install that began while this call
+        // waited must find the files unused.
+        if self.is_installing() {
+            return Err(JudgeError::Installing);
+        }
+        let model = match self.ensure_loaded(&mut *state).await {
+            Ok(model) => model,
+            Err(error) => {
+                drop(state);
+                self.repair_after_load_failure(&error);
+                return Err(error);
+            }
+        };
+        self.lane_job(move || model.probs(&input)).await?
+    }
+
+    /// The first judged step of this instance: a model that is not the current
+    /// release is fetched in the background. The step does not wait for it; a
+    /// failed refresh only leaves an older complete install in use.
+    fn refresh_once(self: &Arc<Self>) {
+        if self.refresh_checked.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if self.config.explicit || (available(&self.config) && install::install_current(&self.config.dir, &self.manifest)) {
+            return;
+        }
+        let this = self.clone();
+        mixdog_rt::spawn("services.effort-judge.refresh", TaskClass::Work, async move {
+            if let Err(error) = this.install(&this.manifest, this.progress.as_ref(), &this.cancel).await {
+                tracing::warn!(%error, "effort judge: model update failed");
+            }
+        });
+    }
+
+    /// A model that fails to load may be damaged on disk (a crash can leave a
+    /// stamped file with a zeroed tail). The files are verified once per failure,
+    /// off the step's path; only damaged ones are fetched again.
+    fn repair_after_load_failure(self: &Arc<Self>, error: &JudgeError) {
+        if !matches!(error, JudgeError::Load(_)) || self.config.explicit || self.repair_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let this = self.clone();
+        mixdog_rt::spawn("services.effort-judge.repair", TaskClass::Work, async move {
+            match this.repair(&this.manifest, this.progress.as_ref(), &this.cancel).await {
+                Ok(bad) if !bad.is_empty() => {
+                    tracing::warn!(files = ?bad, "effort judge: reinstalled damaged model files");
+                    // The files are replaced: the next failure may be repaired again.
+                    this.repair_started.store(false, Ordering::Release);
+                }
+                Ok(_) => {}
+                Err(error) => tracing::warn!(%error, "effort judge: model repair failed"),
+            }
+        });
+    }
+
+    /// Starts loading the model ahead of the first judged step. True when it is
+    /// loaded or loading; false when it cannot be: unsupported platform, an
+    /// install in progress, not installed, or a remembered load failure.
+    pub fn prewarm(self: &Arc<Self>) -> bool {
+        if !onnx_runtime_supported() || self.is_installing() || !available(&self.config) {
+            return false;
+        }
+        match self.turn.try_lock() {
+            // A judgment or a load holds the lock: it is loaded or loading.
+            Err(_) => true,
+            Ok(state) => match &*state {
+                Some(Ok(_)) => true,
+                Some(Err(_)) => false,
+                None => {
+                    drop(state);
+                    let this = self.clone();
+                    mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
+                        let mut state = this.turn.lock().await;
+                        if !this.is_installing() {
+                            let _ = this.ensure_loaded(&mut *state).await;
+                        }
+                    });
+                    true
+                }
+            },
+        }
+    }
+
+    /// `shutdownEffortJudge()`: unloads the model; the next judgment loads it again.
+    pub async fn shutdown(&self) {
+        *self.turn.lock().await = None;
+        self.ready.store(false, Ordering::Release);
+        self.tick.bump();
+    }
+
+    /// Runs `work` with no model loaded and judgments answering `Installing`,
+    /// then lets the next judgment load whatever the files now hold.
+    async fn replacing_files<T, F>(&self, work: F) -> Result<T, InstallError>
+    where
+        F: std::future::Future<Output = Result<T, InstallError>>,
+    {
+        if self.installing.swap(true, Ordering::AcqRel) {
+            return Err(InstallError::Busy);
+        }
+        struct Done<'a>(&'a AtomicBool);
+        impl Drop for Done<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let _done = Done(&self.installing);
+        // The loaded session maps the file the install is about to replace.
+        *self.turn.lock().await = None;
+        self.ready.store(false, Ordering::Release);
+        self.tick.bump();
+        let outcome = work.await;
+        if outcome.is_ok() {
+            // The files were replaced: an earlier load failure no longer describes them.
+            self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        }
+        self.installing.store(false, Ordering::Release);
+        self.tick.bump();
+        outcome
+    }
+
+    /// Installs or updates the model unless it is already the current release.
+    pub async fn install(
+        &self,
+        manifest: &Manifest,
+        progress: Option<&ProgressSink>,
+        cancel: &CancellationToken,
+    ) -> Result<(), InstallError> {
+        self.replacing_files(install::ensure_installed(&self.config, manifest, self.lane, progress, cancel)).await
+    }
+
+    /// Re-verifies the files against the manifest and fetches only the damaged
+    /// ones. Returns their names; nothing is unloaded when none is damaged.
+    pub async fn repair(
+        &self,
+        manifest: &Manifest,
+        progress: Option<&ProgressSink>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, InstallError> {
+        if self.config.explicit {
+            return Ok(Vec::new());
+        }
+        let bad = install::invalidate_damaged(&self.config.dir, manifest, self.lane).await?;
+        if !bad.is_empty() {
+            self.replacing_files(install::install_model(&self.config.dir, manifest, self.lane, progress, cancel)).await?;
+        }
+        Ok(bad)
+    }
+}
+
+/// A run's judge: the shared model plus the ladder of the turn.
+pub struct EffortJudge {
+    model: Arc<EffortJudgeModel>,
+    ladder: Arc<dyn StepLadder>,
+}
+
+impl EffortJudge {
+    pub fn new(model: Arc<EffortJudgeModel>, ladder: Arc<dyn StepLadder>) -> Self {
+        Self { model, ladder }
+    }
+}
+
+#[async_trait]
+impl StepEffortJudge for EffortJudge {
+    async fn judge(&self, input: StepInput) -> Option<StepResult> {
+        match self.model.probs(input).await {
+            Ok(probs) => self.ladder.resolve(&probs),
+            Err(error) => {
+                tracing::debug!(%error, "effort judge: step left at the effort in force");
+                None
+            }
+        }
+    }
+}

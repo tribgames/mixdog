@@ -5,11 +5,13 @@
   packaged app, so a change in this working tree could never be pushed through
   the real update path locally. This script closes that gap in two modes:
 
-    (default)     build -> stop app -> stop daemon -> silent reinstall
-                  -> relaunch. The daemon stop is the point: a dev rebuild keeps
-                  the same version, so the version-skew drain in
-                  session-client.mjs never fires and a fresh install would
-                  otherwise attach to the still-running old session daemon.
+    (default)     build -> stop app -> stop core -> silent reinstall
+                  -> relaunch. The core stop is the point: a dev rebuild keeps
+                  the same version, so a fresh install would otherwise attach
+                  to the still-running old core. The stop is
+                  `mixdogd ctl stop --when-idle --reason fastDeploy`: it waits
+                  for the core to be idle and never kills it; -AbortRunning
+                  lists the running work and aborts it after a typed ABORT.
 
     -ViaUpdater   build a version-bumped artifact, serve dist over 127.0.0.1 and
                   let the app's own updater (check -> download -> ready ->
@@ -38,6 +40,9 @@ param(
     [switch]$RuntimeOnlyWorker,
     [switch]$NoLaunch,
     [switch]$KeepDaemon,
+    # Abort the work a busy core is running, after listing it and a typed
+    # ABORT confirmation. Without it a deploy waits for the core to be idle.
+    [switch]$AbortRunning,
     [switch]$DryRun,
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop'),
     [string]$Version = '',
@@ -67,6 +72,9 @@ $unpackedDir = Join-Path $distDir 'win-unpacked'
 $installedExe = Join-Path $InstallDir 'Mixdog.exe'
 $runtimeRoot = if ($env:MIXDOG_RUNTIME_ROOT) { $env:MIXDOG_RUNTIME_ROOT } else { Join-Path $env:TEMP 'mixdog' }
 $daemonDiscovery = Join-Path $runtimeRoot 'daemon.json'
+# The installed core (electron-builder.yml extraResources): the binary that
+# stops the running core through its control listener.
+$coreExe = Join-Path $InstallDir 'resources\core\mixdogd.exe'
 $fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
 $fastRendererWatchHelper = Join-Path $PSScriptRoot 'dev-renderer-watch.mjs'
 $fastRendererWatchState = Join-Path $desktopDir '.cache\dev-renderer-watch.json'
@@ -298,26 +306,24 @@ function Stop-InstalledMixdogProcess {
     }
 }
 
-function Get-DaemonProcess {
-    # Filtered in WQL instead of enumerating every process on the machine: this
-    # is polled every 200ms for up to 15s per deploy. The match set is the same
-    # one the previous -match pair produced -- in WQL `\\` is one literal
-    # backslash and `.` is an ordinary character, not a wildcard.
-    $filter = "CommandLine LIKE '%daemon.mjs%' OR CommandLine LIKE '%runtime\\memory\\index.mjs%'"
-    return @(Get-CimInstance Win32_Process -Filter $filter)
-}
-
 function Get-DaemonRecord {
+    # The core's discovery file (LR section 4): the pid and the RPC port of a
+    # serving core. Its owner is the only writer; this script only reads it.
     if (-not (Test-Path -LiteralPath $daemonDiscovery)) { return $null }
     try {
         $record = Get-Content -LiteralPath $daemonDiscovery -Raw | ConvertFrom-Json
         return [pscustomobject]@{
-            pid   = $record.pid
-            port  = $record.endpoints.session.port
-            token = $record.endpoints.session.token
+            pid  = $record.pid
+            port = $record.core.rpc.port
         }
     }
     catch { return $null }
+}
+
+function Get-DaemonProcess {
+    $record = Get-DaemonRecord
+    if (-not $record -or -not $record.pid) { return @() }
+    return @(Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$record.pid)")
 }
 
 function Get-InstalledVersion {
@@ -360,30 +366,55 @@ function Stop-MixdogApp {
     }
 }
 
+function Get-CoreRunningWork {
+    $status = & $coreExe ctl status --json | ConvertFrom-Json
+    return $status
+}
+
+# The user's own typed confirmation is the only authorization to abort work
+# (LR section 5.4): the listing they see is the one the token is bound to.
+function Confirm-AbortRunningWork {
+    $status = Get-CoreRunningWork
+    if (-not $status.drain -or @($status.running).Count -eq 0) { return }
+    Write-Host '    running work that would be aborted:'
+    foreach ($work in @($status.running)) { Write-Host "      $($work.kind): $($work.title)" }
+    if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
+        throw '-AbortRunning needs an interactive terminal for its confirmation; the core keeps draining and exits when idle.'
+    }
+    $typed = Read-Host '    type ABORT to stop the work listed above'
+    if ($typed -ne 'ABORT') {
+        throw 'Abort was not confirmed; the core keeps draining and exits when idle.'
+    }
+    & $coreExe ctl stop --abort --reason fastDeploy --confirm-token $status.drain.confirmToken --json | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop --abort exited with $LASTEXITCODE" }
+}
+
 function Stop-Daemon {
-    # Same /shutdown the client's shutdownDaemon() posts; the daemon owns
-    # both front doors, so one call ends channels + sessions + memory client.
+    # The one wind-down procedure (LR section 5): ask the core to stop once it
+    # is idle, then wait for its OS process to exit. Nothing here kills the
+    # core or times the wait; running work is listed, and only a typed
+    # confirmation (-AbortRunning) aborts it.
     $record = Get-DaemonRecord
-    if ($record -and $record.port -and $record.token) {
-        try {
-            Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($record.port)/shutdown" `
-                -Headers @{ 'X-Mixdog-Daemon-Token' = [string]$record.token } -Body '{}' `
-                -ContentType 'application/json' -TimeoutSec 5 | Out-Null
-            Write-Host "    asked daemon pid=$($record.pid) to exit"
-        }
-        catch {
-            Write-Host "    daemon /shutdown failed: $($_.Exception.Message)"
-        }
+    if (-not $record -or -not $record.pid) { Write-Host '    no core running'; return }
+    if (-not (Test-Path -LiteralPath $coreExe -PathType Leaf)) {
+        # A 1.4.5 build has no mixdogd; the next core stops a 1.4.5 daemon itself.
+        Write-Host "    the installed build has no mixdogd ($coreExe); nothing to stop"
+        return
     }
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    while (@(Get-DaemonProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
-        Start-Sleep -Milliseconds 200
+    # The process handle is the core's identity: the wait ends with that
+    # process, never with a later one that reused the pid.
+    $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
+    if (-not $process) { Write-Host '    core process already gone'; return }
+    & $coreExe ctl stop --when-idle --reason fastDeploy --json | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop exited with $LASTEXITCODE" }
+    Write-Host "    asked core pid=$($record.pid) to stop when idle"
+    if ($AbortRunning) { Confirm-AbortRunningWork }
+    while (-not $process.WaitForExit(10000)) {
+        $status = Get-CoreRunningWork
+        $titles = (@($status.running) | ForEach-Object { $_.title }) -join '; '
+        Write-Host "    waiting for the core to become idle: $titles"
+        Write-FastDirectReceipt -Status 'waiting-for-idle-core' -Detail $titles
     }
-    foreach ($process in @(Get-DaemonProcess)) {
-        Write-Host "    force stopping daemon pid=$($process.ProcessId)"
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-    Remove-Item -LiteralPath $daemonDiscovery -Force -ErrorAction SilentlyContinue
 }
 
 function Wait-ForApp {

@@ -18,6 +18,8 @@ use crate::ids::ServerRequestId;
 use crate::ids::ThreadId;
 use crate::ids::TurnId;
 
+pub mod stored;
+
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum CoreError {

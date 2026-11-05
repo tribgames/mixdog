@@ -1,0 +1,13 @@
+{
+  "complete": true,
+  "cwd": "multi/plain",
+  "dependencyRoots": [
+    "<ROOT>/multi/plain"
+  ],
+  "input": {
+    "mode": "overview"
+  },
+  "isError": false,
+  "text": "files\t1\nedges\t0\njavascript\t1",
+  "tool": "code_graph"
+}

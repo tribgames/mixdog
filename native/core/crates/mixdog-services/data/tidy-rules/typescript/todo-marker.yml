@@ -1,0 +1,8 @@
+id: todo-marker
+language: TypeScript
+severity: info
+message: TODO/FIXME/XXX comment.
+note: Marker comments are informational. They have no autofix; resolve or remove them in a later change.
+rule:
+  kind: comment
+  regex: '(?i)(?s).*\b(TODO|FIXME|XXX)\b.*'

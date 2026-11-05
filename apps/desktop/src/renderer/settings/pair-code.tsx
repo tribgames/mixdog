@@ -1,19 +1,11 @@
 import { Copy, RotateCw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { DesktopRemotePairCode, DesktopRemotePairCodeUnsupported } from '../../shared/contract';
 import { t } from '../i18n';
+import { useSection } from '../section-store';
 import type { CapabilityApi } from './capability-data';
 import { formatPairCode, remainingFraction, remainingLabel } from './pair-code-format';
-
-const CODE_POLL_MS = 8_000;
-/** A code is on its way: the relay answers in well under a second, so the
- *  screen asks again quickly instead of waiting out the heartbeat. */
-const CODE_PENDING_POLL_MS = 400;
-/** The host swaps in the next code ~30 s before expiry; poll each second then
- *  so the old code is not left on screen once it stops working. */
-const CODE_ENDING_POLL_MS = 1_000;
-const CODE_ENDING_MS = 35_000;
 
 export type PairCodeState = {
   code: DesktopRemotePairCode | null;
@@ -22,13 +14,21 @@ export type PairCodeState = {
   renew(): void;
 };
 
+/** The core's `remote` section value; `pairCode` is the live code, `null` while none exists (desktop-services.md
+ *  §7, section `remote`). */
+interface RemoteSectionValue {
+  pairCode?: DesktopRemotePairCode | null;
+}
+
 /** The 6-digit code exists only while a view that shows it is on screen: it is
- *  requested when shown, kept fresh on a heartbeat, and withdrawn when hidden.
- *  The browser and other-PC views share one code. */
+ *  requested once when shown and withdrawn when hidden. The core pushes the code
+ *  and each replacement (on issue and on expiry) in the `remote` section, so
+ *  nothing asks again on a clock. The browser and other-PC views share one code. */
 export function usePairCode(api: CapabilityApi, enabled: boolean): PairCodeState {
-  const [code, setCode] = useState<DesktopRemotePairCode | null>(null);
+  const [answered, setAnswered] = useState<DesktopRemotePairCode | null>(null);
   const [unsupported, setUnsupported] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const pushed = useSection<RemoteSectionValue>('remote')?.pairCode;
   const request = api.getRemotePairCode;
   // A relay without codes answers { unsupported: true }; a missing answer from
   // an older host means the same.
@@ -36,56 +36,31 @@ export function usePairCode(api: CapabilityApi, enabled: boolean): PairCodeState
   const accept = (next: DesktopRemotePairCode | DesktopRemotePairCodeUnsupported | null | undefined): void => {
     const none = next === undefined || (next !== null && 'unsupported' in next);
     setUnsupported(none);
-    setCode(none || next === null ? null : next);
+    setAnswered(none || next === null ? null : next);
   };
-  const poke = useRef<() => void>(() => undefined);
   const renew = (): void => {
     void request?.('renew')
-      .then((next) => {
-        accept(next);
-        poke.current();
-      })
+      .then(accept)
       .catch(() => undefined);
   };
   useEffect(() => {
     if (!request || !enabled) return undefined;
     let live = true;
-    let timer = 0;
-    let run = 0;
-    const ensure = () => {
-      window.clearTimeout(timer);
-      const mine = ++run;
-      void request('ensure')
-        .then((next) => {
-          if (!live || mine !== run) return;
-          accept(next);
-          const delay =
-            next === null
-              ? CODE_PENDING_POLL_MS
-              : next && !('unsupported' in next) && next.expiresAt - Date.now() < CODE_ENDING_MS
-                ? CODE_ENDING_POLL_MS
-                : CODE_POLL_MS;
-          timer = window.setTimeout(ensure, delay);
-        })
-        .catch(() => {
-          if (live && mine === run) timer = window.setTimeout(ensure, CODE_POLL_MS);
-        });
-    };
-    poke.current = ensure;
-    ensure();
+    void request('ensure')
+      .then((next) => {
+        if (live) accept(next);
+      })
+      .catch(() => undefined);
     const tick = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => {
       live = false;
-      poke.current = () => undefined;
-      window.clearTimeout(timer);
       window.clearInterval(tick);
-      setCode(null);
+      setAnswered(null);
       void request('release').catch(() => undefined);
     };
   }, [request, enabled]);
-  return { code, unsupported, now, renew };
+  return { code: pushed !== undefined ? pushed : answered, unsupported, now, renew };
 }
-
 /** The 6-digit code: a 64px tile plus a 28px timer row, so nothing moves when
  *  the code lands. A relay without codes puts a note in the same slot. */
 export function PairCodeBlock({ pair }: { pair: PairCodeState }) {

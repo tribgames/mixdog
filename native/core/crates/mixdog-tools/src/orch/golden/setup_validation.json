@@ -1,0 +1,625 @@
+{
+ "cases": [
+  {
+   "args": {
+    "action": "install_local_model",
+    "modelId": " m1 "
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_local_model",
+    "modelId": "  "
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_local_model"
+   },
+   "error": "[tool-input-validation] modelId is required for setup.install_local_model"
+  },
+  {
+   "args": {
+    "action": "install_local_model",
+    "modelId": 12
+   },
+   "error": "[tool-input-validation] setup.modelId must be a string"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "phase": "runtime"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "modelId": "m1",
+    "phase": " model "
+   },
+   "error": "[tool-input-validation] setup.phase must be one of: runtime, model"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "modelId": "ghost",
+    "phase": "model"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "phase": "model"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "modelId": "m1",
+    "phase": "runtime"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "modelId": "",
+    "phase": "runtime"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "start_local_installation",
+    "phase": "disk"
+   },
+   "error": "[tool-input-validation] setup.phase must be one of: runtime, model"
+  },
+  {
+   "args": {
+    "action": "start_local_installation"
+   },
+   "error": "[tool-input-validation] phase is required for setup.start_local_installation"
+  },
+  {
+   "args": {
+    "action": "cancel_local_installation",
+    "jobId": "nope"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "cancel_local_installation",
+    "jobId": " "
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "cancel_local_installation"
+   },
+   "error": "[tool-input-validation] jobId is required for setup.cancel_local_installation"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": 30
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": 0
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": 86400
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": 5
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": 86401
+   },
+   "error": "[tool-input-validation] setup.idleTtlSeconds must be at most 86400"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": -1
+   },
+   "error": "[tool-input-validation] setup.idleTtlSeconds must be at least 0"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": 1.5
+   },
+   "error": "[tool-input-validation] setup.idleTtlSeconds must be an integer"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": "30"
+   },
+   "error": "[tool-input-validation] setup.idleTtlSeconds must be an integer"
+  },
+  {
+   "args": {
+    "action": "set_local_idle_ttl",
+    "idleTtlSeconds": null
+   },
+   "error": "[tool-input-validation] setup.idleTtlSeconds must be an integer"
+  },
+  {
+   "args": {
+    "action": "search_local_models"
+   },
+   "error": "[tool-input-validation] query is required for setup.search_local_models"
+  },
+  {
+   "args": {
+    "action": "search_local_models",
+    "query": " "
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "search_local_models",
+    "query": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model"
+   },
+   "error": "[tool-input-validation] repository is required for setup.inspect_hf_model"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model",
+    "repository": "not a repo"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model",
+    "contextWindow": 100,
+    "repository": "owner/name"
+   },
+   "error": "[tool-input-validation] setup.contextWindow must be at least 16384"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model",
+    "contextWindow": 40000,
+    "repository": "owner/name"
+   },
+   "error": "[tool-input-validation] setup.contextWindow must be at most 32768"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model",
+    "contextWindow": 16384.5,
+    "repository": "owner/name"
+   },
+   "error": "[tool-input-validation] setup.contextWindow must be an integer"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model",
+    "contextWindow": null,
+    "repository": "owner/name"
+   },
+   "error": "[tool-input-validation] setup.contextWindow must be an integer"
+  },
+  {
+   "args": {
+    "action": "register_hf_model",
+    "previewId": "x"
+   },
+   "error": "[tool-input-validation] licenseAccepted is required for setup.register_hf_model"
+  },
+  {
+   "args": {
+    "action": "register_hf_model",
+    "licenseAccepted": "yes",
+    "previewId": "x"
+   },
+   "error": "[tool-input-validation] setup.licenseAccepted must be a boolean"
+  },
+  {
+   "args": {
+    "action": "register_hf_model",
+    "licenseAccepted": true
+   },
+   "error": "[tool-input-validation] previewId is required for setup.register_hf_model"
+  },
+  {
+   "args": {
+    "action": "register_hf_model",
+    "licenseAccepted": true,
+    "previewId": "ghost"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "register_hf_model",
+    "licenseAccepted": false,
+    "previewId": "ghost"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "local_model_details"
+   },
+   "error": "[tool-input-validation] modelId is required for setup.local_model_details"
+  },
+  {
+   "args": {
+    "action": "local_model_details",
+    "modelId": "ghost"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "maintain_local_model",
+    "modelId": "ghost",
+    "operation": "verify"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "maintain_local_model",
+    "modelId": "ghost",
+    "operation": "execute"
+   },
+   "error": "[tool-input-validation] setup.operation must be one of: verify, repair"
+  },
+  {
+   "args": {
+    "action": "maintain_local_model",
+    "modelId": "ghost"
+   },
+   "error": "[tool-input-validation] operation is required for setup.maintain_local_model"
+  },
+  {
+   "args": {
+    "action": "maintain_local_model",
+    "operation": "repair"
+   },
+   "error": "[tool-input-validation] modelId is required for setup.maintain_local_model"
+  },
+  {
+   "args": {
+    "action": "delete_local_model"
+   },
+   "error": "[tool-input-validation] confirmationToken is required for setup.delete_local_model"
+  },
+  {
+   "args": {
+    "action": "delete_local_model",
+    "confirmationToken": "expired"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": true,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": false,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_builtin",
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": true,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": false,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_builtin",
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": true,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": false,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_builtin",
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": true,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": false,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_builtin",
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": true,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": false,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_builtin",
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": true,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "enabled": false,
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "install_builtin",
+    "name": "voice"
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {},
+   "error": "action must be one of status, open, set_route, set_agent_route, set_web_search_route, set_workflow, set_output_style, set_profile, set_autoclear, set_compaction, set_memory_enabled, set_recap_enabled, set_web_search_enabled, set_instruction_files, set_auto_effort_base, set_builtin_enabled, install_builtin, install_local_model, start_local_installation, cancel_local_installation, set_local_idle_ttl, search_local_models, inspect_hf_model, register_hf_model, local_model_details, maintain_local_model, delete_local_model, set_system_shell, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_model_preferences, set_heartbeat_enabled, set_heartbeat_interval, set_reactions_enabled, forget_provider_auth, set_provider_account, add_mcp_server, save_mcp_server, remove_mcp_server, set_mcp_enabled, reconnect_mcp, set_disabled_skills, set_extension_scope, add_plugin, update_plugin, set_plugin_enabled, remove_plugin, enable_plugin_mcp, connect_connector, set_worktree_settings, set_network_proxy, reset_route_fallback, continue_in_model, schedule_quota_resume, cancel_quota_resume, set_cache_warming_enabled, read_agent_settings, read_project_connectors, set_agent_permission, set_agent_connector, set_agent_connector_tool, set_project_connector, restore_definition, set_bot_order, list_models, set_local_context, set_orchestration_mode, get_mcp_server, read_definition, create_definition, save_definition, delete_definition, save_automation, delete_automation, set_automation_enabled, run_automation, set_webhook_config, set_desktop_settings, set_appearance, save_project, remove_project, revoke_linked_device, set_activity_rail_pins, set_developer_option, add_hook_rule, set_hook_rule_enabled, delete_hook_rule, set_media_default"
+  },
+  {
+   "args": {
+    "action": 7
+   },
+   "error": "action must be one of status, open, set_route, set_agent_route, set_web_search_route, set_workflow, set_output_style, set_profile, set_autoclear, set_compaction, set_memory_enabled, set_recap_enabled, set_web_search_enabled, set_instruction_files, set_auto_effort_base, set_builtin_enabled, install_builtin, install_local_model, start_local_installation, cancel_local_installation, set_local_idle_ttl, search_local_models, inspect_hf_model, register_hf_model, local_model_details, maintain_local_model, delete_local_model, set_system_shell, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_model_preferences, set_heartbeat_enabled, set_heartbeat_interval, set_reactions_enabled, forget_provider_auth, set_provider_account, add_mcp_server, save_mcp_server, remove_mcp_server, set_mcp_enabled, reconnect_mcp, set_disabled_skills, set_extension_scope, add_plugin, update_plugin, set_plugin_enabled, remove_plugin, enable_plugin_mcp, connect_connector, set_worktree_settings, set_network_proxy, reset_route_fallback, continue_in_model, schedule_quota_resume, cancel_quota_resume, set_cache_warming_enabled, read_agent_settings, read_project_connectors, set_agent_permission, set_agent_connector, set_agent_connector_tool, set_project_connector, restore_definition, set_bot_order, list_models, set_local_context, set_orchestration_mode, get_mcp_server, read_definition, create_definition, save_definition, delete_definition, save_automation, delete_automation, set_automation_enabled, run_automation, set_webhook_config, set_desktop_settings, set_appearance, save_project, remove_project, revoke_linked_device, set_activity_rail_pins, set_developer_option, add_hook_rule, set_hook_rule_enabled, delete_hook_rule, set_media_default"
+  },
+  {
+   "args": {
+    "action": " status "
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "nope"
+   },
+   "error": "action must be one of status, open, set_route, set_agent_route, set_web_search_route, set_workflow, set_output_style, set_profile, set_autoclear, set_compaction, set_memory_enabled, set_recap_enabled, set_web_search_enabled, set_instruction_files, set_auto_effort_base, set_builtin_enabled, install_builtin, install_local_model, start_local_installation, cancel_local_installation, set_local_idle_ttl, search_local_models, inspect_hf_model, register_hf_model, local_model_details, maintain_local_model, delete_local_model, set_system_shell, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_model_preferences, set_heartbeat_enabled, set_heartbeat_interval, set_reactions_enabled, forget_provider_auth, set_provider_account, add_mcp_server, save_mcp_server, remove_mcp_server, set_mcp_enabled, reconnect_mcp, set_disabled_skills, set_extension_scope, add_plugin, update_plugin, set_plugin_enabled, remove_plugin, enable_plugin_mcp, connect_connector, set_worktree_settings, set_network_proxy, reset_route_fallback, continue_in_model, schedule_quota_resume, cancel_quota_resume, set_cache_warming_enabled, read_agent_settings, read_project_connectors, set_agent_permission, set_agent_connector, set_agent_connector_tool, set_project_connector, restore_definition, set_bot_order, list_models, set_local_context, set_orchestration_mode, get_mcp_server, read_definition, create_definition, save_definition, delete_definition, save_automation, delete_automation, set_automation_enabled, run_automation, set_webhook_config, set_desktop_settings, set_appearance, save_project, remove_project, revoke_linked_device, set_activity_rail_pins, set_developer_option, add_hook_rule, set_hook_rule_enabled, delete_hook_rule, set_media_default"
+  },
+  {
+   "args": {
+    "action": "status",
+    "domain": 3
+   },
+   "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+  },
+  {
+   "args": {
+    "action": "status",
+    "bogus": 1
+   },
+   "error": "[tool-input-validation] setup does not accept field(s): bogus"
+  },
+  {
+   "args": {
+    "action": "open"
+   },
+   "error": "[tool-input-validation] target is required for setup.open"
+  },
+  {
+   "args": {
+    "action": "open",
+    "target": "settings",
+    "extra": true
+   },
+   "error": "[tool-input-validation] setup does not accept field(s): extra"
+  },
+  {
+   "args": {
+    "action": "connect_connector",
+    "connector": " GitHub "
+   },
+   "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git."
+  },
+  {
+   "args": {
+    "action": "set_route",
+    "route": {}
+   },
+   "error": "route with at least one of the supported settings is required"
+  },
+  {
+   "args": {
+    "action": "set_route",
+    "route": {
+     "disabled": true
+    }
+   },
+   "error": "route.disabled is only accepted by set_agent_route"
+  },
+  {
+   "args": {
+    "action": "set_workflow",
+    "route": {
+     "x": 1
+    }
+   },
+   "error": "[tool-input-validation] setup.route does not accept field(s): x"
+  },
+  {
+   "args": {
+    "action": "set_web_search_route",
+    "route": {
+     "contextPercent": 5
+    }
+   },
+   "error": "[tool-input-validation] setup.route.contextPercent must be at least 10"
+  },
+  {
+   "args": {
+    "action": "set_agent_route",
+    "agent": "a",
+    "route": {}
+   },
+   "error": "route with at least one of the supported settings is required"
+  },
+  {
+   "args": {
+    "action": "set_compaction",
+    "compaction": {}
+   },
+   "error": "compaction requires at least one setting"
+  },
+  {
+   "args": {
+    "action": "set_memory_enabled",
+    "enabled": "yes"
+   },
+   "error": "[tool-input-validation] setup.enabled must be a boolean"
+  },
+  {
+   "args": {
+    "action": "set_memory_enabled"
+   },
+   "error": "[tool-input-validation] enabled is required for setup.set_memory_enabled"
+  },
+  {
+   "args": {
+    "action": "set_builtin_enabled",
+    "name": "git",
+    "enabled": true
+   },
+   "error": "setup: runtime facade is not ready"
+  },
+  {
+   "args": {
+    "action": "set_heartbeat_interval",
+    "minutes": "5"
+   },
+   "error": "[tool-input-validation] setup.minutes must be one of: 30, 60, 120, 240"
+  },
+  {
+   "args": {
+    "action": "inspect_hf_model",
+    "repository": "a/b",
+    "filename": 5
+   },
+   "error": "[tool-input-validation] setup.filename must be a string"
+  },
+  {
+   "args": {
+    "action": "search_local_models",
+    "query": "é"
+   },
+   "error": "setup: runtime facade is not ready"
+  }
+ ]
+}

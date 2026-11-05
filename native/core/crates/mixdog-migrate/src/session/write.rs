@@ -1,0 +1,270 @@
+//! Frames of a migrated session (SM §11.4.1 order): `session`, archive rows, transcript
+//! rows, recovered checkpoint rows and runs, queue entries, header `meta`s, and a final
+//! `checkpoint`; rotated at `ROTATE_AT` with a `checkpoint` first in each later file.
+//! Byte-identical on every run (SM §11.3.4).
+
+use mixdog_protocol::BlobDescriptor;
+use mixdog_protocol::BlobDigest;
+use mixdog_protocol::INLINE_MAX;
+use mixdog_protocol::MAX_BLOB_BYTES;
+use mixdog_store::schema::blob::BODY_MEDIA_TYPE;
+use mixdog_store::schema::blob::BodyBlob;
+use mixdog_store::schema::blob::Slot;
+use mixdog_store::schema::bounded::Digest;
+use mixdog_store::schema::bounded::List;
+use mixdog_store::schema::bounded::Name;
+use mixdog_store::schema::bounded::Text;
+use mixdog_store::schema::checkpoint::CheckpointState;
+use mixdog_store::schema::checkpoint::FramePos;
+use mixdog_store::schema::checkpoint::OpenRun;
+use mixdog_store::schema::checkpoint::QueuedEntry;
+use mixdog_store::schema::frame::FRAME_OVERHEAD;
+use mixdog_store::schema::frame::MAX_FRAME_PAYLOAD;
+use mixdog_store::schema::frame::ROTATE_AT;
+use mixdog_store::schema::migration::QuarantineCode;
+use mixdog_store::schema::record::CheckpointRecord;
+use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::HeaderChange;
+use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::MetaRecord;
+use mixdog_store::schema::record::MigrationOrigin;
+use mixdog_store::schema::record::Origin;
+use mixdog_store::schema::record::QueueAction;
+use mixdog_store::schema::record::QueueRecord;
+use mixdog_store::schema::record::Record;
+use mixdog_store::schema::record::RunPhase;
+use mixdog_store::schema::record::RunRecord;
+use mixdog_store::schema::record::SESSION_RECORD_VERSION;
+use mixdog_store::schema::record::SessionRecord;
+use serde::Serialize;
+
+use super::model::Row;
+use super::model::SessionModel;
+use super::observe::attachment_refs;
+use super::source::Fail;
+use super::source::R;
+use crate::durable;
+use crate::framework::ItemContext;
+
+fn violation<T>(detail: impl Into<String>) -> R<T> {
+    Err(Fail::Quarantine(QuarantineCode::SchemaViolation, detail.into()))
+}
+
+fn bounded<const N: usize>(text: &str, what: &str) -> R<Text<N>> {
+    Text::try_from(text).or_else(|e| violation(format!("{what}: {e}")))
+}
+
+/// `hex(sha256(manifest_sha256 ‖ session id))[0..24]`.
+pub fn log_id(manifest_sha256: &str, id: &str) -> String {
+    durable::sha256_hex(format!("{manifest_sha256}{id}").as_bytes())[..24].to_string()
+}
+
+/// A body slot: inline up to `INLINE_MAX` encoded bytes, else a published blob.
+fn slot<T: Serialize>(cx: &ItemContext<'_>, value: T) -> R<(Slot<T>, Option<String>)> {
+    let bytes = serde_json::to_vec(&value).expect("values encode");
+    if bytes.len() <= INLINE_MAX {
+        return Ok((Slot::Inline(value), None));
+    }
+    if bytes.len() as u64 > MAX_BLOB_BYTES {
+        return Err(Fail::Quarantine(
+            QuarantineCode::ItemTooLarge,
+            format!("a body of {} bytes exceeds {MAX_BLOB_BYTES}", bytes.len()),
+        ));
+    }
+    let hex = cx.put_blob(&bytes)?;
+    let digest = format!("sha256:{hex}");
+    let descriptor = BlobDescriptor {
+        digest: BlobDigest::try_from(digest).expect("a computed digest is well formed"),
+        bytes: bytes.len() as u64,
+        media_type: BODY_MEDIA_TYPE.to_string(),
+    };
+    Ok((
+        Slot::Blob(BodyBlob::try_from(descriptor).expect("a body descriptor")),
+        Some(hex),
+    ))
+}
+
+struct Builder<'a> {
+    cx: &'a ItemContext<'a>,
+    files: Vec<Vec<u8>>,
+    ordinal: u64,
+    log_id: String,
+    header: Header,
+    rows: u64,
+    visible_rows: u64,
+    runs: Vec<OpenRun>,
+    queue: Vec<QueuedEntry>,
+}
+
+impl Builder<'_> {
+    fn checkpoint_payload(&self) -> R<Vec<u8>> {
+        let state = CheckpointState {
+            log_id: self.log_id.clone(),
+            covers_ordinal: self.ordinal,
+            history_rev: 0,
+            rows: self.rows,
+            visible_rows: self.visible_rows,
+            base: None,
+            base_cut: None,
+            context: None,
+            runs: self.runs.clone(),
+            approvals: Vec::new(),
+            queue: self.queue.clone(),
+            header: self.header.clone(),
+        };
+        let (state, _) = slot(self.cx, state)?;
+        Ok(serde_json::to_vec(&Record::Checkpoint(CheckpointRecord { state })).expect("records encode"))
+    }
+
+    fn append(&mut self, payload: &[u8]) -> FramePos {
+        let file_no = (self.files.len() - 1) as u32;
+        let file = self.files.last_mut().expect("a file");
+        let pos = FramePos {
+            ordinal: self.ordinal,
+            file_no,
+            offset: file.len() as u64,
+        };
+        crate::frame::encode_into(file, self.ordinal, payload);
+        self.ordinal += 1;
+        pos
+    }
+
+    fn push(&mut self, record: &Record) -> R<FramePos> {
+        let payload = serde_json::to_vec(record).expect("records encode");
+        if payload.len() > MAX_FRAME_PAYLOAD {
+            return violation(format!("a record of {} bytes exceeds a frame", payload.len()));
+        }
+        let current = self.files.last().map_or(0, Vec::len) as u64;
+        if current > 0 && current + (FRAME_OVERHEAD + payload.len()) as u64 > ROTATE_AT {
+            let checkpoint = self.checkpoint_payload()?;
+            self.files.push(Vec::new());
+            self.append(&checkpoint);
+        }
+        Ok(self.append(&payload))
+    }
+
+    fn row(&mut self, row: &Row) -> R<()> {
+        let (body, blob) = slot(self.cx, row.body.clone())?;
+        let mut refs = std::collections::BTreeSet::new();
+        attachment_refs(&row.body, &mut refs);
+        refs.extend(blob);
+        let refs: Vec<Digest> = refs
+            .into_iter()
+            .map(|h| Digest::try_from(format!("sha256:{h}")).expect("hex digest"))
+            .collect();
+        let record = Record::Item(ItemRecord {
+            iid: bounded(&row.iid, "iid")?,
+            turn: row.turn.as_deref().map(|t| bounded(t, "turn")).transpose()?,
+            // The role is an index aid; the body keeps it whatever its length.
+            role: row.role.as_deref().and_then(|r| Name::try_from(r).ok()),
+            form: row.form,
+            model: row.model,
+            visible: row.visible,
+            archive: row.archive.clone(),
+            op: None,
+            prompt: row.prompt.clone(),
+            refs: List::try_from(refs).or_else(|e| violation(format!("refs: {e}")))?,
+            body,
+        });
+        self.push(&record)?;
+        self.rows += 1;
+        self.visible_rows += u64::from(row.visible);
+        Ok(())
+    }
+}
+
+/// The staged log files of `model`.
+pub fn frames(
+    cx: &ItemContext<'_>,
+    model: &SessionModel,
+    item_key: &str,
+    source_digest: &str,
+) -> R<Vec<Vec<u8>>> {
+    let log_id = log_id(cx.manifest_sha256, &model.id);
+    let mut b = Builder {
+        cx,
+        files: vec![Vec::new()],
+        ordinal: 0,
+        log_id: log_id.clone(),
+        header: model.header.clone(),
+        rows: 0,
+        visible_rows: 0,
+        runs: Vec::new(),
+        queue: Vec::new(),
+    };
+    let (header, _) = slot(cx, model.header.clone())?;
+    b.push(&Record::Session(SessionRecord {
+        v: SESSION_RECORD_VERSION,
+        id: bounded(&model.id, "session id")?,
+        log_id: bounded(&log_id, "log id")?,
+        base: None,
+        origin: Some(Origin {
+            migration: MigrationOrigin {
+                manifest_sha256: bounded(cx.manifest_sha256, "manifest digest")?,
+                item_key: bounded(item_key, "item key")?,
+                source_digest: Digest::try_from(source_digest.to_string())
+                    .or_else(|e| violation(format!("source digest: {e}")))?,
+            },
+        }),
+        op: None,
+        header,
+    }))?;
+    for row in model.archive.iter().chain(&model.messages).chain(&model.checkpoint_rows) {
+        b.row(row)?;
+    }
+    for run in &model.runs {
+        for (phase, detail) in &run.phases {
+            let detail = detail.clone().map(|d| slot(cx, d)).transpose()?.map(|(s, _)| s);
+            let pos = b.push(&Record::Run(RunRecord {
+                rid: bounded(&run.rid, "run id")?,
+                phase: *phase,
+                attribution: None,
+                attempt: None,
+                at: run.at,
+                op: None,
+                detail,
+            }))?;
+            match phase {
+                RunPhase::Started => b.runs.push(OpenRun {
+                    rid: run.rid.clone(),
+                    started: pos,
+                }),
+                _ => b.runs.retain(|r| r.rid != run.rid),
+            }
+        }
+    }
+    for (qid, entry) in &model.queue {
+        let (entry, _) = slot(cx, entry.clone())?;
+        let pos = b.push(&Record::Queue(QueueRecord {
+            qid: bounded::<{ mixdog_store::schema::bounded::ID_MAX }>(qid, "queue id")?,
+            action: QueueAction::Enqueue,
+            reason: None,
+            op: None,
+            entry: Some(entry),
+        }))?;
+        b.queue.push(QueuedEntry {
+            qid: qid.clone(),
+            enqueued: pos,
+        });
+    }
+    for set in &model.metas {
+        let (change, _) = slot(
+            cx,
+            HeaderChange {
+                set: set.clone(),
+                unset: Vec::new(),
+            },
+        )?;
+        b.push(&Record::Meta(MetaRecord { op: None, change }))?;
+        for (k, v) in set {
+            b.header.insert(k.clone(), v.clone());
+        }
+    }
+    let checkpoint = b.checkpoint_payload()?;
+    let current = b.files.last().map_or(0, Vec::len) as u64;
+    if current + (FRAME_OVERHEAD + checkpoint.len()) as u64 > ROTATE_AT {
+        b.files.push(Vec::new());
+    }
+    b.append(&checkpoint);
+    Ok(b.files)
+}

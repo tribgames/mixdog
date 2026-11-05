@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "file": ".",
+    "mode": "callers",
+    "symbol": "alpha"
+  },
+  "isError": false,
+  "text": "# call sites\nsrc/b.mjs:4:10\tcall\tcaller=beta\treturn alpha();",
+  "tool": "code_graph"
+}

@@ -300,6 +300,7 @@ pub fn to_info(window: &CgWindow, ax: Option<&AxWindow>, focused: Wid) -> Window
         width,
         height,
         client: (x, y, width, height),
+        content_pid: 0,
     }
 }
 

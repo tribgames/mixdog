@@ -1,0 +1,17 @@
+{
+  "complete": true,
+  "cwd": "proj",
+  "dependencyRoots": [
+    "<ROOT>/proj"
+  ],
+  "input": {
+    "files": [
+      ".",
+      "./"
+    ],
+    "mode": "symbols"
+  },
+  "isError": true,
+  "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+  "tool": "code_graph"
+}

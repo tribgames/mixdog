@@ -1,0 +1,10 @@
+{
+ "url": "https://blog.example.com/code",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Code",
+  "content": "# Code samples\n\nInline `` a `tick` b `` and ` x y `.\n\n```\nplain preformatted\n  indented line\n\nafter blank\n```\n\n````js\nconst s = ```;\nconsole.log(s)\n````\n\n```\nno language\n```\n\nEscapes: \\* \\_ \\[ \\] \\\\ \\` here.",
+  "extractor": "dom-markdown"
+ }
+}

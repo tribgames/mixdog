@@ -157,13 +157,70 @@
       ],
       "type": "object"
     },
-    "HostFileParams": {
+    "HostFileSnapshot": {
+      "description": "Result of `host/capture/fileSnapshot`: the picture of the file.",
+      "properties": {
+        "dataUrl": {
+          "description": "`data:image/png;base64,…` or `data:image/jpeg;base64,…`.",
+          "type": "string"
+        },
+        "mtimeMs": {
+          "format": "double",
+          "type": "number"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataUrl",
+        "mtimeMs",
+        "size"
+      ],
+      "type": "object"
+    },
+    "HostFileSnapshotParams": {
+      "description": "Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.",
+      "properties": {
+        "grant": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rel",
+        "root"
+      ],
+      "type": "object"
+    },
+    "HostLocalPageUrlParams": {
+      "description": "Params of `host/localPage/url` (core → host); the result is the URL string.",
       "properties": {
         "rel": {
           "type": "string"
         },
         "root": {
           "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LocalPageScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -207,6 +264,27 @@
       ],
       "type": "object"
     },
+    "HostVisualizeCommandParams": {
+      "description": "Params of `host/visualize/command` (core → host): the loopback bridge's request body. The result is the service's object (`{text, tabs?, path?, …}`), `{}` when it returns nothing.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/VisualizeAction"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "input": true,
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "cwd",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "HumanGateResponse": {
       "enum": [
         "approve",
@@ -215,6 +293,14 @@
         "provide-secret",
         "skip",
         "done"
+      ],
+      "type": "string"
+    },
+    "LocalPageScope": {
+      "description": "What a `host/localPage/url` lease covers; absent means `project`.",
+      "enum": [
+        "file",
+        "project"
       ],
       "type": "string"
     },
@@ -571,6 +657,20 @@
         "threadId"
       ],
       "type": "object"
+    },
+    "VisualizeAction": {
+      "description": "The visualize service's actions (`host/visualize/command`).",
+      "enum": [
+        "open",
+        "close",
+        "annotate",
+        "capture",
+        "export",
+        "check",
+        "inspect",
+        "act"
+      ],
+      "type": "string"
     }
   },
   "methods": {
@@ -582,15 +682,19 @@
     },
     "host/capture/fileSnapshot": {
       "params": {
-        "$ref": "#/definitions/HostFileParams"
+        "$ref": "#/definitions/HostFileSnapshotParams"
       },
-      "result": true
+      "result": {
+        "$ref": "#/definitions/HostFileSnapshot"
+      }
     },
     "host/localPage/url": {
       "params": {
-        "$ref": "#/definitions/HostFileParams"
+        "$ref": "#/definitions/HostLocalPageUrlParams"
       },
-      "result": true
+      "result": {
+        "type": "string"
+      }
     },
     "host/systemProxy/resolve": {
       "params": {
@@ -608,7 +712,7 @@
     },
     "host/visualize/command": {
       "params": {
-        "$ref": "#/definitions/HostCommandParams"
+        "$ref": "#/definitions/HostVisualizeCommandParams"
       },
       "result": true
     },

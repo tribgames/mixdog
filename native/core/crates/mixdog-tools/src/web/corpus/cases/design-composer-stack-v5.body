@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 주변 v5 · 세 방향 비교</title>
+<style>
+  :root {
+    --mx-bg-deep: #101013; --mx-window-band: #18181b; --mx-workspace-sheet: #111113; --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236; --mx-composer-surface: var(--mx-bg-layer-1);
+    --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-accent: #79b8ff; --mx-accent-bg: #1967d2;
+    --mx-warning: #f2cf76; --mx-warning-bg: #443f2e; --mx-success: #6bd586; --mx-danger: #f17471;
+    --mx-border-muted: rgba(255,255,255,.09); --mx-border: rgba(255,255,255,.125);
+    --mx-hover: rgba(255,255,255,.08); --mx-pressed: rgba(255,255,255,.12); --mx-chip-bg: #ffffff0f;
+    --mx-raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 1px #ffffff29, 0 -0.5px 0 #ffffff0f;
+    --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+    --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-button: 0 0 0 1px #ffffff33;
+    --r-md: 6px; --r-xl: 12px; --r-sheet: 16px; --r-pill: 999px;
+    --pane-inset: 24px; --pane-column: 760px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--mx-bg-deep); color: var(--mx-text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+         display: grid; grid-template-rows: auto 1fr; }
+
+  /* 상단: 방향 선택 */
+  header { position: sticky; top: 0; z-index: 50; background: var(--mx-window-band); border-bottom: 1px solid var(--mx-border-muted);
+           display: flex; align-items: center; gap: 20px; padding: 10px 24px; }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; white-space: nowrap; }
+  .tabs { display: flex; gap: 4px; }
+  .tab { border: 0; background: transparent; color: var(--mx-text-muted); font: inherit; font-size: 13px; height: 30px; padding: 0 12px; border-radius: var(--r-md); cursor: pointer; }
+  .tab:hover { background: var(--mx-hover); color: var(--mx-text); }
+  .tab[aria-selected="true"] { background: var(--mx-pressed); color: var(--mx-text); font-weight: 500; }
+  .summary { margin-left: auto; font-size: 12.5px; color: var(--mx-text-muted); max-width: 520px; text-align: right; }
+
+  main { padding: 20px 24px 40px; }
+  .intro { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; margin-bottom: 16px; max-width: 1640px; }
+  .intro h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .intro p { margin: 0; color: var(--mx-text-soft); font-size: 13px; }
+  .pc { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; min-width: 330px; }
+  .pc .p { color: var(--mx-success); } .pc .c { color: var(--mx-danger); }
+
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; max-width: 1640px; }
+  .scene .cap { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+  .scene .cap b { font-weight: 600; }
+  .scene .cap span { color: var(--mx-text-muted); font-size: 12px; }
+
+  /* 앱 창 한 칸 */
+  .win { position: relative; height: 430px; border-radius: var(--r-xl); overflow: hidden; background: var(--mx-workspace-sheet);
+         box-shadow: inset 0 0 0 1px var(--mx-border-muted); display: flex; flex-direction: column; }
+  .tabbar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--mx-border-muted);
+            background: var(--mx-window-band); font-size: 13px; color: var(--mx-text-soft); }
+  .tabbar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mx-accent); }
+  .tabbar .ctx { margin-left: auto; color: var(--mx-text-muted); font-size: 12px; }
+  .body { position: relative; flex: 1; min-height: 0; }
+  .column { position: absolute; inset: 0; margin: 0 auto; max-width: calc(var(--pane-column) + var(--pane-inset) * 2); padding: 0 var(--pane-inset); }
+  .transcript { position: absolute; left: var(--pane-inset); right: var(--pane-inset); top: 0; bottom: var(--clear); padding-top: 18px;
+                display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; padding-bottom: 14px; overflow: hidden; }
+  .u { align-self: flex-end; max-width: 72%; background: var(--mx-bg-layer-1); border-radius: var(--r-sheet); padding: 9px 14px; }
+  .a { color: var(--mx-text); line-height: 24px; font-size: 15px; }
+  .a code { font: 13px "JetBrains Mono", Consolas, monospace; color: var(--mx-accent); }
+  .tool-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mx-text-muted); }
+  .tool-row b { color: var(--mx-text-soft); font-weight: 500; }
+  .turnline { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--mx-text-muted); }
+  .baseline { display: none; }
+  .hmeter { margin-left: 10px; font-size: 11.5px; color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .hmeter b { color: var(--mx-text-soft); font-weight: 500; }
+  .older { color: var(--mx-text-soft); line-height: 24px; font-size: 15px; }
+  .older + .older { margin-top: -4px; }
+  .dock { position: absolute; left: var(--pane-inset); right: var(--pane-inset); bottom: 0; padding-bottom: var(--floor); }
+  .ok { color: var(--mx-success); } .acc { color: var(--mx-accent); } .plus { color: var(--mx-success); } .minus { color: var(--mx-danger); } .warn { color: var(--mx-warning); }
+  .spin { display: inline-block; animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 입력창 */
+  .composer { position: relative; z-index: 2; height: 96px; border-radius: var(--r-sheet); background: var(--mx-composer-surface);
+              box-shadow: var(--mx-raised), var(--mx-composer-lift); padding: 12px 10px 8px 14px; display: flex; flex-direction: column; justify-content: space-between; }
+  .composer.joined { border-top-left-radius: 0; border-top-right-radius: 0; }
+  .ph { color: var(--mx-text-muted); }
+  .bar { display: flex; align-items: center; gap: 2px; min-width: 0; }
+  .tool { width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-md); color: var(--mx-text-muted); flex: none; font-size: 16px; }
+  .model { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-md); white-space: nowrap; flex: none; }
+  .model .e { color: var(--mx-text-muted); }
+  .ring { width: 16px; height: 16px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--mx-text) 30%, transparent); margin: 0 6px; flex: none; }
+  .send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--mx-bg-layer-2); color: var(--mx-text-muted); font-size: 11px; flex: none; }
+  .send.go { background: var(--mx-text); color: var(--mx-workspace-sheet); }
+  .mm { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--r-pill); background: var(--mx-warning-bg); color: var(--mx-warning); font-size: 12px; white-space: nowrap; flex: none; }
+
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 7px; border-radius: var(--r-md); color: var(--mx-text-muted);
+          font-size: 13px; white-space: nowrap; min-width: 0; font-variant-numeric: tabular-nums; }
+  .chip:hover { background: var(--mx-hover); color: var(--mx-text); }
+  .chip .t { overflow: hidden; text-overflow: ellipsis; color: var(--mx-text-soft); min-width: 0; }
+  .chip.goal { flex: 0 1 auto; min-width: 0; }
+  .sep { width: 1px; height: 12px; background: var(--mx-border-muted); margin: 0 4px; flex: none; }
+  .push { margin-left: auto; }
+
+  .tray { position: relative; z-index: 1; background: var(--mx-composer-surface); border-radius: var(--r-sheet) var(--r-sheet) 0 0; box-shadow: var(--mx-raised);
+          padding: 4px 12px 2px 14px; margin-bottom: -1px; font-size: 13px; }
+  .tray .r { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+  .tray .r + .r { border-top: 1px solid var(--mx-border-muted); }
+  .tray .k { color: var(--mx-text-muted); flex: none; } .tray .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tray .acts { margin-left: auto; display: flex; gap: 2px; flex: none; }
+  .tray .acts span { color: var(--mx-text-muted); padding: 0 7px; height: 24px; display: inline-flex; align-items: center; border-radius: var(--r-md); }
+  .tray .divider { height: 1px; background: var(--mx-border-muted); margin: 0 -12px 0 -14px; }
+
+  .head { position: relative; z-index: 1; display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 8px 0 8px; background: var(--mx-composer-surface);
+          border-radius: var(--r-sheet) var(--r-sheet) 0 0; box-shadow: var(--mx-raised); margin-bottom: -1px; border-bottom: 1px solid var(--mx-border-muted); }
+
+  .statusline { height: 30px; display: flex; align-items: center; gap: 2px; padding: 6px 4px 0 6px; min-width: 0; }
+
+  .approval { position: relative; z-index: 2; border-radius: var(--r-sheet); background: var(--mx-composer-surface); min-height: 96px;
+              box-shadow: var(--mx-raised), var(--mx-composer-lift), inset 0 0 0 1px #f2cf7650; padding: 12px 12px 10px 14px; }
+  .approval.joined { border-top-left-radius: 0; border-top-right-radius: 0; }
+  .approval .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .approval .h small { font-weight: 400; color: var(--mx-text-muted); font-size: 13px; }
+  .approval pre { margin: 8px 0 10px; padding: 7px 10px; border-radius: var(--r-md); background: var(--mx-workspace-sheet); font: 13px/18px "JetBrains Mono", Consolas, monospace; }
+  .approval .acts { display: flex; justify-content: flex-end; gap: 6px; align-items: center; }
+  .approval .hint { margin-right: auto; color: var(--mx-text-muted); font-size: 12px; }
+  .btn { border: 0; border-radius: var(--r-md); padding: 0 12px; height: 28px; background: transparent; box-shadow: var(--mx-button); color: var(--mx-text); font: inherit; font-size: 13px; }
+  .btn.p { background: var(--mx-accent-bg); box-shadow: none; color: #fff; }
+
+  .note { margin-top: 6px; font-size: 12px; color: var(--mx-text-muted); }
+  footer { max-width: 1640px; margin-top: 22px; font-size: 13px; color: var(--mx-text-soft); border-radius: var(--r-xl); box-shadow: inset 0 0 0 1px var(--mx-border-muted); padding: 14px 16px; }
+  footer b { color: var(--mx-text); }
+</style>
+</head>
+<body>
+<header>
+  <h1>컴포저 주변 v5</h1>
+  <div class="tabs" id="tabs"></div>
+  <div class="summary" id="summary"></div>
+</header>
+<main>
+  <div class="intro"><div><h2 id="dtitle"></h2><p id="ddesc"></p></div><div class="pc" id="dpc"></div></div>
+  <div class="grid" id="grid"></div>
+  <footer><b>세 방향 공통</b> — 대기 메시지는 입력창에 이어 붙은 트레이로 띄웁니다(Codex 앱 방식). 도구 승인은 입력창 자리를 대신 차지합니다(Claude Code · Codex CLI 방식). 모델이 다르면 모델 이름 옆에 경고 칩을 붙입니다. 백그라운드 작업이 남은 채 턴이 끝나면 완료 줄을 "대기 중"으로 바꿉니다. 각 장면 제목 옆 "하단 영역" 숫자가 장면마다 같을수록 대화가 덜 밀립니다.</footer>
+</main>
+
+<script>
+const D = {
+  A: { title: 'A · 입력창 아래 상태줄', tag: 'Claude Code · Codex CLI 방식',
+       desc: '입력창 아래에 늘 있는 28px 줄에 상태를 고스트 칩으로 넣습니다. 칩을 누르면 앱 공통 팝업이 위로 열립니다.',
+       p: ['입력창 위가 늘 깨끗하고 시프트가 없음', '줄이 넓어서 Goal 제목이 덜 잘림'], c: ['상태가 없어도 28px 줄이 늘 있음', '시선이 입력창 아래까지 내려가야 함'] },
+  B: { title: 'B · 입력창 하단 줄 안에 통합', tag: '추가 공간 0',
+       desc: '새 줄을 만들지 않고, 입력창 카드 안의 모델 선택 줄에 칩을 끼웁니다. 폭이 모자라면 Goal은 진행률만, 작업은 숫자만 남깁니다.',
+       p: ['추가 공간이 전혀 없음', '모든 상태가 입력창 한 덩어리 안에 있음'], c: ['하단 줄이 빽빽해짐', 'Goal 제목이 거의 안 보임'] },
+  C: { title: 'C · 입력창 카드 머리줄', tag: 'Codex 앱 상단 트레이 방식',
+       desc: '상태가 있을 때만 입력창 카드 위에 34px 머리줄이 붙어 한 덩어리가 됩니다. 대기 메시지도 같은 머리 영역에 쌓입니다.',
+       p: ['상태가 없으면 지금과 똑같이 깔끔', '입력창과 붙어 있어 눈에 잘 띔'], c: ['머리줄이 생기고 사라질 때 대화가 34px 밀림', '상태가 많으면 입력창 위가 두꺼워짐'] },
+};
+const SCENES = [
+  { id: 1, title: '평소 응답 중', sub: 'Goal 없음 · 작업 없음 — 가장 흔한 화면' },
+  { id: 2, title: '작업 + 대기 메시지', sub: '백그라운드 작업 2개, 응답 중 메시지 하나 추가' },
+  { id: 3, title: '전부 있음', sub: '턴 끝 · 작업 남음 · Goal 진행 · 파일 4개 변경 · 모델 변경' },
+  { id: 4, title: '도구 승인', sub: '작업 + 대기 메시지가 있는 상태에서 승인 요청' },
+];
+const FLOOR = { A: 6, B: 16, C: 16 };
+const STATUS_H = { A: 32, B: 0, C: 0 };
+
+const spin = '<span class="acc"><span class="spin">⟳</span></span>';
+const goalChip = (short) => short ? '<span class="chip">◎ 3/5</span>' : '<span class="chip goal">◎ <span class="t">결제 모듈을 새 API로 이전</span><span>3/5 · 12m</span></span>';
+const jobsChip = (short) => '<span class="chip">' + spin + (short ? '2' : '작업 2') + '</span>';
+const diffChip = (short) => '<span class="chip">' + (short ? '' : '파일 4 ') + '<span class="plus">+128</span><span class="minus">−41</span></span>';
+const queueChip = '<span class="chip">대기 1</span>';
+
+function transcript(n) {
+  const user = '<div class="older">클라이언트는 <code>PaymentsClient</code> 하나로 묶여 있고, 웹훅 처리는 <code>webhook.ts</code>에 따로 있습니다. 새 API는 서명 방식이 달라서 검증 로직도 바꿔야 합니다.</div>' +
+    '<div class="u">결제 모듈을 새 API로 옮겨줘. 테스트도 같이.</div>';
+  if (n === 1) return user + '<div class="tool-row">' + spin + '<b>Read</b> src/payments/client.ts</div><div class="turnline">' + spin + '응답 중 · 12s</div>';
+  if (n === 2) return user + '<div class="a">테스트를 백그라운드로 돌리고, 웹훅 검증은 Worker에게 맡겼습니다.</div><div class="turnline">' + spin + '응답 중 · 1m 04s</div>';
+  if (n === 3) return user + '<div class="a">마이그레이션까지 끝냈습니다. 테스트와 웹훅 검증은 백그라운드에서 계속 돌고 있습니다.</div><div class="turnline">' + spin + '백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1</div>';
+  return user + '<div class="a">스테이징 DB에 마이그레이션을 적용하려고 합니다.</div>';
+}
+function composer(n, dir, joined) {
+  const mismatch = n === 3;
+  const model = mismatch ? 'Gemini Flash Lite Latest' : 'Claude Opus 5.5';
+  let chips = '';
+  if (dir === 'B') {
+    if (n === 2) chips = '<span class="sep"></span>' + jobsChip(true);
+    if (n === 3) chips = '<span class="sep"></span>' + goalChip(true) + jobsChip(true) + diffChip(true);
+  }
+  const mm = mismatch ? (dir === 'B' ? '<span class="mm">⚠ Claude</span>' : '<span class="mm">⚠ 이 대화: Claude</span>') : '';
+  return '<div class="composer' + (joined ? ' joined' : '') + '"><div class="ph">메시지 입력…</div><div class="bar"><span class="tool">＋</span><span class="model">' + model +
+    ' <span class="e">High ⌄</span></span>' + mm + chips + '<span class="ring"></span><span class="send' + (n === 3 ? ' go' : '') + '">' + (n === 3 ? '↑' : '■') + '</span></div></div>';
+}
+function approval(joined, extra) {
+  return '<div class="approval' + (joined ? ' joined' : '') + '"><div class="h"><span class="warn">⚠</span>도구 승인 필요 <small>shell이 실행하려고 합니다</small>' + (extra || '') +
+    '</div><pre>npm run migrate -- --env=staging</pre><div class="acts"><span class="hint">A 허용 · D 거절 · 승인하면 입력창이 돌아옵니다</span><button class="btn">거절</button><button class="btn p">허용</button></div></div>';
+}
+const trayRow = '<div class="r"><span class="k">대기</span><span class="v">테스트 끝나면 커버리지도 알려줘</span><span class="acts"><span>⚡ 작업 조정</span><span>✎</span><span>✕</span></span></div>';
+
+function dock(n, dir) {
+  let h = '';
+  if (dir === 'A') {
+    if (n === 1) h = composer(1, 'A');
+    if (n === 2) h = '<div class="tray">' + trayRow + '</div>' + composer(2, 'A', true);
+    if (n === 3) h = composer(3, 'A');
+    if (n === 4) h = approval(false);
+    let st = '';
+    if (n === 2) st = jobsChip();
+    if (n === 3) st = goalChip() + '<span class="sep"></span>' + jobsChip() + '<span class="push"></span>' + diffChip();
+    if (n === 4) st = jobsChip() + '<span class="sep"></span>' + queueChip;
+    h += '<div class="statusline">' + st + '</div>';
+  }
+  if (dir === 'B') {
+    if (n === 1) h = composer(1, 'B');
+    if (n === 2) h = '<div class="tray">' + trayRow + '</div>' + composer(2, 'B', true);
+    if (n === 3) h = composer(3, 'B');
+    if (n === 4) h = approval(false, '<span class="push"></span><span class="chip" style="font-weight:400">' + spin + '2 · 대기 1</span>');
+  }
+  if (dir === 'C') {
+    if (n === 1) h = composer(1, 'C');
+    if (n === 2) h = '<div class="tray"><div style="display:flex;align-items:center;height:32px;margin-left:-6px">' + jobsChip() + '</div><div class="divider"></div>' + trayRow + '</div>' + composer(2, 'C', true);
+    if (n === 3) h = '<div class="head">' + goalChip() + '<span class="sep"></span>' + jobsChip() + '<span class="push"></span>' + diffChip() + '</div>' + composer(3, 'C', true);
+    if (n === 4) h = '<div class="head">' + jobsChip() + '<span class="sep"></span>' + queueChip + '</div>' + approval(true);
+  }
+  return h;
+}
+
+let cur = 'A';
+function render() {
+  document.getElementById('tabs').innerHTML = Object.keys(D).map((k) => '<button class="tab" aria-selected="' + (k === cur) + '" data-k="' + k + '">' + D[k].title + '</button>').join('');
+  document.querySelectorAll('.tab').forEach((b) => b.onclick = () => { cur = b.dataset.k; render(); });
+  const d = D[cur];
+  document.getElementById('summary').textContent = d.tag + ' · 키보드 1 · 2 · 3으로 전환';
+  document.getElementById('dtitle').textContent = d.title;
+  document.getElementById('ddesc').textContent = d.desc;
+  document.getElementById('dpc').innerHTML = d.p.map((x) => '<span class="p">＋ ' + x + '</span>').join('') + d.c.map((x) => '<span class="c">－ ' + x + '</span>').join('');
+  document.getElementById('grid').innerHTML = SCENES.map((s) =>
+    '<section class="scene"><div class="cap"><b>' + s.id + ' · ' + s.title + '</b><span>' + s.sub + '</span><span class="hmeter"></span></div>' +
+    '<div class="win" style="--floor:' + FLOOR[cur] + 'px"><div class="tabbar"><span class="dot"></span>결제 모듈 이전<span class="ctx">mixdog · Default · Swarm</span></div>' +
+    '<div class="body"><div class="transcript">' + transcript(s.id) + '</div><div class="baseline"></div><div class="dock">' + dock(s.id, cur) + '</div></div></div>' +
+    (cur === 'B' && s.id === 3 ? '<div class="note">폭이 모자라 Goal은 진행률만, 모델 경고는 짧게 줄었습니다.</div>' : '') +
+    '</section>').join('');
+  // 실제 앱처럼 입력창 영역 높이를 재서 대화 아래 여백으로 씀
+  document.querySelectorAll('.scene').forEach((sec) => {
+    const dockEl = sec.querySelector('.dock');
+    const h = dockEl.offsetHeight;
+    sec.querySelector('.win').style.setProperty('--clear', h + 'px');
+    sec.querySelector('.hmeter').innerHTML = '하단 영역 <b>' + h + 'px</b>';
+  });
+}
+document.addEventListener('keydown', (e) => { const k = { '1': 'A', '2': 'B', '3': 'C' }[e.key]; if (k) { cur = k; render(); } });
+render();
+</script>
+</body>
+</html>

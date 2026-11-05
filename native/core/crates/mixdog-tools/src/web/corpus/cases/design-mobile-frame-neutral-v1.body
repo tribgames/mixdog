@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>Mixdog 폰 프레임 색상 비교 v1</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#0a0a0a;color:#ddd;font:14px/1.5 "Pretendard","Malgun Gothic",system-ui,sans-serif;padding:28px 32px 48px;width:1760px}
+h1{font-size:20px;margin-bottom:4px}h2{font-size:16px;margin:30px 0 12px}
+.note{color:#999;font-size:13px;margin-bottom:16px}
+.row{display:flex;gap:32px;align-items:flex-start}
+.cell{width:390px}
+.lbl{margin-top:10px;font-size:13px;line-height:1.55;color:#ccc}
+.lbl b{display:block;font-size:15px;color:#fff}
+.lbl code{color:#9ec5ff;font:12px Consolas,monospace}
+.phone{width:390px;height:844px;background:var(--band);color:var(--text);position:relative;display:flex;flex-direction:column;overflow:hidden;border-radius:18px;font-size:14px}
+.sys{height:30px;background:var(--sys);display:flex;justify-content:space-between;align-items:center;padding:0 18px;font-size:12px;color:var(--text)}
+.nav{height:48px;background:var(--sys);display:flex;justify-content:center;gap:70px;align-items:center;color:var(--muted);font-size:16px}
+.tabs{height:44px;background:var(--band);display:flex;align-items:center;gap:10px;padding:0 12px;flex:none}
+.brand{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#79b8ff,#a78bfa);color:#111;font-weight:700;font-size:14px;display:grid;place-items:center}
+.tab{height:30px;padding:0 12px;border-radius:8px;background:var(--sheet);display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text)}
+.plus{margin-left:auto;color:var(--muted);font-size:20px}
+.sheet{flex:1;margin:0 6px;background:var(--sheet);border-radius:14px 14px 0 0;padding:18px 14px 0;display:flex;flex-direction:column;gap:14px;min-height:0}
+.ub{align-self:flex-end;max-width:80%;background:var(--l1);border-radius:14px;padding:9px 13px;line-height:1.55}
+.as{line-height:1.7}
+.mut{color:var(--muted);font-size:13px}
+.card{border-radius:12px;box-shadow:inset 0 0 0 1px var(--bm);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:13px}
+.card .p{color:#6bd586}.card .f{margin-left:auto;color:var(--muted)}
+.sp{flex:1}
+.comp{background:var(--l1);border-radius:16px;padding:12px 14px;margin-bottom:10px;box-shadow:0 12px 24px -4px rgb(0 0 0/22%)}
+.comp .in{color:var(--muted);margin-bottom:26px}
+.comp .bt{display:flex;align-items:center;gap:8px}
+.chip{background:var(--base);border-radius:8px;padding:3px 9px;font-size:12px;color:var(--text)}
+.send{margin-left:auto;width:28px;height:28px;border-radius:50%;background:var(--text);color:var(--sheet);display:grid;place-items:center}
+table{border-collapse:collapse;font-size:13px;margin-top:6px}
+td,th{border:1px solid #333;padding:5px 12px;text-align:left}th{background:#181818;color:#fff}
+.sw{display:inline-block;width:12px;height:12px;border:1px solid #666;vertical-align:-2px;margin-right:6px}
+#zoomrow .zc{width:390px;height:150px;overflow:hidden;position:relative;border-radius:6px}
+
+</style></head><body>
+<h1>Mixdog 폰 프레임 색상 비교 — 무채색 v1</h1>
+<div class="note">다크 테마: 폰에서만 띠(#18181b, 파랑 +3)가 보임(데스크톱은 Mica로 가려짐). Android 시스템바는 mixdogBand #201E1C(갈색 톤).</div>
+<h2>다크 테마 (390×844)</h2><div class="row" id="dark"></div>
+<h2>경계 확대 (상단 띠 ↔ 시트, 3배)</h2><div class="row" id="zoomrow"></div>
+<h2>C안: 다크 토큰 전체 무채색화 (도출 값)</h2>
+<table id="tbl"><tr><th>토큰</th><th>현재</th><th>C안</th><th>비고</th></tr></table>
+<h2>라이트 테마 (참고)</h2>
+<div class="row" id="light"></div>
+<div class="note" style="margin-top:12px">라이트 토큰(#f7f7f7 / #fcfcfc / #fff / #f3f3f3 / #eee / #e8e8e8, 글자 #222, muted #606060)은 이미 R=G=B 무채색이라 중립화로 바뀌는 값이 없음 — 두 프레임이 동일한 것이 정상.</div>
+<script>
+const D={text:'#e9e9e9',muted:'#a8a8a8',bm:'rgba(255,255,255,.09)'};
+const dark=[
+ {t:'현재',d:'띠 #18181b · 시트 #111113 · 시스템바 #201E1C',v:{sys:'#201E1C',band:'#18181b',sheet:'#111113',base:'#222225',l1:'#2a2a2d'}},
+ {t:'A · 폰 띠만 무채색',d:'띠 #181818 · 시트 #111113 · 시스템바 #181818',v:{sys:'#181818',band:'#181818',sheet:'#111113',base:'#222225',l1:'#2a2a2d'}},
+ {t:'B · 띠+바탕 무채색 (추천)',d:'띠 #181818 · 시트 #111111 · 시스템바 #181818 · 카드 #222222 / 컴포저 #2a2a2a',v:{sys:'#181818',band:'#181818',sheet:'#111111',base:'#222222',l1:'#2a2a2a'}},
+ {t:'C · 다크 전체 무채색',d:'B + deep #101010 · layer-2 #323232 · layer-3 #3d3d3d · contrast #5c5c5c · terminal #121212',v:{sys:'#181818',band:'#181818',sheet:'#111111',base:'#222222',l1:'#2a2a2a'}}];
+const light=[
+ {t:'라이트 · 현재',d:'띠 #f7f7f7 · 시트 #fcfcfc · 카드 #fff · 컴포저 #fff / 버블 #eee',v:{sys:'#f7f7f7',band:'#f7f7f7',sheet:'#fcfcfc',base:'#ffffff',l1:'#ffffff'},L:1},
+ {t:'라이트 · 중립화',d:'변경 없음 (이미 무채색)',v:{sys:'#f7f7f7',band:'#f7f7f7',sheet:'#fcfcfc',base:'#ffffff',l1:'#ffffff'},L:1}];
+function phone(o){
+ const v=o.v,L=o.L,st=`--sys:${v.sys};--band:${v.band};--sheet:${v.sheet};--base:${v.base};--l1:${v.l1};--text:${L?'#222':D.text};--muted:${L?'#606060':D.muted};--bm:${L?'rgba(20,20,20,.09)':D.bm}`;
+ return `<div class="phone" style="${st}${L?';box-shadow:inset 0 0 0 1px #ddd':''}">
+ <div class="sys"><span>9:41</span><span>▂▄▆ 5G ▮</span></div>
+ <div class="tabs"><div class="brand">M</div><div class="tab">● 채팅 정리 <span class="mut">✕</span></div><div class="plus">＋</div></div>
+ <div class="sheet">
+  <div class="ub" style="${L?'background:#eee':''}">모바일 프레임 색을 무채색으로 맞춰줘</div>
+  <div class="as">확인했습니다. 띠와 바탕의 파란 오프셋을 제거하고 시스템바도 같은 색으로 맞추겠습니다.</div>
+  <div class="card"><span>📄</span><span>파일 2개 편집함</span><span class="p">+3</span><span class="f">⌄</span></div>
+  <div class="as mut">변경 사항을 적용했습니다.</div>
+  <div class="sp"></div>
+  <div class="comp" style="${L?'box-shadow:inset 0 0 0 1px rgba(20,20,20,.09)':''}"><div class="in">메시지를 입력하세요…</div><div class="bt"><span class="chip">Opus 4.7</span><span class="chip">고</span><span class="send">↑</span></div></div>
+ </div>
+ <div class="nav"><span>◁</span><span>○</span><span>▢</span></div></div>`}
+function fill(id,arr){document.getElementById(id).innerHTML=arr.map(o=>`<div class="cell">${phone(o)}<div class="lbl"><b>${o.t}</b>${o.d}</div></div>`).join('')}
+fill('dark',dark);fill('light',light);
+document.getElementById('zoomrow').innerHTML=dark.map(o=>`<div class="cell"><div class="zc"><div class="phone-wrap" style="transform:scale(3);transform-origin:0 0;width:390px;position:absolute;left:0;top:-190px">${phone(o)}</div></div><div class="lbl"><b>${o.t}</b>sys→띠 ${o.v.sys}/${o.v.band} · 시트 ${o.v.sheet}</div></div>`).join('');
+const rows=[['--mx-window-band','#18181b','#181818','R24 G24 B27 → 24/24/24'],['--mx-workspace-sheet','#111113','#111111',''],['--mx-bg-deep','#101013','#101010',''],['--mx-bg-base','#222225','#222222','카드/메뉴'],['--mx-bg-layer-1','#2a2a2d','#2a2a2a','컴포저·사용자 버블'],['--mx-bg-layer-2','#323236','#323232',''],['--mx-bg-layer-3','#3d3d41','#3d3d3d',''],['--mx-bg-contrast','#5c5c61','#5c5c5c',''],['--mx-terminal-bg','#121215','#121212',''],['--mx-island-frame 혼합색','#1c1c1f','#1c1c1c','color-mix 내 상수'],['mixdogBand (Android)','#201E1C','#181818','시스템바·스플래시'],['text / muted / border','#e9e9e9 / #a8a8a8 / 흰 알파','동일','이미 무채색']];
+const t=document.getElementById('tbl');rows.forEach(r=>{t.insertAdjacentHTML('beforeend',`<tr><td><code>${r[0]}</code></td><td><span class="sw" style="background:${r[1].split(' ')[0]}"></span>${r[1]}</td><td><span class="sw" style="background:${r[2].split(' ')[0]}"></span>${r[2]}</td><td>${r[3]}</td></tr>`)});
+</script></body></html>
+
+

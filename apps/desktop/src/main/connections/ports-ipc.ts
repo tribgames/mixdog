@@ -33,10 +33,7 @@ export function registerServerPortsIpc<T extends PortsConnection>(deps: ServerPo
     return connection.ports;
   };
   const handlers: Array<[string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown]> = [
-    [
-      DESKTOP_IPC.serverPortsList,
-      (event, rescan) => (rescan === false ? portsOf(event).view() : portsOf(event).refresh()),
-    ],
+    [DESKTOP_IPC.serverPortsList, (event) => portsOf(event).view()],
     [
       DESKTOP_IPC.serverPortForward,
       (event, remotePort, localPort) =>

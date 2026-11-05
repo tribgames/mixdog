@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/misc",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Misc",
+  "content": "Before\n\nicon[svg link](<https://example.com/s>) fallbackName OneTwoGo \n\nAfter",
+  "extractor": "dom-markdown"
+ }
+}

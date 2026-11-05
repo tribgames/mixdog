@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/provider-credits-usage.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Providers — 크레딧 표기 시안",
+  "content": "크레딧 기능이 켜진 계정이면 Codex·Claude 모두 사용량 막대 아래에 한 줄을 추가합니다. 클릭 동작 없이 항상 보이고, 스위치로 \"한도 초과 시 크레딧 사용\"만 켜고 끕니다.\n\n## A. Codex 크레딧 있음 · 사용 꺼짐 (기본)\n\n잔액만 보여 주고, 한도에 도달하면 mixdog이 요청을 멈춥니다.\n\n**Providers**📌ⓘ＋\n\n◎**Codex**Pro ▾\n\n5H******40%***2h 10m*\n\n7D******83%***3d 17h*\n\n크레딧62,500\n\n리셋권3개 남음ⓘ\n\n**리셋권 만료일**\n\n리셋권 110/23 (2일 후)\n\n리셋권 211/02\n\n리셋권 311/15\n\n✳**Claude**Max ▾\n\n5H******0%***—*\n\n7D******0%***4d 2h*\n\n크레딧$0.00· 월 한도 $10\n\n## E. 리셋권 사용 확인\n\n\"사용\"을 누르면 그 자리에서 확인 문구가 펼쳐집니다. 만료가 가장 빠른 것부터 씁니다.\n\n**Providers**📌ⓘ＋\n\n◎**Codex**Pro ▾\n\n5H******100%***1h 05m*\n\n7D******96%***3d 17h*\n\n크레딧62,500\n\n리셋권3개 남음ⓘ\n\n리셋권 1개를 써서 5H·7D 한도를 바로 초기화합니다.\n\n## B. 사용 켜짐 · 한도 초과로 크레딧 차감 중\n\n잔액 색이 바뀌고 \"사용 중\" 배지가 붙습니다.\n\n**Providers**📌ⓘ＋\n\n◎**Codex**Pro ▾\n\n5H******100%***1h 05m*\n\n7D******100%***3d 17h*\n\n크레딧61,880사용 중\n\n## D. Claude 크레딧 있음\n\n잔액과 월 지출 한도를 함께 보여 줍니다.\n\n**Providers**📌ⓘ＋\n\n✳**Claude**Max ▾\n\n5H******72%***3h 40m*\n\n7D******31%***4d 2h*\n\n크레딧$25.00· 월 한도 $10",
+  "extractor": "readability"
+ }
+}

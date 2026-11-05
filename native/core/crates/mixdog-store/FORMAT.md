@@ -246,10 +246,10 @@ a blob without a reference is garbage, never corruption.
 |---|---|---|
 | `session` | `v:2, id, log_id, base?{session, log_id, end_ordinal_exclusive}, origin?{migration{manifest_sha256, item_key, source_digest}}, op?`, ★`header` | First frame of `log.000000`. `header` = every header key (the 1.4.5 record minus `messages`). `log_id` = 24 lowercase hex. |
 | `meta` | `op?`, ★`change{set, unset[]}` | Header change: remove `unset`, then merge `set`. Title, close/tombstone, generation, worker map, desktop metadata, `deleted`, repair marks, … |
-| `item` | `iid, turn?, role?, form:"message"\|"display", model, visible, archive?{seq, at?, origin}, op?, refs[]`, ★`body` | One history row. `turn` = the run id; a run's input rows are its rows before its `run{started}`. `display` rows are imported 1.4.5 archive items, always `model:false`. `archive.at` = the source number (absent for a missing or `null` source value); `archive.origin` = `segment{id, prev?, count, bytes}` or `pending{divider, cleared_through?, max_bytes?}`. |
+| `item` | `iid, turn?, role?, form:"message"\|"display", model, visible, archive?{seq, at?, origin}, op?, prompt?, refs[]`, ★`body` | One history row. `turn` = the run id; a run's input rows are its rows before its `run{started}`. `display` rows are imported 1.4.5 archive items, always `model:false`. `prompt` is present exactly when the row counts for prompt history (a 1.4.5 `kind:"user"` transcript row, own room lines included; never notices, tool cards, skill or hook rows) and holds that row's display text (paste/file chips, image lines and feedback rewrites applied); written by the session at commit and by migration, never derived from `body` by the store. `archive.at` = the source number (absent for a missing or `null` source value); `archive.origin` = `segment{id, prev?, count, bytes}` or `pending{divider, cleared_through?, max_bytes?}`. |
 | `amend` | `iid, op?, refs[]`, ★`body` | Replaces the body of row `iid` (redaction, offload pruning, reactions). |
-| `rewind` | `to_ordinal, reason:"rewind"\|"edit"\|"clear", op?` | Supersedes records with ordinal in `[to_ordinal, this)`; `history_rev += 1`. |
-| `compacted` | `cid, summary_iid?, op?`, ★`replacement[{iid, body}]` | Model context restarts at `replacement`; history rows stay. |
+| `rewind` | `to_ordinal, reason:"rewind"\|"edit"\|"clear", op?` | Supersedes records with ordinal in `[to_ordinal, this)`; `history_rev += 1`. In a fork, `to_ordinal` may lie below `base.end_ordinal_exclusive` (§5.3 lineage cut). |
+| `compacted` | `cid, summary_iid?, op?, at?`, ★`replacement[{iid, body}]` | Model context restarts at `replacement`; history rows stay. `at` (ms since the Unix epoch, the compaction's `Date.now()`) is the only field the "Conversation compacted" divider shows besides its constant label. |
 | `run` | `rid, phase:"started"\|"attempt"\|"completed"\|"failed"\|"interrupted", attribution?{provider, model, account?, route, preset?, effort?}, attempt?{n, delivery:"notSent"\|"ambiguous"\|"accepted"}, at?, op?`, ★`detail?` | Turn lifecycle; `attempt` records one provider attempt's delivery state (SPEC §4.9). `started` only after its input rows are durable; on open a `started` without terminal phase gets `interrupted`. |
 | `approval` | `aid, rid, phase:"requested"\|"decided"\|"expired", by_client?, at, op?`, ★`body?` | `body` = the request (`requested`) or the decision (`decided`). |
 | `queue` | `qid, action:"enqueue"\|"dequeue", reason?:"delivered"\|"cancelled", op?`, ★`entry?` | `entry` (enqueue) = the 1.4.5 pending-entry shape minus `id`: `{message, notificationKind?, mode?, executionId?, execution?, enqueuedAt?}`. |
@@ -269,6 +269,13 @@ SM §5.2, with: inputs of run `r` = `item`s with `turn == r` before `run{r, star
 makes the context start at the newest non-superseded `compacted` before it (from the
 index `compactions` table, itself a projection of the frames). The fold is a pure
 function of the frames.
+
+Lineage cut: a fork's `rewind` with `to_ordinal` below `base.end_ordinal_exclusive`
+supersedes every record of the fork's own log and sets `base_cut = min(base_cut,
+to_ordinal)`. The fork's history is then its own live rows followed by the lineage rows
+(the base and, transitively, its bases) with ordinal < `base_cut`; the base logs are not
+written. A base row's liveness for the fork is decided at the fork point as before
+(`superseded_rev` ≥ the level's `end_ordinal_exclusive` counts as live).
 
 ### 5.4 Identity
 
@@ -299,7 +306,7 @@ never compared for identity.
 
 ### 6.2 State (`src/schema/checkpoint.rs`)
 
-`{log_id, covers_ordinal, history_rev, rows, visible_rows, base?, context?: FramePos,
+`{log_id, covers_ordinal, history_rev, rows, visible_rows, base?, base_cut?, context?: FramePos,
 runs[{rid, started}], approvals[{aid, rid, requested}], queue[{qid, enqueued}], header}`
 with `FramePos = {ordinal, file_no, offset}`. `covers_ordinal` is the checkpoint frame's
 own ordinal; the state folds exactly the frames before it. `context` is the newest
@@ -398,8 +405,13 @@ integrity error or another `application_id`/`user_version` rebuilds it from the 
 | `approvals` | pending approvals | the cross-session enumerator. |
 | `blob_refs` | `(digest, session, ordinal)` | §4.3. |
 | `fork_edges` | `(base, child)` | a base with children keeps its files. |
+| `message_rows` | immutable versions of the model-context messages | `(session, ordinal, idx, ver, iid, counted, real, incoming, place, preview, line, routine, live, superseded_rev)`: the catalog's message state (1.4.5 `_sessionMessageProjection`). An `item` with `form:"message"`, `model:true` is row `(ordinal, 0)`, first version `ver` = its ordinal; each entry of a `compacted` replacement is `(compacted ordinal, position)`. An `amend` of `iid` (an item or a replacement entry — 1.4.5 edits `session.messages` in place and its summary re-reads it) adds a version (`ver` = the amend's ordinal) to the newest live row with that `iid` and moves `live` to it; `counted` and `place` stay the row's. A `rewind` sets `superseded_rev` (its ordinal) on the versions with `ver` in the removed range and hands each row back to its newest remaining version, so rewinding past an amend restores the earlier content. `counted` = role `user`/`assistant`; `real` = `isRealTurnMessage`; `incoming` = an incoming-kind message with a `line`; `preview` = first-prompt candidate; `line` = last-message line; `routine` = its provenance JSON; `place` = 1-based place among the epoch's counted rows when written. Partial indexes `message_rows_preview/_line/_incoming` hold the live versions, so first prompt, last line and incoming places are seeks (`INDEXED BY`, checked with `EXPLAIN`). |
+| `message_epochs` | one per context epoch | `(session, start, count, real, superseded_rev)`: the root (`start` 0) or a `compacted` frame; the live epoch is the newest not superseded. `count`/`real` are this session's own rows, moved by deltas on append, amend and rewind (each O(1) per row; a rewind is bounded per transaction and resumable). |
+| `message_views` | what a fork inherits | `(session, valid_from, base, position, state, count, real, preview, line, routine, incoming, cursor…, superseded_rev)`: the base's state as of `position` (the fork point, or lower after a rewind of the child into the base range), snapshotted once and never changed by later base rewinds or amends; versioned by the frame that set it like rows. Taken at creation when the base's projection ends at `position`; otherwise `pending` while bounded maintenance steps (`STEP_ROWS` versions) scan the base rows as of `position`, and the child's catalog row is held back until `ready`. The live stats of a session are its live epoch plus, for the root epoch, its live view: no lineage is walked at any depth. |
 | `thread_ops` | thread-scope ops | `op_id, method, payload_digest, state` and the location of the record carrying it (P §9.2 lookup). |
-| `meta` | key/value | GC state `gc:*`, `job:*`. |
+| `prompt_occurrences` | one per prompt row | `(session, ordinal, key, text, superseded_rev)` for every `item` with a `prompt` whose key is not empty: `text` = `prompt` trimmed (JS `trim`); `key` = 1.4.5 `promptHistoryKey` = `text.trim().replace(/\s+/g, ' ')` (vectors `src/schema/vectors/prompts.json`). Superseded by rewinds like `history`. |
+| `prompt_history` | one per live prompt key | `(session, key, ordinal, text)`: the newest live occurrence of `key`. A rewind (and `clear`) supersedes the occurrences it covers and moves each affected key to its newest live occurrence, or removes it. `OpenedLog.prompts` = `SELECT text … WHERE session = ? ORDER BY ordinal DESC LIMIT 50` (`prompt_history_recent`). |
+| `meta` | key/value | GC state `gc:*`; job cursors `job:<id>`, among them `job:refold_titles` (present while the placeholder-title refold is pending, value `0`); `ui:placeholder_labels` = JSON `[image, video, file]` labels of the UI language the title folds use (absent: English `Image`, `Video`, `File`). |
 
 Every interactive query is index-backed with a `LIMIT`; the test runs `EXPLAIN QUERY
 PLAN` on the catalog, page, model-context, previous-compaction, iid, blob-ref, fork, turn
@@ -467,7 +479,7 @@ leaves the folds unchanged (activity, dirty mark) does not fire the trigger.
 | `rooms(room_id, doc)` | group room documents, JSON text |
 | `ops(scope, op_id, method, payload_digest, state, outcome, created_at, completed_at)` | op records of every non-thread scope, written in the same transaction as the domain change; `inProgress` at boot becomes `externalUnknown` (P §9.6) |
 | `op_watermarks(scope, watermark)` | P §9.5 retention |
-| `meta` | `job:*`, `migration:<item key>` (§10.4) |
+| `meta` | `job:*`, `migration:<item key>` (§10.4), `seq:<name>` = the next unreserved value (decimal) of a durable id counter; ids are reserved in blocks, start at 1, never repeat (`seq:approval`: approval ids, P §8.2) |
 
 ## 9. Usage ledger (`usage/ledger.sqlite`)
 

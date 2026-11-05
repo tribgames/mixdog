@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/thinking-spinner-final.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Mixdog · 띵킹 아이콘 최종안",
+  "content": "## 띵킹 아이콘 최종안\n\n흐름 계열에서 세 가지로 좁혔습니다. 선은 24칸 기준 2.1(14px에서 약 1.2px)로 조금 올렸고, 각 안에는 어울리는 색을 짝지어 두었습니다.\n\n색\n\n선 두께\n\n재생",
+  "extractor": "readability"
+ }
+}

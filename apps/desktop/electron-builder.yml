@@ -3,13 +3,8 @@ productName: Mixdog
 artifactName: mixdog-desktop-${os}-${arch}.${ext}
 asar: true
 asarUnpack:
-  # The singleton service may be owned by the plain Node CLI. Keep its one-file
-  # adapter and remote UI assets readable without Electron's ASAR fs patch.
-  - out/main/daemon.cjs
+  # The renderer's assets stay readable without Electron's ASAR fs patch.
   - out/renderer/**
-  # daemon.cjs resolves this lazy native dependency relative to its unpacked
-  # location, so keep the package's JS, workers, and native bindings together.
-  - node_modules/@homebridge/node-pty-prebuilt-multiarch/**
   # Keep the Win32 FFI loader and its platform-native binding on disk.
   - node_modules/koffi/**
   - node_modules/@koromix/koffi-*/**
@@ -50,10 +45,15 @@ extraResources:
   # this neutral root; restore Electron's exact ASAR-unpacked layout at the destination.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
-  # The desktop daemon imports node-pty from app.asar.unpacked. Stage the
-  # complete package under a neutral path so electron-builder cannot filter it.
-  - from: .runtime/desktop-node-pty
-    to: app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch
+  # The core this app starts (`mixdogd`, built for the app's own platform) and
+  # the per-platform servers the SSH install uploads (servers.json + one
+  # binary per Linux/macOS x64/arm64). scripts/stage-core.mjs stages both from
+  # the release builds; the installed `resources/core/mixdogd` is also what
+  # the fast-deploy script stops the running core with.
+  - from: .runtime/core
+    to: core
+  - from: .runtime/server-cores
+    to: server-cores
   # Product-native executables stay canonical GitHub release assets. Desktop
   # preparation downloads, verifies, and embeds only this platform's set,
   # plus the macOS/Linux Computer Use backend it builds from source.

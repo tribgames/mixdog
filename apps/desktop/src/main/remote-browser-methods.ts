@@ -59,6 +59,14 @@ type BrowserRemoteHost = Pick<
   | 'remoteScreenAccess'
 >;
 
+/** The address a client may open a main-workspace tab on. */
+export function normalizeRemoteTabUrl(url: unknown): string {
+  if (typeof url !== 'string' || url.length < 1 || url.length > MAX_TAB_URL) {
+    throw new TypeError('remote browser url is invalid.');
+  }
+  return url;
+}
+
 /** Window-process end of a daemon `browserRemote` request. */
 export async function runBrowserRemoteRequest(
   host: BrowserRemoteHost,
@@ -110,12 +118,7 @@ export function browserParityRemoteMethods(browserRemote: RemoteBrowserRequest |
     return browserRemote(method, args, timeoutMs);
   };
   return {
-    browserRemoteTabOpen: ([url]: unknown[]) => {
-      if (typeof url !== 'string' || url.length < 1 || url.length > MAX_TAB_URL) {
-        throw new TypeError('remote browser url is invalid.');
-      }
-      return request('tabOpen', [url]);
-    },
+    browserRemoteTabOpen: ([url]: unknown[]) => request('tabOpen', [normalizeRemoteTabUrl(url)]),
     browserRemoteTabClose: ([id]: unknown[]) => request('release', [normalizeRemoteBrowserTabId(id)]),
     browserHistorySearch: ([query]: unknown[]) => request('history', [normalizeBrowserHistoryQuery(query)]),
     browserCredentialSuggestions: ([sessionId]: unknown[]) =>

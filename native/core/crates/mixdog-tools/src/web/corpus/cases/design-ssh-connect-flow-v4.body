@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>SSH 서버 연결 v4 · 실제 앱 스타일</title>
+<!-- 앱의 실제 스타일시트를 그대로 씁니다. 화면 부품은 실제 컴포넌트와 같은 마크업·클래스입니다. -->
+<link rel="stylesheet" href="../apps/desktop/src/renderer/desktop.css">
+<link rel="stylesheet" href="../apps/desktop/src/renderer/desktop/menu-items.css">
+<link rel="stylesheet" href="../apps/desktop/src/renderer/styles.css">
+<link rel="stylesheet" href="../apps/desktop/src/renderer/settings/settings.css">
+<style>
+  /* 문서 틀 (시안 설명용) */
+  html, body { height: auto; overflow: auto; }
+  body { margin: 0; padding: 48px 32px 96px; background: #0b0b0d; color: var(--mx-text); }
+  .doc { max-width: 1300px; margin: 0 auto; }
+  .doc h1 { font-size: 22px; line-height: 28px; margin: 0 0 8px; font-weight: 600; }
+  .doc h2 { font-size: 16px; line-height: 24px; margin: 0 0 4px; font-weight: 600; }
+  .doc .lead { color: var(--mx-text-muted); margin: 0 0 20px; max-width: 900px; }
+  .doc .sub { color: var(--mx-text-muted); margin: 0 0 16px; max-width: 900px; }
+  .doc section.part { margin: 0 0 56px; }
+  .doc .legend { color: var(--mx-text-muted); font-size: 13px; margin: 0 0 40px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, 620px); gap: 28px; }
+  figure { margin: 0; display: grid; gap: 10px; align-content: start; }
+  figcaption { font-size: 13px; line-height: 20px; color: var(--mx-text-muted); }
+  figcaption b { color: var(--mx-text); font-weight: 600; margin-right: 6px; }
+  /* 각 프레임은 앱 창 한 장. transform 덕분에 position:fixed 레이어가 프레임 안에 갇힙니다. */
+  .frame { position: relative; transform: translateZ(0); width: 620px; height: 560px; overflow: hidden; border-radius: 12px;
+    background: var(--mx-bg-deep); box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+  .frame.short { height: 420px; }
+  .frame .settings-confirm-layer { position: absolute; animation: none; }
+  .frame .conn-dialog { animation: none; }
+  .is-new { outline: 1.5px dashed var(--mx-text-accent); outline-offset: 3px; border-radius: 6px; }
+  svg.i { width: 16px; height: 16px; flex: none; }
+  svg.i.sm { width: 14px; height: 14px; }
+
+  /* ── 새 부품 (이 기능에서 추가) ── */
+  /* 진행 단계: 기존 conn-steps에 상태만 더합니다. */
+  .conn-steps li[data-state="done"]::before { content: "✓"; color: var(--mx-success); }
+  .conn-steps li[data-state="now"]::before { color: var(--mx-text); box-shadow: inset 0 0 0 1.5px var(--mx-text); background: transparent; }
+  .conn-steps li[data-state="wait"] { color: var(--mx-text-muted); }
+  .conn-steps li small { margin-left: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+  /* 주소 제안: 기존 mx-menu를 입력칸 바로 아래에 붙입니다. */
+  .ssh-suggest { position: absolute; left: 0; right: 0; top: 48px; z-index: 2; }
+  .ssh-suggest .mx-menu-item { display: flex; gap: 10px; }
+  .ssh-suggest .mx-menu-item small { margin-left: auto; color: var(--mx-text-muted); font-size: 12px; }
+  .ssh-field-wrap { position: relative; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></symbol>
+    <symbol id="term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+    <symbol id="monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+    <symbol id="server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></symbol>
+    <symbol id="folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  </defs>
+</svg>
+
+<div class="doc">
+<h1>SSH 서버 연결 v4 · 실제 앱 스타일</h1>
+<p class="lead">앱의 실제 스타일시트(<code>desktop.css</code>, <code>styles.css</code>, <code>settings.css</code>)를 불러와 그렸습니다. 대화상자는 <code>ConnDialog</code>, 목록 줄은 <code>ConnRow</code>, 복사 줄은 <code>AddressRow</code>, 번호 단계는 <code>conn-steps</code>, 제목줄 메뉴는 <code>RemotePcSwitcher</code>와 같은 마크업입니다. 문구는 기존 연결 화면의 말투(“연결할 기기 종류를 고르세요.”, “직접 요청한 경우에만 허용하세요.”)에 맞췄습니다.</p>
+<p class="legend">점선 테두리는 새로 더하는 부분입니다. 흐름: 주소 입력 → [연결] → 진행(필요할 때만 확인·안내 화면) → 서버 창</p>
+
+<section class="part">
+<h2>1. 입구</h2>
+<p class="sub">기존 두 입구에 한 줄씩 더합니다.</p>
+<div class="shots">
+  <figure>
+    <div class="frame short">
+      <header class="topbar">
+        <div class="remote-pc-switcher" style="position:relative">
+          <button type="button" class="remote-pc-name remote-pc-button" aria-expanded="true"><i class="remote-pc-dot"></i><span class="remote-pc-label">재영 데스크톱</span><svg class="i sm"><use href="#chev"/></svg></button>
+          <div class="remote-pc-menu" role="menu">
+            <button type="button" class="remote-pc-item on" disabled><i class="remote-pc-dot"></i><span>재영 데스크톱<small>이 PC · 사용 중</small></span><svg class="i sm"><use href="#check"/></svg></button>
+            <button type="button" class="remote-pc-item"><i class="remote-pc-dot off"></i><span>사무실 PC<small>오프라인 · 어제</small></span></button>
+            <button type="button" class="remote-pc-item is-new"><i class="remote-pc-dot"></i><span>내 VPS<small>SSH · 온라인 · 창 열림</small></span></button>
+            <div class="remote-pc-sep"></div>
+            <button type="button" class="remote-pc-item remote-pc-action"><svg class="i sm"><use href="#ext"/></svg><span>다른 PC 열기</span></button>
+            <button type="button" class="remote-pc-item remote-pc-action is-new"><svg class="i sm"><use href="#term"/></svg><span>SSH 서버 연결</span></button>
+            <button type="button" class="remote-pc-item remote-pc-action"><svg class="i sm"><use href="#plus"/></svg><span>기기 연결</span></button>
+            <button type="button" class="remote-pc-item remote-pc-action"><svg class="i sm"><use href="#sliders"/></svg><span>연결 설정</span></button>
+          </div>
+        </div>
+        <div class="titlebar-spacer"></div>
+      </header>
+    </div>
+    <figcaption><b>A1 제목줄 PC 메뉴</b>저장된 SSH 서버는 다른 PC와 같은 줄로 들어가고, 상태 앞에만 “SSH”가 붙습니다. 누르면 그 서버 창이 열립니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame short" style="padding:24px 24px 0;box-sizing:border-box">
+      <div class="conn-page">
+        <div class="conn-toolbar">
+          <button type="button" class="conn-btn"><svg class="i"><use href="#ext"/></svg>다른 PC 열기</button>
+          <button type="button" class="conn-btn is-new"><svg class="i"><use href="#term"/></svg>SSH 서버 연결</button>
+          <button type="button" class="conn-btn conn-btn--primary conn-connect-device"><svg class="i"><use href="#plus"/></svg>기기 연결</button>
+        </div>
+        <section class="conn-group">
+          <div class="conn-group-head"><h4>내가 연 PC<span>1</span></h4></div>
+          <div class="conn-list">
+            <div class="conn-row"><span class="conn-tile"><svg class="i"><use href="#monitor"/></svg></span><div class="conn-row-text"><div class="conn-row-title"><b>사무실 PC</b><span class="conn-status conn-status--off">오프라인</span></div><div class="conn-row-meta">마지막 연결 어제</div></div><div class="conn-row-actions"><button class="conn-btn conn-btn--sm">열기</button><button class="conn-btn conn-btn--sm">이름 바꾸기</button><button class="conn-btn conn-btn--sm">삭제</button></div></div>
+          </div>
+        </section>
+        <section class="conn-group is-new">
+          <div class="conn-group-head"><h4>SSH 서버<span>1</span></h4></div>
+          <div class="conn-list">
+            <div class="conn-row"><span class="conn-tile"><svg class="i"><use href="#server"/></svg></span><div class="conn-row-text"><div class="conn-row-title"><b>내 VPS</b><span class="conn-status conn-status--on">온라인</span></div><div class="conn-row-meta">root@123.45.67.89 · 마지막 연결 3분 전</div></div><div class="conn-row-actions"><button class="conn-btn conn-btn--sm">열기</button><button class="conn-btn conn-btn--sm">이름 바꾸기</button><button class="conn-btn conn-btn--sm">삭제</button></div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <figcaption><b>A2 설정 → 연결</b>툴바 버튼과 “SSH 서버” 묶음이 추가됩니다. 줄과 버튼은 “내가 연 PC”와 같고, 이름은 [이름 바꾸기]로 나중에 바꿉니다.</figcaption>
+  </figure>
+</div>
+</section>
+
+<section class="part">
+<h2>2. 주소 입력</h2>
+<p class="sub">입력칸 하나뿐입니다. 이름 칸이나 고급 설정은 두지 않습니다. 이름은 주소로 정해지고, 포트·키는 주소(<code>user@서버:포트</code>)와 이 PC의 SSH 설정을 따릅니다.</p>
+<div class="shots">
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="dialog">
+        <header><h3>SSH 서버 연결</h3><p>접속할 서버 주소를 입력하세요.</p></header>
+        <div class="conn-field ssh-field-wrap">
+          <input type="text" class="conn-input" placeholder="user@서버 주소" style="box-shadow: inset 0 0 0 1.5px var(--mx-text)">
+          <div class="mx-menu ssh-suggest is-new" role="listbox">
+            <button type="button" class="mx-menu-item" data-active="true"><span>gpu-box</span><small>jae@10.0.0.21</small></button>
+            <button type="button" class="mx-menu-item"><span>vps-main</span><small>root@vps.example.com</small></button>
+            <button type="button" class="mx-menu-item"><span>office-build</span><small>dev@build.corp:2202</small></button>
+          </div>
+          <div class="conn-field-msg">&nbsp;</div>
+        </div>
+        <footer><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--primary" disabled>연결</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>B1 열었을 때</b>이 PC의 SSH 설정(<code>~/.ssh/config</code>)에 서버가 있으면 입력칸 아래에 바로 뜹니다. 없으면 목록 없이 입력칸만 보입니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="dialog">
+        <header><h3>SSH 서버 연결</h3><p>접속할 서버 주소를 입력하세요.</p></header>
+        <div class="conn-field">
+          <input type="text" class="conn-input" value="root@123.45.67.89">
+          <div class="conn-field-msg">포트가 22가 아니면 user@서버 주소:포트로 입력하세요.</div>
+        </div>
+        <footer><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--primary">연결</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>B2 직접 입력</b>도움말은 <code>RenameDialog</code>의 안내 줄 자리입니다. Enter를 눌러도 연결합니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="dialog">
+        <header><h3>SSH 서버 연결</h3><p>접속할 서버 주소를 입력하세요.</p></header>
+        <div class="conn-field">
+          <input type="text" class="conn-input" value="root@123.45.67.89:22a" style="box-shadow: inset 0 0 0 1px var(--mx-danger)">
+          <div class="conn-field-msg conn-field-msg--error">주소 형식이 올바르지 않습니다.</div>
+        </div>
+        <footer><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--primary" disabled>연결</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>B3 형식 오류</b>“코드가 올바르지 않거나 만료되었습니다.”와 같은 자리·색입니다.</figcaption>
+  </figure>
+</div>
+</section>
+
+<section class="part">
+<h2>3. 연결</h2>
+<p class="sub">[연결]을 누르면 같은 대화상자의 내용이 진행 단계로 바뀝니다(“기기 연결”이 요청 승인 화면으로 바뀌는 것과 같은 방식). 확인이나 조치가 필요할 때만 그 화면으로 바뀌고, 해결되면 이어서 진행합니다.</p>
+<div class="shots">
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="dialog">
+        <header><h3>내 VPS에 연결하는 중</h3><p>root@123.45.67.89</p></header>
+        <ol class="conn-steps is-new">
+          <li data-n="1" data-state="done"><span>서버 접속</span></li>
+          <li data-n="2" data-state="done"><span>서버 확인<small>Ubuntu 24.04 · Node.js 22</small></span></li>
+          <li data-n="3" data-state="now"><span>Mixdog 설치<small>처음 한 번</small></span></li>
+          <li data-n="4" data-state="wait"><span>연결</span></li>
+        </ol>
+        <div class="conn-field-msg conn-field-msg--busy" role="status"><span class="conn-spinner"></span>처음 한 번은 1분 정도 걸립니다.</div>
+        <footer><button class="conn-link">주소 수정</button><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--primary" disabled>연결하는 중…</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>C1 진행</b>두 번째부터는 3단계를 건너뛰어 몇 초면 끝납니다. 끝나면 대화상자가 닫히고 서버 창이 열립니다(D1).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="alertdialog">
+        <header><h3>처음 연결하는 서버입니다</h3><p>직접 관리하는 서버가 맞는 경우에만 연결하세요.</p></header>
+        <div class="conn-claim">
+          <div class="conn-device"><span class="conn-tile conn-tile--lg"><svg class="i"><use href="#server"/></svg></span><div><b>내 VPS</b><span>root@123.45.67.89</span></div></div>
+          <div class="conn-rule"></div>
+          <dl class="conn-kv"><dt>지문</dt><dd><code>SHA256:q3vXb…7mPk2</code></dd><dt>방식</dt><dd>ED25519</dd></dl>
+          <p class="conn-note">서버를 빌린 곳의 관리 화면이나 서버 관리자에게서 지문을 확인할 수 있습니다. 한 번 연결하면 다음부터 묻지 않습니다.</p>
+        </div>
+        <footer><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--primary">연결</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>C2 처음 보는 서버</b>기존 “연결 요청” 승인 화면(<code>ClaimBody</code>)과 같은 구성입니다. 처음 한 번만 나옵니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="dialog">
+        <header><h3>로그인할 수 없습니다</h3><p>이 서버에 등록된 키가 없습니다. 이 PC의 터미널에서 아래 명령을 차례로 실행하세요.</p></header>
+        <div class="conn-stack" style="gap:16px">
+          <div class="conn-stack">
+            <ol class="conn-steps"><li data-n="1"><span>키 만들기</span></li></ol>
+            <div class="conn-address"><code>ssh-keygen -t ed25519</code><button class="conn-btn conn-btn--sm conn-btn--icon" title="복사"><svg class="i"><use href="#copy"/></svg></button></div>
+          </div>
+          <div class="conn-stack">
+            <ol class="conn-steps"><li data-n="2"><span>서버에 키 등록 · 서버 비밀번호를 한 번 묻습니다</span></li></ol>
+            <div class="conn-address"><code>ssh-copy-id root@123.45.67.89</code><button class="conn-btn conn-btn--sm conn-btn--icon" title="복사"><svg class="i"><use href="#copy"/></svg></button></div>
+          </div>
+        </div>
+        <footer><button class="conn-link">주소 수정</button><span class="conn-grow"></span><button class="conn-btn">닫기</button><button class="conn-btn conn-btn--primary">다시 시도</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>C3 키가 없을 때</b>“브라우저” 연결 안내와 같은 구성(번호 단계 + 복사 줄)입니다. Windows에는 <code>ssh-copy-id</code>가 없어 2번 명령만 PowerShell용으로 바뀝니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="dialog">
+        <header><h3>서버에 Node.js 22가 필요합니다</h3><p>내 VPS에서 찾은 버전은 v18.19입니다. 서버 터미널에서 아래 명령을 실행한 뒤 다시 시도하세요.</p></header>
+        <div class="conn-stack" style="min-width:0"><div class="conn-address"><code>curl -fsSL https://fnm.vercel.app/install | bash &amp;&amp; fnm install 22</code><button class="conn-btn conn-btn--sm conn-btn--icon" title="복사"><svg class="i"><use href="#copy"/></svg></button></div></div>
+        <footer><button class="conn-link">주소 수정</button><span class="conn-grow"></span><button class="conn-btn">닫기</button><button class="conn-btn conn-btn--primary">다시 시도</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>C4 서버 준비가 부족할 때</b>저절로 반복 재시도하지 않습니다. 같은 모양으로 Mixdog 설치 실패, 서버 공간 부족 등을 안내합니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="alertdialog">
+        <header><h3>서버 지문이 바뀌었습니다</h3><p>안전을 위해 연결하지 않았습니다.</p></header>
+        <div class="conn-claim">
+          <dl class="conn-kv"><dt>이전</dt><dd><code>SHA256:q3vXb…7mPk2</code></dd><dt>현재</dt><dd><code>SHA256:Lr0aQ…c91Zt</code></dd></dl>
+          <p class="conn-note">서버를 다시 설치했다면 정상일 수 있지만, 다른 컴퓨터가 서버인 척하는 것일 수도 있습니다. 서버 관리자에게 확인하세요.</p>
+        </div>
+        <footer><span class="conn-grow"></span><button class="conn-btn conn-btn--primary">닫기</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>C5 지문이 바뀌었을 때</b>앱에서 그냥 연결하는 버튼은 두지 않습니다.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="frame">
+      <div class="settings-confirm-layer"><section class="conn-dialog" role="alertdialog">
+        <header><h3>서버의 Mixdog을 종료할까요?</h3><p>내 VPS에서 따로 실행 중인 Mixdog(pid 1667)이 있습니다. 이 PC에서 연결하려면 종료해야 하며, 그 Mixdog에서 하던 작업도 멈춥니다.</p></header>
+        <footer><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--danger">종료하고 연결</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>C6 서버에 다른 Mixdog이 실행 중일 때</b>기존 <code>ConfirmDialog</code> 그대로입니다.</figcaption>
+  </figure>
+</div>
+</section>
+
+<section class="part">
+<h2>4. 서버 창</h2>
+<p class="sub">다른 PC를 열 때처럼 서버 전용 창이 열립니다. 제목줄 왼쪽 이름표가 서버 이름이고, 창 안은 지금 앱과 같습니다. 따로 뜨는 첫 화면은 없습니다. 바뀌는 곳은 [프로젝트 추가]를 눌렀을 때 뜨는 폴더 선택 창 하나뿐입니다.</p>
+<div class="shots">
+  <figure>
+    <div class="frame">
+      <header class="topbar">
+        <div class="remote-pc-switcher"><button type="button" class="remote-pc-name remote-pc-button"><i class="remote-pc-dot"></i><span class="remote-pc-label">내 VPS</span><svg class="i sm"><use href="#chev"/></svg></button></div>
+        <div class="titlebar-spacer"></div>
+      </header>
+      <div class="settings-confirm-layer"><section class="conn-dialog is-new" role="dialog">
+        <header><h3>Mixdog 프로젝트 폴더 선택</h3><p>내 VPS에 있는 폴더입니다.</p></header>
+        <div class="conn-field">
+          <input type="text" class="conn-input" value="/root">
+          <div class="conn-list">
+            <div class="conn-row" style="min-height:44px;background:var(--mx-hover)"><span class="conn-tile"><svg class="i"><use href="#folder"/></svg></span><div class="conn-row-text"><div class="conn-row-title"><b>demo</b></div></div><span class="conn-row-meta">git</span></div>
+            <div class="conn-row" style="min-height:44px"><span class="conn-tile"><svg class="i"><use href="#folder"/></svg></span><div class="conn-row-text"><div class="conn-row-title"><b>web-api</b></div></div><span class="conn-row-meta">git</span></div>
+            <div class="conn-row" style="min-height:44px"><span class="conn-tile"><svg class="i"><use href="#folder"/></svg></span><div class="conn-row-text"><div class="conn-row-title"><b>backups</b></div></div></div>
+          </div>
+        </div>
+        <footer><span class="conn-grow"></span><button class="conn-btn">취소</button><button class="conn-btn conn-btn--primary">선택</button></footer>
+      </section></div>
+    </div>
+    <figcaption><b>D1 서버 창에서 [프로젝트 추가]</b>이 PC에서는 Windows 폴더 선택 창이 뜨는 자리에, 서버 창에서는 서버의 폴더 목록이 뜹니다. 경로를 직접 입력해도 됩니다. 추가한 프로젝트는 기존처럼 프로젝트 목록에 남습니다.</figcaption>
+  </figure>
+</div>
+</section>
+</div>
+</body>
+</html>

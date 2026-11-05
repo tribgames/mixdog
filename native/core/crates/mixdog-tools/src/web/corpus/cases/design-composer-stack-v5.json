@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/composer-stack-v5.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "컴포저 주변 v5 · 세 방향 비교",
+  "content": "# 컴포저 주변 v5\n\n##",
+  "extractor": "dom-markdown"
+ }
+}

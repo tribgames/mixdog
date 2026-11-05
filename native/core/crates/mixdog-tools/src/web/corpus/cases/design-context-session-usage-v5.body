@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>시안 v5 · 하단줄 변형 (구분선 없음)</title>
+<style>
+  /* Tokens copied from apps/desktop/src/renderer/desktop/01-tokens.css (dark). */
+  :root {
+    --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d;
+    --mx-text: #e9e9e9;
+    --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-text-muted: #a8a8a8;
+    --mx-text-faint: #9b9b9b;
+    --mx-text-accent: #8ab4f8;
+    --mx-border-muted: rgba(255, 255, 255, 0.09);
+    --mx-hover: rgba(255, 255, 255, 0.06);
+    --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
+    --mx-popup-action-ring: inset 0 0 0 0.5px var(--mx-border-muted);
+    --mx-chart-purple: #b3a3da; --mx-chart-teal: #71bcb0; --mx-chart-gold: #d4ba78;
+    --mx-chart-blue: #8fa9d4; --mx-chart-pink: #d58eaa; --mx-chart-green: #8cb77c;
+    --mx-chart-mauve: #c49fbd; --mx-chart-orange: #d59b79; --mx-chart-sky: #80b6ca;
+    --mx-chart-violet: #b58bc3; --mx-chart-grey: #9a9fa7;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; min-height: 100vh; background: #161618; color: var(--mx-text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px 16px;
+  }
+  .switch { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .switch button {
+    font: inherit; color: var(--mx-text); background: var(--mx-bg-base); cursor: pointer;
+    border: 0.5px solid var(--mx-border-muted); border-radius: 8px; padding: 6px 12px;
+  }
+  .switch button[aria-pressed="true"] { outline: 2px solid var(--mx-text-accent); outline-offset: -2px; }
+  #desc { margin: 0; color: var(--mx-text-muted); min-height: 20px; text-align: center; }
+
+  .dialog {
+    width: min(920px, 100%); height: 650px; display: flex; flex-direction: column; overflow: hidden;
+    border-radius: 14px; background: var(--mx-bg-layer-1);
+    box-shadow: 0 16px 32px rgba(0,0,0,.45), 0 0 0 0.5px var(--mx-border-muted);
+  }
+  .header { flex: 0 0 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 22px; }
+  .header h1 { flex: 1 1 auto; margin: 0; font-size: 20px; font-weight: 600; }
+  .reading { display: inline-flex; align-items: baseline; gap: 8px; color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .reading b { color: var(--mx-text-soft); font-weight: 500; }
+  .close { width: 28px; height: 28px; display: grid; place-items: center; color: var(--mx-text-muted); }
+  .overview { flex: 0 0 auto; padding: 2px 22px 18px; }
+  .main-bar { height: 8px; border-radius: 999px; background: var(--mx-hover); overflow: hidden; }
+  .main-bar span { display: flex; height: 100%; width: 5.7%; }
+  .main-bar b { height: 100%; background: var(--c); }
+
+  .inspector { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); border-top: 0.5px solid var(--mx-border-muted); }
+  .nav, .detail { min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+  .nav { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 16px 22px; border-right: 0.5px solid var(--mx-border-muted); }
+  .detail { display: flex; flex-direction: column; padding: 16px 22px 16px 16px; }
+  .block-map { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; }
+  .block-map i { min-height: 12px; aspect-ratio: 1; border-radius: 2px; background: var(--c); }
+  .block-map i.free { --c: #6f777d; opacity: .25; }
+  .list { display: grid; overflow: hidden; border-radius: 8px; background: var(--mx-popup-action-bg); box-shadow: var(--mx-popup-action-ring); }
+  .row {
+    min-height: 36px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center;
+    column-gap: 12px; padding: 6px 12px; border-bottom: 0.5px solid var(--mx-border-muted);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row i { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+  .row span { color: var(--mx-text-muted); white-space: nowrap; overflow: hidden; display: flex; gap: 6px; align-items: baseline; }
+  .row span small { color: var(--mx-text-faint); font-size: 14px; }
+  .row em { min-width: 44px; color: var(--mx-text-muted); font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
+  .row strong { min-width: 72px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .row.empty, .row.empty strong { color: var(--mx-text-faint); }
+  .row.empty i { opacity: .35; }
+  .empty-state { flex: 1 1 auto; display: grid; place-items: center; color: var(--mx-text-faint); }
+
+  /* Footer variants: no rules, no dots — spacing and text tone only. */
+  .footer {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 22px; padding: 12px 22px 14px;
+    color: var(--mx-text-faint); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+  }
+  .footer strong { color: var(--mx-text); font-weight: 600; }
+  .footer .lead { color: var(--mx-text-soft); font-weight: 500; }
+  .footer .end { margin-left: auto; }
+  .pair { display: inline-flex; align-items: baseline; gap: 6px; }
+
+  /* A: plain — label faint, value bright, wide gaps */
+
+  /* B: tonal band — a slightly darker floor instead of a line */
+  .f-b { background: var(--mx-bg-base); padding: 12px 22px; }
+
+  /* C: soft chips */
+  .f-c { gap: 6px; }
+  .f-c .pair { padding: 4px 10px; border-radius: 999px; background: var(--mx-popup-action-bg); }
+  .f-c .lead { margin-right: 8px; }
+
+  /* D: stacked — tiny label over value, spread across the width */
+  .f-d { justify-content: space-between; align-items: flex-end; padding: 10px 22px 16px; }
+  .f-d .stack { display: grid; gap: 1px; }
+  .f-d .stack span { font-size: 12px; }
+  .f-d .stack strong { font-size: 15px; }
+  .f-d .stack.big strong { font-size: 20px; letter-spacing: -0.01em; }
+
+  /* E: split under each pane — money on the left, tokens on the right */
+  .f-e { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); gap: 0; padding: 0; }
+  .f-e > div { display: flex; align-items: baseline; gap: 18px; padding: 12px 22px 14px; min-width: 0; overflow: hidden; }
+  .f-e > div + div { padding-left: 16px; }
+  .f-e .money strong { font-size: 16px; }
+
+  /* F–H: plain footer with a hairline that never reaches the dialog edges. */
+  .f-line { position: relative; }
+  .f-line::before { content: ""; position: absolute; top: 0; height: 0.5px; }
+  .f-f::before { left: 22px; right: 22px; background: var(--mx-border-muted); }
+  .f-g::before { left: 22px; right: 22px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12) 25%, rgba(255,255,255,.12) 75%, transparent); }
+  .f-h::before { left: 30%; right: 30%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent); }
+
+  .k-system { --c: var(--mx-chart-grey); } .k-assistant { --c: var(--mx-chart-blue); }
+  .k-reasoning { --c: var(--mx-chart-orange); } .k-toolResults { --c: var(--mx-chart-teal); }
+  .k-tools { --c: var(--mx-chart-green); } .k-user { --c: var(--mx-chart-purple); }
+  .k-skills { --c: var(--mx-chart-gold); } .k-memory { --c: var(--mx-chart-sky); }
+  .k-attachments { --c: var(--mx-chart-pink); } .k-mcp { --c: var(--mx-chart-mauve); }
+  .k-agents { --c: var(--mx-chart-violet); }
+</style>
+</head>
+<body>
+  <div class="switch" id="switch"></div>
+  <p id="desc"></p>
+
+  <div class="dialog">
+    <div class="header">
+      <h1>컨텍스트</h1>
+      <span class="reading"><b>컨텍스트 사용량</b><span>57k / 1.0m · 5.7%</span></span>
+      <span class="close">✕</span>
+    </div>
+    <div class="overview">
+      <div class="main-bar"><span>
+        <b class="k-system" style="width:7%"></b><b class="k-assistant" style="width:20%"></b>
+        <b class="k-reasoning" style="width:19%"></b><b class="k-toolResults" style="width:46%"></b>
+        <b class="k-tools" style="width:8%"></b>
+      </span></div>
+    </div>
+
+    <div class="inspector">
+      <div class="nav">
+        <div class="block-map" id="map"></div>
+        <div class="list">
+          <div class="row k-toolResults"><i></i><span>도구 결과 <small>24개</small></span><em>2.6%</em><strong>≈26,074</strong></div>
+          <div class="row k-assistant"><i></i><span>어시스턴트 메시지 <small>20개</small></span><em>1.1%</em><strong>≈11,396</strong></div>
+          <div class="row k-reasoning"><i></i><span>추론 토큰 <small>16개</small></span><em>1.1%</em><strong>≈10,803</strong></div>
+          <div class="row k-tools"><i></i><span>시스템 도구 <small>12개</small></span><em>0.4%</em><strong>≈4,466</strong></div>
+          <div class="row k-system"><i></i><span>시스템 메시지 <small>20개</small></span><em>0.4%</em><strong>≈3,644</strong></div>
+          <div class="row k-user"><i></i><span>사용자 메시지 <small>5개</small></span><em>0%</em><strong>≈200</strong></div>
+          <div class="row k-skills"><i></i><span>스킬 <small>1개</small></span><em>0%</em><strong>≈141</strong></div>
+          <div class="row k-memory"><i></i><span>메모리 파일 <small>1개</small></span><em>0%</em><strong>≈49</strong></div>
+          <div class="row empty k-attachments"><i></i><span>첨부 파일 <small>0개</small></span><em>0%</em><strong>≈0</strong></div>
+          <div class="row empty k-mcp"><i></i><span>MCP 도구 <small>0개</small></span><em>0%</em><strong>≈0</strong></div>
+          <div class="row empty k-agents"><i></i><span>사용자 지정 에이전트 <small>0개</small></span><em>0%</em><strong>≈0</strong></div>
+        </div>
+      </div>
+      <div class="detail"><div class="empty-state"><p>카테고리를 선택하세요.</p></div></div>
+    </div>
+
+    <!-- A: plain -->
+    <div class="footer f-a" data-only="a">
+      <span class="lead">이 세션</span>
+      <span class="pair"><strong>~$2.47</strong></span>
+      <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      <span class="pair">입력 <strong>182k</strong></span>
+      <span class="pair">출력 <strong>58.3k</strong></span>
+      <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+      <span class="pair">캐시 쓰기 <strong>241k</strong></span>
+      <span class="end">42턴 · 컴팩트 2회 포함</span>
+    </div>
+
+    <!-- B: tonal band -->
+    <div class="footer f-b" data-only="b">
+      <span class="lead">이 세션</span>
+      <span class="pair"><strong>~$2.47</strong></span>
+      <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      <span class="pair">입력 <strong>182k</strong></span>
+      <span class="pair">출력 <strong>58.3k</strong></span>
+      <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+      <span class="pair">캐시 쓰기 <strong>241k</strong></span>
+      <span class="end">42턴 · 컴팩트 2회 포함</span>
+    </div>
+
+    <!-- C: chips -->
+    <div class="footer f-c" data-only="c">
+      <span class="lead">이 세션</span>
+      <span class="pair"><strong>~$2.47</strong></span>
+      <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      <span class="pair">입력 <strong>182k</strong></span>
+      <span class="pair">출력 <strong>58.3k</strong></span>
+      <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+      <span class="pair">캐시 쓰기 <strong>241k</strong></span>
+      <span class="end">42턴 · 컴팩트 2회</span>
+    </div>
+
+    <!-- D: stacked -->
+    <div class="footer f-d" data-only="d">
+      <span class="stack big"><span>이 세션 비용</span><strong>~$2.47</strong></span>
+      <span class="stack"><span>캐시 적중</span><strong>89.0%</strong></span>
+      <span class="stack"><span>입력</span><strong>182k</strong></span>
+      <span class="stack"><span>출력</span><strong>58.3k</strong></span>
+      <span class="stack"><span>캐시 읽기</span><strong>3.42m</strong></span>
+      <span class="stack"><span>캐시 쓰기</span><strong>241k</strong></span>
+      <span class="stack"><span>42턴</span><span>컴팩트 2회 포함</span></span>
+    </div>
+
+    <!-- F–H: inset hairlines -->
+    <div class="footer f-line f-f" data-only="f">
+      <span class="lead">이 세션</span>
+      <span class="pair"><strong>~$2.47</strong></span>
+      <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      <span class="pair">입력 <strong>182k</strong></span>
+      <span class="pair">출력 <strong>58.3k</strong></span>
+      <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+      <span class="pair">캐시 쓰기 <strong>241k</strong></span>
+      <span class="end">42턴 · 컴팩트 2회 포함</span>
+    </div>
+    <div class="footer f-line f-g" data-only="g">
+      <span class="lead">이 세션</span>
+      <span class="pair"><strong>~$2.47</strong></span>
+      <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      <span class="pair">입력 <strong>182k</strong></span>
+      <span class="pair">출력 <strong>58.3k</strong></span>
+      <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+      <span class="pair">캐시 쓰기 <strong>241k</strong></span>
+      <span class="end">42턴 · 컴팩트 2회 포함</span>
+    </div>
+    <div class="footer f-line f-h" data-only="h">
+      <span class="lead">이 세션</span>
+      <span class="pair"><strong>~$2.47</strong></span>
+      <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      <span class="pair">입력 <strong>182k</strong></span>
+      <span class="pair">출력 <strong>58.3k</strong></span>
+      <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+      <span class="pair">캐시 쓰기 <strong>241k</strong></span>
+      <span class="end">42턴 · 컴팩트 2회 포함</span>
+    </div>
+
+    <!-- E: split under panes -->
+    <div class="footer f-e" data-only="e">
+      <div class="money">
+        <span class="lead">이 세션</span>
+        <span class="pair"><strong>~$2.47</strong></span>
+        <span class="pair">캐시 적중 <strong>89.0%</strong></span>
+      </div>
+      <div>
+        <span class="pair">입력 <strong>182k</strong></span>
+        <span class="pair">출력 <strong>58.3k</strong></span>
+        <span class="pair">캐시 읽기 <strong>3.42m</strong></span>
+        <span class="pair">쓰기 <strong>241k</strong></span>
+        <span class="end">42턴</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const variants = [
+    ['a', '기본', '선·점 없이 간격만. 라벨은 흐리게, 숫자는 밝게.'],
+    ['b', '바닥 톤', '선 대신 하단줄 바탕만 살짝 어둡게 깔아서 구분합니다.'],
+    ['c', '칩', '항목마다 옅은 알약 배경. 선이 아니라 덩어리로 구분합니다.'],
+    ['d', '2단 (라벨 위·숫자 아래)', '작은 라벨 아래 숫자. 폭 전체에 고르게 펼치고 비용만 크게.'],
+    ['e', '패널별 분할', '왼쪽 패널 아래엔 비용·적중률, 오른쪽 패널 아래엔 토큰 숫자.'],
+    ['f', '안쪽 선', '창 양끝에서 22px씩 띄운 가는 선. 글자 시작선과 끝선에 맞춥니다.'],
+    ['g', '끝이 흐려지는 선', '양끝이 투명하게 사라지는 선. 가운데만 보입니다.'],
+    ['h', '가운데 짧은 선', '폭의 40%만, 가운데에서 양쪽으로 흐려지는 짧은 선.'],
+  ];
+  // Open on the new inset-line variants.
+  const START = 'f';
+  const map = document.getElementById('map');
+  const used = ['k-system', 'k-assistant', 'k-reasoning', 'k-toolResults', 'k-toolResults', 'k-toolResults', 'k-tools'];
+  for (let i = 0; i < 128; i++) {
+    const block = document.createElement('i');
+    block.className = used[i] || 'free';
+    map.appendChild(block);
+  }
+  const sw = document.getElementById('switch');
+  const desc = document.getElementById('desc');
+  const show = (v) => {
+    for (const el of document.querySelectorAll('[data-only]')) el.hidden = el.dataset.only !== v;
+    for (const b of sw.children) b.setAttribute('aria-pressed', String(b.dataset.v === v));
+    desc.textContent = variants.find(([id]) => id === v)[2];
+  };
+  variants.forEach(([id, name], i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.v = id; b.textContent = `${i + 1} · ${name}`;
+    b.addEventListener('click', () => show(id));
+    sw.appendChild(b);
+  });
+  addEventListener('keydown', (e) => { const v = variants[Number(e.key) - 1]; if (v) show(v[0]); });
+  show(START);
+</script>
+</body>
+</html>

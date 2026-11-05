@@ -1,0 +1,9 @@
+{
+ "url": "https://example.com/empty.txt",
+ "contentType": "text/plain",
+ "expected": {
+  "ok": false,
+  "code": "EMPTY_CONTENT",
+  "message": "No readable content in response"
+ }
+}

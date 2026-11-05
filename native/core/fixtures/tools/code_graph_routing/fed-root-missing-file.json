@@ -1,0 +1,21 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>"
+  ],
+  "input": {
+    "files": [
+      "<ROOT>/reg/other/none.mjs"
+    ],
+    "mode": "overview"
+  },
+  "isError": true,
+  "registered": [
+    "reg/outer",
+    "reg/outer/inner",
+    "reg/other"
+  ],
+  "text": "Error: code_graph: file not found: <ROOT>/reg/other/none.mjs",
+  "tool": "code_graph"
+}

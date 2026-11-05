@@ -1,0 +1,2925 @@
+{
+ "node": {
+  "version": "22.20.0",
+  "engines": "^22.19.0 || >=24.0.0"
+ },
+ "packageVersion": "1.4.5",
+ "bridges": {
+  "browser": true,
+  "computer": true
+ },
+ "cases": [
+  {
+   "name": "healthy/ok",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.4.5",
+     "updateAvailable": false
+    },
+    "provider": "anthropic",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "anthropic",
+       "authenticated": true,
+       "enabled": true
+      },
+      {
+       "id": "openai",
+       "authenticated": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "openai-oauth",
+       "usable": true
+      }
+     ],
+     "local": [
+      {
+       "id": "local",
+       "usable": false,
+       "detected": false,
+       "type": "local"
+      }
+     ]
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "web",
+       "connected": true
+      }
+     ],
+     "configuredCount": 2
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       },
+       {
+        "installed": false
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 2
+       }
+      ]
+     },
+     "git": {
+      "installed": true,
+      "enabled": true
+     },
+     "office": {
+      "installed": true,
+      "enabled": false
+     },
+     "tidy": {
+      "installed": false
+     }
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": {
+     "enabled": true,
+     "installed": true,
+     "components": {
+      "model": true
+     }
+    },
+    "channelSettings": {
+     "status": {
+      "running": true
+     }
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "enabled": true
+      },
+      {
+       "name": "b",
+       "enabled": false
+      },
+      {
+       "name": "c",
+       "activeHere": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": {
+     "enabled": true,
+     "ruleCount": 3,
+     "configuredEvents": [
+      "PreToolUse"
+     ],
+     "errors": []
+    }
+   },
+   "layout": "ok",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 16,
+     "warn": 0,
+     "fail": 0
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "ok",
+      "detail": "v1.4.5 · up to date"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "ok",
+      "detail": "2 ready · route anthropic"
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "ok",
+      "detail": "2/2 connected"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "ok",
+      "detail": "installed · enabled · recap enabled"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "ok",
+      "detail": "installed · enabled · 1 models installed"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "ok",
+      "detail": "enabled · runtime and model installed"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "ok",
+      "detail": "worker running"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "ok",
+      "detail": "1/3 active · 1 disabled · 1 outside this project"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "ok",
+      "detail": "enabled · 3 rules · 1 configured events"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json is valid"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "2 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n✓ mixdog: v1.4.5 · up to date\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✓ providers: 2 ready · route anthropic\n✓ mcp: 2/2 connected\n✓ memory: installed · enabled · recap enabled\n✓ local provider: installed · enabled · 1 models installed\n✓ built-ins: enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active\n✓ voice: enabled · runtime and model installed\n✓ automation: worker running\n✓ skills: 1/3 active · 1 disabled · 1 outside this project\n✓ plugins: 1/1 active\n✓ hooks: enabled · 3 rules · 1 configured events\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json is valid\n✓ logs: 2 log files in the data folder\n✓ session log: nothing to migrate\n16 ok · 0 warnings · 0 failed"
+  },
+  {
+   "name": "healthy/broken",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.4.5",
+     "updateAvailable": false
+    },
+    "provider": "anthropic",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "anthropic",
+       "authenticated": true,
+       "enabled": true
+      },
+      {
+       "id": "openai",
+       "authenticated": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "openai-oauth",
+       "usable": true
+      }
+     ],
+     "local": [
+      {
+       "id": "local",
+       "usable": false,
+       "detected": false,
+       "type": "local"
+      }
+     ]
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "web",
+       "connected": true
+      }
+     ],
+     "configuredCount": 2
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       },
+       {
+        "installed": false
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 2
+       }
+      ]
+     },
+     "git": {
+      "installed": true,
+      "enabled": true
+     },
+     "office": {
+      "installed": true,
+      "enabled": false
+     },
+     "tidy": {
+      "installed": false
+     }
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": {
+     "enabled": true,
+     "installed": true,
+     "components": {
+      "model": true
+     }
+    },
+    "channelSettings": {
+     "status": {
+      "running": true
+     }
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "enabled": true
+      },
+      {
+       "name": "b",
+       "enabled": false
+      },
+      {
+       "name": "c",
+       "activeHere": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": {
+     "enabled": true,
+     "ruleCount": 3,
+     "configuredEvents": [
+      "PreToolUse"
+     ],
+     "errors": []
+    }
+   },
+   "layout": "broken",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 15,
+     "warn": 0,
+     "fail": 1
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "ok",
+      "detail": "v1.4.5 · up to date"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "ok",
+      "detail": "2 ready · route anthropic"
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "ok",
+      "detail": "2/2 connected"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "ok",
+      "detail": "installed · enabled · recap enabled"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "ok",
+      "detail": "installed · enabled · 1 models installed"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "ok",
+      "detail": "enabled · runtime and model installed"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "ok",
+      "detail": "worker running"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "ok",
+      "detail": "1/3 active · 1 disabled · 1 outside this project"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "ok",
+      "detail": "enabled · 3 rules · 1 configured events"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "fail",
+      "detail": "mixdog-config.json is not a valid JSON object",
+      "fix": {
+       "hint": "fix the JSON syntax in the config file"
+      }
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "0 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n✓ mixdog: v1.4.5 · up to date\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✓ providers: 2 ready · route anthropic\n✓ mcp: 2/2 connected\n✓ memory: installed · enabled · recap enabled\n✓ local provider: installed · enabled · 1 models installed\n✓ built-ins: enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active\n✓ voice: enabled · runtime and model installed\n✓ automation: worker running\n✓ skills: 1/3 active · 1 disabled · 1 outside this project\n✓ plugins: 1/1 active\n✓ hooks: enabled · 3 rules · 1 configured events\n✓ data folder: writable · <DATA>\n✗ config: mixdog-config.json is not a valid JSON object\n    → fix the JSON syntax in the config file\n✓ logs: 0 log files in the data folder\n✓ session log: nothing to migrate\n15 ok · 0 warnings · 1 failed"
+  },
+  {
+   "name": "healthy/empty",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.4.5",
+     "updateAvailable": false
+    },
+    "provider": "anthropic",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "anthropic",
+       "authenticated": true,
+       "enabled": true
+      },
+      {
+       "id": "openai",
+       "authenticated": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "openai-oauth",
+       "usable": true
+      }
+     ],
+     "local": [
+      {
+       "id": "local",
+       "usable": false,
+       "detected": false,
+       "type": "local"
+      }
+     ]
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "web",
+       "connected": true
+      }
+     ],
+     "configuredCount": 2
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       },
+       {
+        "installed": false
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 2
+       }
+      ]
+     },
+     "git": {
+      "installed": true,
+      "enabled": true
+     },
+     "office": {
+      "installed": true,
+      "enabled": false
+     },
+     "tidy": {
+      "installed": false
+     }
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": {
+     "enabled": true,
+     "installed": true,
+     "components": {
+      "model": true
+     }
+    },
+    "channelSettings": {
+     "status": {
+      "running": true
+     }
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "enabled": true
+      },
+      {
+       "name": "b",
+       "enabled": false
+      },
+      {
+       "name": "c",
+       "activeHere": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": {
+     "enabled": true,
+     "ruleCount": 3,
+     "configuredEvents": [
+      "PreToolUse"
+     ],
+     "errors": []
+    }
+   },
+   "layout": "empty",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 16,
+     "warn": 0,
+     "fail": 0
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "ok",
+      "detail": "v1.4.5 · up to date"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "ok",
+      "detail": "2 ready · route anthropic"
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "ok",
+      "detail": "2/2 connected"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "ok",
+      "detail": "installed · enabled · recap enabled"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "ok",
+      "detail": "installed · enabled · 1 models installed"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "ok",
+      "detail": "enabled · runtime and model installed"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "ok",
+      "detail": "worker running"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "ok",
+      "detail": "1/3 active · 1 disabled · 1 outside this project"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "ok",
+      "detail": "enabled · 3 rules · 1 configured events"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json not created yet · defaults in use"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "0 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n✓ mixdog: v1.4.5 · up to date\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✓ providers: 2 ready · route anthropic\n✓ mcp: 2/2 connected\n✓ memory: installed · enabled · recap enabled\n✓ local provider: installed · enabled · 1 models installed\n✓ built-ins: enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active\n✓ voice: enabled · runtime and model installed\n✓ automation: worker running\n✓ skills: 1/3 active · 1 disabled · 1 outside this project\n✓ plugins: 1/1 active\n✓ hooks: enabled · 3 rules · 1 configured events\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json not created yet · defaults in use\n✓ logs: 0 log files in the data folder\n✓ session log: nothing to migrate\n16 ok · 0 warnings · 0 failed"
+  },
+  {
+   "name": "healthy/many",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.4.5",
+     "updateAvailable": false
+    },
+    "provider": "anthropic",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "anthropic",
+       "authenticated": true,
+       "enabled": true
+      },
+      {
+       "id": "openai",
+       "authenticated": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "openai-oauth",
+       "usable": true
+      }
+     ],
+     "local": [
+      {
+       "id": "local",
+       "usable": false,
+       "detected": false,
+       "type": "local"
+      }
+     ]
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "web",
+       "connected": true
+      }
+     ],
+     "configuredCount": 2
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       },
+       {
+        "installed": false
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 2
+       }
+      ]
+     },
+     "git": {
+      "installed": true,
+      "enabled": true
+     },
+     "office": {
+      "installed": true,
+      "enabled": false
+     },
+     "tidy": {
+      "installed": false
+     }
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": {
+     "enabled": true,
+     "installed": true,
+     "components": {
+      "model": true
+     }
+    },
+    "channelSettings": {
+     "status": {
+      "running": true
+     }
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "enabled": true
+      },
+      {
+       "name": "b",
+       "enabled": false
+      },
+      {
+       "name": "c",
+       "activeHere": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": {
+     "enabled": true,
+     "ruleCount": 3,
+     "configuredEvents": [
+      "PreToolUse"
+     ],
+     "errors": []
+    }
+   },
+   "layout": "many",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 14,
+     "warn": 1,
+     "fail": 1
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "ok",
+      "detail": "v1.4.5 · up to date"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "ok",
+      "detail": "2 ready · route anthropic"
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "ok",
+      "detail": "2/2 connected"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "ok",
+      "detail": "installed · enabled · recap enabled"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "ok",
+      "detail": "installed · enabled · 1 models installed"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "ok",
+      "detail": "enabled · runtime and model installed"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "ok",
+      "detail": "worker running"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "ok",
+      "detail": "1/3 active · 1 disabled · 1 outside this project"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "ok",
+      "detail": "enabled · 3 rules · 1 configured events"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "fail",
+      "detail": "mixdog-config.json is not a valid JSON object",
+      "fix": {
+       "hint": "fix the JSON syntax in the config file"
+      }
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "warn",
+      "detail": "301 log files in the data folder (over 300)",
+      "fix": {
+       "hint": "old per-process logs are not being pruned"
+      }
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n✓ mixdog: v1.4.5 · up to date\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✓ providers: 2 ready · route anthropic\n✓ mcp: 2/2 connected\n✓ memory: installed · enabled · recap enabled\n✓ local provider: installed · enabled · 1 models installed\n✓ built-ins: enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active\n✓ voice: enabled · runtime and model installed\n✓ automation: worker running\n✓ skills: 1/3 active · 1 disabled · 1 outside this project\n✓ plugins: 1/1 active\n✓ hooks: enabled · 3 rules · 1 configured events\n✓ data folder: writable · <DATA>\n✗ config: mixdog-config.json is not a valid JSON object\n    → fix the JSON syntax in the config file\n⚠ logs: 301 log files in the data folder (over 300)\n    → old per-process logs are not being pruned\n✓ session log: nothing to migrate\n14 ok · 1 warnings · 1 failed"
+  },
+  {
+   "name": "troubled/ok",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.5.0",
+     "updateAvailable": true
+    },
+    "provider": "openai",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "openai",
+       "authenticated": false,
+       "enabled": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "x",
+       "reauthRequired": true
+      }
+     ],
+     "local": []
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "bad",
+       "error": "boom"
+      },
+      {
+       "name": "slow",
+       "connected": false
+      },
+      {
+       "name": "off",
+       "enabled": false
+      },
+      {
+       "name": "elsewhere",
+       "activeHere": false
+      }
+     ],
+     "configuredCount": 5
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 1
+       },
+       {
+        "state": "failed",
+        "updatedAt": 5
+       }
+      ]
+     },
+     "git": {
+      "installed": false
+     },
+     "office": {
+      "installed": true
+     },
+     "tidy": {
+      "installed": true,
+      "enabled": false
+     }
+    },
+    "recap": {},
+    "voice": {
+     "enabled": true,
+     "installed": false
+    },
+    "channelSettings": {
+     "status": {
+      "running": false
+     }
+    },
+    "channelSetup": {
+     "schedules": [
+      {
+       "enabled": true,
+       "status": "pending"
+      }
+     ],
+     "webhooks": []
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "error": "x"
+      },
+      {
+       "id": "b",
+       "invalid": true
+      },
+      {
+       "name": "c",
+       "dependencyIssues": [
+        "d"
+       ]
+      },
+      {
+       "name": "d",
+       "enabled": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "broken": true
+      }
+     ],
+     "missing": [
+      {
+       "name": "gone"
+      },
+      {
+       "name": "ignored",
+       "enabled": false
+      }
+     ]
+    },
+    "hooks": {
+     "enabled": false,
+     "ruleCount": 2,
+     "configuredEvents": [],
+     "errors": [
+      1,
+      2
+     ]
+    }
+   },
+   "layout": "ok",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 6,
+     "warn": 9,
+     "fail": 1
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "v1.4.5 · update available → v1.5.0",
+      "fix": {
+       "command": "/update"
+      }
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "fail",
+      "detail": "route openai is disabled · 0 ready",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "warn",
+      "detail": "1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow",
+      "fix": {
+       "command": "/mcp"
+      }
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "warn",
+      "detail": "installed · enabled · recap status unavailable"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "warn",
+      "detail": "installed · enabled · 1 models · latest installation failed",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "warn",
+      "detail": "enabled · runtime or model not installed",
+      "fix": {
+       "hint": "reinstall voice from Extensions"
+      }
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "warn",
+      "detail": "worker stopped with active automation",
+      "fix": {
+       "hint": "enabled schedules and webhooks are not running"
+      }
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "warn",
+      "detail": "3/4 active · 1 disabled · issues: a, b, c",
+      "fix": {
+       "command": "/skills"
+      }
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "warn",
+      "detail": "1/1 active · issues: p, gone",
+      "fix": {
+       "command": "/plugins"
+      }
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "disabled · 2 rules · 0 configured events · 2 configuration errors"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json is valid"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "2 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: v1.4.5 · update available → v1.5.0\n    → run /update\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✗ providers: route openai is disabled · 0 ready\n    → run /providers\n⚠ mcp: 1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow\n    → run /mcp\n⚠ memory: installed · enabled · recap status unavailable\n⚠ local provider: installed · enabled · 1 models · latest installation failed\n    → run /providers\n✓ built-ins: enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active\n⚠ voice: enabled · runtime or model not installed\n    → reinstall voice from Extensions\n⚠ automation: worker stopped with active automation\n    → enabled schedules and webhooks are not running\n⚠ skills: 3/4 active · 1 disabled · issues: a, b, c\n    → run /skills\n⚠ plugins: 1/1 active · issues: p, gone\n    → run /plugins\n⚠ hooks: disabled · 2 rules · 0 configured events · 2 configuration errors\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json is valid\n✓ logs: 2 log files in the data folder\n✓ session log: nothing to migrate\n6 ok · 9 warnings · 1 failed"
+  },
+  {
+   "name": "troubled/broken",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.5.0",
+     "updateAvailable": true
+    },
+    "provider": "openai",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "openai",
+       "authenticated": false,
+       "enabled": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "x",
+       "reauthRequired": true
+      }
+     ],
+     "local": []
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "bad",
+       "error": "boom"
+      },
+      {
+       "name": "slow",
+       "connected": false
+      },
+      {
+       "name": "off",
+       "enabled": false
+      },
+      {
+       "name": "elsewhere",
+       "activeHere": false
+      }
+     ],
+     "configuredCount": 5
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 1
+       },
+       {
+        "state": "failed",
+        "updatedAt": 5
+       }
+      ]
+     },
+     "git": {
+      "installed": false
+     },
+     "office": {
+      "installed": true
+     },
+     "tidy": {
+      "installed": true,
+      "enabled": false
+     }
+    },
+    "recap": {},
+    "voice": {
+     "enabled": true,
+     "installed": false
+    },
+    "channelSettings": {
+     "status": {
+      "running": false
+     }
+    },
+    "channelSetup": {
+     "schedules": [
+      {
+       "enabled": true,
+       "status": "pending"
+      }
+     ],
+     "webhooks": []
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "error": "x"
+      },
+      {
+       "id": "b",
+       "invalid": true
+      },
+      {
+       "name": "c",
+       "dependencyIssues": [
+        "d"
+       ]
+      },
+      {
+       "name": "d",
+       "enabled": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "broken": true
+      }
+     ],
+     "missing": [
+      {
+       "name": "gone"
+      },
+      {
+       "name": "ignored",
+       "enabled": false
+      }
+     ]
+    },
+    "hooks": {
+     "enabled": false,
+     "ruleCount": 2,
+     "configuredEvents": [],
+     "errors": [
+      1,
+      2
+     ]
+    }
+   },
+   "layout": "broken",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 5,
+     "warn": 9,
+     "fail": 2
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "v1.4.5 · update available → v1.5.0",
+      "fix": {
+       "command": "/update"
+      }
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "fail",
+      "detail": "route openai is disabled · 0 ready",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "warn",
+      "detail": "1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow",
+      "fix": {
+       "command": "/mcp"
+      }
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "warn",
+      "detail": "installed · enabled · recap status unavailable"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "warn",
+      "detail": "installed · enabled · 1 models · latest installation failed",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "warn",
+      "detail": "enabled · runtime or model not installed",
+      "fix": {
+       "hint": "reinstall voice from Extensions"
+      }
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "warn",
+      "detail": "worker stopped with active automation",
+      "fix": {
+       "hint": "enabled schedules and webhooks are not running"
+      }
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "warn",
+      "detail": "3/4 active · 1 disabled · issues: a, b, c",
+      "fix": {
+       "command": "/skills"
+      }
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "warn",
+      "detail": "1/1 active · issues: p, gone",
+      "fix": {
+       "command": "/plugins"
+      }
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "disabled · 2 rules · 0 configured events · 2 configuration errors"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "fail",
+      "detail": "mixdog-config.json is not a valid JSON object",
+      "fix": {
+       "hint": "fix the JSON syntax in the config file"
+      }
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "0 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: v1.4.5 · update available → v1.5.0\n    → run /update\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✗ providers: route openai is disabled · 0 ready\n    → run /providers\n⚠ mcp: 1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow\n    → run /mcp\n⚠ memory: installed · enabled · recap status unavailable\n⚠ local provider: installed · enabled · 1 models · latest installation failed\n    → run /providers\n✓ built-ins: enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active\n⚠ voice: enabled · runtime or model not installed\n    → reinstall voice from Extensions\n⚠ automation: worker stopped with active automation\n    → enabled schedules and webhooks are not running\n⚠ skills: 3/4 active · 1 disabled · issues: a, b, c\n    → run /skills\n⚠ plugins: 1/1 active · issues: p, gone\n    → run /plugins\n⚠ hooks: disabled · 2 rules · 0 configured events · 2 configuration errors\n✓ data folder: writable · <DATA>\n✗ config: mixdog-config.json is not a valid JSON object\n    → fix the JSON syntax in the config file\n✓ logs: 0 log files in the data folder\n✓ session log: nothing to migrate\n5 ok · 9 warnings · 2 failed"
+  },
+  {
+   "name": "troubled/empty",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.5.0",
+     "updateAvailable": true
+    },
+    "provider": "openai",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "openai",
+       "authenticated": false,
+       "enabled": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "x",
+       "reauthRequired": true
+      }
+     ],
+     "local": []
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "bad",
+       "error": "boom"
+      },
+      {
+       "name": "slow",
+       "connected": false
+      },
+      {
+       "name": "off",
+       "enabled": false
+      },
+      {
+       "name": "elsewhere",
+       "activeHere": false
+      }
+     ],
+     "configuredCount": 5
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 1
+       },
+       {
+        "state": "failed",
+        "updatedAt": 5
+       }
+      ]
+     },
+     "git": {
+      "installed": false
+     },
+     "office": {
+      "installed": true
+     },
+     "tidy": {
+      "installed": true,
+      "enabled": false
+     }
+    },
+    "recap": {},
+    "voice": {
+     "enabled": true,
+     "installed": false
+    },
+    "channelSettings": {
+     "status": {
+      "running": false
+     }
+    },
+    "channelSetup": {
+     "schedules": [
+      {
+       "enabled": true,
+       "status": "pending"
+      }
+     ],
+     "webhooks": []
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "error": "x"
+      },
+      {
+       "id": "b",
+       "invalid": true
+      },
+      {
+       "name": "c",
+       "dependencyIssues": [
+        "d"
+       ]
+      },
+      {
+       "name": "d",
+       "enabled": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "broken": true
+      }
+     ],
+     "missing": [
+      {
+       "name": "gone"
+      },
+      {
+       "name": "ignored",
+       "enabled": false
+      }
+     ]
+    },
+    "hooks": {
+     "enabled": false,
+     "ruleCount": 2,
+     "configuredEvents": [],
+     "errors": [
+      1,
+      2
+     ]
+    }
+   },
+   "layout": "empty",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 6,
+     "warn": 9,
+     "fail": 1
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "v1.4.5 · update available → v1.5.0",
+      "fix": {
+       "command": "/update"
+      }
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "fail",
+      "detail": "route openai is disabled · 0 ready",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "warn",
+      "detail": "1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow",
+      "fix": {
+       "command": "/mcp"
+      }
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "warn",
+      "detail": "installed · enabled · recap status unavailable"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "warn",
+      "detail": "installed · enabled · 1 models · latest installation failed",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "warn",
+      "detail": "enabled · runtime or model not installed",
+      "fix": {
+       "hint": "reinstall voice from Extensions"
+      }
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "warn",
+      "detail": "worker stopped with active automation",
+      "fix": {
+       "hint": "enabled schedules and webhooks are not running"
+      }
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "warn",
+      "detail": "3/4 active · 1 disabled · issues: a, b, c",
+      "fix": {
+       "command": "/skills"
+      }
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "warn",
+      "detail": "1/1 active · issues: p, gone",
+      "fix": {
+       "command": "/plugins"
+      }
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "disabled · 2 rules · 0 configured events · 2 configuration errors"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json not created yet · defaults in use"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "0 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: v1.4.5 · update available → v1.5.0\n    → run /update\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✗ providers: route openai is disabled · 0 ready\n    → run /providers\n⚠ mcp: 1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow\n    → run /mcp\n⚠ memory: installed · enabled · recap status unavailable\n⚠ local provider: installed · enabled · 1 models · latest installation failed\n    → run /providers\n✓ built-ins: enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active\n⚠ voice: enabled · runtime or model not installed\n    → reinstall voice from Extensions\n⚠ automation: worker stopped with active automation\n    → enabled schedules and webhooks are not running\n⚠ skills: 3/4 active · 1 disabled · issues: a, b, c\n    → run /skills\n⚠ plugins: 1/1 active · issues: p, gone\n    → run /plugins\n⚠ hooks: disabled · 2 rules · 0 configured events · 2 configuration errors\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json not created yet · defaults in use\n✓ logs: 0 log files in the data folder\n✓ session log: nothing to migrate\n6 ok · 9 warnings · 1 failed"
+  },
+  {
+   "name": "troubled/many",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.5.0",
+     "updateAvailable": true
+    },
+    "provider": "openai",
+    "providerSetup": {
+     "api": [
+      {
+       "id": "openai",
+       "authenticated": false,
+       "enabled": false
+      }
+     ],
+     "oauth": [
+      {
+       "id": "x",
+       "reauthRequired": true
+      }
+     ],
+     "local": []
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "bad",
+       "error": "boom"
+      },
+      {
+       "name": "slow",
+       "connected": false
+      },
+      {
+       "name": "off",
+       "enabled": false
+      },
+      {
+       "name": "elsewhere",
+       "activeHere": false
+      }
+     ],
+     "configuredCount": 5
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 1
+       },
+       {
+        "state": "failed",
+        "updatedAt": 5
+       }
+      ]
+     },
+     "git": {
+      "installed": false
+     },
+     "office": {
+      "installed": true
+     },
+     "tidy": {
+      "installed": true,
+      "enabled": false
+     }
+    },
+    "recap": {},
+    "voice": {
+     "enabled": true,
+     "installed": false
+    },
+    "channelSettings": {
+     "status": {
+      "running": false
+     }
+    },
+    "channelSetup": {
+     "schedules": [
+      {
+       "enabled": true,
+       "status": "pending"
+      }
+     ],
+     "webhooks": []
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "error": "x"
+      },
+      {
+       "id": "b",
+       "invalid": true
+      },
+      {
+       "name": "c",
+       "dependencyIssues": [
+        "d"
+       ]
+      },
+      {
+       "name": "d",
+       "enabled": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "broken": true
+      }
+     ],
+     "missing": [
+      {
+       "name": "gone"
+      },
+      {
+       "name": "ignored",
+       "enabled": false
+      }
+     ]
+    },
+    "hooks": {
+     "enabled": false,
+     "ruleCount": 2,
+     "configuredEvents": [],
+     "errors": [
+      1,
+      2
+     ]
+    }
+   },
+   "layout": "many",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 4,
+     "warn": 10,
+     "fail": 2
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "v1.4.5 · update available → v1.5.0",
+      "fix": {
+       "command": "/update"
+      }
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "fail",
+      "detail": "route openai is disabled · 0 ready",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "warn",
+      "detail": "1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow",
+      "fix": {
+       "command": "/mcp"
+      }
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "warn",
+      "detail": "installed · enabled · recap status unavailable"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "warn",
+      "detail": "installed · enabled · 1 models · latest installation failed",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "warn",
+      "detail": "enabled · runtime or model not installed",
+      "fix": {
+       "hint": "reinstall voice from Extensions"
+      }
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "warn",
+      "detail": "worker stopped with active automation",
+      "fix": {
+       "hint": "enabled schedules and webhooks are not running"
+      }
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "warn",
+      "detail": "3/4 active · 1 disabled · issues: a, b, c",
+      "fix": {
+       "command": "/skills"
+      }
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "warn",
+      "detail": "1/1 active · issues: p, gone",
+      "fix": {
+       "command": "/plugins"
+      }
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "disabled · 2 rules · 0 configured events · 2 configuration errors"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "fail",
+      "detail": "mixdog-config.json is not a valid JSON object",
+      "fix": {
+       "hint": "fix the JSON syntax in the config file"
+      }
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "warn",
+      "detail": "301 log files in the data folder (over 300)",
+      "fix": {
+       "hint": "old per-process logs are not being pruned"
+      }
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: v1.4.5 · update available → v1.5.0\n    → run /update\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n✗ providers: route openai is disabled · 0 ready\n    → run /providers\n⚠ mcp: 1/3 connected · 1 disabled · 1 outside this project · failed: bad · disconnected: slow\n    → run /mcp\n⚠ memory: installed · enabled · recap status unavailable\n⚠ local provider: installed · enabled · 1 models · latest installation failed\n    → run /providers\n✓ built-ins: enabled: office · disabled: tidy · not installed: git · browser use bridge active · computer use bridge active\n⚠ voice: enabled · runtime or model not installed\n    → reinstall voice from Extensions\n⚠ automation: worker stopped with active automation\n    → enabled schedules and webhooks are not running\n⚠ skills: 3/4 active · 1 disabled · issues: a, b, c\n    → run /skills\n⚠ plugins: 1/1 active · issues: p, gone\n    → run /plugins\n⚠ hooks: disabled · 2 rules · 0 configured events · 2 configuration errors\n✓ data folder: writable · <DATA>\n✗ config: mixdog-config.json is not a valid JSON object\n    → fix the JSON syntax in the config file\n⚠ logs: 301 log files in the data folder (over 300)\n    → old per-process logs are not being pruned\n✓ session log: nothing to migrate\n4 ok · 10 warnings · 2 failed"
+  },
+  {
+   "name": "idle/ok",
+   "fixture": {
+    "update": {
+     "currentVersion": "",
+     "latestVersion": null
+    },
+    "provider": "",
+    "providerSetup": {
+     "pendingSecrets": true,
+     "api": [],
+     "oauth": [],
+     "local": []
+    },
+    "mcpStatus": {
+     "servers": [],
+     "configuredCount": 0
+    },
+    "toolModules": {
+     "memory": {
+      "installed": false,
+      "enabled": false
+     },
+     "localProvider": {
+      "installed": false
+     },
+     "git": {
+      "installed": true,
+      "enabled": true
+     },
+     "office": {
+      "installed": true,
+      "enabled": true
+     },
+     "tidy": {
+      "installed": true,
+      "enabled": true
+     }
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": {
+     "enabled": false
+    },
+    "channelSettings": {},
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "enabled": true
+      },
+      {
+       "name": "b",
+       "enabled": false
+      },
+      {
+       "name": "c",
+       "activeHere": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": {
+     "enabled": true
+    },
+    "channelWorker": {
+     "running": false
+    },
+    "channelSetup": {
+     "schedules": [
+      {
+       "enabled": false
+      },
+      {
+       "status": "done"
+      }
+     ],
+     "webhooks": [
+      {
+       "enabled": false
+      }
+     ]
+    }
+   },
+   "layout": "ok",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 13,
+     "warn": 3,
+     "fail": 0
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "v1.4.5 · update check skipped (registry unreachable)"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "warn",
+      "detail": "credentials still loading · route unknown · run /doctor again when ready"
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "ok",
+      "detail": "no servers configured"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "ok",
+      "detail": "not installed"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "ok",
+      "detail": "not installed"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: git, office, tidy · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "ok",
+      "detail": "disabled"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "ok",
+      "detail": "idle (no active schedules or webhooks)"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "ok",
+      "detail": "1/3 active · 1 disabled · 1 outside this project"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json is valid"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "2 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: v1.4.5 · update check skipped (registry unreachable)\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n⚠ providers: credentials still loading · route unknown · run /doctor again when ready\n✓ mcp: no servers configured\n✓ memory: not installed\n✓ local provider: not installed\n✓ built-ins: enabled: git, office, tidy · browser use bridge active · computer use bridge active\n✓ voice: disabled\n✓ automation: idle (no active schedules or webhooks)\n✓ skills: 1/3 active · 1 disabled · 1 outside this project\n✓ plugins: 1/1 active\n⚠ hooks: status unavailable\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json is valid\n✓ logs: 2 log files in the data folder\n✓ session log: nothing to migrate\n13 ok · 3 warnings · 0 failed"
+  },
+  {
+   "name": "bare/ok",
+   "fixture": {
+    "provider": ""
+   },
+   "layout": "ok",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 5,
+     "warn": 11,
+     "fail": 0
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json is valid"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "2 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: status unavailable\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n⚠ providers: status unavailable\n⚠ mcp: status unavailable\n⚠ memory: status unavailable\n⚠ local provider: status unavailable\n⚠ built-ins: status unavailable\n⚠ voice: status unavailable\n⚠ automation: status unavailable\n⚠ skills: status unavailable\n⚠ plugins: status unavailable\n⚠ hooks: status unavailable\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json is valid\n✓ logs: 2 log files in the data folder\n✓ session log: nothing to migrate\n5 ok · 11 warnings · 0 failed"
+  },
+  {
+   "name": "faulty/ok",
+   "fixture": {
+    "update": {
+     "$hang": true
+    },
+    "provider": "anthropic",
+    "providerSetup": {
+     "api": [],
+     "oauth": [],
+     "local": []
+    },
+    "mcpStatus": {
+     "$throw": true
+    },
+    "toolModules": {
+     "$throw": true
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": [
+     1
+    ],
+    "channelSettings": {
+     "status": {
+      "running": true
+     }
+    },
+    "skills": {
+     "skills": "x"
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": null
+   },
+   "layout": "ok",
+   "timeoutMs": 1500,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 7,
+     "warn": 5,
+     "fail": 4
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "warn",
+      "detail": "no response within 2s"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "warn",
+      "detail": "0 ready · route anthropic (not listed)",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "fail",
+      "detail": "check failed (error details omitted)"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "fail",
+      "detail": "check failed (error details omitted)"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "fail",
+      "detail": "check failed (error details omitted)"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "fail",
+      "detail": "check failed (error details omitted)"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "ok",
+      "detail": "worker running"
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "warn",
+      "detail": "status unavailable"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json is valid"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "2 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n⚠ mixdog: no response within 2s\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n⚠ providers: 0 ready · route anthropic (not listed)\n    → run /providers\n✗ mcp: check failed (error details omitted)\n✗ memory: check failed (error details omitted)\n✗ local provider: check failed (error details omitted)\n✗ built-ins: check failed (error details omitted)\n⚠ voice: status unavailable\n✓ automation: worker running\n⚠ skills: status unavailable\n✓ plugins: 1/1 active\n⚠ hooks: status unavailable\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json is valid\n✓ logs: 2 log files in the data folder\n✓ session log: nothing to migrate\n7 ok · 5 warnings · 4 failed"
+  },
+  {
+   "name": "unlisted/ok",
+   "fixture": {
+    "update": {
+     "currentVersion": "1.4.5",
+     "latestVersion": "1.4.5",
+     "updateAvailable": false
+    },
+    "provider": "ghost",
+    "providerSetup": {
+     "api": [],
+     "oauth": [],
+     "local": []
+    },
+    "mcpStatus": {
+     "servers": [
+      {
+       "name": "fs",
+       "connected": true
+      },
+      {
+       "name": "web",
+       "connected": true
+      }
+     ],
+     "configuredCount": 2
+    },
+    "toolModules": {
+     "memory": {
+      "installed": true,
+      "enabled": true
+     },
+     "localProvider": {
+      "installed": true,
+      "enabled": true,
+      "models": [
+       {
+        "installed": true
+       },
+       {
+        "installed": false
+       }
+      ],
+      "installations": [
+       {
+        "state": "done",
+        "updatedAt": 2
+       }
+      ]
+     },
+     "git": {
+      "installed": true,
+      "enabled": true
+     },
+     "office": {
+      "installed": true,
+      "enabled": false
+     },
+     "tidy": {
+      "installed": false
+     }
+    },
+    "recap": {
+     "enabled": true
+    },
+    "voice": {
+     "enabled": true,
+     "installed": true,
+     "components": {
+      "model": true
+     }
+    },
+    "channelSettings": {
+     "status": {
+      "running": false
+     }
+    },
+    "skills": {
+     "skills": [
+      {
+       "name": "a",
+       "enabled": true
+      },
+      {
+       "name": "b",
+       "enabled": false
+      },
+      {
+       "name": "c",
+       "activeHere": false
+      }
+     ]
+    },
+    "plugins": {
+     "plugins": [
+      {
+       "name": "p",
+       "enabled": true
+      }
+     ],
+     "missing": []
+    },
+    "hooks": {
+     "enabled": true,
+     "ruleCount": 3,
+     "configuredEvents": [
+      "PreToolUse"
+     ],
+     "errors": []
+    },
+    "channelSetup": null
+   },
+   "layout": "ok",
+   "timeoutMs": 8000,
+   "migration": {
+    "complete": false,
+    "started": false,
+    "logs": 0,
+    "pending": 0,
+    "skipped": []
+   },
+   "result": {
+    "summary": {
+     "ok": 14,
+     "warn": 2,
+     "fail": 0
+    },
+    "checks": [
+     {
+      "id": "mixdog",
+      "label": "mixdog",
+      "level": "ok",
+      "detail": "v1.4.5 · up to date"
+     },
+     {
+      "id": "node",
+      "label": "node",
+      "level": "ok",
+      "detail": "v22.20.0 · requires node ^22.19.0 || >=24.0.0"
+     },
+     {
+      "id": "providers",
+      "label": "providers",
+      "level": "warn",
+      "detail": "0 ready · route ghost (not listed)",
+      "fix": {
+       "command": "/providers"
+      }
+     },
+     {
+      "id": "mcp",
+      "label": "mcp",
+      "level": "ok",
+      "detail": "2/2 connected"
+     },
+     {
+      "id": "memory",
+      "label": "memory",
+      "level": "ok",
+      "detail": "installed · enabled · recap enabled"
+     },
+     {
+      "id": "localProvider",
+      "label": "local provider",
+      "level": "ok",
+      "detail": "installed · enabled · 1 models installed"
+     },
+     {
+      "id": "builtins",
+      "label": "built-ins",
+      "level": "ok",
+      "detail": "enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active"
+     },
+     {
+      "id": "voice",
+      "label": "voice",
+      "level": "ok",
+      "detail": "enabled · runtime and model installed"
+     },
+     {
+      "id": "automation",
+      "label": "automation",
+      "level": "warn",
+      "detail": "worker stopped",
+      "fix": {
+       "hint": "enabled schedules and webhooks are not running"
+      }
+     },
+     {
+      "id": "skills",
+      "label": "skills",
+      "level": "ok",
+      "detail": "1/3 active · 1 disabled · 1 outside this project"
+     },
+     {
+      "id": "plugins",
+      "label": "plugins",
+      "level": "ok",
+      "detail": "1/1 active"
+     },
+     {
+      "id": "hooks",
+      "label": "hooks",
+      "level": "ok",
+      "detail": "enabled · 3 rules · 1 configured events"
+     },
+     {
+      "id": "data",
+      "label": "data folder",
+      "level": "ok",
+      "detail": "writable · <DATA>"
+     },
+     {
+      "id": "config",
+      "label": "config",
+      "level": "ok",
+      "detail": "mixdog-config.json is valid"
+     },
+     {
+      "id": "logs",
+      "label": "logs",
+      "level": "ok",
+      "detail": "2 log files in the data folder"
+     },
+     {
+      "id": "sessionLog",
+      "label": "session log",
+      "level": "ok",
+      "detail": "nothing to migrate"
+     }
+    ]
+   },
+   "report": "mixdog doctor — installation health\n✓ mixdog: v1.4.5 · up to date\n✓ node: v22.20.0 · requires node ^22.19.0 || >=24.0.0\n⚠ providers: 0 ready · route ghost (not listed)\n    → run /providers\n✓ mcp: 2/2 connected\n✓ memory: installed · enabled · recap enabled\n✓ local provider: installed · enabled · 1 models installed\n✓ built-ins: enabled: git · disabled: office · not installed: tidy · browser use bridge active · computer use bridge active\n✓ voice: enabled · runtime and model installed\n⚠ automation: worker stopped\n    → enabled schedules and webhooks are not running\n✓ skills: 1/3 active · 1 disabled · 1 outside this project\n✓ plugins: 1/1 active\n✓ hooks: enabled · 3 rules · 1 configured events\n✓ data folder: writable · <DATA>\n✓ config: mixdog-config.json is valid\n✓ logs: 2 log files in the data folder\n✓ session log: nothing to migrate\n14 ok · 2 warnings · 0 failed"
+  }
+ ]
+}

@@ -1,0 +1,41 @@
+{
+ "src": "builtin-tools",
+ "name": "edit",
+ "annotations": {
+  "title": "Edit",
+  "readOnlyHint": false,
+  "destructiveHint": true,
+  "idempotentHint": false,
+  "openWorldHint": false,
+  "compressible": false,
+  "compressibleLossless": true
+ },
+ "schema": {
+  "type": "object",
+  "properties": {
+   "file_path": {
+    "type": "string"
+   },
+   "old_string": {
+    "type": "string",
+    "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+   },
+   "new_string": {
+    "type": "string",
+    "description": "Replacement text; may be empty to delete. Must differ from old_string."
+   },
+   "replace_all": {
+    "type": "boolean",
+    "default": false,
+    "description": "Replace all occurrences of old_string."
+   }
+  },
+  "required": [
+   "file_path",
+   "old_string",
+   "new_string"
+  ],
+  "additionalProperties": false
+ },
+ "descLen": 281
+}

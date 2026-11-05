@@ -7,6 +7,65 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["policy"]
+# The implementations of mixdog-tools' traits: `ConnectorPermissions`, `CardEnricher`,
+# `PreToolHook` and `SkillPort`; everything else in the crate stands without it.
+policy = ["dep:mixdog-tools"]
+# Inline lane executors and the stdio mock server binary used by the integration suite.
+test-support = ["mixdog-rt/test-support"]
+
+[[bin]]
+name = "mixdog-mcp-mock-server"
+path = "mock/server.rs"
+test = false
+required-features = ["test-support"]
+
 [dependencies]
 mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-workspace = { workspace = true }
+mixdog-tools = { workspace = true, optional = true }
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+futures = { workspace = true, features = ["std", "alloc"] }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "macros", "net"] }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+which = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { workspace = true, features = ["windows-native"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { workspace = true, features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] }
+
+[build-dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+mixdog-mcp = { path = ".", features = ["test-support"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }

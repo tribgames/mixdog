@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>모델 변경 안내 시안</title>
+<style>
+  :root {
+    --bg: #161616; --panel: #1f1f1f; --line: #2c2c2c; --text: #e8e8e8;
+    --muted: #9a9a9a; --accent: #6ea8ff; --warn: #e8b64c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0f0f; color: var(--text); font: 14px/1.5 "Pretendard", "Segoe UI", sans-serif; padding: 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 28px; }
+  .variant { margin-bottom: 40px; }
+  .variant h2 { font-size: 15px; margin: 0 0 4px; }
+  .variant p.desc { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
+  .frame { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 24px 32px 20px; max-width: 980px; }
+  .msg-user { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+  .msg-user span { background: #2a2a2a; padding: 8px 16px; border-radius: 18px; }
+  .msg-ai { color: #cfcfcf; margin-bottom: 18px; }
+  .msg-ai small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .composer { background: #232323; border: 1px solid #303030; border-radius: 18px; padding: 14px 16px 10px; }
+  .composer .input { color: #6d6d6d; height: 34px; }
+  .bar { display: flex; align-items: center; gap: 12px; }
+  .bar .plus { color: var(--muted); font-size: 18px; }
+  .picker { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 6px; }
+  .picker .eff { color: var(--muted); }
+  .ring { width: 16px; height: 16px; border: 2px solid #777; border-radius: 50%; }
+  .send { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; background: #3a3a3a; display: grid; place-items: center; color: #bbb; }
+  .btn { border: 1px solid #3a3a3a; background: #2b2b2b; color: var(--text); border-radius: 8px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0d1626; font-weight: 600; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+
+  /* A: 입력창 위 띠 */
+  .notice { display: flex; align-items: center; gap: 10px; background: #26221a; border: 1px solid #4a3d1f; color: #f0dca8;
+            border-radius: 12px 12px 0 0; border-bottom: none; padding: 8px 14px; font-size: 13px; margin: 0 12px; }
+  .notice .icon { color: var(--warn); }
+  .notice .actions { margin-left: auto; display: flex; gap: 6px; }
+
+  /* B: 모델 이름 옆 표시 */
+  .picker.mismatch .name { text-decoration: line-through; color: var(--muted); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: #26221a; border: 1px solid #4a3d1f;
+          color: #f0dca8; border-radius: 999px; padding: 1px 10px; }
+  .tip { position: relative; }
+  .tip .bubble { position: absolute; bottom: 34px; left: 0; width: 330px; background: #262626; border: 1px solid #383838;
+                 border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.4); font-size: 13px; }
+  .tip .bubble b { color: #fff; }
+  .tip .bubble .actions { display: flex; gap: 6px; margin-top: 10px; }
+
+  /* C: 고른 순간 묻기 */
+  .menu { width: 360px; background: #262626; border: 1px solid #383838; border-radius: 12px; padding: 14px; margin: 0 0 10px 30px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .menu .title { font-weight: 600; margin-bottom: 4px; }
+  .menu .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
+  .option { display: block; width: 100%; text-align: left; background: #2d2d2d; border: 1px solid #3a3a3a; border-radius: 9px;
+            padding: 9px 12px; color: var(--text); margin-bottom: 6px; cursor: pointer; }
+  .option small { display: block; color: var(--muted); font-size: 12px; }
+  .option.rec { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>모델 변경 안내 시안</h1>
+<p class="lead">상황: Claude로 대화하던 세션에서 입력창 모델을 Gemini Flash Lite Latest로 바꿨을 때. 이 대화는 계속 Claude를 써야 하므로 사용자에게 알려 줍니다.</p>
+
+<!-- A -->
+<section class="variant">
+  <h2>A안 · 입력창 위 안내 띠</h2>
+  <p class="desc">모델이 다르면 입력창 바로 위에 띠가 붙습니다. 가장 눈에 잘 띄고, 버튼 한 번으로 이어받기가 가능합니다.</p>
+  <div class="frame">
+    <div class="msg-user"><span>이 함수 리팩터링해줘</span></div>
+    <div class="msg-ai">네, 함수를 세 부분으로 나눠서 정리했습니다…<small>Claude Opus 5.5</small></div>
+    <div class="notice">
+      <span class="icon">⚠</span>
+      <span>이 대화는 <b>Claude Opus 5.5</b>로 계속됩니다. Gemini Flash Lite Latest는 새 대화에 적용돼요.</span>
+      <span class="actions">
+        <button class="btn primary">Gemini로 이어받기</button>
+        <button class="btn ghost">원래 모델로 되돌리기</button>
+      </span>
+    </div>
+    <div class="composer">
+      <div class="input">메시지 입력…</div>
+      <div class="bar">
+        <span class="plus">＋</span>
+        <span class="picker"><span class="name">Gemini Flash Lite Latest</span> <span class="eff">High ⌄</span></span>
+        <span class="ring"></span>
+        <span class="send">↑</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- B -->
+<section class="variant">
+  <h2>B안 · 모델 이름 옆 작은 표시</h2>
+  <p class="desc">입력창 안에 "이 대화: Claude" 표시만 붙이고, 누르면 설명과 버튼이 뜹니다. 화면이 덜 복잡한 대신 눈에 덜 띕니다.</p>
+  <div class="frame">
+    <div class="msg-ai">네, 함수를 세 부분으로 나눠서 정리했습니다…<small>Claude Opus 5.5</small></div>
+    <div style="height:150px"></div>
+    <div class="composer">
+      <div class="input">메시지 입력…</div>
+      <div class="bar">
+        <span class="plus">＋</span>
+        <span class="picker"><span class="name">Gemini Flash Lite Latest</span> <span class="eff">High ⌄</span></span>
+        <span class="tip">
+          <span class="chip">이 대화: Claude Opus 5.5 ⓘ</span>
+          <span class="bubble">
+            다음 메시지는 <b>Claude Opus 5.5</b>로 보내집니다.<br>
+            고른 모델(Gemini Flash Lite Latest)은 새 대화나 이어받기에 쓰여요.
+            <span class="actions">
+              <button class="btn primary">Gemini로 이어받기</button>
+              <button class="btn">원래 모델로 되돌리기</button>
+            </span>
+          </span>
+        </span>
+        <span class="ring"></span>
+        <span class="send">↑</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- C -->
+<section class="variant">
+  <h2>C안 · 모델을 고르는 순간 묻기</h2>
+  <p class="desc">이미 대화한 세션에서 다른 모델을 고르면 바로 선택지를 보여 줍니다. 헷갈릴 여지가 가장 적지만, 고를 때마다 한 단계가 더 생깁니다.</p>
+  <div class="frame">
+    <div class="msg-ai">네, 함수를 세 부분으로 나눠서 정리했습니다…<small>Claude Opus 5.5</small></div>
+    <div class="menu">
+      <div class="title">Gemini Flash Lite Latest로 바꿀까요?</div>
+      <div class="sub">이 대화는 Claude Opus 5.5로 시작해서, 모델을 바로 바꿀 수 없어요.</div>
+      <button class="option rec">이어받기로 새 대화 열기 <small>지금까지 내용을 가지고 Gemini로 계속합니다 (추천)</small></button>
+      <button class="option">빈 새 대화에서 쓰기 <small>이 대화는 그대로 두고 새 대화를 Gemini로 엽니다</small></button>
+      <button class="option">취소 <small>이 대화를 Claude로 계속합니다</small></button>
+    </div>
+    <div class="composer">
+      <div class="input">메시지 입력…</div>
+      <div class="bar">
+        <span class="plus">＋</span>
+        <span class="picker"><span class="name">Claude Opus 5.5</span> <span class="eff">High ⌄</span></span>
+        <span class="ring"></span>
+        <span class="send">↑</span>
+      </div>
+    </div>
+  </div>
+</section>
+</body>
+</html>

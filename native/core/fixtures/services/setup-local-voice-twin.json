@@ -1,0 +1,1456 @@
+{
+  "cases": [
+    {
+      "args": {
+        "action": "install_local_model",
+        "modelId": " m1 "
+      },
+      "calls": [
+        {
+          "args": [
+            "m1"
+          ],
+          "method": "installLocalProviderModel"
+        },
+        {
+          "args": [
+            "m1"
+          ],
+          "method": "prepareLocalProviderModel"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "saved": true,
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "install_local_model",
+        "modelId": "  "
+      },
+      "calls": [],
+      "error": "modelId is required",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "install_local_model"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] modelId is required for setup.install_local_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "install_local_model",
+        "modelId": 12
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.modelId must be a string",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "phase": "runtime"
+      },
+      "calls": [
+        {
+          "args": [
+            "runtime",
+            {
+              "absent": true
+            }
+          ],
+          "method": "startLocalProviderInstallation"
+        },
+        {
+          "args": [
+            "localProvider"
+          ],
+          "method": "installBuiltinFeature"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "background": true,
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "modelId": "m1",
+        "phase": " model "
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.phase must be one of: runtime, model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "modelId": "ghost",
+        "phase": "model"
+      },
+      "calls": [
+        {
+          "args": [
+            "model",
+            "ghost"
+          ],
+          "method": "startLocalProviderInstallation"
+        }
+      ],
+      "error": "modelId must identify a model in the Local Provider catalog.",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "phase": "model"
+      },
+      "calls": [],
+      "error": "modelId is required",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "modelId": "m1",
+        "phase": "runtime"
+      },
+      "calls": [
+        {
+          "args": [
+            "runtime",
+            "m1"
+          ],
+          "method": "startLocalProviderInstallation"
+        }
+      ],
+      "error": "runtime installation does not accept modelId.",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "modelId": "",
+        "phase": "runtime"
+      },
+      "calls": [
+        {
+          "args": [
+            "runtime",
+            ""
+          ],
+          "method": "startLocalProviderInstallation"
+        },
+        {
+          "args": [
+            "localProvider"
+          ],
+          "method": "installBuiltinFeature"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "background": true,
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "start_local_installation",
+        "phase": "disk"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.phase must be one of: runtime, model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "start_local_installation"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] phase is required for setup.start_local_installation",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "cancel_local_installation",
+        "jobId": "nope"
+      },
+      "calls": [
+        {
+          "args": [
+            "nope"
+          ],
+          "method": "cancelLocalProviderInstallation"
+        }
+      ],
+      "error": "[local-provider] installation job not found; refresh status before cancelling",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "cancel_local_installation",
+        "jobId": " "
+      },
+      "calls": [],
+      "error": "jobId is required",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "cancel_local_installation"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] jobId is required for setup.cancel_local_installation",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": 30
+      },
+      "calls": [
+        {
+          "args": [
+            30
+          ],
+          "method": "setLocalProviderIdleTtl"
+        },
+        {
+          "args": [
+            {
+              "mixdog-local": {
+                "idleTtlSeconds": 30
+              }
+            }
+          ],
+          "method": "saveConfigAndAdopt"
+        },
+        {
+          "args": [
+            30
+          ],
+          "method": "configureLocalProviderIdleTtl"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "saved": true,
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": 0
+      },
+      "calls": [
+        {
+          "args": [
+            0
+          ],
+          "method": "setLocalProviderIdleTtl"
+        },
+        {
+          "args": [
+            {
+              "mixdog-local": {
+                "idleTtlSeconds": 0
+              }
+            }
+          ],
+          "method": "saveConfigAndAdopt"
+        },
+        {
+          "args": [
+            0
+          ],
+          "method": "configureLocalProviderIdleTtl"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "saved": true,
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": 86400
+      },
+      "calls": [
+        {
+          "args": [
+            86400
+          ],
+          "method": "setLocalProviderIdleTtl"
+        },
+        {
+          "args": [
+            {
+              "mixdog-local": {
+                "idleTtlSeconds": 86400
+              }
+            }
+          ],
+          "method": "saveConfigAndAdopt"
+        },
+        {
+          "args": [
+            86400
+          ],
+          "method": "configureLocalProviderIdleTtl"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "saved": true,
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": 5
+      },
+      "calls": [
+        {
+          "args": [
+            5
+          ],
+          "method": "setLocalProviderIdleTtl"
+        },
+        {
+          "args": [
+            {
+              "mixdog-local": {
+                "idleTtlSeconds": 5
+              }
+            }
+          ],
+          "method": "saveConfigAndAdopt"
+        },
+        {
+          "args": [
+            5
+          ],
+          "method": "configureLocalProviderIdleTtl"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "saved": true,
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl"
+      },
+      "calls": [
+        {
+          "args": [
+            {
+              "absent": true
+            }
+          ],
+          "method": "setLocalProviderIdleTtl"
+        },
+        {
+          "args": [
+            {
+              "mixdog-local": {
+                "idleTtlSeconds": 3600
+              }
+            }
+          ],
+          "method": "saveConfigAndAdopt"
+        },
+        {
+          "args": [
+            3600
+          ],
+          "method": "configureLocalProviderIdleTtl"
+        }
+      ],
+      "kind": "local",
+      "receipt": {
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "idleTtlSeconds": 3600,
+        "installationCommandError": null,
+        "installations": [],
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "saved": true,
+        "scope": "installation"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": 86401
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.idleTtlSeconds must be at most 86400",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": -1
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.idleTtlSeconds must be at least 0",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": 1.5
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.idleTtlSeconds must be an integer",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": "30"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.idleTtlSeconds must be an integer",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "set_local_idle_ttl",
+        "idleTtlSeconds": null
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.idleTtlSeconds must be an integer",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "search_local_models"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] query is required for setup.search_local_models",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "search_local_models",
+        "query": " "
+      },
+      "calls": [],
+      "error": "query is required",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "search_local_models",
+        "query": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      },
+      "calls": [
+        {
+          "args": [
+            "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+          ],
+          "method": "searchLocalProviderModels"
+        }
+      ],
+      "error": "query must contain 1–200 characters.",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "inspect_hf_model"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] repository is required for setup.inspect_hf_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "inspect_hf_model",
+        "repository": "not a repo"
+      },
+      "calls": [
+        {
+          "args": [
+            {
+              "repository": "not a repo"
+            }
+          ],
+          "method": "inspectHuggingFaceModel"
+        }
+      ],
+      "error": "repository must be an owner/name Hugging Face model id.",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "inspect_hf_model",
+        "contextWindow": 100,
+        "repository": "owner/name"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.contextWindow must be at least 16384",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "inspect_hf_model",
+        "contextWindow": 40000,
+        "repository": "owner/name"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.contextWindow must be at most 32768",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "inspect_hf_model",
+        "contextWindow": 16384.5,
+        "repository": "owner/name"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.contextWindow must be an integer",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "inspect_hf_model",
+        "contextWindow": null,
+        "repository": "owner/name"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.contextWindow must be an integer",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "register_hf_model",
+        "previewId": "x"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] licenseAccepted is required for setup.register_hf_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "register_hf_model",
+        "licenseAccepted": "yes",
+        "previewId": "x"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.licenseAccepted must be a boolean",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "register_hf_model",
+        "licenseAccepted": true
+      },
+      "calls": [],
+      "error": "[tool-input-validation] previewId is required for setup.register_hf_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "register_hf_model",
+        "licenseAccepted": true,
+        "previewId": "ghost"
+      },
+      "calls": [
+        {
+          "args": [
+            "ghost",
+            true
+          ],
+          "method": "registerHuggingFaceModel"
+        }
+      ],
+      "error": "Model inspection expired; inspect again before registering.",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "register_hf_model",
+        "licenseAccepted": false,
+        "previewId": "ghost"
+      },
+      "calls": [
+        {
+          "args": [
+            "ghost",
+            false
+          ],
+          "method": "registerHuggingFaceModel"
+        }
+      ],
+      "error": "Model inspection expired; inspect again before registering.",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "local_model_details"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] modelId is required for setup.local_model_details",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "local_model_details",
+        "modelId": "ghost"
+      },
+      "calls": [
+        {
+          "args": [
+            "ghost"
+          ],
+          "method": "getLocalProviderModelDetails"
+        }
+      ],
+      "error": "[local-provider] unknown model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "maintain_local_model",
+        "modelId": "ghost",
+        "operation": "verify"
+      },
+      "calls": [
+        {
+          "args": [
+            "ghost",
+            "verify"
+          ],
+          "method": "startLocalProviderModelMaintenance"
+        }
+      ],
+      "error": "[local-provider] unknown model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "maintain_local_model",
+        "modelId": "ghost",
+        "operation": "execute"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.operation must be one of: verify, repair",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "maintain_local_model",
+        "modelId": "ghost"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] operation is required for setup.maintain_local_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "maintain_local_model",
+        "operation": "repair"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] modelId is required for setup.maintain_local_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "delete_local_model"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] confirmationToken is required for setup.delete_local_model",
+      "kind": "local"
+    },
+    {
+      "args": {
+        "action": "delete_local_model",
+        "confirmationToken": "expired"
+      },
+      "calls": [
+        {
+          "args": [
+            "expired"
+          ],
+          "method": "deleteLocalProviderModel"
+        }
+      ],
+      "error": "[local-provider] deletion confirmation expired; inspect the model again",
+      "kind": "local"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "installed": true
+        }
+      },
+      "scenario": "enabled"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            false
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested disabled state",
+      "kind": "voice",
+      "scenario": "enabled"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "installed": true
+        }
+      },
+      "scenario": "enabled"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": false,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state",
+      "kind": "voice",
+      "scenario": "disabled"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": false,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            false
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": false,
+          "installed": true
+        }
+      },
+      "scenario": "disabled"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": false,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state",
+      "kind": "voice",
+      "scenario": "disabled"
+    },
+    {
+      "answer": {
+        "error": "Voice install is already running",
+        "status": {
+          "busy": true,
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": false
+          },
+          "enabled": false,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state: Voice install is already running",
+      "kind": "voice",
+      "scenario": "busy"
+    },
+    {
+      "answer": {
+        "error": "Voice install is already running",
+        "status": {
+          "busy": true,
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": false
+          },
+          "enabled": false,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            false
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": false
+          },
+          "enabled": false,
+          "installed": false
+        }
+      },
+      "scenario": "busy"
+    },
+    {
+      "answer": {
+        "error": "Voice install is already running",
+        "status": {
+          "busy": true,
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": false
+          },
+          "enabled": false,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state: Voice install is already running",
+      "kind": "voice",
+      "scenario": "busy"
+    },
+    {
+      "answer": {
+        "error": "Voice setup failed: sha256 mismatch",
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": false,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state: Voice setup failed: sha256 mismatch",
+      "kind": "voice",
+      "scenario": "installFailed"
+    },
+    {
+      "answer": {
+        "error": "Voice setup failed: sha256 mismatch",
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": false,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            false
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": false,
+          "installed": false
+        }
+      },
+      "scenario": "installFailed"
+    },
+    {
+      "answer": {
+        "error": "Voice setup failed: sha256 mismatch",
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": false,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": false,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state: Voice setup failed: sha256 mismatch",
+      "kind": "voice",
+      "scenario": "installFailed"
+    },
+    {
+      "answer": {
+        "error": "Voice OFF failed: config is locked",
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "installed": true
+        }
+      },
+      "scenario": "offFailed"
+    },
+    {
+      "answer": {
+        "error": "Voice OFF failed: config is locked",
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            false
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested disabled state: Voice OFF failed: config is locked",
+      "kind": "voice",
+      "scenario": "offFailed"
+    },
+    {
+      "answer": {
+        "error": "Voice OFF failed: config is locked",
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": true,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "kind": "voice",
+      "receipt": {
+        "appliesTo": "channel voice transcription and Desktop dictation now",
+        "saved": true,
+        "scope": "installation",
+        "voice": {
+          "components": {
+            "ffmpeg": true,
+            "model": true,
+            "whisper": true
+          },
+          "enabled": true,
+          "installed": true
+        }
+      },
+      "scenario": "offFailed"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state",
+      "kind": "voice",
+      "scenario": "incomplete"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            false
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested disabled state",
+      "kind": "voice",
+      "scenario": "incomplete"
+    },
+    {
+      "answer": {
+        "error": null,
+        "status": {
+          "busy": false,
+          "components": {
+            "ffmpeg": true,
+            "model": false,
+            "whisper": true
+          },
+          "enabled": true,
+          "info": {},
+          "installed": false,
+          "modelId": "standard"
+        }
+      },
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "calls": [
+        {
+          "args": [
+            true
+          ],
+          "method": "setVoiceEnabled"
+        }
+      ],
+      "error": "Voice did not reach the requested installed and enabled state",
+      "kind": "voice",
+      "scenario": "incomplete"
+    }
+  ],
+  "domain": "setup-local-voice-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
+  "status": {
+    "idleTtlSeconds": 3600,
+    "installationCommandError": null,
+    "installations": [],
+    "models": [
+      {
+        "id": "m1"
+      }
+    ]
+  }
+}

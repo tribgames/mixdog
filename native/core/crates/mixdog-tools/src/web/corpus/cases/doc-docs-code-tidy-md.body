@@ -1,0 +1,394 @@
+<!doctype html><html><head><title>docs/code-tidy.md</title></head><body><div class="top"><a href="/">Home</a> <a href="/docs">Docs</a></div><div class="page"><div class="body"><h1>Code tidy</h1>
+<p>The <code>tidy</code> tool formats, lints, and applies structural AST rules. The
+built-in <code>code-tidy</code> skill owns call order, download approval, and
+agent-level cleanup that the engines do not cover.</p>
+<h2>Skill workflow</h2>
+<p>Load <code>code-tidy</code> before the first <code>tidy</code> call. Get the scope from the user:
+named files, directories, a feature area resolved to confirmed paths, or an
+explicitly requested whole project. If the scope is absent or ambiguous, ask
+before scanning or editing. Never infer scope from recent changes, a diff, a
+branch, a commit, or session activity. Pass the current round&#39;s approved
+paths on every <code>scan</code>/<code>check</code>/<code>fix</code>; use <code>paths:[&quot;.&quot;]</code> only for an explicitly
+requested whole project that fits one round.</p>
+<ol>
+<li><code>tidy action:&#39;scan&#39;</code> — languages and engines (used / missing /
+<code>installHint</code>). Scan does not download and does not return
+<code>needsApproval</code>. Downloads happen automatically under the default <code>auto</code>
+policy. Only when the user set <code>tidy.downloads</code> to <code>ask</code> does a later
+<code>check</code> / <code>fix</code> / <code>install</code> result carry <code>needsApproval</code> — then ask once
+with engines and byte sizes and re-call with <code>approveDownloads:true</code>.</li>
+<li>Never install toolchain engines (rustfmt, gofmt, dart, swift, zig, mix,
+dotnet). Report <code>installHint</code> instead. Managed engines (including
+PSScriptAnalyzer) download only through tidy (<code>auto</code> policy,
+<code>approveDownloads</code>, or <code>action:&#39;install&#39;</code>).</li>
+<li>Deterministic layers first, each dry-run then apply (<code>fix</code> writes only
+with <code>apply:true</code>):<ul>
+<li>engine <code>check</code> with <code>structural:false</code></li>
+<li>engine <code>fix</code> with <code>structural:false</code></li>
+<li>structural rules (<code>tidy action:&#39;fix&#39; structural:true</code>)
+Engine steps must pass <code>structural:false</code> because <code>structural</code> defaults
+to true on check/fix. Rules without a <code>fix</code> are diagnostics for the agent
+layer.</li>
+</ul>
+</li>
+<li>Agent-level cleanup last, behavior-locked: tests/typecheck green before
+the first edit, then the deletion ladder (delete → reuse → platform →
+simplify in place), four evidence-backed lenses (reuse, quality,
+efficiency, altitude), and application by risk tier — SAFE applied as a
+batch, CAREFUL one file at a time with tests after each, RISKY reported
+only. The skill body carries the keep list (trust-boundary guards, public
+contracts, intentional shims); the slop categories, risk tiers, and the
+dead-code procedure live in its <code>references/</code>. Public API and behavior
+stay unchanged.</li>
+<li>After every apply, run the project&#39;s tests/typecheck (from <code>package.json</code>,
+<code>Cargo.toml</code>, or <code>pyproject.toml</code>); a failure reverts that change.</li>
+<li>If the project already has formatter config or tools, tidy uses them. Do
+not add or rewrite <code>biome.json</code>, <code>.prettierrc</code>, <code>.clang-format</code>, or similar
+unless the user asks.</li>
+</ol>
+<p>Report: scope and mode, languages, engines used/missing, files changed,
+diagnostics remaining, structural matches applied/skipped, agent findings
+applied by lens and tier, findings noticed but not applied with the reason,
+test results.</p>
+<h2>Rule packs</h2>
+<p>v1 structural rules live at <code>src/runtime/tidy/rules/&lt;language&gt;/&lt;rule-id&gt;.yml</code>
+(ast-grep YAML: <code>id</code>, <code>language</code>, <code>severity</code>, <code>message</code>, <code>note</code>, <code>rule</code>,
+optional <code>fix</code>). Tests are <code>src/runtime/tidy/rules/__tests__/&lt;rule-id&gt;.yml</code>
+(<code>id</code> + <code>valid</code> / <code>invalid</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Severity</th>
+<th>Fix</th>
+<th>Languages</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>no-history-comment</code></td>
+<td>warning</td>
+<td>delete the comment</td>
+<td>javascript, typescript, tsx, python, rust, go, c, cpp, java, csharp, ruby, php, swift, kotlin, lua, bash</td>
+</tr>
+<tr>
+<td><code>no-debugger</code></td>
+<td>error</td>
+<td>delete the statement</td>
+<td>javascript, typescript, tsx</td>
+</tr>
+<tr>
+<td><code>no-empty-catch</code></td>
+<td>warning</td>
+<td>none</td>
+<td>javascript, typescript, tsx, java, csharp, php</td>
+</tr>
+<tr>
+<td><code>todo-marker</code></td>
+<td>info</td>
+<td>none</td>
+<td>same as <code>no-history-comment</code></td>
+</tr>
+<tr>
+<td><code>no-nested-ternary</code></td>
+<td>warning</td>
+<td>none</td>
+<td>javascript, typescript, tsx, python, java, c, cpp, csharp</td>
+</tr>
+<tr>
+<td><code>no-boolean-literal-compare</code></td>
+<td>info</td>
+<td>none</td>
+<td>javascript, typescript, tsx, python</td>
+</tr>
+<tr>
+<td><code>no-any-cast</code></td>
+<td>warning</td>
+<td>none</td>
+<td>typescript, tsx</td>
+</tr>
+<tr>
+<td><code>no-debug-statement</code></td>
+<td>info (js/ts/tsx), warning (python, rust)</td>
+<td>none</td>
+<td>javascript, typescript, tsx, python, rust</td>
+</tr>
+</tbody></table>
+<p>The slop rules (<code>no-nested-ternary</code> onwards) are diagnostics only: each one
+names a rewrite that needs judgement (a lookup table versus if/else, whether
+an operand is a proven boolean, whether a <code>console.log</code> is CLI output), so the
+agent layer decides. <code>no-nested-ternary</code> matches a ternary /
+conditional expression with another one anywhere inside it (<code>has</code> with
+<code>stopBy: end</code>), so a chain reports once per outer level. The comparison and
+cast rules are pattern lists so that <code>(a === b) + true</code> or a type named <code>Any</code>
+never matches. <code>no-debug-statement</code> covers <code>console.log/debug/trace</code>,
+<code>breakpoint()</code>, <code>pdb</code>/<code>ipdb.set_trace()</code>, and <code>dbg!</code>; <code>print</code> and
+<code>println!</code> are ordinary output and stay out.</p>
+<p><code>id</code> is unique per language folder (ast-grep forbids duplicate ids in one
+scan). Validate with a temporary <code>sgconfig.yml</code> whose <code>ruleDirs</code> is one
+language directory and <code>testConfigs.testDir</code> is <code>__tests__</code>, using
+<code>@ast-grep/cli@0.45.3</code>. On Windows, <code>npx --package @ast-grep/cli ast-grep</code>
+cannot pick a bin (<code>ast-grep</code> vs <code>sg</code>); install that package in a temp
+directory and invoke <code>node_modules/.bin/ast-grep.cmd</code>. Do not commit that
+config or <code>node_modules</code>.</p>
+<p>Node kinds must be valid for the ast-grep grammars bundled in
+<code>mixdog-graph</code> (ast-grep-language 0.45.3). The <code>@ast-grep/cli</code> test is a
+convenience; the native binary is authoritative — a kind the grammar
+rejects (<code>Kind &#39;…&#39; is invalid</code>) exits 2 and, when packs are concatenated
+into one document, yields zero matches for every language. Kotlin uses
+<code>line_comment</code> + <code>block_comment</code> because that grammar has no
+<code>multiline_comment</code> node.</p>
+<p>Comment rules match whole comment nodes (ast-grep <code>regex</code> is a full-node
+match) with language-specific <code>kind</code> values (<code>comment</code>, <code>line_comment</code>,
+<code>block_comment</code>, <code>multiline_comment</code>). History-comment text is
+<code>extracted verbatim</code>, <code>moved (here )?from</code>, <code>behavior-preserving move</code>,
+<code>copied from</code>, <code>was previously in</code> (case-insensitive, word-bounded so
+<code>removed from</code> is not a hit). TODO markers are <code>TODO</code>, <code>FIXME</code>, and <code>XXX</code>.
+<code>__tests__</code> snippets include <code>//</code>, <code>#</code>, and <code>--</code> comment forms so one file
+covers C-like, hash-comment, and lua languages.</p>
+<p><code>no-empty-catch</code> matches a <code>catch_clause</code> whose body node
+(<code>statement_block</code> / <code>block</code> / <code>compound_statement</code>) has no child nodes.
+A body that contains only a comment is therefore <strong>not</strong> flagged: the
+comment is a child, and the message does not treat comments as empty.
+Optional-binding <code>catch {}</code> is flagged in JS/TS/TSX/C#; Java and PHP
+require a typed parameter, so tests use <code>catch (e) {}</code>.</p>
+<h2>Tool reference</h2>
+<p>Runtime: <code>src/runtime/tidy/</code>. Registered like <code>media</code> (tool defs in
+<code>src/session-runtime/tool-defs.mjs</code>, dispatch in
+<code>src/session-runtime/internal-tool-executor.mjs</code>, labels in
+<code>src/runtime/shared/tool-surface.mjs</code>). One JSON result per call.</p>
+<p><code>tidy</code> is an installable built-in, like Office: the tool ships with the runtime
+but stays off the session surface until the user installs it (Extensions →
+Built-in) or <code>MIXDOG_FEATURE_TIDY</code> is set. It is deliberately NOT grandfathered,
+so an upgraded profile installs it once. The <code>code-tidy</code> skill declares
+<code>metadata.requires: tidy</code> and follows the same gate.</p>
+<h3>Actions</h3>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Does</th>
+<th>Writes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>scan</code></td>
+<td>detect languages, resolve engines, report policy</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>check</code></td>
+<td>engines in check mode + structural rules</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>fix</code></td>
+<td>same as check, plus the change plan; <code>apply:true</code> writes</td>
+<td>only with <code>apply:true</code></td>
+</tr>
+<tr>
+<td><code>install</code></td>
+<td>download the named managed engines (sha256-verified)</td>
+<td>managed dir only</td>
+</tr>
+<tr>
+<td><code>rules</code></td>
+<td>list structural rule packs and their languages</td>
+<td>no</td>
+</tr>
+</tbody></table>
+<p><code>scan</code> does not run structural rules. A mixdog-graph binary that does not
+answer <code>--langs</code> is a note on <code>scan</code> (formatters still resolve) and an
+<code>ok:false</code> error on <code>check</code> / <code>fix</code> / <code>rules</code>, naming that binary and the
+rebuild remedy. Pass <code>structural:false</code> to run only the formatters and
+linters. Zero structural matches are never reported as clean in that case.</p>
+<p>Arguments: <code>paths[]</code> (project-relative scope), <code>languages[]</code>, <code>engines[]</code>,
+<code>apply</code>, <code>approveDownloads</code>, <code>structural</code> (default true for check/fix).</p>
+<h3>Language detection</h3>
+<p>Files come from <code>git ls-files</code> and map to languages by extension; the code
+language table in <code>src/runtime/tidy/languages.mjs</code> mirrors
+<code>native/mixdog-graph/src/lang.rs</code> (a test pins the two together) and adds the
+formatter-only languages (powershell, json, yaml, markdown, toml, css, html).
+When the local <code>mixdog-graph</code> binary answers <code>mixdog-graph &lt;cwd&gt; --langs</code>, its
+language list wins and the report says <code>languageSource:&quot;graph-binary&quot;</code>.</p>
+<h3>Engine resolution</h3>
+<p>Order, first hit wins — reported per engine as <code>source</code>:</p>
+<ol>
+<li><code>project-config</code> — <code>.mixdog/tidy.json</code> → <code>{engines:{&lt;id&gt;:{command,args,cwd?}}, policy:{downloads}}</code></li>
+<li><code>project-local</code> — <code>node_modules/.bin</code>, <code>.venv/{bin,Scripts}</code>, <code>venv/{bin,Scripts}</code></li>
+<li><code>path</code> — PATH lookup</li>
+<li><code>managed</code> — <code>&lt;pluginData&gt;/tools/&lt;engine&gt;/&lt;version&gt;/&lt;binPath&gt;</code></li>
+<li><code>missing</code> — with <code>installHint</code>, plus <code>installable:true</code> when the manifest
+has an asset for this platform</li>
+</ol>
+<p>A project whose <code>node_modules/.bin</code> provides Prettier or ESLint keeps them:
+Biome resolves but is reported <code>skipped: &quot;project uses prettier&quot;</code>. tidy never
+writes or rewrites a project&#39;s formatter config.</p>
+<table>
+<thead>
+<tr>
+<th>Engine</th>
+<th>Languages</th>
+<th>Managed</th>
+<th>Runner</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>biome</td>
+<td>javascript, typescript, json, css</td>
+<td>yes</td>
+<td><code>check --reporter=json</code> / <code>check --write</code></td>
+</tr>
+<tr>
+<td>ruff</td>
+<td>python</td>
+<td>yes</td>
+<td><code>check --output-format json</code> + <code>format --check</code> / <code>--fix</code>, <code>format</code></td>
+</tr>
+<tr>
+<td>clang-format</td>
+<td>c, cpp, objc</td>
+<td>yes</td>
+<td><code>--dry-run -Werror</code> / <code>-i</code></td>
+</tr>
+<tr>
+<td>shfmt</td>
+<td>bash</td>
+<td>yes</td>
+<td><code>-l</code> / <code>-w</code></td>
+</tr>
+<tr>
+<td>shellcheck</td>
+<td>bash</td>
+<td>yes</td>
+<td><code>-f json</code> (lint only, never writes)</td>
+</tr>
+<tr>
+<td>stylua</td>
+<td>lua</td>
+<td>yes</td>
+<td><code>--check</code> / write</td>
+</tr>
+<tr>
+<td>gofumpt</td>
+<td>go</td>
+<td>yes</td>
+<td><code>-l</code> / <code>-w</code></td>
+</tr>
+<tr>
+<td>dprint</td>
+<td>json, markdown, toml, javascript, typescript</td>
+<td>yes</td>
+<td><code>check</code> / <code>fmt</code> (needs <code>dprint.json</code>)</td>
+</tr>
+<tr>
+<td>air</td>
+<td>r</td>
+<td>yes</td>
+<td><code>format --check</code> (&quot;Would reformat: …&quot;) / <code>format</code></td>
+</tr>
+<tr>
+<td>mago</td>
+<td>php</td>
+<td>yes</td>
+<td><code>format --dry-run</code> (&quot;diff of &#39;…&#39;:&quot;) + <code>lint --reporting-format json</code> / <code>format</code>, <code>lint --fix</code></td>
+</tr>
+<tr>
+<td>rustfmt</td>
+<td>rust</td>
+<td>toolchain</td>
+<td><code>--check</code> / write</td>
+</tr>
+<tr>
+<td>gofmt</td>
+<td>go</td>
+<td>toolchain</td>
+<td><code>-l</code> / <code>-w</code></td>
+</tr>
+<tr>
+<td>psscriptanalyzer</td>
+<td>powershell</td>
+<td>yes (module)</td>
+<td><code>Invoke-ScriptAnalyzer</code> + <code>Invoke-Formatter</code> (host: pwsh/powershell)</td>
+</tr>
+<tr>
+<td>dotnet-format</td>
+<td>csharp</td>
+<td>toolchain</td>
+<td><code>format whitespace &lt;folder&gt; --folder --include</code> + <code>--report</code> json / write</td>
+</tr>
+<tr>
+<td>prettier</td>
+<td>js/ts, json, css, markdown, yaml, html</td>
+<td>project-local only</td>
+<td><code>--list-different</code> / <code>--write</code></td>
+</tr>
+<tr>
+<td>eslint</td>
+<td>javascript, typescript</td>
+<td>project-local only</td>
+<td><code>-f json</code> / <code>--fix</code></td>
+</tr>
+<tr>
+<td>zig, dart, swift-format, mix</td>
+<td>zig, dart, swift, elixir</td>
+<td>toolchain</td>
+<td>detection + <code>installHint</code> only</td>
+</tr>
+</tbody></table>
+<p>Engines see only the files of their own languages inside the requested scope,
+spawn with argument arrays (never a shell) and <code>windowsHide</code>, run under a
+timeout, and run concurrently — except during <code>apply</code>, where they run one at a
+time so two formatters never write the same file at once.</p>
+<h3>Downloads</h3>
+<p><code>tidy.downloads</code> in <code>.mixdog/tidy.json</code> (or <code>MIXDOG_TIDY_DOWNLOADS</code>):
+<code>auto</code> (default) | <code>ask</code> | <code>never</code>. Under <code>auto</code>, missing managed engines
+download without prompting. Under <code>ask</code> the call returns
+<code>needsApproval:{engines:[{id,version,bytes}],bytes}</code> and downloads nothing;
+re-call with <code>approveDownloads:true</code>. Toolchain engines are never downloaded.
+Assets come from <code>src/runtime/tidy/engines-manifest.json</code>, stream through the
+shared bounded downloader, are sha256-verified before extraction (zip via
+<code>jszip</code>, tar.gz via <code>zlib</code> + a minimal ustar reader), and are renamed
+atomically into <code>&lt;pluginData&gt;/tools/&lt;engine&gt;/&lt;version&gt;/</code>.</p>
+<h3>Structural rules</h3>
+<p><code>structural.mjs</code> exposes <code>scan({cwd, rulesText, files, fix})</code> over exactly one
+implementation — there is no fallback engine:</p>
+<ul>
+<li><code>graph-binary</code> — <code>mixdog-graph &lt;cwd&gt; --scan --rules - [--files ...] [--fix]</code>,
+rules YAML on stdin, JSONL on stdout with a final <code>{&quot;summary&quot;:...}</code> line; exit
+0 ok, 1 internal, 2 usage/rule-parse (reported as <code>structural.error</code>). <code>--fix</code>
+only asks for fix payloads — the binary writes nothing. Support is probed with
+<code>mixdog-graph &lt;cwd&gt; --langs</code>, and the probe requires the language registry in
+the output: a binary from before the scan mode accepts the flag, exits 0 and
+prints nothing, which would otherwise read as &quot;no findings&quot;.</li>
+</ul>
+<p>mixdog-graph embeds the ast-grep crates, so the packs run against the grammars
+the code graph itself parses with; the <code>ast-grep</code> CLI is never installed. When
+the resolved binary does not answer <code>--langs</code>, structural actions fail with an
+explicit error naming that binary and the remedy (rebuild
+<code>native/mixdog-graph</code>, or update the packaged native tool) — rules are never
+skipped silently. <code>structural:false</code> runs only the formatters and linters.</p>
+<p>Rule packs are sent one language group at a time (<code>rules/&lt;language&gt;/*.yml</code>), the
+way their authors validate them: a scan takes a single rule document, so one
+rule with a <code>kind:</code> a grammar lacks would otherwise fail every language in the
+run. A broken group is reported in <code>structural.error</code> / <code>ruleErrors</code> while the
+other languages still produce matches. Groups are filtered to the detected
+languages, with one alias: a <code>.tsx</code> file is detected as <code>typescript</code> but parsed
+with the <code>tsx</code> grammar, so the <code>tsx</code> packs run whenever typescript is in scope.</p>
+<p>The adapter normalizes the binary&#39;s zero-based positions to 1-based
+line/column and keeps byte offsets verbatim. With no rule packs installed the
+section is <code>adapter:&quot;none&quot;</code> with a note; a missing or outdated engine is an
+error, not a note.</p>
+<h3>Writes</h3>
+<p>Fixes never touch <code>fs</code> directly. Structural replacements apply in descending
+byte order after an overlap check — a file with overlapping fixes is rejected
+whole and left byte-identical — then go through <code>atomicWrite</code>. Every written
+path (including files an engine rewrote in place) runs the same post-write trio
+as the builtin edit adapters: <code>invalidateBuiltinResultCache</code>,
+<code>markCodeGraphDirtyPaths</code>, <code>recordReadSnapshot</code>. UNC, Windows device, and ADS
+paths are refused by the shared device-path guards.</p>
+<h3>Report</h3>
+<p><code>{ok, action, languages, languageSource, engines, missing, policy, results[], structural, needsApproval, installed, notes, elapsedMs}</code>, where each result is
+<code>{id, source, filesChecked, filesChanged, filesChangedCount, diagnostics, more, diagnosticsCount}</code> and <code>structural</code> is <code>{adapter, packs, matches, fixable, applied, rejected}</code>. Diagnostic and file samples are capped with a <code>more</code>
+count; if the encoded report still exceeds the tool output budget the samples
+shrink further and <code>truncated:true</code> is set. Counts always survive trimming.</p>
+</div><div class="side"><ul><li><a href="/x">X</a></li><li><a href="/y">Y</a></li></ul></div></div></body></html>

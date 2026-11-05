@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
@@ -85,6 +86,7 @@ use super::process::ProcessEvent;
 use super::process::ProcessExit;
 use super::process::ProcessInfo;
 use super::process::ProcessManager;
+use super::process::ProcessQueue;
 use super::process::PtySize;
 use super::process::SpawnRequest;
 use super::process::SpawnedProcess;
@@ -93,6 +95,9 @@ use super::provider::DeliveryState;
 use super::provider::ErrorKind;
 use super::provider::ErrorResponse;
 use super::provider::Exposure;
+use super::provider::HostedTool;
+use super::provider::ModelListing;
+use super::provider::ModelRecord;
 use super::provider::ModelRequest;
 use super::provider::ModelStream;
 use super::provider::ProviderAdapter;
@@ -101,6 +106,8 @@ use super::provider::Role;
 use super::provider::StopReason;
 use super::provider::StreamEvent;
 use super::provider::TransportFault;
+use super::provider::Usage;
+use super::provider::UsdTicks;
 use super::provider::WireCodec;
 use super::provider::WireDecoder;
 use super::provider::WireRequest;
@@ -173,31 +180,64 @@ struct MockDecoder {
     buf: Vec<u8>,
     terminal: bool,
     exposure: Exposure,
+    usage: Option<Usage>,
 }
 
 impl MockDecoder {
+    // Same error type as `WireDecoder`; see the allow there.
+    #[allow(clippy::result_large_err)]
     fn line(&mut self, line: &[u8]) -> Result<Option<StreamEvent>, ProviderError> {
         let line = String::from_utf8_lossy(line);
         let event = if let Some(text) = line.strip_prefix("t:") {
             self.exposure.text_emitted = true;
             StreamEvent::TextDelta(text.to_owned())
+        } else if let Some(usage) = line.strip_prefix("u:").and_then(parse_usage) {
+            self.usage = Some(usage.clone());
+            StreamEvent::Usage(usage)
         } else if line == "ka" {
             StreamEvent::ProviderKeepalive
-        } else if line == "done" {
+        } else if line == "done" || line == "cont" {
             self.terminal = true;
             StreamEvent::Completed {
-                stop: StopReason::EndTurn,
+                stop: Some(if line == "done" {
+                    StopReason::EndTurn
+                } else {
+                    StopReason::ContinueTurn
+                }),
             }
         } else if line.is_empty() {
             return Ok(None);
         } else {
             let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-            err.exposure = self.exposure;
             err.message = format!("mock wire: unknown line {line:?}");
-            return Err(err);
+            return Err(self.fail(err));
         };
         Ok(Some(event))
     }
+
+    /// Every decoder error carries what the stream had exposed and reported.
+    fn fail(&self, mut err: ProviderError) -> ProviderError {
+        err.exposure = self.exposure;
+        err.partial_usage = self.usage.clone().map(Box::new);
+        err
+    }
+}
+
+/// `<input>,<output>[,<cost ticks>]`.
+fn parse_usage(text: &str) -> Option<Usage> {
+    let mut parts = text.split(',');
+    let input = parts.next()?.parse().ok()?;
+    let output = parts.next()?.parse().ok()?;
+    let cost = match parts.next() {
+        Some(ticks) => Some(UsdTicks(ticks.parse().ok()?)),
+        None => None,
+    };
+    Some(Usage {
+        input_tokens: input,
+        output_tokens: output,
+        cost,
+        ..Usage::default()
+    })
 }
 
 impl WireDecoder for MockDecoder {
@@ -217,10 +257,10 @@ impl WireDecoder for MockDecoder {
         let rest = std::mem::take(&mut self.buf);
         let out = self.line(&rest)?.into_iter().collect();
         if !self.terminal {
-            let mut err =
-                ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-            err.exposure = self.exposure;
-            return Err(err);
+            return Err(self.fail(ProviderError::transport(
+                TransportFault::TruncatedStream,
+                DeliveryState::Accepted,
+            )));
         }
         Ok(out)
     }
@@ -247,6 +287,9 @@ impl WireCodec for MockCodec {
                 body.push(b'\n');
             }
         }
+        for HostedTool::WebSearch(search) in &request.options.hosted_tools {
+            body.extend_from_slice(format!("hosted:{}\n", search.tool_type).as_bytes());
+        }
         Ok(WireRequest {
             transport: TransportKind::Http1,
             method: "POST".into(),
@@ -264,6 +307,9 @@ impl WireCodec for MockCodec {
         let kind = match response.status {
             Some(401) => ErrorKind::Auth,
             Some(403) => ErrorKind::Permission,
+            Some(409) => ErrorKind::ReplayRejected,
+            Some(415) => ErrorKind::ImageRejected,
+            Some(422) => ErrorKind::ToolSchemaRejected,
             Some(429) => ErrorKind::RateLimited,
             Some(529) => ErrorKind::Overloaded,
             Some(s) if s >= 500 => ErrorKind::Transient,
@@ -272,6 +318,10 @@ impl WireCodec for MockCodec {
         };
         let mut err = ProviderError::new(kind, DeliveryState::Accepted);
         err.status = response.status;
+        // The mock's structured verification detail: a 403 body is the URL.
+        if response.status == Some(403) && !response.body.is_empty() {
+            err.verification_url = Some(String::from_utf8_lossy(&response.body).into());
+        }
         err
     }
 }
@@ -314,10 +364,18 @@ pub struct MockProvider {
     codec: MockCodec,
     script: Mutex<VecDeque<MockAttempt>>,
     pub attempts: AtomicU32,
+    /// What [`ModelListing::list_models`] answers.
+    pub models: Vec<ModelRecord>,
 }
 
 impl MockProvider {
     pub fn new(script: impl IntoIterator<Item = MockAttempt>) -> Self {
+        let mut model = ModelRecord::new("mock-model");
+        model.context_window = Some(200_000);
+        model.max_output_tokens = Some(32_000);
+        model.supports_reasoning = Some(true);
+        model.reasoning_levels = vec!["low".into(), "medium".into(), "high".into()];
+        model.default_reasoning_level = Some("medium".into());
         Self {
             id: ProviderId::from("mock"),
             policy: RetryPolicy::codex_default(),
@@ -325,7 +383,15 @@ impl MockProvider {
             codec: MockCodec,
             script: Mutex::new(script.into_iter().collect()),
             attempts: AtomicU32::new(0),
+            models: vec![model],
         }
+    }
+}
+
+#[async_trait]
+impl ModelListing for MockProvider {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        Ok(self.models.clone())
     }
 }
 
@@ -368,14 +434,22 @@ impl ProviderAdapter for MockProvider {
         };
         let mut decoder = self.codec.decoder();
         let mut events = VecDeque::new();
-        match decoder.feed(&wire).and_then(|mut head| {
-            head.extend(decoder.finish()?);
-            Ok(head)
-        }) {
+        let decoded = match decoder.feed(&wire) {
+            Ok(mut head) => decoder.finish().map(|tail| {
+                head.extend(tail);
+                head
+            }),
+            Err(err) => Err(err),
+        };
+        match decoded {
             Ok(all) => events.extend(all.into_iter().map(Ok)),
             Err(err) => events.push_back(Err(err)),
         }
         Ok(Box::new(MockModelStream { events }))
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
     }
 }
 
@@ -647,6 +721,85 @@ impl Tool for EchoTool {
     }
 }
 
+/// `mcp__mock__fail`: an MCP tool whose server answers every call with `isError: true`
+/// carrying the call's arguments as structured content.
+pub struct FailingMcpTool {
+    spec: ToolSpec,
+}
+
+impl Default for FailingMcpTool {
+    fn default() -> Self {
+        Self {
+            spec: ToolSpec {
+                name: "mcp__mock__fail".into(),
+                aliases: Vec::new(),
+                description: "Always fails on the server.".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: ToolAnnotations::default(),
+                parallel_safe: true,
+                exclusive_with: Vec::new(),
+            },
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for FailingMcpTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        Err(ToolError::new(
+            ToolErrorCode::McpError {
+                server: "mock".into(),
+                rpc_code: None,
+                data: Some(args),
+            },
+            "Error: the server reported a failure",
+        ))
+    }
+}
+
+/// `mock_run`: an operation that always runs and fails; the call's `why` argument is the
+/// failure text.
+pub struct FailingTool {
+    spec: ToolSpec,
+}
+
+impl Default for FailingTool {
+    fn default() -> Self {
+        Self {
+            spec: ToolSpec {
+                name: "mock_run".into(),
+                aliases: Vec::new(),
+                description: "Runs and always fails.".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: ToolAnnotations::default(),
+                parallel_safe: true,
+                exclusive_with: Vec::new(),
+            },
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for FailingTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let reason = format!("Error: {}", args["why"].as_str().unwrap_or("failed"));
+        Err(ToolError::new(
+            ToolErrorCode::Failed {
+                reason: reason.clone(),
+            },
+            reason,
+        ))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
@@ -889,6 +1042,16 @@ impl FileService for MockFileService {
         _lane: MaintenanceIo,
         request: SearchRequest,
     ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+        // The mock has no regex engine; it rejects only an unclosed group,
+        // with the parser's wording, so callers can exercise the error path.
+        if request.regex && request.pattern.matches('(').count() > request.pattern.matches(')').count() {
+            return Box::new(VecSource::new(vec![Err(FsError::new(
+                FsErrorKind::InvalidPattern {
+                    message: "regex parse error: unclosed group".into(),
+                },
+                None,
+            ))]));
+        }
         let files = lock(&self.files);
         let mut matches = Vec::new();
         for (path, bytes) in files
@@ -949,11 +1112,29 @@ impl MockProc {
 pub struct MockProcessManager {
     procs: Mutex<HashMap<ProcessHandle, MockProc>>,
     next_pid: AtomicU32,
+    spawn_full: AtomicBool,
+    input_full: AtomicBool,
+}
+
+impl MockProcessManager {
+    /// Fills `queue` for good: later admissions to it answer `Overloaded`.
+    pub fn saturate(&self, queue: ProcessQueue) {
+        match queue {
+            ProcessQueue::Spawn => &self.spawn_full,
+            ProcessQueue::Input => &self.input_full,
+        }
+        .store(true, Ordering::Relaxed);
+    }
 }
 
 #[async_trait]
 impl ProcessManager for MockProcessManager {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+        if self.spawn_full.load(Ordering::Relaxed) {
+            return Err(ProcessError::Overloaded {
+                queue: ProcessQueue::Spawn,
+            });
+        }
         let mut procs = lock(&self.procs);
         if procs
             .get(&request.handle)
@@ -1018,6 +1199,11 @@ impl ProcessManager for MockProcessManager {
         let proc = procs.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         if !proc.stdin_open {
             return Err(ProcessError::StdinClosed);
+        }
+        if self.input_full.load(Ordering::Relaxed) {
+            return Err(ProcessError::Overloaded {
+                queue: ProcessQueue::Input,
+            });
         }
         let stream = if proc.info.pty.is_some() {
             OutputStream::Pty
@@ -1126,6 +1312,7 @@ impl RepoInspector for MockRepoInspector {
         let summary = ReviewSummary {
             key: self.current_key(),
             files: Vec::new(),
+            omitted: 0,
         };
         lock(&self.summaries).insert(summary.key.worktree_token.clone(), summary.clone());
         Ok(Arc::new(summary))
@@ -1259,6 +1446,19 @@ impl MediaFrameSource for MockFrameSource {
     }
 
     async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
+        // Waits like a real source does, and takes the frame only once ready:
+        // a future dropped while waiting consumes nothing.
+        let mut waited = false;
+        std::future::poll_fn(|cx| {
+            if waited {
+                std::task::Poll::Ready(())
+            } else {
+                waited = true;
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            }
+        })
+        .await;
         if self.remaining == 0 {
             return Ok(None);
         }

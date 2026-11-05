@@ -1,0 +1,222 @@
+// The renderer's read side of pushed state (desktop-services.md §2.3, §15). One store per window, fed by a
+// `SectionsSource`: Electron's preload bridge (main owns the socket), or, on the phone, the client library's own
+// fold store over the relay. `value` of a section is replaced whole when its `revision` is higher, so a snapshot
+// read racing a push can never move a section backwards. Nothing in the renderer polls for what a section carries.
+import { useCallback, useSyncExternalStore } from 'react';
+import type {
+  DesktopProtocolStatus,
+  DesktopSectionChange,
+  DesktopSectionEntry,
+  DesktopSectionsPush,
+  DesktopSectionsSnapshot,
+} from '../shared/contract-sections';
+
+export interface SectionsSource {
+  snapshot(): Promise<DesktopSectionsSnapshot>;
+  subscribe(listener: (push: DesktopSectionsPush) => void): () => void;
+}
+
+/** The part of the client library's `FoldStore` a source reads. */
+export interface FoldStoreLike {
+  sections(section: string): readonly DesktopSectionEntry[];
+  section(section: string, key?: string | null): DesktopSectionEntry | undefined;
+  subscribe(listener: (change: { type: string; section?: string; key?: string | null }) => void): () => void;
+}
+
+/** Adapts a client-library store (the phone's `connectPhone().store`) to a source. `names` is the section registry. */
+export function sectionsSourceFromFoldStore(
+  store: FoldStoreLike,
+  names: readonly string[],
+  status: () => DesktopProtocolStatus
+): SectionsSource {
+  return {
+    snapshot: async () => ({ status: status(), entries: names.flatMap((name) => store.sections(name)) }),
+    subscribe: (listener) =>
+      store.subscribe((change) => {
+        if (change.type !== 'section' || change.section === undefined) return;
+        const key = change.key ?? null;
+        listener({
+          kind: 'sections',
+          changes: [{ section: change.section, key, entry: store.section(change.section, key) ?? null }],
+        });
+      }),
+  };
+}
+
+const keyOf = (key: string | null): string => key ?? '';
+const EMPTY: readonly DesktopSectionEntry[] = Object.freeze([]);
+
+export interface SectionStore {
+  get(section: string, key?: string | null): DesktopSectionEntry | undefined;
+  /** Stable between changes of the section (usable as a `useSyncExternalStore` snapshot). */
+  list(section: string): readonly DesktopSectionEntry[];
+  status(): DesktopProtocolStatus;
+  /** Called after each change of `section` (every section for `'*'`, plus status changes). */
+  subscribe(section: string, listener: () => void): () => void;
+  /** Resolves once the first snapshot is folded. */
+  ready(): Promise<void>;
+  dispose(): void;
+}
+
+export function createSectionStore(source: SectionsSource): SectionStore {
+  const sections = new Map<string, Map<string, DesktopSectionEntry>>();
+  const lists = new Map<string, readonly DesktopSectionEntry[]>();
+  const listeners = new Map<string, Set<() => void>>();
+  let status: DesktopProtocolStatus = 'reconnecting';
+  let disposed = false;
+  // What pushes said before the first snapshot was folded. The snapshot was read at one instant and every change
+  // before it is also a push that arrived ahead of its answer, so a pushed pair (a deletion included) or a pushed
+  // whole store is already newer than the snapshot's copy, and a pushed status is not moved back to its status.
+  let loaded = false;
+  let pushedWholeStore = false;
+  let pushedStatus = false;
+  const pushedPairs = new Set<string>();
+  // The chunks of a 
+  // The chunks of a replace between its begin and its commit.
+  let staged: DesktopSectionEntry[] | null = null;
+
+  const notify = (touched: ReadonlySet<string>): void => {
+    for (const name of [...touched, '*']) for (const listener of [...(listeners.get(name) ?? [])]) listener();
+  };
+  const apply = (change: DesktopSectionChange, touched: Set<string>): void => {
+    const bucket = sections.get(change.section) ?? new Map<string, DesktopSectionEntry>();
+    sections.set(change.section, bucket);
+    const k = keyOf(change.key);
+    const current = bucket.get(k);
+    if (change.entry === null) {
+      if (!bucket.delete(k)) return;
+    } else {
+      if (current && current.revision >= change.entry.revision) return;
+      bucket.set(k, change.entry);
+    }
+    lists.delete(change.section);
+    touched.add(change.section);
+  };
+  const fold = (push: DesktopSectionsPush): void => {
+    if (disposed) return;
+    if (push.kind === 'status') {
+      status = push.status;
+      if (!loaded) pushedStatus = true;
+      notify(new Set());
+      return;
+    }
+    if (push.kind === 'replace') {
+      if (push.stage === 'begin') staged = [];
+      else if (push.stage === 'chunk') staged?.push(...push.entries);
+      else {
+        // The staged store replaces the held one at once: one swap, one notification per changed section.
+        const touched = new Set<string>(sections.keys());
+        if (!loaded) pushedWholeStore = true;
+        sections.clear();
+        lists.clear();
+        for (const entry of staged ?? []) apply({ section: entry.section, key: entry.key, entry }, touched);
+        staged = null;
+        notify(touched);
+      }
+      return;
+    }
+    const touched = new Set<string>();
+    for (const change of push.changes) {
+      if (!loaded) pushedPairs.add(`${change.section}\u0000${keyOf(change.key)}`);
+      apply(change, touched);
+    }
+    if (touched.size > 0) notify(touched);
+  };
+
+  const unsubscribe = source.subscribe(fold);
+  // The listener is attached before the snapshot is read: a push that lands in between is not lost.
+  const ready = source.snapshot().then((snapshot) => {
+    if (disposed) return;
+    if (!pushedStatus) status = snapshot.status;
+    const touched = new Set<string>();
+    if (!pushedWholeStore) {
+      for (const entry of snapshot.entries) {
+        if (pushedPairs.has(`${entry.section}\u0000${keyOf(entry.key)}`)) continue;
+        apply({ section: entry.section, key: entry.key, entry }, touched);
+      }
+    }
+    loaded = true;
+    pushedPairs.clear();
+    notify(touched);
+  });
+
+  return {
+    get: (section, key = null) => sections.get(section)?.get(keyOf(key)),
+    list(section) {
+      const cached = lists.get(section);
+      if (cached) return cached;
+      const bucket = sections.get(section);
+      const list = bucket && bucket.size > 0 ? Object.freeze([...bucket.values()]) : EMPTY;
+      lists.set(section, list);
+      return list;
+    },
+    status: () => status,
+    subscribe(section, listener) {
+      const set = listeners.get(section) ?? new Set();
+      listeners.set(section, set);
+      set.add(listener);
+      return () => void set.delete(listener);
+    },
+    ready: () => ready,
+    dispose() {
+      disposed = true;
+      unsubscribe();
+    },
+  };
+}
+
+// ── The window's store ──
+
+let installed: SectionStore | undefined;
+const HOST_STORES = new WeakMap<object, SectionStore>();
+
+/** Installs the window's store over `source` (the phone installs the library's; Electron's is created on first use). */
+export function installSectionStore(source: SectionsSource): SectionStore {
+  installed?.dispose();
+  installed = createSectionStore(source);
+  return installed;
+}
+
+/** The store of a desktop bridge (`window.mixdogDesktop`), one per bridge object. */
+export function sectionStoreFor(host: { readonly sections?: SectionsSource } | undefined): SectionStore | undefined {
+  if (installed) return installed;
+  if (!host?.sections) return undefined;
+  const cached = HOST_STORES.get(host);
+  if (cached) return cached;
+  const created = createSectionStore(host.sections);
+  HOST_STORES.set(host, created);
+  return created;
+}
+
+export function windowSectionStore(): SectionStore | undefined {
+  return sectionStoreFor(typeof window === 'undefined' ? undefined : window.mixdogDesktop);
+}
+
+const NO_STORE: SectionStore = {
+  get: () => undefined,
+  list: () => EMPTY,
+  status: () => 'reconnecting',
+  subscribe: () => () => undefined,
+  ready: () => Promise.resolve(),
+  dispose: () => undefined,
+};
+
+/** The value of one `(section, key)`, re-rendering on every change of the section. `undefined` until it is pushed. */
+export function useSection<T>(section: string, key: string | null = null): T | undefined {
+  const store = windowSectionStore() ?? NO_STORE;
+  const subscribe = useCallback((listener: () => void) => store.subscribe(section, listener), [store, section]);
+  return useSyncExternalStore(subscribe, () => store.get(section, key)?.value as T | undefined);
+}
+
+/** Every entry of a keyed section. */
+export function useSectionEntries(section: string): readonly DesktopSectionEntry[] {
+  const store = windowSectionStore() ?? NO_STORE;
+  const subscribe = useCallback((listener: () => void) => store.subscribe(section, listener), [store, section]);
+  return useSyncExternalStore(subscribe, () => store.list(section));
+}
+
+export function useSectionsStatus(): DesktopProtocolStatus {
+  const store = windowSectionStore() ?? NO_STORE;
+  const subscribe = useCallback((listener: () => void) => store.subscribe('*', listener), [store]);
+  return useSyncExternalStore(subscribe, () => store.status());
+}

@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/hidden",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Hidden",
+  "content": "Visible paragraph.\n\nSecond visible.",
+  "extractor": "dom-markdown"
+ }
+}

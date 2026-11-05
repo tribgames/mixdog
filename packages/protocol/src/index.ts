@@ -869,7 +869,7 @@ export type DocumentPreviewParams = { root: string, rel: string, options?: JsonV
  * and their optionality are the union over every producer of that code.
  * Shared by core-api and the wire.
  */
-export type DomainErrorDetail = { "type": "worktreeBusyJobs", reason: string, outcome?: string, admission?: string, sessions?: Array<string>, entryId?: string, kept?: string, workers?: number, jobs?: number, shellJobs?: number, starting?: number, sessionId?: string, } | { "type": "worktreeDirty", reason?: string, operation?: string, count?: number, files?: DirtyFiles, paths?: Array<string>, maxFiles?: number, maxBytes?: number, head?: string, baseCommit?: string, recoveryRef?: string, restored?: boolean, cause?: string, restoreError?: string, entryId?: string, ignored?: Array<string>, } | { "type": "worktreeDirtyChoice", count: number, paths: Array<string>, } | { "type": "worktreeTargetMismatch", target?: string, current?: string, expected?: string, actual?: string, } | { "type": "worktreeUnmerged", commit?: string, entryId?: string, branch?: string, mergeTarget?: string, commits?: number, } | { "type": "worktreeProjectUnknown", projectPath?: string, reason?: string, } | { "type": "worktreeUnsupportedRepo", projectPath?: string, file?: string, line?: number, rel?: string, baseBranch?: string, branch?: string, } | { "type": "worktreePathUnsafe", entryId: string, path: string, reason?: string, links?: Array<string>, count?: number, } | { "type": "worktreeRevisionConflict", entryId?: string, remaining?: Array<RemovalRemnant>, branch?: string, txId?: string, expectedRevision?: number, revision?: number, } | { "type": "worktreeBranchOccupied", branch: string, path?: string, 
+export type DomainErrorDetail = { "type": "externalFailure", message: string, } | { "type": "worktreeBusyJobs", reason: string, outcome?: string, admission?: string, sessions?: Array<string>, entryId?: string, kept?: string, workers?: number, jobs?: number, shellJobs?: number, starting?: number, sessionId?: string, } | { "type": "worktreeDirty", reason?: string, operation?: string, count?: number, files?: DirtyFiles, paths?: Array<string>, maxFiles?: number, maxBytes?: number, head?: string, baseCommit?: string, recoveryRef?: string, restored?: boolean, cause?: string, restoreError?: string, entryId?: string, ignored?: Array<string>, } | { "type": "worktreeDirtyChoice", count: number, paths: Array<string>, } | { "type": "worktreeTargetMismatch", target?: string, current?: string, expected?: string, actual?: string, } | { "type": "worktreeUnmerged", commit?: string, entryId?: string, branch?: string, mergeTarget?: string, commits?: number, } | { "type": "worktreeProjectUnknown", projectPath?: string, reason?: string, } | { "type": "worktreeUnsupportedRepo", projectPath?: string, file?: string, line?: number, rel?: string, baseBranch?: string, branch?: string, } | { "type": "worktreePathUnsafe", entryId: string, path: string, reason?: string, links?: Array<string>, count?: number, } | { "type": "worktreeRevisionConflict", entryId?: string, remaining?: Array<RemovalRemnant>, branch?: string, txId?: string, expectedRevision?: number, revision?: number, } | { "type": "worktreeBranchOccupied", branch: string, path?: string, 
 /**
  * `session` or `external` (today's `kind`).
  */
@@ -1386,12 +1386,29 @@ export type HostClaimParams = { hostId: HostId, };
 
 export type HostCommandParams = { action: string, input?: JsonValue, threadId?: ThreadId, };
 
-export type HostFileParams = { root: string, rel: string, };
+/**
+ * Result of `host/capture/fileSnapshot`: the picture of the file.
+ */
+export type HostFileSnapshot = { 
+/**
+ * `data:image/png;base64,…` or `data:image/jpeg;base64,…`.
+ */
+dataUrl: string, mtimeMs: number, size: number, };
+
+/**
+ * Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.
+ */
+export type HostFileSnapshotParams = { root: string, rel: string, grant?: boolean, };
 
 /**
  * Per-install desktop host id claimed with `host/claim`.
  */
 export type HostId = string;
+
+/**
+ * Params of `host/localPage/url` (core → host); the result is the URL string.
+ */
+export type HostLocalPageUrlParams = { root: string, rel: string, scope?: LocalPageScope, };
 
 export type HostNotificationClickedParams = { threadId: ThreadId, };
 
@@ -1432,6 +1449,12 @@ export type HostUpdateCommandParams = { action: UpdaterAction, };
  * Today's `DesktopUpdaterState`.
  */
 export type HostUpdateReportParams = { state: JsonValue, };
+
+/**
+ * Params of `host/visualize/command` (core → host): the loopback bridge's request body.
+ * The result is the service's object (`{text, tabs?, path?, …}`), `{}` when it returns nothing.
+ */
+export type HostVisualizeCommandParams = { sessionId: string, cwd: string, action: VisualizeAction, input?: JsonValue, };
 
 export type HumanGateResponse = "approve" | "deny" | "edit-and-approve" | "provide-secret" | "skip" | "done";
 
@@ -1675,15 +1698,18 @@ checking: boolean,
 checkedAt: number | null, error: string | null, };
 
 /**
- * The model's latest request. A `running` one carries `state` and `queueWaitMs` only.
+ * The model's latest request. A `running` one carries `queueWaitMs` only.
  */
-export type LocalInference = { state: LocalInferenceState, 
+export type LocalInference = { "state": "running", queueWaitMs: number, } | { "state": "complete" } & LocalInferenceEnd | { "state": "failed" } & LocalInferenceEnd;
+
+/**
+ * An ended request: every member is present, `null` when the request did not measure it.
+ */
+export type LocalInferenceEnd = { 
 /**
  * ISO time the request ended.
  */
-at?: string, queueWaitMs: number, firstResponseMs?: number | null, durationMs?: number, outputTokens?: number | null, inputTokens?: number | null, tokensPerSecond?: number | null, error?: string, };
-
-export type LocalInferenceState = "running" | "complete" | "failed";
+at: string, queueWaitMs: number, durationMs: number, firstResponseMs: number | null, outputTokens: number | null, inputTokens: number | null, tokensPerSecond: number | null, error: string | null, };
 
 export type LocalInstallPhase = "runtime" | "model";
 
@@ -1692,7 +1718,7 @@ export type LocalInstallState = "running" | "failed" | "paused" | "complete";
 /**
  * A live installation job, or a paused partial download found on disk (no `jobId`).
  */
-export type LocalInstallation = { jobId?: string, phase: LocalInstallPhase, modelId?: string, state: LocalInstallState, 
+export type LocalInstallation = { jobId?: string, phase: LocalInstallPhase, modelId?: string | null, state: LocalInstallState, 
 /**
  * `preparing`, `verifying`, `paused`, `complete`, or a download stage.
  */
@@ -1700,7 +1726,7 @@ stage: string,
 /**
  * `null` while unknown.
  */
-percent: number | null, updatedAt?: number, error?: string, 
+percent: number | null, updatedAt?: number, error?: string | null, 
 /**
  * Paused partial downloads only.
  */
@@ -1735,6 +1761,11 @@ export type LocalModelCapabilities = {
  * Tool support: `null` when the template does not say.
  */
 tools: boolean | null, images: boolean, audio: boolean, video: boolean, reasoningSettings: boolean, };
+
+/**
+ * What a `host/localPage/url` lease covers; absent means `project`.
+ */
+export type LocalPageScope = "file" | "project";
 
 /**
  * Params of `localProvider/cancelLocalProviderInstallation`.
@@ -2254,8 +2285,6 @@ export type OpStatusParams = { scope: OpScopeName, opIds: Array<OpId>,
 fence: boolean, };
 
 export type OpStatusResponse = { ops: Array<OpStatusEntry>, };
-
-export type OpenKind = "browser" | "terminal" | "visualize";
 
 export type OrchestrationMode = "none" | "focused" | "balanced" | "swarm";
 
@@ -2960,7 +2989,7 @@ export type ServerNotification = { "method": "thread/snapshot", "params": Thread
 /**
  * Request from the core to a client.
  */
-export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileParams, } | { "method": "host/localPage/url", id: RequestId, params: HostFileParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
+export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
 
 /**
  * To every eligible connection, losers included (P §8.4 step 4).
@@ -3724,9 +3753,14 @@ export type TurnSteerResponse = {
 accepted: boolean, queuedId: QueuedId, };
 
 /**
- * App-feed event: a UI should open a pane (today's `*-open-requested` events).
+ * App-feed event: a web URL the agent opened is handed to the session's browser panel.
+ * Node's `openUrl` visualize event (`visualize/open-actions.ts` `openUrl`), field for field.
  */
-export type UiOpenRequestedParams = { kind: OpenKind, threadId?: ThreadId, target: JsonValue, };
+export type UiOpenRequestedParams = { sessionId: string, openUrl: string, 
+/**
+ * Names the request, so the browser tab the pane creates reports back to the agent's open.
+ */
+openRequestId?: string, };
 
 /**
  * Params of `update/checkForUpdate`.
@@ -3832,6 +3866,11 @@ botChain: Array<string>,
  * A group-room member turn: the newest user row of the room log its prompt shows.
  */
 roomRow?: string, attachments: Array<MessageAttachment>, images: Array<ImageChip>, imageRefs: Array<ImageRef>, reactions: Array<MessageReaction>, };
+
+/**
+ * The visualize service's actions (`host/visualize/command`).
+ */
+export type VisualizeAction = "open" | "close" | "annotate" | "capture" | "export" | "check" | "inspect" | "act";
 
 /**
  * Params of `visualize/command`.
@@ -4350,11 +4389,11 @@ export type ServerRequestMethods = {
   "item/browser/requestApproval": { params: BrowserApprovalRequestParams; result: ToolApprovalDecision };
   "item/computer/requestApproval": { params: ComputerApprovalRequestParams; result: ToolApprovalDecision };
   "host/browser/command": { params: HostCommandParams; result: JsonValue };
-  "host/visualize/command": { params: HostCommandParams; result: JsonValue };
+  "host/visualize/command": { params: HostVisualizeCommandParams; result: JsonValue };
   "host/systemProxy/resolve": { params: HostSystemProxyResolveParams; result: HostSystemProxyResolveResponse };
   "host/update/command": { params: HostUpdateCommandParams; result: JsonValue };
-  "host/capture/fileSnapshot": { params: HostFileParams; result: JsonValue };
-  "host/localPage/url": { params: HostFileParams; result: JsonValue };
+  "host/capture/fileSnapshot": { params: HostFileSnapshotParams; result: HostFileSnapshot };
+  "host/localPage/url": { params: HostLocalPageUrlParams; result: string };
   "model/proxy/execute": { params: ModelProxyExecuteParams; result: ModelProxyResult };
 };
 
@@ -15220,7 +15259,7 @@ export const methodTable = {
     },
     {
       "method": "host/visualize/command",
-      "params": "HostCommandParams",
+      "params": "HostVisualizeCommandParams",
       "requires": "host.visualize",
       "result": "JsonValue"
     },
@@ -15238,15 +15277,15 @@ export const methodTable = {
     },
     {
       "method": "host/capture/fileSnapshot",
-      "params": "HostFileParams",
+      "params": "HostFileSnapshotParams",
       "requires": "host.files",
-      "result": "JsonValue"
+      "result": "HostFileSnapshot"
     },
     {
       "method": "host/localPage/url",
-      "params": "HostFileParams",
+      "params": "HostLocalPageUrlParams",
       "requires": "host.files",
-      "result": "JsonValue"
+      "result": "String"
     },
     {
       "method": "model/proxy/execute",

@@ -4,29 +4,17 @@
     {
       "args": [],
       "op": "termProfiles",
-      "result": [
-        {
-          "default": true,
-          "id": "pwsh",
-          "label": "PowerShell (pwsh)",
-          "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
-        },
-        {
-          "id": "windows-powershell",
-          "label": "Windows PowerShell",
-          "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-        },
-        {
-          "id": "cmd",
-          "label": "Command Prompt",
-          "path": "C:\\WINDOWS\\System32\\cmd.exe"
-        },
-        {
-          "id": "git-bash",
-          "label": "Git Bash",
-          "path": "C:\\Program Files\\Git\\bin\\bash.exe"
-        }
-      ]
+      "result": {
+        "defaultCount": 1,
+        "entryKeys": [
+          "default",
+          "id",
+          "label",
+          "path"
+        ],
+        "nonEmpty": true,
+        "pathsAbsolute": true
+      }
     },
     {
       "args": [
@@ -60,7 +48,7 @@
       ],
       "op": "termSnapshot",
       "result": {
-        "containsMarker": false,
+        "containsMarker": true,
         "cursorType": "number",
         "keys": [
           "cursor",
@@ -142,7 +130,7 @@
       "result": null
     },
     {
-      "count": 2,
+      "emitted": true,
       "kinds": [
         "unknown"
       ],

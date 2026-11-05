@@ -50,7 +50,7 @@
         "mime": "application/octet-stream",
         "name": "report.bin",
         "size": 128,
-        "version": "MBzHGmiPjqoC7VO99XCzQ0AMpzynWyvqhG9QW4HQJzE"
+        "version": "<VERSION>"
       }
     },
     {
@@ -75,7 +75,7 @@
         "rangeMaxBytes": 4194304,
         "size": 128,
         "transferId": "<transfer>",
-        "version": "MBzHGmiPjqoC7VO99XCzQ0AMpzynWyvqhG9QW4HQJzE"
+        "version": "<VERSION>"
       }
     },
     {
@@ -101,7 +101,7 @@
         "length": 64,
         "offset": 0,
         "transferId": "<UUID>",
-        "version": "MBzHGmiPjqoC7VO99XCzQ0AMpzynWyvqhG9QW4HQJzE"
+        "version": "<VERSION>"
       }
     },
     {
@@ -145,7 +145,7 @@
       "result": {
         "size": 128,
         "transferId": "<UUID>",
-        "version": "MBzHGmiPjqoC7VO99XCzQ0AMpzynWyvqhG9QW4HQJzE"
+        "version": "<VERSION>"
       }
     },
     {

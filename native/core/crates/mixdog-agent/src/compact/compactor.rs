@@ -1,0 +1,263 @@
+//! The loop's [`Compactor`]: the rule-only rebuild, with a model-written
+//! handoff replacing the conversation when the conversation is large enough to
+//! need one.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use mixdog_core_api::domain::provider::Usage;
+use mixdog_protocol::ProviderId;
+
+use super::conversation::conversation_compaction_input;
+use super::estimate::MediaMeter;
+use super::estimate::MessageMeter;
+use super::execution_tail::MessageRows;
+use super::execution_tail::TailContext;
+use super::fresh::AttachmentSeam;
+use super::fresh::FreshContext;
+use super::fresh::FreshError;
+use super::fresh::FreshOptions;
+use super::fresh::fresh_context_compact_messages;
+use super::summary_run::ForkSource;
+use super::triggers::CacheExpiryInput;
+use super::triggers::CacheTail;
+use super::triggers::ToolMediaMeter;
+use super::triggers::should_compact_for_expired_agent_cache;
+use super::triggers::should_compact_for_request_media;
+use super::summary_run::RouteResolver;
+use super::summary_run::SummarizeContext;
+use super::summary_run::SummaryMode;
+use super::summary_run::plan_steps;
+use super::summary_run::summarize_on_plan;
+use crate::env::CompactError;
+use crate::env::CompactOutput;
+use crate::env::CompactRequest;
+use crate::env::Compactor;
+use crate::message::AgentMessage;
+use crate::offload::ArtifactStore;
+
+pub use super::summary_run::SUMMARY_OUTPUT_TOKENS;
+
+/// Floor of the post-compact target (`COMPACT_TARGET_MIN_TOKENS`).
+const COMPACT_TARGET_MIN_TOKENS: u64 = 4_000;
+/// Conversation summarization triggers independently of the post-compact
+/// target: at 5% of the window, capped so a large window does not carry tens
+/// of thousands of tokens of verbatim dialogue through every compaction.
+const CONVERSATION_COMPACT_TRIGGER_RATIO: f64 = 0.05;
+const CONVERSATION_COMPACT_TRIGGER_MAX_TOKENS: u64 = 20_000;
+
+pub struct Handoff {
+    pub text: String,
+    /// Summary-model usage, billed to the turn.
+    pub usage: Option<Usage>,
+}
+
+/// The conversation summary: whether the conversation is large enough to
+/// need one, and the summary itself.
+#[async_trait]
+pub trait HandoffSource: Send + Sync {
+    /// Whether the conversation reaches the summary threshold.
+    fn triggered(&self, messages: &[AgentMessage]) -> bool;
+
+    /// Cancel-safe. Called only when [`triggered`](Self::triggered).
+    async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError>;
+}
+
+/// Session facts the rebuild is sized by.
+#[derive(Clone, Debug, Default)]
+pub struct CompactorConfig {
+    pub reserve_tokens: u64,
+    /// The hard budget the soft target may widen toward.
+    pub max_budget_tokens: u64,
+    pub context_window: u64,
+    pub handoff_token_cap: Option<u64>,
+}
+
+/// Everything a pass reads the transcript through.
+pub struct FreshParts {
+    pub media: Arc<dyn MediaMeter>,
+    pub replay_owner: ProviderId,
+    pub rows: Arc<dyn MessageRows>,
+    /// Where the dropped execution is stored; a preview only computes the reference.
+    pub archive: Arc<dyn ArtifactStore>,
+    pub attachments: Arc<dyn AttachmentSeam>,
+}
+
+impl FreshParts {
+    fn meter(&self) -> MessageMeter<'_> {
+        MessageMeter { media: &*self.media, replay_owner: &self.replay_owner }
+    }
+
+    fn context<'a>(&'a self, meter: &'a MessageMeter<'a>, preview: bool) -> FreshContext<'a> {
+        FreshContext {
+            tail: TailContext { meter, rows: &*self.rows, archive: &*self.archive, preview },
+            attachments: &*self.attachments,
+        }
+    }
+}
+
+/// The values the two always-arming triggers are judged from.
+pub struct TriggerSeams {
+    pub tool_media: Arc<dyn ToolMediaMeter>,
+    /// The provider takes PDFs natively (false: they lower to text).
+    pub native_pdf: bool,
+    pub cache: Arc<dyn CacheTail>,
+}
+
+pub struct FreshCompactor {
+    pub parts: Arc<FreshParts>,
+    pub triggers: Option<TriggerSeams>,
+    pub summary: Option<Arc<dyn HandoffSource>>,
+    pub config: CompactorConfig,
+}
+
+fn failure(error: FreshError) -> CompactError {
+    CompactError::Failed(error.message().to_owned())
+}
+
+impl FreshCompactor {
+    fn options(&self, request: &CompactRequest<'_>, handoff_text: String, preview: bool, preview_summary: bool) -> FreshOptions {
+        FreshOptions {
+            reserve_tokens: self.config.reserve_tokens,
+            max_budget_tokens: self.config.max_budget_tokens,
+            context_window: self.config.context_window,
+            handoff_token_cap: self.config.handoff_token_cap,
+            handoff_text,
+            active_turn: true,
+            reference_latest_attachments: request.reference_latest_attachments,
+            force: true,
+            preview,
+            preview_summary,
+        }
+    }
+}
+
+#[async_trait]
+impl Compactor for FreshCompactor {
+    fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
+        self.parts.meter().messages(messages)
+    }
+
+    /// Compares like-for-like local estimates using the actual rules; no
+    /// model call and no archive write. A summary reserves its output ceiling
+    /// instead of assuming a compression ratio.
+    async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
+        let meter = self.parts.meter();
+        let summary_triggered = self.summary.as_ref().is_some_and(|s| s.triggered(request.messages));
+        let ctx = self.parts.context(&meter, true);
+        let options = self.options(request, String::new(), true, summary_triggered);
+        match fresh_context_compact_messages(&ctx, request.messages, request.budget_tokens, &options).await {
+            Ok(result) => {
+                let after = meter.messages(&result.messages) + if summary_triggered { SUMMARY_OUTPUT_TOKENS } else { 0 };
+                after < meter.messages(request.messages)
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn cache_expired(&self) -> bool {
+        self.triggers.as_ref().is_some_and(|t| {
+            should_compact_for_expired_agent_cache(&CacheExpiryInput {
+                agent_owner: t.cache.agent_owner(),
+                five_minute_tail: t.cache.five_minute_tail(),
+                last_provider_send_at: t.cache.last_provider_send_at(),
+                now_ms: t.cache.now_ms(),
+                warm: &*t.cache,
+            })
+        })
+    }
+
+    fn request_media(&self, messages: &[AgentMessage]) -> bool {
+        self.triggers.as_ref().is_some_and(|t| should_compact_for_request_media(messages, t.native_pdf, &*t.tool_media))
+    }
+
+    async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
+        let mut usage = None;
+        let mut handoff_text = String::new();
+        if let Some(summary) = self.summary.as_ref().filter(|s| s.triggered(request.messages)) {
+            let handoff = summary.handoff(request.messages, request.budget_tokens).await?;
+            handoff_text = handoff.text;
+            usage = handoff.usage;
+        }
+        let meter = self.parts.meter();
+        let ctx = self.parts.context(&meter, false);
+        let options = self.options(&request, handoff_text, false, false);
+        let result = fresh_context_compact_messages(&ctx, request.messages, request.budget_tokens, &options)
+            .await
+            .map_err(failure)?;
+        // A generated summary can differ from its prediction: an automatic
+        // result is never equal-sized or larger than the original.
+        if request.require_reduction && meter.messages(&result.messages) >= meter.messages(request.messages) {
+            return Ok(CompactOutput { messages: request.messages.to_vec(), usage });
+        }
+        Ok(CompactOutput { messages: result.messages, usage })
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SummaryConfig {
+    pub mode: SummaryMode,
+    pub reserve_tokens: u64,
+    pub context_window: u64,
+    /// Provider token-count calibration (1.0 when the estimate is exact).
+    pub token_calibration: f64,
+    /// `compaction.conversationThresholdTokens`, when the operator set one.
+    pub conversation_threshold_tokens: Option<u64>,
+}
+
+/// The conversation summary through the route plan: a fork of the cached
+/// request while it is warm, else the Maintainer, a lighter model, and the
+/// conversation's own model last.
+pub struct PlannedHandoff {
+    pub parts: Arc<FreshParts>,
+    pub fork: Arc<dyn ForkSource>,
+    pub resolver: Arc<dyn RouteResolver>,
+    pub config: SummaryConfig,
+}
+
+impl PlannedHandoff {
+    fn calibration(&self) -> f64 {
+        if self.config.token_calibration > 0.0 { self.config.token_calibration } else { 1.0 }
+    }
+
+    fn threshold(&self) -> u64 {
+        let window = self.config.context_window;
+        self.config.conversation_threshold_tokens.filter(|t| *t > 0).unwrap_or_else(|| {
+            window.min(COMPACT_TARGET_MIN_TOKENS).max(
+                ((window as f64 * CONVERSATION_COMPACT_TRIGGER_RATIO).ceil() as u64).min(CONVERSATION_COMPACT_TRIGGER_MAX_TOKENS),
+            )
+        })
+    }
+}
+
+#[async_trait]
+impl HandoffSource for PlannedHandoff {
+    fn triggered(&self, messages: &[AgentMessage]) -> bool {
+        let meter = self.parts.meter();
+        let ctx = self.parts.context(&meter, true);
+        let input = conversation_compaction_input(&ctx, messages, false);
+        let tokens = (meter.messages(&input) as f64 * self.calibration()).ceil() as u64;
+        tokens >= self.threshold()
+    }
+
+    async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
+        let meter = self.parts.meter();
+        let ctx = self.parts.context(&meter, false);
+        let input = conversation_compaction_input(&ctx, messages, true);
+        let hard = 1.max((self.config.context_window as f64 / self.calibration()).floor() as u64);
+        let mode = self.config.mode;
+        let warm = self.fork.warm();
+        let cx = SummarizeContext {
+            fresh: &ctx,
+            fork: &*self.fork,
+            resolver: &*self.resolver,
+            reserve_tokens: self.config.reserve_tokens,
+            compact_budget_tokens: budget_tokens,
+            hard_budget_tokens: hard,
+            context_window: self.config.context_window,
+            conversation_input: &input,
+        };
+        let (_, generated) = summarize_on_plan(&cx, &plan_steps(mode, warm)).await?;
+        Ok(Handoff { text: generated.summary, usage: generated.usage })
+    }
+}

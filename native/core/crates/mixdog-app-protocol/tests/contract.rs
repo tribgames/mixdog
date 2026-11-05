@@ -342,6 +342,53 @@ fn ds_all_1_every_inventory_name_is_mapped_once() {
     }
 }
 
+/// Transcript-row facts the client fold needs travel typed and round-trip unchanged.
+#[test]
+fn transcript_row_facts_round_trip() {
+    use mixdog_protocol::ThreadItem;
+    let hash = "a".repeat(64);
+    let items = [
+        json!({"type": "userMessage", "id": "u1", "content": [{"type": "text", "text": "hi"}],
+            "displayText": "hi", "countsForPromptHistory": true,
+            "details": {"source": "routine-trigger", "routineTrigger": {"kind": "webhook", "name": "w", "event": "e"},
+                "sender": "lead", "fromAgent": "bot", "steered": true, "submissionIds": ["s1"],
+                "attachments": [{"id": hash, "attachmentRef": hash, "kind": "image", "name": "a.png",
+                    "mimeType": "image/png", "size": 3, "original": {"attachmentRef": hash, "mimeType": "image/jpeg"}}],
+                "images": [{"id": null, "name": "a", "mimeType": "image/png", "bytes": 3}],
+                "imageRefs": [{"line": "[Image: a]", "ref": hash}],
+                "reactions": [{"agentId": "a1", "emoji": "x", "at": 5}]},
+            "meta": {"messageId": "msg_1", "posted": true}}),
+        json!({"type": "toolCall", "id": "t1", "name": "__aggregate__", "input": {},
+            "run": {"callId": "c1", "isError": false, "startedAt": 1, "completedAt": 2, "uiDiff": "d",
+                "toolMeta": {"code": "cu", "missing": ["screen"], "ownerSessionId": "s"},
+                "aggregate": {"callIds": ["c1"], "categoryOrder": ["Read|r|r|file|files"],
+                    "categories": {"Read|r|r|file|files": {"key": "Read|r|r|file|files", "category": "Read",
+                        "active": "r", "done": "r", "noun": "file", "pluralNoun": "files", "effect": false, "count": 1}},
+                    "doneCategories": {}, "completedCount": 1}},
+            "meta": {}}),
+        json!({"type": "contextCompaction", "id": "k1", "status": "compacted", "meta": {"label": "Conversation compacted"}}),
+        json!({"type": "roomRow", "id": "r1", "text": "",
+            "room": {"kind": "cap", "limit": "usage", "usage": {"kind": "k", "provider": "p", "model": "m", "resetAt": null},
+                "to": ["a"], "toName": ["A"], "rounds": 2},
+            "meta": {"messageId": "r1"}}),
+    ];
+    for value in items {
+        let item: ThreadItem = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&item).unwrap(), value);
+    }
+}
+
+/// The shipped defaults satisfy their own P §6.5 startup invariants, and a
+/// default-size `blob/put` chunk, base64-encoded, fits an inbound frame.
+#[test]
+fn default_limits_pass_their_own_check() {
+    let limits = mixdog_app_protocol::limits::Limits::default();
+    limits.check().unwrap();
+    let encoded = limits.max_blob_put_chunk_bytes.div_ceil(3) * 4;
+    assert!(encoded < limits.max_inbound_frame_bytes);
+    assert_eq!(limits.max_blob_put_chunk_bytes % 3, 0);
+}
+
 /// §14.2: the parity envelope vectors round-trip with identical shape.
 #[test]
 fn envelope_round_trips_codex_vectors() {
@@ -387,6 +434,90 @@ fn envelope_failure_codes() {
     let bad = decode_inbound_text("{not json", 1 << 20);
     assert_eq!(bad, InboundText::Invalid);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
+}
+
+/// §14.3, wire half: the handshake refusals are `-32600` with their `reason`
+/// data, a version refusal closes with 4002, and `initialize` is a method row.
+#[test]
+fn handshake_refusals_on_the_wire() {
+    let outdated = |reason: &str| json!({"reason": reason, "serverVersion": "2.0.0", "clientVersion": "1.4.6"});
+    for (data, wire) in [
+        (
+            ErrorData::NotInitialized,
+            json!({"reason": "notInitialized"}),
+        ),
+        (
+            ErrorData::AlreadyInitialized,
+            json!({"reason": "alreadyInitialized"}),
+        ),
+        (
+            ErrorData::ClientOutdated {
+                server_version: "2.0.0".into(),
+                client_version: "1.4.6".into(),
+            },
+            outdated("clientOutdated"),
+        ),
+        (
+            ErrorData::ServerOutdated {
+                server_version: "2.0.0".into(),
+                client_version: "1.4.6".into(),
+            },
+            outdated("serverOutdated"),
+        ),
+    ] {
+        assert_eq!(data.code(), -32600);
+        assert_eq!(serde_json::to_value(&data).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_value::<ErrorData>(wire.clone()).unwrap(),
+            data
+        );
+        assert_eq!(data.into_body("m").data, Some(wire));
+    }
+    assert_eq!(CloseCode::VersionRefused.code(), 4002);
+    assert!(CLIENT_METHODS.iter().any(|s| s.method == "initialize"));
+}
+
+/// WP-CLIENT-TS / WP-CONFIG / WP-PHONE contract changes, as they travel.
+#[test]
+fn product_state_shapes_on_the_wire() {
+    use mixdog_app_protocol::ServerNotification;
+    let decode = |value: Value| serde_json::from_value::<ServerNotification>(value);
+    // The provider account clears with null.
+    assert!(
+        decode(json!({"method": "thread/providerAccount/changed", "params": {"threadId": "t", "value": null}})).is_ok()
+    );
+    // hasOlder rides the history reset.
+    assert!(
+        decode(json!({"method": "thread/historyReset", "params": {"threadId": "t", "reason": "clear", "hasOlder": false}})).is_ok()
+    );
+    assert!(
+        decode(json!({"method": "thread/historyReset", "params": {"threadId": "t", "reason": "clear"}})).is_err()
+    );
+    // Prompt history: both increment kinds.
+    for value in [
+        json!({"kind": "added", "prompt": "p"}),
+        json!({"kind": "replaced", "prompts": ["b", "a"]}),
+    ] {
+        assert!(
+            decode(json!({"method": "thread/promptHistory/updated", "params": {"threadId": "t", "value": value}})).is_ok()
+        );
+    }
+    // The notifications config value is today's file without its version.
+    let prefs: mixdog_protocol::NotificationPreferences = serde_json::from_value(json!({
+        "migratedAt": 5,
+        "devices": {"pc": {"scope": "bots", "events": {"error": true}, "quietHours": {"days": "weekends"}}},
+        "overrides": [
+            {"target": {"kind": "agent", "id": "a1"}, "setting": {"mode": "muted", "until": null}},
+            {"target": {"kind": "room", "id": "r"}, "setting": {"mode": "always"}}
+        ]
+    }))
+    .unwrap();
+    assert_eq!(prefs.devices["pc"].scope, mixdog_protocol::NotificationScope::Bots);
+    assert!(prefs.devices["pc"].events.finished && prefs.devices["pc"].events.error);
+    assert_eq!(
+        serde_json::to_value(&prefs.overrides[0]).unwrap(),
+        json!({"target": {"kind": "agent", "id": "a1"}, "setting": {"mode": "muted", "until": null}})
+    );
 }
 
 /// CCR settlements visible on the wire.

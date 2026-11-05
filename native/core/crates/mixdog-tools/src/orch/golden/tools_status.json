@@ -1,0 +1,1639 @@
+[
+ {
+  "label": "full",
+  "mode": "full",
+  "query": "",
+  "surface": {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "zeta",
+     "description": "Z tool"
+    },
+    {
+     "name": "Alpha",
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "description": "digit alpha"
+    },
+    {
+     "name": "explore",
+     "description": "Explore the codebase xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "ask_user",
+     "description": "Ask",
+     "annotations": {
+      "agentHidden": true
+     }
+    },
+    {
+     "name": "Skill",
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "description": "a skill",
+     "annotations": {
+      "mixdogKind": "skill"
+     }
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+     "name": "mcp__srv__pong",
+     "description": "Pong"
+    },
+    {
+     "name": "",
+     "description": "nameless"
+    },
+    {
+     "name": "task",
+     "description": "Tasks"
+    },
+    {
+     "name": "web_fetch",
+     "description": "Fetch"
+    },
+    {
+     "name": "agent",
+     "description": "Agent"
+    },
+    {
+     "name": "edit",
+     "description": "Edit"
+    }
+   ],
+   "deferredCallableTools": [
+    "web_fetch",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "deferredDiscoveredTools": [
+    "Alpha",
+    "alpha2",
+    "agent",
+    "plain"
+   ]
+  },
+  "result": {
+   "mode": "full",
+   "count": 13,
+   "activeCount": 5,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [
+    {
+     "name": "read",
+     "kind": "tool",
+     "usage": 710,
+     "active": true,
+     "description": "Read files. Lines and ranges."
+    },
+    {
+     "name": "zeta",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "Z tool"
+    },
+    {
+     "name": "Alpha",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "digit alpha"
+    },
+    {
+     "name": "explore",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "Explore the codebase xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+    },
+    {
+     "name": "shell",
+     "kind": "mutation",
+     "usage": 81,
+     "active": true,
+     "description": "Run commands"
+    },
+    {
+     "name": "ask_user",
+     "kind": "control",
+     "usage": 0,
+     "active": false,
+     "description": "Ask"
+    },
+    {
+     "name": "Skill",
+     "kind": "skill",
+     "usage": 0,
+     "active": false,
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "kind": "skill",
+     "usage": 0,
+     "active": false,
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "kind": "skill",
+     "usage": 0,
+     "active": false,
+     "description": "a skill"
+    },
+    {
+     "name": "mcp__srv__ping",
+     "kind": "mcp",
+     "usage": 0,
+     "active": true,
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…"
+    },
+    {
+     "name": "mcp__srv__pong",
+     "kind": "mcp",
+     "usage": 0,
+     "active": true,
+     "description": "Pong"
+    },
+    {
+     "name": "task",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "Tasks"
+    },
+    {
+     "name": "web_fetch",
+     "kind": "tool",
+     "usage": 2,
+     "active": true,
+     "description": "Fetch"
+    },
+    {
+     "name": "agent",
+     "kind": "tool",
+     "usage": 330,
+     "active": false,
+     "description": "Agent"
+    },
+    {
+     "name": "edit",
+     "kind": "mutation",
+     "usage": 400,
+     "active": false,
+     "description": "Edit"
+    }
+   ],
+   "activeTools": [
+    "read",
+    "shell",
+    "web_fetch",
+    "alpha_two",
+    "mcp__srv__ping",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "discoveredTools": [
+    "agent",
+    "Alpha",
+    "alpha2",
+    "plain"
+   ]
+  }
+ },
+ {
+  "label": "query",
+  "mode": "lead",
+  "query": "ALPHA",
+  "surface": {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "zeta",
+     "description": "Z tool"
+    },
+    {
+     "name": "Alpha",
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "description": "digit alpha"
+    },
+    {
+     "name": "explore",
+     "description": "Explore the codebase xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "ask_user",
+     "description": "Ask",
+     "annotations": {
+      "agentHidden": true
+     }
+    },
+    {
+     "name": "Skill",
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "description": "a skill",
+     "annotations": {
+      "mixdogKind": "skill"
+     }
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+     "name": "mcp__srv__pong",
+     "description": "Pong"
+    },
+    {
+     "name": "",
+     "description": "nameless"
+    },
+    {
+     "name": "task",
+     "description": "Tasks"
+    },
+    {
+     "name": "web_fetch",
+     "description": "Fetch"
+    },
+    {
+     "name": "agent",
+     "description": "Agent"
+    },
+    {
+     "name": "edit",
+     "description": "Edit"
+    }
+   ],
+   "deferredCallableTools": [
+    "web_fetch",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "deferredDiscoveredTools": [
+    "Alpha",
+    "alpha2",
+    "agent",
+    "plain"
+   ]
+  },
+  "result": {
+   "mode": "lead",
+   "count": 13,
+   "activeCount": 5,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [
+    {
+     "name": "Alpha",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "digit alpha"
+    }
+   ],
+   "activeTools": [
+    "read",
+    "shell",
+    "web_fetch",
+    "alpha_two",
+    "mcp__srv__ping",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "discoveredTools": [
+    "agent",
+    "Alpha",
+    "alpha2",
+    "plain"
+   ]
+  }
+ },
+ {
+  "label": "query-desc",
+  "mode": "readonly",
+  "query": "run comm",
+  "surface": {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "zeta",
+     "description": "Z tool"
+    },
+    {
+     "name": "Alpha",
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "description": "digit alpha"
+    },
+    {
+     "name": "explore",
+     "description": "Explore the codebase xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "ask_user",
+     "description": "Ask",
+     "annotations": {
+      "agentHidden": true
+     }
+    },
+    {
+     "name": "Skill",
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "description": "a skill",
+     "annotations": {
+      "mixdogKind": "skill"
+     }
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+     "name": "mcp__srv__pong",
+     "description": "Pong"
+    },
+    {
+     "name": "",
+     "description": "nameless"
+    },
+    {
+     "name": "task",
+     "description": "Tasks"
+    },
+    {
+     "name": "web_fetch",
+     "description": "Fetch"
+    },
+    {
+     "name": "agent",
+     "description": "Agent"
+    },
+    {
+     "name": "edit",
+     "description": "Edit"
+    }
+   ],
+   "deferredCallableTools": [
+    "web_fetch",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "deferredDiscoveredTools": [
+    "Alpha",
+    "alpha2",
+    "agent",
+    "plain"
+   ]
+  },
+  "result": {
+   "mode": "readonly",
+   "count": 13,
+   "activeCount": 5,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [
+    {
+     "name": "shell",
+     "kind": "mutation",
+     "usage": 81,
+     "active": true,
+     "description": "Run commands"
+    }
+   ],
+   "activeTools": [
+    "read",
+    "shell",
+    "web_fetch",
+    "alpha_two",
+    "mcp__srv__ping",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "discoveredTools": [
+    "agent",
+    "Alpha",
+    "alpha2",
+    "plain"
+   ]
+  }
+ },
+ {
+  "label": "none",
+  "mode": "full",
+  "query": "zzzz",
+  "surface": {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "zeta",
+     "description": "Z tool"
+    },
+    {
+     "name": "Alpha",
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "description": "digit alpha"
+    },
+    {
+     "name": "explore",
+     "description": "Explore the codebase xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "ask_user",
+     "description": "Ask",
+     "annotations": {
+      "agentHidden": true
+     }
+    },
+    {
+     "name": "Skill",
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "description": "a skill",
+     "annotations": {
+      "mixdogKind": "skill"
+     }
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+     "name": "mcp__srv__pong",
+     "description": "Pong"
+    },
+    {
+     "name": "",
+     "description": "nameless"
+    },
+    {
+     "name": "task",
+     "description": "Tasks"
+    },
+    {
+     "name": "web_fetch",
+     "description": "Fetch"
+    },
+    {
+     "name": "agent",
+     "description": "Agent"
+    },
+    {
+     "name": "edit",
+     "description": "Edit"
+    }
+   ],
+   "deferredCallableTools": [
+    "web_fetch",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "deferredDiscoveredTools": [
+    "Alpha",
+    "alpha2",
+    "agent",
+    "plain"
+   ]
+  },
+  "result": {
+   "mode": "full",
+   "count": 13,
+   "activeCount": 5,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [],
+   "activeTools": [
+    "read",
+    "shell",
+    "web_fetch",
+    "alpha_two",
+    "mcp__srv__ping",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "discoveredTools": [
+    "agent",
+    "Alpha",
+    "alpha2",
+    "plain"
+   ]
+  }
+ },
+ {
+  "label": "spaces",
+  "mode": "full",
+  "query": "  skill  ",
+  "surface": {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "zeta",
+     "description": "Z tool"
+    },
+    {
+     "name": "Alpha",
+     "description": "Upper case alpha"
+    },
+    {
+     "name": "alpha_two",
+     "description": "second alpha"
+    },
+    {
+     "name": "alpha-two",
+     "description": "dash alpha"
+    },
+    {
+     "name": "alpha2",
+     "description": "digit alpha"
+    },
+    {
+     "name": "explore",
+     "description": "Explore the codebase xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "name": "shell",
+     "description": "Run commands",
+     "annotations": {}
+    },
+    {
+     "name": "ask_user",
+     "description": "Ask",
+     "annotations": {
+      "agentHidden": true
+     }
+    },
+    {
+     "name": "Skill",
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "description": "a skill",
+     "annotations": {
+      "mixdogKind": "skill"
+     }
+    },
+    {
+     "name": "mcp__srv__ping",
+     "description": "Ping 😀 emoji yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+     "name": "mcp__srv__pong",
+     "description": "Pong"
+    },
+    {
+     "name": "",
+     "description": "nameless"
+    },
+    {
+     "name": "task",
+     "description": "Tasks"
+    },
+    {
+     "name": "web_fetch",
+     "description": "Fetch"
+    },
+    {
+     "name": "agent",
+     "description": "Agent"
+    },
+    {
+     "name": "edit",
+     "description": "Edit"
+    }
+   ],
+   "deferredCallableTools": [
+    "web_fetch",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "deferredDiscoveredTools": [
+    "Alpha",
+    "alpha2",
+    "agent",
+    "plain"
+   ]
+  },
+  "result": {
+   "mode": "full",
+   "count": 13,
+   "activeCount": 5,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [
+    {
+     "name": "Skill",
+     "kind": "skill",
+     "usage": 0,
+     "active": false,
+     "description": "Skills"
+    },
+    {
+     "name": "skill:deploy",
+     "kind": "skill",
+     "usage": 0,
+     "active": false,
+     "description": "Deploy skill"
+    },
+    {
+     "name": "plain",
+     "kind": "skill",
+     "usage": 0,
+     "active": false,
+     "description": "a skill"
+    }
+   ],
+   "activeTools": [
+    "read",
+    "shell",
+    "web_fetch",
+    "alpha_two",
+    "mcp__srv__ping",
+    "mcp__srv__pong",
+    "zeta"
+   ],
+   "discoveredTools": [
+    "agent",
+    "Alpha",
+    "alpha2",
+    "plain"
+   ]
+  }
+ },
+ {
+  "label": "fallback",
+  "mode": "full",
+  "query": "",
+  "surface": {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.\n  Lines   and  ranges."
+    },
+    {
+     "name": "zeta",
+     "description": "Z tool"
+    }
+   ]
+  },
+  "result": {
+   "mode": "full",
+   "count": 2,
+   "activeCount": 2,
+   "mcpToolCount": 0,
+   "activeMcpToolCount": 0,
+   "tools": [
+    {
+     "name": "read",
+     "kind": "tool",
+     "usage": 710,
+     "active": true,
+     "description": "Read files. Lines and ranges."
+    },
+    {
+     "name": "zeta",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "Z tool"
+    }
+   ],
+   "activeTools": [
+    "read",
+    "zeta"
+   ],
+   "discoveredTools": []
+  }
+ },
+ {
+  "label": "empty",
+  "mode": "lead",
+  "query": "",
+  "surface": null,
+  "result": {
+   "mode": "lead",
+   "count": 0,
+   "activeCount": 0,
+   "mcpToolCount": 0,
+   "activeMcpToolCount": 0,
+   "tools": [],
+   "activeTools": [],
+   "discoveredTools": []
+  }
+ },
+ {
+  "label": "unicode",
+  "mode": "full",
+  "query": "",
+  "surface": {
+   "tools": [
+    {
+     "name": "ärger",
+     "description": "u ärger"
+    },
+    {
+     "name": "zebra",
+     "description": "u zebra"
+    },
+    {
+     "name": "Zeta",
+     "description": "u Zeta"
+    },
+    {
+     "name": "éclair",
+     "description": "u éclair"
+    },
+    {
+     "name": "eclair",
+     "description": "u eclair"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "ärger",
+     "description": "u ärger"
+    },
+    {
+     "name": "zebra",
+     "description": "u zebra"
+    },
+    {
+     "name": "Zeta",
+     "description": "u Zeta"
+    },
+    {
+     "name": "éclair",
+     "description": "u éclair"
+    },
+    {
+     "name": "eclair",
+     "description": "u eclair"
+    },
+    {
+     "name": "日本語",
+     "description": "u 日本語"
+    },
+    {
+     "name": "한글",
+     "description": "u 한글"
+    },
+    {
+     "name": "가나",
+     "description": "u 가나"
+    },
+    {
+     "name": "mcp__서버__tool",
+     "description": "u mcp__서버__tool"
+    },
+    {
+     "name": "mcp__srv__Ping",
+     "description": "u mcp__srv__Ping"
+    },
+    {
+     "name": "ß",
+     "description": "u ß"
+    },
+    {
+     "name": "ss",
+     "description": "u ss"
+    },
+    {
+     "name": "Ångström",
+     "description": "u Ångström"
+    },
+    {
+     "name": "angstrom",
+     "description": "u angstrom"
+    },
+    {
+     "name": "ñandú",
+     "description": "u ñandú"
+    },
+    {
+     "name": "nandu",
+     "description": "u nandu"
+    },
+    {
+     "name": "z_1",
+     "description": "u z_1"
+    },
+    {
+     "name": "z-1",
+     "description": "u z-1"
+    },
+    {
+     "name": "z1",
+     "description": "u z1"
+    },
+    {
+     "name": "Z1",
+     "description": "u Z1"
+    },
+    {
+     "name": "ǆ",
+     "description": "u ǆ"
+    },
+    {
+     "name": "dz",
+     "description": "u dz"
+    },
+    {
+     "name": "ﬁsh",
+     "description": "u ﬁsh"
+    },
+    {
+     "name": "fish",
+     "description": "u fish"
+    },
+    {
+     "name": "カタカナ",
+     "description": "u カタカナ"
+    },
+    {
+     "name": "ひらがな",
+     "description": "u ひらがな"
+    },
+    {
+     "name": "ÄRGER",
+     "description": "u ÄRGER"
+    },
+    {
+     "name": "Ärger",
+     "description": "u Ärger"
+    }
+   ],
+   "deferredCallableTools": [
+    "日本語",
+    "한글",
+    "가나",
+    "mcp__서버__tool",
+    "mcp__srv__Ping",
+    "ß",
+    "ss",
+    "Ångström",
+    "angstrom",
+    "ñandú",
+    "nandu",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1"
+   ],
+   "deferredDiscoveredTools": [
+    "ß",
+    "ss",
+    "Ångström",
+    "angstrom",
+    "ñandú",
+    "nandu",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1",
+    "ǆ",
+    "dz",
+    "ﬁsh",
+    "fish",
+    "カタカナ",
+    "ひらがな",
+    "ÄRGER",
+    "Ärger"
+   ]
+  },
+  "result": {
+   "mode": "full",
+   "count": 26,
+   "activeCount": 18,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [
+    {
+     "name": "ärger",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u ärger"
+    },
+    {
+     "name": "zebra",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u zebra"
+    },
+    {
+     "name": "Zeta",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u Zeta"
+    },
+    {
+     "name": "éclair",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u éclair"
+    },
+    {
+     "name": "eclair",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u eclair"
+    },
+    {
+     "name": "日本語",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u 日本語"
+    },
+    {
+     "name": "한글",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u 한글"
+    },
+    {
+     "name": "가나",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u 가나"
+    },
+    {
+     "name": "mcp__서버__tool",
+     "kind": "mcp",
+     "usage": 0,
+     "active": true,
+     "description": "u mcp__서버__tool"
+    },
+    {
+     "name": "mcp__srv__Ping",
+     "kind": "mcp",
+     "usage": 0,
+     "active": true,
+     "description": "u mcp__srv__Ping"
+    },
+    {
+     "name": "ß",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u ß"
+    },
+    {
+     "name": "ss",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u ss"
+    },
+    {
+     "name": "Ångström",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u Ångström"
+    },
+    {
+     "name": "angstrom",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u angstrom"
+    },
+    {
+     "name": "ñandú",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u ñandú"
+    },
+    {
+     "name": "nandu",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u nandu"
+    },
+    {
+     "name": "z_1",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u z_1"
+    },
+    {
+     "name": "z-1",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u z-1"
+    },
+    {
+     "name": "z1",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u z1"
+    },
+    {
+     "name": "Z1",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u Z1"
+    },
+    {
+     "name": "ǆ",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u ǆ"
+    },
+    {
+     "name": "dz",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u dz"
+    },
+    {
+     "name": "ﬁsh",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u ﬁsh"
+    },
+    {
+     "name": "fish",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u fish"
+    },
+    {
+     "name": "カタカナ",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u カタカナ"
+    },
+    {
+     "name": "ひらがな",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u ひらがな"
+    },
+    {
+     "name": "ÄRGER",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u ÄRGER"
+    },
+    {
+     "name": "Ärger",
+     "kind": "tool",
+     "usage": 0,
+     "active": false,
+     "description": "u Ärger"
+    }
+   ],
+   "activeTools": [
+    "가나",
+    "日本語",
+    "한글",
+    "angstrom",
+    "Ångström",
+    "ärger",
+    "eclair",
+    "éclair",
+    "mcp__서버__tool",
+    "mcp__srv__Ping",
+    "nandu",
+    "ñandú",
+    "ss",
+    "ß",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1",
+    "zebra",
+    "Zeta"
+   ],
+   "discoveredTools": [
+    "angstrom",
+    "Ångström",
+    "Ärger",
+    "ÄRGER",
+    "dz",
+    "ǆ",
+    "fish",
+    "ﬁsh",
+    "nandu",
+    "ñandú",
+    "ss",
+    "ß",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1",
+    "カタカナ",
+    "ひらがな"
+   ]
+  }
+ },
+ {
+  "label": "unicode-query",
+  "mode": "lead",
+  "query": "é",
+  "surface": {
+   "tools": [
+    {
+     "name": "ärger",
+     "description": "u ärger"
+    },
+    {
+     "name": "zebra",
+     "description": "u zebra"
+    },
+    {
+     "name": "Zeta",
+     "description": "u Zeta"
+    },
+    {
+     "name": "éclair",
+     "description": "u éclair"
+    },
+    {
+     "name": "eclair",
+     "description": "u eclair"
+    }
+   ],
+   "deferredToolCatalog": [
+    {
+     "name": "ärger",
+     "description": "u ärger"
+    },
+    {
+     "name": "zebra",
+     "description": "u zebra"
+    },
+    {
+     "name": "Zeta",
+     "description": "u Zeta"
+    },
+    {
+     "name": "éclair",
+     "description": "u éclair"
+    },
+    {
+     "name": "eclair",
+     "description": "u eclair"
+    },
+    {
+     "name": "日本語",
+     "description": "u 日本語"
+    },
+    {
+     "name": "한글",
+     "description": "u 한글"
+    },
+    {
+     "name": "가나",
+     "description": "u 가나"
+    },
+    {
+     "name": "mcp__서버__tool",
+     "description": "u mcp__서버__tool"
+    },
+    {
+     "name": "mcp__srv__Ping",
+     "description": "u mcp__srv__Ping"
+    },
+    {
+     "name": "ß",
+     "description": "u ß"
+    },
+    {
+     "name": "ss",
+     "description": "u ss"
+    },
+    {
+     "name": "Ångström",
+     "description": "u Ångström"
+    },
+    {
+     "name": "angstrom",
+     "description": "u angstrom"
+    },
+    {
+     "name": "ñandú",
+     "description": "u ñandú"
+    },
+    {
+     "name": "nandu",
+     "description": "u nandu"
+    },
+    {
+     "name": "z_1",
+     "description": "u z_1"
+    },
+    {
+     "name": "z-1",
+     "description": "u z-1"
+    },
+    {
+     "name": "z1",
+     "description": "u z1"
+    },
+    {
+     "name": "Z1",
+     "description": "u Z1"
+    },
+    {
+     "name": "ǆ",
+     "description": "u ǆ"
+    },
+    {
+     "name": "dz",
+     "description": "u dz"
+    },
+    {
+     "name": "ﬁsh",
+     "description": "u ﬁsh"
+    },
+    {
+     "name": "fish",
+     "description": "u fish"
+    },
+    {
+     "name": "カタカナ",
+     "description": "u カタカナ"
+    },
+    {
+     "name": "ひらがな",
+     "description": "u ひらがな"
+    },
+    {
+     "name": "ÄRGER",
+     "description": "u ÄRGER"
+    },
+    {
+     "name": "Ärger",
+     "description": "u Ärger"
+    }
+   ],
+   "deferredCallableTools": [
+    "日本語",
+    "한글",
+    "가나",
+    "mcp__서버__tool",
+    "mcp__srv__Ping",
+    "ß",
+    "ss",
+    "Ångström",
+    "angstrom",
+    "ñandú",
+    "nandu",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1"
+   ],
+   "deferredDiscoveredTools": [
+    "ß",
+    "ss",
+    "Ångström",
+    "angstrom",
+    "ñandú",
+    "nandu",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1",
+    "ǆ",
+    "dz",
+    "ﬁsh",
+    "fish",
+    "カタカナ",
+    "ひらがな",
+    "ÄRGER",
+    "Ärger"
+   ]
+  },
+  "result": {
+   "mode": "lead",
+   "count": 26,
+   "activeCount": 18,
+   "mcpToolCount": 2,
+   "activeMcpToolCount": 2,
+   "tools": [
+    {
+     "name": "éclair",
+     "kind": "tool",
+     "usage": 0,
+     "active": true,
+     "description": "u éclair"
+    }
+   ],
+   "activeTools": [
+    "가나",
+    "日本語",
+    "한글",
+    "angstrom",
+    "Ångström",
+    "ärger",
+    "eclair",
+    "éclair",
+    "mcp__서버__tool",
+    "mcp__srv__Ping",
+    "nandu",
+    "ñandú",
+    "ss",
+    "ß",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1",
+    "zebra",
+    "Zeta"
+   ],
+   "discoveredTools": [
+    "angstrom",
+    "Ångström",
+    "Ärger",
+    "ÄRGER",
+    "dz",
+    "ǆ",
+    "fish",
+    "ﬁsh",
+    "nandu",
+    "ñandú",
+    "ss",
+    "ß",
+    "z_1",
+    "z-1",
+    "z1",
+    "Z1",
+    "カタカナ",
+    "ひらがな"
+   ]
+  }
+ }
+]

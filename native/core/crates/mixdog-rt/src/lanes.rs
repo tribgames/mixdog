@@ -73,6 +73,26 @@ impl std::fmt::Display for LaneFull {
 
 impl std::error::Error for LaneFull {}
 
+/// Why [`crate::LaneToken::submit_wait`] gave up without enqueuing the job.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmitWaitError {
+    /// The job's cancellation token was cancelled while waiting for room.
+    Cancelled,
+    /// The backend cannot signal free capacity, so waiting is impossible.
+    Full(LaneFull),
+}
+
+impl std::fmt::Display for SubmitWaitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SubmitWaitError::Cancelled => f.write_str("cancelled while waiting for lane capacity"),
+            SubmitWaitError::Full(full) => full.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for SubmitWaitError {}
+
 /// A job waiting in a lane queue. Created only by [`crate::LaneToken::submit`].
 pub struct QueuedJob {
     lane: LaneKind,

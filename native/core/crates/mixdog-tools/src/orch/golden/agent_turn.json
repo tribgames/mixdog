@@ -1,0 +1,24 @@
+{
+  "toolMessages": [
+    {
+      "toolCallId": "c1",
+      "content": "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nnotification: completion will be delivered; end the turn."
+    },
+    {
+      "toolCallId": "c2",
+      "content": "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nagent: coder\nmodel: p/m\nworker: running/streaming\nnotification: completion will be delivered; end the turn."
+    },
+    {
+      "toolCallId": "c3",
+      "content": "agent task: job_1\nstatus: completed\ntype: spawn\ntarget: worker-a sess_a\n\nThe answer is 42."
+    },
+    {
+      "toolCallId": "c4",
+      "content": "agents: 1 · tasks: 1\n- idle/closed agents: 1 (latest 1; pass tag=<text> to find one)\n- worker-a  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- job_1  spawn  completed  worker-a"
+    },
+    {
+      "toolCallId": "c5",
+      "content": "agent close: ok\ntag: worker-a\nsessionId: sess_a"
+    }
+  ]
+}

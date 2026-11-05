@@ -5,6 +5,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use mixdog_rt::CancellationToken;
 use mixdog_rt::CpuInteractive;
@@ -23,6 +25,8 @@ use crate::feed::FeedSource;
 use crate::feed::FeedView;
 use crate::feed::PublishError;
 use crate::feed::ResumeFrom;
+use crate::feed::ScopedFeed;
+use crate::feed::ScopedFeeds;
 use crate::feed::Window;
 use crate::ids::FeedEpoch;
 use crate::ids::FeedId;
@@ -43,6 +47,8 @@ struct Shared {
 }
 
 struct State {
+    /// Set by [`ScopedFeed::close`].
+    closed: bool,
     seq: u64,
     view: Arc<dyn FeedView>,
     ring: VecDeque<FeedFrame>,
@@ -73,6 +79,7 @@ impl MockFeed {
                 limits,
                 cpu: mixdog_rt::testing::tokens().cpu_interactive,
                 state: Mutex::new(State {
+                    closed: false,
                     seq: 0,
                     view,
                     ring: VecDeque::new(),
@@ -129,6 +136,9 @@ impl FeedSource for MockFeed {
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
         let shared = &self.shared;
         let mut state = shared.lock();
+        if state.closed {
+            return Err(CoreError::ConnectionClosed);
+        }
         let seq = state.seq;
         let mut decision = AttachDecision {
             mode: AttachMode::Snapshot,
@@ -257,5 +267,38 @@ impl Feed for MockFeed {
             state.view = view;
         }
         Ok(())
+    }
+}
+
+impl ScopedFeed for MockFeed {
+    fn close(&self) {
+        let mut state = self.shared.lock();
+        state.closed = true;
+        for (_, subscriber) in state.subs.drain() {
+            subscriber.lane.close();
+        }
+    }
+}
+
+/// A [`ScopedFeeds`] creating [`MockFeed`]s with the given limits and epochs drawn from a
+/// counter.
+pub struct MockScopedFeeds {
+    limits: MockLimits,
+    next_epoch: AtomicU64,
+}
+
+impl MockScopedFeeds {
+    pub fn new(limits: MockLimits) -> Self {
+        Self {
+            limits,
+            next_epoch: AtomicU64::new(1),
+        }
+    }
+}
+
+impl ScopedFeeds for MockScopedFeeds {
+    fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
+        let epoch = super::epoch(u128::from(self.next_epoch.fetch_add(1, Ordering::Relaxed)));
+        Arc::new(MockFeed::new(id, epoch, view, self.limits))
     }
 }

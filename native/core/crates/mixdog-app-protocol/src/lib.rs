@@ -18,6 +18,7 @@ pub mod export;
 pub mod inventory;
 pub mod limits;
 pub mod media;
+pub mod mgmt;
 pub mod methods;
 pub mod notifications;
 pub mod rpc;

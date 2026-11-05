@@ -1,0 +1,289 @@
+<!doctype html><html><head><title>docs/internal/computer-use-delivery-audit.md</title></head><body><header><nav><a href="/">Home</a></nav></header><main><article class="markdown-body"><h1>Computer Use delivery and feedback audit</h1>
+<p>Date: 2026-09-10. Scope: delivery selection, pointer feedback, focus ownership,
+interruption/resume, and failure reporting. This is a source-level audit, not a
+claim that the installed app has passed the final live acceptance scenario.</p>
+<h2>Delivery contract</h2>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Route</th>
+<th>Required behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Read a native window</td>
+<td>Capture/inspect/verify</td>
+<td>No input mode or focus change is needed.</td>
+</tr>
+<tr>
+<td>Supported native actions, including clicks, scrolling and text/value input</td>
+<td>Background, the public <code>act</code> default</td>
+<td>Prefer semantic actions or native window messages; do not equate delivery with success.</td>
+</tr>
+<tr>
+<td>Known unsupported background route, real-pointer/focus requirement, or demonstration</td>
+<td>Explicit foreground</td>
+<td>Prepare and validate the exact target, move the one real pointer, then dispatch.</td>
+</tr>
+<tr>
+<td>Strict no-focus work</td>
+<td>Background only unless scope changes</td>
+<td>Do not silently escalate or send a known unsupported action merely to confirm it fails.</td>
+</tr>
+<tr>
+<td>Background semantic provider that can temporarily take focus</td>
+<td>Background with a shared focus guard</td>
+<td>Serialize against foreground work without changing delivery mode. Never restore focus over intervening user input.</td>
+</tr>
+<tr>
+<td>User intervention during visible work</td>
+<td>Pending</td>
+<td>Retain progress, wait for control, obtain fresh observation, then continue intent. Never replay completed or uncertain input.</td>
+</tr>
+<tr>
+<td>Unsupported route or uncertain result</td>
+<td>Inspect first</td>
+<td>Do not automatically switch modes. A different route requires evidence that no input was sent and must remain within the user&#39;s scope.</td>
+</tr>
+<tr>
+<td>Mixdog browser content</td>
+<td>Browser Use</td>
+<td>Native input is not a workaround for a Browser Use refusal.</td>
+</tr>
+<tr>
+<td>User-selected external browser content</td>
+<td>Computer Use</td>
+<td>Preserve the selected window and signed-in session; a native delivery refusal does not authorize moving to Mixdog&#39;s browser.</td>
+</tr>
+</tbody></table>
+<p>Background is a delivery choice, not a promise that arbitrary application code
+cannot create a dialog or change focus. Choose it for known supported work;
+preserve user focus when a provider temporarily takes it. A safety pause blocks
+background input too.</p>
+<h2>Reference comparison</h2>
+<ul>
+<li>The local Codex repository exposes Windows application requirements and
+configuration, but did not provide the production cursor renderer inspected
+here. Production Codex visual parity is therefore <strong>unverified</strong>.</li>
+<li>The local CUA cursor documentation separates physical input, a synthetic
+pointer, semantic effects, and authorization. Its separate arrow is not
+adopted: this implementation must retain one real pointer.</li>
+<li>The official OpenAI computer-use sample uses a persistent desktop runtime,
+real mouse input, and explicit result inspection. Its README explicitly says
+that OpenAI products have different runtimes and additional controls.</li>
+<li>Reference material supplied design ideas only. No reference implementation
+was copied or adapted.</li>
+</ul>
+<h2>Findings and changes</h2>
+<table>
+<thead>
+<tr>
+<th>Finding</th>
+<th>Change</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Visible mouse work was incorrectly generalized into a foreground default</td>
+<td>Restored background-first selection; real-pointer/focus requirements and demonstrations use explicit foreground</td>
+<td><code>delivery.test.mjs</code></td>
+</tr>
+<tr>
+<td>Modified background ref clicks lost Ctrl/Shift through semantic invoke</td>
+<td>Modified clicks use native pointer messages instead of unmodified semantic invocation</td>
+<td><code>delivery.test.mjs</code></td>
+</tr>
+<tr>
+<td>A later unsupported key token could follow an already typed prefix</td>
+<td>Parse the entire background key sequence before target lookup or dispatch</td>
+<td>Native preflight test</td>
+</tr>
+<tr>
+<td>Partial background delivery could be reported as no input sent</td>
+<td>Preserve unknown delivery and <code>input_may_have_executed</code>; sequence rows are uncertain and follow-ups stop</td>
+<td>Native failure and sequence tests</td>
+</tr>
+<tr>
+<td>Foreground scrolling could invoke background ScrollPattern</td>
+<td>Delivery now controls the branch; foreground scroll glides to the checked target</td>
+<td><code>foreground-order.test.mjs</code></td>
+</tr>
+<tr>
+<td>Targeted typing jumped the pointer instead of gliding</td>
+<td>Shared typing-point preparation re-resolves the target before movement and click</td>
+<td>Native program parsing/compilation and guarded pointer path</td>
+</tr>
+<tr>
+<td>Modifier handling differed between click, drag, and scroll</td>
+<td>One modifier lifetime releases every held key, including after partial failure</td>
+<td><code>pointer-modifiers.test.mjs</code></td>
+</tr>
+<tr>
+<td>A background semantic operation could interfere with another foreground operation</td>
+<td>Shared focus-guard serialization, separate from delivery/presentation mode</td>
+<td><code>command-queue.test.mjs</code></td>
+</tr>
+<tr>
+<td>Cleanup could restore stale focus after user intervention</td>
+<td>Restore only under the original input observation, for foreground release and background semantic cleanup</td>
+<td><code>focus-ownership.test.mjs</code></td>
+</tr>
+<tr>
+<td>A refused input could be mislabeled as failed recovery to an older session focus</td>
+<td>Explicit no-dispatch plus unchanged pre-action state closes cleanup without claiming action success</td>
+<td><code>input-recovery.test.mjs</code></td>
+</tr>
+<tr>
+<td>Recovery guidance encouraged blind mode changes</td>
+<td>Focus failures request user assistance; uncertain background effects request fresh evidence</td>
+<td><code>error-recovery.test.mjs</code>, <code>analysis.test.mjs</code></td>
+</tr>
+<tr>
+<td>Cold effect-window startup raced the first gesture</td>
+<td>Bounded surface preparation precedes dispatch; initialization failure cleans up the window</td>
+<td>Cursor readiness and Electron lifecycle tests</td>
+</tr>
+<tr>
+<td>Scroll/key/type events were missing from the feedback transport</td>
+<td>Explicit event categories are now propagated without input content</td>
+<td><code>pointer-progress.test.mjs</code></td>
+</tr>
+<tr>
+<td>Style and visible-window flags were mistaken for visual proof</td>
+<td>Added actual renderer-pixel checks and current-display placement checks</td>
+<td><code>cursor-art.electron.test.mjs</code></td>
+</tr>
+<tr>
+<td>Re-intervention between Resume and Capture looked like lost connection</td>
+<td>The actual bridge pause response re-enters waiting without re-sending input</td>
+<td><code>pending-reentry.test.mjs</code></td>
+</tr>
+<tr>
+<td>Read failures discarded pending-work detail</td>
+<td>Return retained progress and a fresh-observation requirement</td>
+<td><code>pending-continuation.test.mjs</code></td>
+</tr>
+<tr>
+<td>Restoration ACK races could produce false cleanup failures</td>
+<td>Preserve an outstanding read and confirmed restoration; late ACTIVE does not discard RESTORED</td>
+<td><code>cursor-protocol.test.mjs</code></td>
+</tr>
+<tr>
+<td>Detached watchdog console creation was unspecified</td>
+<td>Use supported WMI hidden-console startup; stop a hung launcher</td>
+<td>Harmless detached-launch test; no desktop input</td>
+</tr>
+<tr>
+<td>Final replies lost native cursor lifecycle evidence</td>
+<td>Preserve allowlisted lifecycle booleans through action replies and sequence rows</td>
+<td>Native guards, sequence, and diagnostic tests</td>
+</tr>
+</tbody></table>
+<p><code>system_theme_applied</code>, <code>system_theme_restored</code>, and <code>pointer_moved</code> are lifecycle
+evidence. They do not prove that a person saw the cursor or that the requested
+application task succeeded. Diagnostics exclude input text, screenshots,
+clipboard contents, and cursor coordinates.</p>
+<h2>Verification boundaries</h2>
+<p>Completed automated checks include C# compilation, PowerShell parsing,
+JavaScript/TypeScript behavior tests, real named-pipe protocol tests with a
+non-input peer, harmless watchdog process creation, renderer-pixel checks,
+current-display overlay positioning, bundle completeness, compressed elevated
+transport, node type checking, and skill validation. Tests were memory-bounded
+and run without a full application build or broad React renderer suite.</p>
+<p>The fixture renderer tests do not establish installed-app end-to-end behavior.
+Mock input and protocol tests do not establish actual human intervention.
+Current displays were checked; other DPI combinations were not changed or
+claimed verified.</p>
+<h2>Follow-up outcomes and remaining acceptance</h2>
+<p>The user approved the follow-up. Release and background placement have now
+been addressed in source and isolated tests; installed-app acceptance remains
+open rather than being counted as completed parity.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Previous source evidence</th>
+<th>Outcome/current status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Background gesture release</td>
+<td>Release followed successful press/movement without exception-safe cleanup.</td>
+<td>One bounded, target-bound release now follows known or possible press delivery. Definite rejection does not send an unrelated release. Cleanup does not move to another process/thread, replay the gesture, retry a failed release, or use global foreground input. Release failure reaches the safety guard and retains the operation failure.</td>
+</tr>
+<tr>
+<td>Background feedback covering unrelated work</td>
+<td>Background cursor presentations created global always-on-top effect windows.</td>
+<td>Background floating effects are omitted; activity and result evidence remain. Unneeded visual-coordinate lookup and background pointer-event transport are removed. Foreground effects remain, and switching to background clears retained effects without stopping the task.</td>
+</tr>
+<tr>
+<td>Acceptance gap: whole desktop behavior</td>
+<td>Renderer-pixel and current-display tests do not establish target-relative z-order, live pointer/focus noninterference, or installed-app interruption recovery.</td>
+<td>Verify pixels, focus, pointer position, and stacking independently on a disposable target plus an unrelated foreground window. Keep installed-app verification pending until approved deployment and user-controlled recovery.</td>
+</tr>
+</tbody></table>
+<p>The local CUA Windows test explicitly describes a targeted overlay below an
+independent foreground window and checks separate pixel, focus, cursor, and
+z-order outcomes. The inspected test is ignored by default; it was read, not
+executed here. The official OpenAI sample separately attempts bounded input
+release and requires acknowledgment. Those are design/acceptance references,
+not proof that Mixdog has passed the same cases.</p>
+<p>Follow-up checks passed for press/release failure combinations, cleanup-error
+propagation, suppressed background event transport, mixed-session effect
+isolation, foreground/background transitions, and no stale effect resurrection.
+The real Electron fixture keeps itself alive after closing its only effect
+window; it does not change the user&#39;s desktop input. Node type checking and
+the compressed elevated-launch envelope also passed. Background-first selection
+and the no-replay contract remain unchanged.</p>
+<h2>Five-round follow-up</h2>
+<ol>
+<li>Queue fairness: an earlier overlapping multi-window waiter reserves its
+place during draining; independent windows remain concurrent.</li>
+<li>App-owned Electron typing: replace the fixed 80 ms delay with a bounded
+editable-focus check. Validate point identity using physical-to-DIP and
+page-zoom conversion, including open shadow roots. Unsupported targets,
+renderer stalls, cancellation, and observation-only changes stop text input.</li>
+<li>Emergency release: replace blanket release of every key/button with
+acknowledged automation-owned input held in volatile shared memory.
+Resident workers and the existing cursor watchdog retain ownership across
+input-worker termination. No input contents are persisted or returned.</li>
+<li>Failure boundaries: keep unacknowledged native transmission and failed
+release latched rather than guessing/retrying. Foreign-held keys are not
+released; only the exclusive watchdog updates their shared observation to
+avoid competing observer writes. Completed releases clear their receipts.</li>
+<li>Verification: targeted queue, typing, native transport, cross-process
+ownership, cursor protocol, compilation, launch-envelope and type checks.
+Installed-app behavior and subjective cursor appearance remain separate.</li>
+</ol>
+<p>All 37 targeted tests passed across the affected checks, as did Node type
+checking. The initial launch-envelope failure was fixed without increasing the
+limit: elevated cleanup extracts literal native source from the already
+authenticated host bytes instead of embedding another copy in the command
+line. The source envelope uses a single-quoted PowerShell here-string, so C#
+source is preserved verbatim. Extraction rejects ambiguous assignments and
+executable/interpolated expressions without evaluating the host.</p>
+<p>The shared receipt is deliberately fail-closed if a worker dies inside native
+delivery: a missing acknowledgment cannot establish which prefix Windows
+accepted. Lost ownership storage while input is still held also requires
+manual recovery, not blanket release. Cross-process tests use a fake transport,
+not physical keyboard/mouse input. Live acceptance still requires approval.</p>
+<h2>Installed-app acceptance</h2>
+<ol>
+<li>Obtain approval for this revision&#39;s local update/restart.</li>
+<li>Honor the existing safety pause; the model must not clear it itself.</li>
+<li>In the installed app, observe an exact test window and perform separate
+foreground move/click actions. Check pointer motion, cursor appearance,
+preparation/click effects, and returned lifecycle evidence independently.</li>
+<li>Exercise scroll and modifier-held gestures on a suitable disposable target.</li>
+<li>Have the user intervene, stop input, and observe pending/resume with fresh
+state. Repeat intervention during recovery. Confirm no input is duplicated.</li>
+<li>Check explicit background delivery separately: user pointer/focus protection
+and application effect are separate acceptance conditions.</li>
+<li>Verify theme restoration after ordinary completion and cancellation on the
+deployed revision. Earlier live restoration results are not a substitute
+for acceptance after the watchdog changes.</li>
+</ol>
+<p>Do not repeat a failed gesture, clear the safety guard, run a new input host
+around a refusal, or report production Codex parity to make this list pass.</p>
+</article></main><footer>© docs</footer></body></html>

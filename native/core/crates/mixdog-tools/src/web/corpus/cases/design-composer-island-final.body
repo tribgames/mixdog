@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 아일랜드 최종안</title>
+<style>
+  :root {
+    --bg: #161618; --text: #e9e9e9; --soft: #d6d6d6; --muted: #a8a8a8; --faint: #7a7a80;
+    --accent: #79b8ff; --warn: #f2cf76; --ok: #6bd586; --danger: #f17471;
+    --line: rgba(255,255,255,.08); --island: #232326; --composer: #232326;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0f11; color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 32px 40px 80px; }
+  main { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 44px 0 12px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+
+  /* 아일랜드 */
+  .pill { display: inline-flex; align-items: center; height: 34px; padding: 0 4px; border-radius: 999px; background: var(--island);
+    box-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22);
+    font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: -.005em; white-space: nowrap; max-width: 100%; }
+  .seg { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; color: var(--soft); font-variant-numeric: tabular-nums; }
+  .seg + .seg { margin-left: 5px; }
+  .seg + .seg::before { content: ""; position: absolute; left: -3px; top: 50%; width: 1px; height: 14px; transform: translateY(-50%); background: rgba(255,255,255,.09); }
+  .seg.goal { color: var(--text); }
+  .meta { color: var(--muted); font-weight: 400; }
+  .title { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
+  .plus { color: var(--ok); } .minus { color: var(--danger); } .w { color: var(--warn); }
+  .bar { width: 22px; height: 3px; border-radius: 99px; background: #3d3d41; overflow: hidden; flex: none; }
+  .bar i { display: block; height: 100%; width: 60%; background: var(--accent); border-radius: 99px; }
+  .pulse, .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .pulse { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  .dot.warn { background: var(--warn); } .dot.idle { background: #5a5a60; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+
+  /* 화면 */
+  .screen { background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 18px 22px 16px; }
+  .msg { color: var(--soft); font-size: 13px; }
+  .fade { height: 24px; margin-top: -24px; background: linear-gradient(transparent, var(--bg)); position: relative; }
+  .wrap { display: flex; justify-content: center; margin: 14px 0 8px; }
+  .composer { height: 76px; border-radius: 18px; background: var(--composer); box-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22); padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; color: var(--faint); font-size: 13px; }
+  .composer .b { display: flex; gap: 10px; color: var(--muted); font-size: 12.5px; }
+  .composer.dim { opacity: .4; filter: saturate(.6); }
+
+  /* 표 */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td:first-child { color: var(--muted); white-space: nowrap; width: 150px; }
+  td.why { color: var(--muted); width: 320px; font-size: 12.5px; }
+
+  /* 패널 · 카드 */
+  .panel, .card { width: 560px; max-width: 100%; border-radius: 18px; background: var(--island);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.06), 0 6px 18px rgba(0,0,0,.22); font-size: 14px; line-height: 20px; font-weight: 500; overflow: hidden; }
+  .phead { height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  .tab { height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 999px; color: var(--muted); }
+  .tab.on { color: var(--text); background: rgba(255,255,255,.07); }
+  .x { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); }
+  .rows { padding: 4px 14px 8px; }
+  .row { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .main span { color: var(--muted); font-weight: 400; }
+  .row .t { color: var(--faint); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .chip { font-size: 11px; height: 18px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; font-weight: 400; }
+  .chip.w { color: var(--warn); box-shadow: inset 0 0 0 1px rgba(242,207,118,.35); }
+  .chip.q { color: var(--faint); box-shadow: inset 0 0 0 1px var(--line); }
+  .card { padding: 12px 14px; box-shadow: 0 0 0 1px rgba(242,207,118,.55), 0 6px 18px rgba(0,0,0,.22); }
+  .card .h { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+  .card .h small { color: var(--muted); font-weight: 400; }
+  .card pre { margin: 8px 0 10px; padding: 7px 10px; border-radius: 9px; background: #19191c; font: 12px/18px "JetBrains Mono", Consolas, monospace; color: var(--soft); }
+  .card .f { display: flex; justify-content: flex-end; gap: 6px; }
+  .btn { height: 24px; padding: 0 10px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); display: inline-flex; align-items: center; font-size: 12px; }
+  .btn.pri { background: #2f6fc7; box-shadow: none; }
+
+  /* 재질 비교 */
+  .mat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .mat { position: relative; background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 14px 18px 16px; overflow: hidden; }
+  .mat .lbl { font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+  .mat .behind { color: var(--soft); font-size: 13px; line-height: 20px; height: 60px; overflow: hidden; }
+  .mat .float { display: flex; justify-content: center; margin: -30px 0 8px; position: relative; }
+  .mat .pill { background: var(--k-bg); box-shadow: var(--k-shadow); backdrop-filter: var(--k-blur); -webkit-backdrop-filter: var(--k-blur); }
+  .m1 { --k-bg: #232326; --k-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22); --k-blur: none; }
+  .m2 { --k-bg: #232326; --k-shadow: 0 8px 24px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.4); --k-blur: none; }
+  .m3 { --k-bg: linear-gradient(180deg, #2c2c30 0%, #1f1f22 100%); --k-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 0 0 1px rgba(0,0,0,.35), 0 8px 22px rgba(0,0,0,.35); --k-blur: none; }
+  .m4 { --k-bg: rgba(35,35,38,.62); --k-shadow: inset 0 0 0 1px rgba(255,255,255,.07), inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.3); --k-blur: blur(14px) saturate(140%); }
+  .m5 { --k-bg: linear-gradient(180deg, rgba(48,48,54,.72), rgba(30,30,34,.72)); --k-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 0 0 1px rgba(255,255,255,.05), 0 10px 28px rgba(0,0,0,.35); --k-blur: blur(16px) saturate(150%); }
+  .m6 { --k-bg: rgba(255,255,255,.045); --k-shadow: inset 0 0 0 1px rgba(255,255,255,.06); --k-blur: blur(10px); }
+  ul.rules { color: var(--soft); font-size: 13px; line-height: 22px; padding-left: 18px; margin: 0; }
+  ul.rules b { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+<h1>컴포저 아일랜드 최종안</h1>
+<p class="lead">컴포저 위에 뜨는 상태 알약의 최종 모습입니다. 구분선은 칸과 칸 사이에만 쓰고, 칸 안에는 넣지 않습니다.</p>
+
+<!-- 1 -->
+<h2>1. 화면에서 보이는 모습</h2>
+<div class="screen">
+  <div class="msg">모두 읽기 전용이라 파일 수정이나 GitHub 코멘트는 하지 않습니다. 결과가 모이면 함께 정리해 드리겠습니다.</div>
+  <div class="wrap"><span class="pill">
+    <span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span>
+    <span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2 · <span class="w">승인 1</span></span></span>
+    <span class="seg"><span class="pulse"></span>셸<span class="meta">npm test +2</span></span>
+    <span class="seg">4개 파일 변경 <span class="plus">+82</span><span class="minus">−17</span></span>
+  </span></div>
+  <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div>
+</div>
+<p class="lead" style="margin-top:10px">아무것도 없으면 아일랜드 자리를 비워 두지 않습니다. 대화와 컴포저 사이에는 24px 페이드가 들어가서 글이 딱 잘리지 않습니다.</p>
+
+<!-- 재질 -->
+<h2>1-1. 아일랜드 재질 비교 — <span style="color:var(--ok)">A 결정(테두리만)</span></h2>
+<p class="lead">아일랜드 뒤로 대화 글이 지나가는 상황입니다. 반투명 후보는 뒤 글이 흐리게 비칩니다.</p>
+<div class="mat-grid">
+  <div class="mat m1"><div class="lbl">A. 지금(같은 표면색 + 얇은 테두리)</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m2"><div class="lbl">B. 테두리 없이 그림자만</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m3"><div class="lbl">C. 위→아래 은은한 그라데이션 + 윗선 하이라이트</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m4"><div class="lbl">D. 반투명 유리(뒤 흐림)</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m5"><div class="lbl">E. 유리 + 그라데이션 + 윗선 하이라이트 <span style="color:var(--ok)">추천</span></div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m6"><div class="lbl">F. 아주 옅은 반투명(거의 글자만)</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+</div>
+
+<!-- 2 -->
+<h2>2. 칸별 모습</h2>
+<table>
+  <tr><th>칸</th><th>모습</th><th>규칙</th></tr>
+  <tr><td>Goal</td>
+    <td><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span class="title">결제 모듈을 새 API로 이전</span><span>3/5</span><span class="meta">12m</span></span></span></td>
+    <td class="why">파란 진행률 막대, 진행 수, 경과 시간을 표시합니다. 시간은 분 단위로 쓰고(1시간이 넘으면 "1h 05m"), 초는 펼친 패널에서만 보입니다. 제목은 혼자 있거나 화면이 넓을 때만 보입니다.</td></tr>
+  <tr><td>Goal · 완료</td>
+    <td><span class="pill"><span class="seg goal"><svg viewBox="0 0 24 24" style="color:var(--ok)"><path d="M20 6 9 17l-5-5"/></svg><span>5/5</span><span class="meta">32m</span></span></span> &nbsp;
+        <span class="pill"><span class="seg goal" style="color:var(--muted)"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg><span>3/5</span><span class="meta">18m</span></span></span></td>
+    <td class="why">알림 없이 칸 안에서만 바뀝니다. 끝나면 초록 체크로, 멈추면 회색 정지 표시로 바뀌고, 다음 메시지를 보낼 때 사라집니다.</td></tr>
+  <tr><td>에이전트</td>
+    <td><span class="pill"><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2 · <span class="w">승인 1</span></span></span></span></td>
+    <td class="why">상태별 개수를 보여 주고, 0인 상태는 생략합니다. 승인 대기만 노란색입니다.</td></tr>
+  <tr><td>에이전트 · 모두 대기</td>
+    <td><span class="pill"><span class="seg"><span class="dot idle"></span>에이전트 2<span class="meta">대기 2</span></span></span></td>
+    <td class="why">돌고 있는 에이전트가 없으면 점이 회색으로 멈춥니다.</td></tr>
+  <tr><td>셸</td>
+    <td><span class="pill"><span class="seg"><span class="pulse"></span>셸<span class="meta">npm test -- payment</span></span></span> &nbsp;
+        <span class="pill"><span class="seg"><span class="pulse"></span>셸<span class="meta">npm test -- payment +2</span></span></span></td>
+    <td class="why">가장 최근 명령을 보여 주고, 여러 개면 뒤에 "+N"을 붙입니다.</td></tr>
+  <tr><td>파일</td>
+    <td><span class="pill"><span class="seg">4개 파일 변경 <span class="plus">+82</span><span class="minus">−17</span></span></span> &nbsp;
+        <span class="pill"><span class="seg">client.ts 변경 <span class="plus">+12</span><span class="minus">−3</span></span></span></td>
+    <td class="why">문장형으로 씁니다. 파일이 하나면 파일 이름을 보여 줍니다. +와 − 사이에는 구분선 없이 띄어쓰기만 둡니다.</td></tr>
+  <tr><td>모델 불일치</td>
+    <td><span class="pill"><span class="seg"><span class="dot warn"></span>Claude Opus 5.5로 계속</span></span></td>
+    <td class="why">노란 점 하나에 글자는 회색으로 둡니다.</td></tr>
+</table>
+
+<!-- 3 -->
+<h2>3. 공간에 따라 줄어드는 순서</h2>
+<table>
+  <tr><th>너비</th><th>모습</th><th>빠지는 것</th></tr>
+  <tr><td>넓음 · 혼자</td>
+    <td><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span class="title">결제 모듈을 새 API로 이전</span><span>3/5</span><span class="meta">12m</span></span></span></td>
+    <td class="why">빠지는 것 없이 전부 보입니다.</td></tr>
+  <tr><td>보통 · 함께</td>
+    <td><span class="pill">
+      <span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span>
+      <span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span>
+      <span class="seg"><span class="pulse"></span>셸<span class="meta">npm test +2</span></span>
+      <span class="seg">4개 파일 변경 <span class="plus">+82</span><span class="minus">−17</span></span></span></td>
+    <td class="why">Goal 제목이 빠집니다. 셸 명령은 길면 말줄임표로 줄입니다.</td></tr>
+  <tr><td>좁음(420px 미만)</td>
+    <td><span class="pill">
+      <span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span>
+      <span class="seg"><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>7</span>
+      <span class="seg"><svg viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>3</span>
+      <span class="seg"><svg viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6M12 13V7M9 17h6"/></svg><span class="plus">+82</span><span class="minus">−17</span></span>
+      <span class="seg"><span class="dot warn"></span></span></span></td>
+    <td class="why">글자가 빠지고 아이콘과 숫자만 남습니다. Goal은 진행 수와 시간을 끝까지 유지합니다. 마우스를 올리면 전체 내용이 툴팁으로 나옵니다.</td></tr>
+</table>
+
+<!-- 4 -->
+<h2>4. 펼쳤을 때 · 승인 요청</h2>
+<div style="display:flex;gap:20px;flex-wrap:wrap">
+  <div class="screen" style="flex:1;min-width:440px">
+    <div class="wrap" style="margin-top:0"><div class="panel">
+      <div class="phead"><span class="tab on"><span class="pulse"></span>에이전트 7</span><span class="tab"><span class="pulse"></span>셸 3</span><span class="x">✕</span></div>
+      <div class="rows">
+        <div class="row"><span class="pulse"></span><span class="main">Advisor <span>advise-pr24</span></span><span class="t">0:42</span></div>
+        <div class="row"><span class="pulse"></span><span class="main">Advisor <span>advise-pr25</span></span><span class="t">0:38</span></div>
+        <div class="row"><span class="dot warn"></span><span class="main">Reviewer <span>payment diff</span></span><span class="chip w">승인 대기</span></div>
+        <div class="row"><span class="dot idle"></span><span class="main">Explorer <span>docs-scan</span></span><span class="chip q">대기</span></div>
+      </div>
+    </div></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div>
+  </div>
+  <div class="screen" style="flex:1;min-width:440px">
+    <div class="wrap" style="margin-top:0"><div class="card">
+      <div class="h">Reviewer가 파일 수정을 요청합니다 <small>payment diff</small></div>
+      <pre>edit src/pay/client.ts  (+12 −3)</pre>
+      <div class="f"><span class="btn">거절</span><span class="btn">항상 허용</span><span class="btn pri">허용</span></div>
+    </div></div>
+    <div class="composer dim">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div>
+  </div>
+</div>
+
+<!-- 5 -->
+<h2>5. 공통 규칙</h2>
+<ul class="rules">
+  <li><b>크기</b>: 알약 34px, 칸 26px, 글자 14px 굵기 500(컴포저 모델 이름과 같은 크기 · 라벨 굵기), 보조 글자는 굵기 400 회색, 패널 제목은 14px 굵기 600</li>
+  <li><b>테두리</b>: 은은한 테두리와 위쪽 하이라이트, 부드러운 그림자, 패널 모서리 18px</li>
+  <li><b>구분선</b>: 칸과 칸 사이에만 둡니다. 칸 안(+/− 사이, 이름 앞)에는 넣지 않습니다</li>
+  <li><b>색</b>: 진행 중은 파란 점, 진행률은 파란 막대, 주의·승인은 노란색, 대기는 회색 점. 색은 점과 막대, 승인 표시에만 씁니다</li>
+  <li><b>알림</b>: 백그라운드 작업 완료 알림은 띄우지 않습니다. 화면이 들썩이는 것을 막기 위해서입니다</li>
+  <li><b>흔들림 방지</b>: 칸 안 시간은 분 단위로만 바뀝니다. 숫자 자리에는 최소 너비를 둬서 알약 길이가 자주 변하지 않게 합니다</li>
+  <li><b>클릭</b>: 에이전트 칸을 누르면 에이전트 탭이, 셸 칸을 누르면 셸 탭이, Goal 칸을 누르면 Goal 작업 목록이 열립니다</li>
+  <li><b>승인 개수</b>: 승인 카드와 같은 데이터를 봅니다. 승인 대기를 정확히 구분할 수 없으면 "대기"로 합칩니다</li>
+  <li><b>테마 · 기기</b>: 라이트 테마와 휴대폰 화면도 같은 규칙으로 맞춥니다</li>
+  <li><b>빈 상태</b>: 표시할 게 없으면 아일랜드 자리가 0으로 접힙니다. 나타날 때는 0.18초 동안 부드럽게 펼쳐집니다</li>
+</ul>
+</main>
+</body>
+</html>

@@ -58,7 +58,7 @@
       "c3": 4
     },
     "maxBlobPageBytes": 1048576,
-    "maxBlobPutChunkBytes": 196608,
+    "maxBlobPutChunkBytes": 193536,
     "maxConnections": 128,
     "maxFrameBytes": 327680,
     "maxInboundFrameBytes": 262144,
@@ -177,6 +177,12 @@
       "keyed": false,
       "notification": "webSearch/updated",
       "section": "webSearch"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "toolModules/updated",
+      "section": "toolModules"
     },
     {
       "feed": "app",

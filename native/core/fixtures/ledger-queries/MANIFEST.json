@@ -1,0 +1,35 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-ledger-queries.mjs --tree <tree>",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 2006854,
+      "path": "corpus.json",
+      "sha256": "2ee8182b9f63fb5e8b55feec51cdf954e18c5d89cf61bacd6d9466707bde4a08"
+    },
+    {
+      "bytes": 1714282,
+      "path": "v145.json",
+      "sha256": "55a70b7751753d9d4a48ab3dc17df3b18f21c70274009a24b16ac3ab0930c64a"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "aded5a87d6dda0b4ee2fb7b73c1b8e7c1eb5ab30",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-ledger-queries.mjs",
+  "set": "ledger-queries",
+  "totalBytes": 3721136
+}

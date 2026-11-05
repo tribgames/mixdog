@@ -66,7 +66,7 @@ export default function EditorSideMarkdownPreview({
       void Promise.resolve(readDisk(mine)).finally(() => {
         busy = false;
       });
-      stopWatch = startEditorDiskWatch(window, () => {
+      stopWatch = startEditorDiskWatch(api, projectPath, relPath, () => {
         if (busy) return;
         busy = true;
         void Promise.resolve(

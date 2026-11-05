@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/thinking-spinner-styles.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Mixdog · 로고 띵킹 아이콘 · 움직임 스타일",
+  "content": "## 로고 띵킹 아이콘 · 다른 움직임 4종\n\n모양은 로고(원호 3개 + 별) 그대로, 색은 앱 포인트 색, 선 두께 2.1로 맞추고 움직이는 방식만 완전히 다르게 만들었습니다. 각 카드 아래 칸은 한 주기를 6단계로 멈춘 모습입니다.\n\n재생",
+  "extractor": "readability"
+ }
+}

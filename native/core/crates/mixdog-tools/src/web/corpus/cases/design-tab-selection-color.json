@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/tab-selection-color.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "선택 탭 색감 시안",
+  "content": "## 선택 탭 색감 시안\n\n44px 탭 줄, 둥근 선택 바탕(R5), 작은 + 적용 상태입니다. 바탕 색감만 바꿨습니다. 오른쪽 패널이 포커스, 왼쪽 패널은 비포커스입니다. 사이드 패널의 선택 행(“새 작업”)은 비교용으로 회색 8%입니다.",
+  "extractor": "readability"
+ }
+}

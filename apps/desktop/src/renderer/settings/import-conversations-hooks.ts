@@ -28,7 +28,6 @@ import {
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 250;
 const SCAN_REFRESH_MS = 1500;
-const JOB_POLL_MS = 2000;
 
 export type ImportJobMode = 'single' | 'batch';
 
@@ -304,19 +303,28 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
     };
   }, [api]);
 
-  // Safety net for a missed progress event while a job is tracked.
+  // A progress event can be missed while the window was away or the link was down; a tracked job is read once when
+  // the window returns or the link is restored. No timer.
   const trackedId = job && isConversationImportJobActive(job) ? job.jobId : '';
   useEffect(() => {
     if (!api || !trackedId) return undefined;
-    const timer = setInterval(() => {
+    const reread = () => {
+      if (document.visibilityState === 'hidden') return;
       void callImport<{ jobs?: ConversationImportJob[] }>(api, 'getConversationImportJobs', { jobId: trackedId })
         .then((value) => {
           const next = value?.jobs?.find((entry) => entry.jobId === trackedId);
           if (next && mountedRef.current) setJob((current) => adoptImportJob(current, next));
         })
         .catch(() => undefined);
-    }, JOB_POLL_MS);
-    return () => clearInterval(timer);
+    };
+    window.addEventListener('focus', reread);
+    window.addEventListener('mixdog:remote-reconnected', reread);
+    document.addEventListener('visibilitychange', reread);
+    return () => {
+      window.removeEventListener('focus', reread);
+      window.removeEventListener('mixdog:remote-reconnected', reread);
+      document.removeEventListener('visibilitychange', reread);
+    };
   }, [api, trackedId, mountedRef]);
 
   useEffect(() => {

@@ -3061,13 +3061,36 @@
       ],
       "type": "object"
     },
+    "GitCommitPathsInput": {
+      "description": "Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).",
+      "properties": {
+        "message": {
+          "description": "1–20 000 characters.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "Repository-relative, 1–500 paths.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "message",
+        "paths"
+      ],
+      "type": "object"
+    },
     "GitCommitPathsParams": {
       "description": "Params of `git/commitPaths`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true,
+        "input": {
+          "$ref": "#/definitions/GitCommitPathsInput"
+        },
         "opId": {
           "type": "string"
         }
@@ -3119,13 +3142,27 @@
       ],
       "type": "object"
     },
+    "GitDeleteBranchInput": {
+      "description": "Input of `git/deleteBranch` (`gitDeleteBranch(cwd, branch)`): a local branch.",
+      "properties": {
+        "branch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "branch"
+      ],
+      "type": "object"
+    },
     "GitDeleteBranchParams": {
       "description": "Params of `git/deleteBranch`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true,
+        "input": {
+          "$ref": "#/definitions/GitDeleteBranchInput"
+        },
         "opId": {
           "type": "string"
         }
@@ -3322,13 +3359,31 @@
       ],
       "type": "object"
     },
+    "GitRenameBranchInput": {
+      "description": "Input of `git/renameBranch` (`gitRenameBranch(cwd, branch, nextBranch)`).",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "nextBranch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "branch",
+        "nextBranch"
+      ],
+      "type": "object"
+    },
     "GitRenameBranchParams": {
       "description": "Params of `git/renameBranch`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true,
+        "input": {
+          "$ref": "#/definitions/GitRenameBranchInput"
+        },
         "opId": {
           "type": "string"
         }
@@ -3340,13 +3395,37 @@
       ],
       "type": "object"
     },
+    "GitRequestContextInput": {
+      "description": "Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed repository-relative files (0–500, may be empty) and an optional base branch.",
+      "properties": {
+        "base": {
+          "description": "Absent or empty: no base branch.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
     "GitRequestContextParams": {
       "description": "Params of `git/requestContext`.",
       "properties": {
         "cwd": {
           "type": "string"
         },
-        "input": true
+        "input": {
+          "$ref": "#/definitions/GitRequestContextInput"
+        }
       },
       "required": [
         "cwd",
@@ -4622,6 +4701,19 @@
       "required": [
         "opId",
         "request",
+        "root"
+      ],
+      "type": "object"
+    },
+    "LspSubscribeParams": {
+      "description": "Params of `lsp/subscribe` and `lsp/unsubscribe`.",
+      "properties": {
+        "root": {
+          "description": "The project root; the feed is `lsp:<root>`.",
+          "type": "string"
+        }
+      },
+      "required": [
         "root"
       ],
       "type": "object"
@@ -17962,6 +18054,52 @@
         },
         "params": {
           "$ref": "#/definitions/TransferTrashEntryParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Subscribes the project's language-server feed `lsp:<root>` (`lsp/status/updated`, `lsp/diagnostics/updated`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "lsp/subscribe"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/LspSubscribeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Ends the subscription of `lsp/subscribe`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "lsp/unsubscribe"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/LspSubscribeParams"
         }
       },
       "required": [

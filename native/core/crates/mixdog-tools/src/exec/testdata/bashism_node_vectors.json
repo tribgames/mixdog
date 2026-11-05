@@ -1,0 +1,258 @@
+[
+ {
+  "command": "python <<'EOF'\nprint(1)\nEOF",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | python",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "python3 <<EOF\nprint(1)\nEOF",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | python3",
+   "note": "[rewritten: \"python3 <<EOF\" → \"@'…'@ | python3\"]"
+  }
+ },
+ {
+  "command": "python <<\"PY\"\nx = 1\nPY",
+  "result": {
+   "command": "@'\nx = 1\n'@ | python",
+   "note": "[rewritten: \"python <<'PY'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "py -u <<'EOF'\nprint(1)\nEOF",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | py -u",
+   "note": "[rewritten: \"py -u <<'EOF'\" → \"@'…'@ | py -u\"]"
+  }
+ },
+ {
+  "command": "node <<'EOF'\nconsole.log(1)\nEOF",
+  "result": {
+   "command": "@'\nconsole.log(1)\n'@ | node",
+   "note": "[rewritten: \"node <<'EOF'\" → \"@'…'@ | node\"]"
+  }
+ },
+ {
+  "command": "node --no-warnings <<'EOF'\nconsole.log(1)\nEOF",
+  "result": {
+   "command": "@'\nconsole.log(1)\n'@ | node --no-warnings",
+   "note": "[rewritten: \"node --no-warnings <<'EOF'\" → \"@'…'@ | node --no-warnings\"]"
+  }
+ },
+ {
+  "command": "cd x; python <<'EOF'\nprint(1)\nEOF",
+  "result": {
+   "command": "cd x; @'\nprint(1)\n'@ | python",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "cd x && python <<'EOF'\nprint(1)\nEOF",
+  "result": {
+   "command": "cd x && @'\nprint(1)\n'@ | python",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "python <<'EOF' | head\nprint(1)\nEOF",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | python | head",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "python <<'EOF' arg1\nprint(1)\nEOF",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | python arg1",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "python <<-EOF\nprint(1)\nEOF",
+  "result": null
+ },
+ {
+  "command": "cat <<'EOF' > f\nx\nEOF",
+  "result": null
+ },
+ {
+  "command": "python <<EOF\nprint($x)\nEOF",
+  "result": null
+ },
+ {
+  "command": "python <<EOF\nprint(1)\\\nEOF",
+  "result": null
+ },
+ {
+  "command": "python <<'EOF'\n'@\nEOF",
+  "result": null
+ },
+ {
+  "command": "python <<'EOF'\nprint(1)\r\nEOF\r\n",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | python\n",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "python <<'EOF'\nprint(1)\n",
+  "result": null
+ },
+ {
+  "command": "python <<'EOF' && echo done\nprint(1)\nEOF",
+  "result": {
+   "command": "@'\nprint(1)\n'@ | python && echo done",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ },
+ {
+  "command": "ls 2>/dev/null",
+  "result": {
+   "command": "ls 2>$null",
+   "note": "[rewritten: \"2>/dev/null\" → \"2>$null\"]"
+  }
+ },
+ {
+  "command": "ls >/dev/null",
+  "result": {
+   "command": "ls >$null",
+   "note": "[rewritten: \">/dev/null\" → \">$null\"]"
+  }
+ },
+ {
+  "command": "ls > /dev/null",
+  "result": {
+   "command": "ls >$null",
+   "note": "[rewritten: \"> /dev/null\" → \">$null\"]"
+  }
+ },
+ {
+  "command": "ls >> /dev/null",
+  "result": {
+   "command": "ls >>$null",
+   "note": "[rewritten: \">> /dev/null\" → \">>$null\"]"
+  }
+ },
+ {
+  "command": "ls &>/dev/null",
+  "result": {
+   "command": "ls *>$null",
+   "note": "[rewritten: \"&>/dev/null\" → \"*>$null\"]"
+  }
+ },
+ {
+  "command": "ls 1>/dev/null",
+  "result": {
+   "command": "ls 1>$null",
+   "note": "[rewritten: \"1>/dev/null\" → \"1>$null\"]"
+  }
+ },
+ {
+  "command": "ls 2>&1 >/dev/null",
+  "result": {
+   "command": "ls 2>&1 >$null",
+   "note": "[rewritten: \">/dev/null\" → \">$null\"]"
+  }
+ },
+ {
+  "command": "ls </dev/null",
+  "result": {
+   "command": "ls",
+   "note": "[rewritten: \"</dev/null\" → \"\" (stdin is already at EOF)]"
+  }
+ },
+ {
+  "command": "ls < /dev/null",
+  "result": {
+   "command": "ls",
+   "note": "[rewritten: \"</dev/null\" → \"\" (stdin is already at EOF)]"
+  }
+ },
+ {
+  "command": "ls 2>/dev/null </dev/null",
+  "result": {
+   "command": "ls 2>$null",
+   "note": "[rewritten: \"2>/dev/null\" → \"2>$null\"]\n[rewritten: \"</dev/null\" → \"\" (stdin is already at EOF)]"
+  }
+ },
+ {
+  "command": "ls >/dev/nullx",
+  "result": null
+ },
+ {
+  "command": "ls >/dev/null/x",
+  "result": null
+ },
+ {
+  "command": "echo \"2>/dev/null\"",
+  "result": null
+ },
+ {
+  "command": "echo '2>/dev/null'",
+  "result": null
+ },
+ {
+  "command": "ls # 2>/dev/null",
+  "result": null
+ },
+ {
+  "command": "ls `2>/dev/null",
+  "result": {
+   "command": "ls `2>$null",
+   "note": "[rewritten: \">/dev/null\" → \">$null\"]"
+  }
+ },
+ {
+  "command": "@'\n2>/dev/null\n'@ | cat",
+  "result": null
+ },
+ {
+  "command": "ls 2>/dev/null; ls 2>/dev/null",
+  "result": {
+   "command": "ls 2>$null; ls 2>$null",
+   "note": "[rewritten: \"2>/dev/null\" → \"2>$null\"]"
+  }
+ },
+ {
+  "command": "a2>/dev/null",
+  "result": {
+   "command": "a2>$null",
+   "note": "[rewritten: \">/dev/null\" → \">$null\"]"
+  }
+ },
+ {
+  "command": "echo \"unterminated 2>/dev/null",
+  "result": null
+ },
+ {
+  "command": "echo $(ls) 2>/dev/null",
+  "result": {
+   "command": "echo $(ls) 2>$null",
+   "note": "[rewritten: \"2>/dev/null\" → \"2>$null\"]"
+  }
+ },
+ {
+  "command": "echo \"$(ls)\" 2>/dev/null",
+  "result": null
+ },
+ {
+  "command": "Get-ChildItem",
+  "result": null
+ },
+ {
+  "command": "cmd </dev/null && other 2>/dev/null",
+  "result": {
+   "command": "cmd && other 2>$null",
+   "note": "[rewritten: \"2>/dev/null\" → \"2>$null\"]\n[rewritten: \"</dev/null\" → \"\" (stdin is already at EOF)]"
+  }
+ },
+ {
+  "command": "python <<'EOF'\nprint('héllo 한글')\nEOF",
+  "result": {
+   "command": "@'\nprint('héllo 한글')\n'@ | python",
+   "note": "[rewritten: \"python <<'EOF'\" → \"@'…'@ | python\"]"
+  }
+ }
+]

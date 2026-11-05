@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/link-surfaces.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "링크 · 파일 표시 전체 정리 시안",
+  "content": "검토보고서.pdfPDF\n\n월별\\_매출.xlsxXLSX\n\n분기\\_발표.pptxPPTX\n\ncheckout.tsTS\n\n붙여넣기 · 42줄JS\n\n회의\\_메모.mdMD\n\n메시지 입력…\n\n코드는 실제 내용의 첫 14줄을 토큰 종류별 색 막대로(키워드 보라, 문자열 초록, 숫자 주황, 나머지 회색), 들여쓰기도 그대로. 글은 종이색 위에 문단·제목 길이대로 막대. 글자는 안 읽혀도 \"무슨 종류의 내용인지\"는 한눈에 보입니다. 붙여넣기는 언어를 추정해 코드면 코드 미니맵, 아니면 종이 미니맵.",
+  "extractor": "readability"
+ }
+}

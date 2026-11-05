@@ -32,10 +32,18 @@ export interface ComputerUseOverlaySeams {
   helperReady?: () => Promise<boolean>;
 }
 
+/** Where the pill's snapshots come from: the in-process coordinator, or the
+ *  core-driven pill source (`host/computer-pill.ts`). */
+export interface ComputerUseSnapshotSource {
+  snapshot(): ComputerUseSnapshot;
+  subscribe(listener: (snapshot: ComputerUseSnapshot) => void): () => void;
+}
+
 export function createComputerUseOverlay(
   controls: ComputerUseOverlayControls,
   locale = 'en',
-  seams: ComputerUseOverlaySeams = {}
+  seams: ComputerUseOverlaySeams = {},
+  source: ComputerUseSnapshotSource = computerUseCoordinator
 ): ComputerUseOverlay {
   // On GNOME Wayland no Electron window may exist while an agent drives: a
   // client window cannot refuse focus there and would take it from the target.
@@ -45,7 +53,7 @@ export function createComputerUseOverlay(
   const indicator = seams.indicator ?? (gnome ? createGnomeIndicator(locale) : null);
   const cursorOverlay = gnome ? { dispose(): void {} } : createComputerUseCursorOverlay();
   let disposed = false;
-  let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
+  let latestSnapshot: ComputerUseSnapshot = source.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
   /** Pending re-assert of the bounds that a first show may have shifted. */
   let settleTimer: NodeJS.Timeout | null = null;
@@ -183,7 +191,7 @@ export function createComputerUseOverlay(
     }
   };
   ensureShortcut();
-  const unsubscribe = computerUseCoordinator.subscribe((snapshot) => {
+  const unsubscribe = source.subscribe((snapshot) => {
     if (latestSnapshot.userControlActive && !snapshot.userControlActive) windows.resetRendererFailures();
     latestSnapshot = snapshot;
     if (!snapshot.userControlActive && snapshot.cleanupState === 'ready') controller.clearResolvedError();

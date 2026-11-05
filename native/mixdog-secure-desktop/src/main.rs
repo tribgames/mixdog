@@ -28,45 +28,8 @@
 //!              release signer pinned at build time, as `install` does
 //!   probe      manual-test client over the pipe (run as the installing user)
 
-// Pure, portable modules: the wire contract and the security logic. These carry
-// the unit tests and build on any host.
-mod paths;
-mod protocol;
-mod security;
-
-// Lifecycle logging is std-only and useful everywhere.
-mod log;
-
 #[cfg(windows)]
-mod acl;
-#[cfg(windows)]
-mod capture;
-#[cfg(windows)]
-mod delegation;
-#[cfg(windows)]
-mod desktop;
-#[cfg(windows)]
-mod helper;
-#[cfg(windows)]
-mod inject;
-#[cfg(windows)]
-mod install;
-#[cfg(windows)]
-mod ipc;
-#[cfg(windows)]
-mod launch;
-#[cfg(windows)]
-mod logon;
-#[cfg(windows)]
-mod probe;
-#[cfg(windows)]
-mod service;
-#[cfg(windows)]
-mod shutdown;
-#[cfg(windows)]
-mod signature;
-#[cfg(windows)]
-mod winutil;
+use mixdog_secure_desktop::{helper, install, probe, service};
 
 #[cfg(windows)]
 fn main() {

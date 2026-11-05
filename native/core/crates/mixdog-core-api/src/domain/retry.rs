@@ -245,6 +245,10 @@ pub struct RetryPolicy {
     /// `x-should-retry: true` forces a retry.
     pub honor_should_retry_true: bool,
     pub final_on_exhaust: bool,
+    /// How many times an attempt that completed with no text, no reasoning
+    /// and no tool call is asked again before the empty response is
+    /// final; `None` (the default) never re-asks. Set per provider row.
+    pub empty_response_reasks: Option<u32>,
 }
 
 const fn secs(s: u64) -> Duration {
@@ -297,6 +301,7 @@ impl RetryPolicy {
             overload: OverloadRule::default(),
             honor_should_retry_true: false,
             final_on_exhaust: false,
+            empty_response_reasks: None,
         }
     }
 

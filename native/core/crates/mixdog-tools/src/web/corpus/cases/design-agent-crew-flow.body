@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Agent crew flow — 시안</title>
+<style>
+  :root {
+    --bg: #0f0f11; --pane: #121214; --sidebar: #17171a; --card: #16161a; --card-border: #2e2e34;
+    --line: #26262b; --text: #e7e7ea; --muted: #8b8b93; --faint: #5d5d66; --accent: #6aa7ff;
+    --run: #3fd47a; --wait: #f0a63a; --perm: #f85149; --queue: #7d7d88; --done: #5d5d66;
+    --lead: #6aa7ff; --worker: #3fd47a; --heavy: #c084fc; --reviewer: #f472b6; --advisor: #fbbf24;
+    --mono: "JetBrains Mono", Consolas, monospace;
+    --sans: "Pretendard", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a0a0b; font: 13px/1.5 var(--sans); color: var(--text); padding: 24px; }
+  .scene { width: 1320px; height: 820px; margin: 0 auto; position: relative; overflow: hidden;
+    background: var(--bg); border: 1px solid #222; border-radius: 10px; display: flex; flex-direction: column; }
+
+  /* header */
+  .head { height: 72px; display: flex; align-items: center; gap: 16px; padding: 0 22px;
+    border-bottom: 1px solid var(--line); }
+  .head .title { font-size: 17px; font-weight: 600; }
+  .head .sub { color: var(--muted); font-size: 12px; display: flex; gap: 10px; align-items: center; }
+  .live { display: inline-flex; align-items: center; gap: 6px; color: var(--run); }
+  .live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--run);
+    animation: blink 1.4s infinite; }
+  .toggle { margin-left: 18px; display: flex; background: #1c1c20; border-radius: 8px; padding: 3px; }
+  .toggle span { padding: 4px 12px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+  .toggle span.on { background: #2c2c33; color: var(--text); }
+  .stats { margin-left: auto; display: flex; gap: 26px; }
+  .stat b { display: block; font: 600 22px/1.1 var(--mono); }
+  .stat small { color: var(--muted); font-size: 11px; }
+  .stat.run b { color: var(--run); } .stat.queue b { color: var(--queue); }
+  .stat.done b { color: var(--text); } .stat.you b { color: var(--wait); }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* left list */
+  .list { width: 270px; background: var(--sidebar); border-right: 1px solid var(--line); padding: 14px 12px;
+    overflow: hidden; }
+  .list h5 { margin: 0 0 10px 4px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
+  .row { display: flex; gap: 10px; padding: 9px 8px; border-radius: 9px; margin-bottom: 4px; }
+  .row.on { background: #222228; }
+  .row .av { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center;
+    font: 700 12px var(--mono); color: #0f0f11; position: relative; }
+  .row .av::after { content: ''; position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px;
+    border-radius: 50%; border: 2px solid var(--sidebar); background: var(--st); }
+  .row .meta { min-width: 0; }
+  .row .nm { font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
+  .row .nm em { font-style: normal; font-weight: 400; color: var(--faint); font-size: 11px; }
+  .row .act { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .act code { font-family: var(--mono); font-size: 11px; color: #c9c9cf; }
+  .row .st { font-size: 11px; color: var(--st); }
+
+  /* graph */
+  .center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .graph { flex: 1; position: relative; background:
+      radial-gradient(circle at 1px 1px, #1f1f24 1px, transparent 0) 0 0 / 22px 22px; }
+  .graph svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .legend { position: absolute; left: 16px; top: 12px; display: flex; gap: 14px; color: var(--muted); font-size: 11px; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+  .edge { fill: none; stroke: #33333b; stroke-width: 1.6; }
+  .edge.active { stroke: #2f5a3f; }
+  .edge.perm { stroke: #5a2f2f; stroke-dasharray: 5 5; }
+  .edge.dim { stroke: #26262b; }
+  .edge.queued { stroke: #2b2b31; stroke-dasharray: 3 6; }
+
+  .node-ring { fill: none; stroke-width: 2; }
+  .halo { transform-box: fill-box; transform-origin: center; }
+  .halo.run { animation: halo 2.2s ease-out infinite; }
+  .halo.wait { animation: halo 1.2s ease-out infinite; }
+  .node-label { font: 600 12.5px var(--sans); fill: var(--text); text-anchor: middle; }
+  .node-sub { font: 11px var(--sans); fill: var(--muted); text-anchor: middle; }
+  .node-glyph { font: 700 14px var(--mono); fill: #0f0f11; text-anchor: middle; dominant-baseline: central; }
+  .badge rect { fill: #1c1c21; stroke: #3a3a42; }
+  .badge text { font: 600 10px var(--mono); fill: #c9c9cf; text-anchor: middle; dominant-baseline: central; }
+  .pulse-label rect { fill: #0f0f11; stroke: #2f5a3f; }
+  .pulse-label text { font: 10.5px var(--mono); fill: #9be8b6; dominant-baseline: central; }
+
+  /* bottom inbox */
+  .inbox { height: 168px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; }
+  .lane { padding: 12px 18px; }
+  .lane + .lane { border-left: 1px solid var(--line); }
+  .lane h6 { margin: 0 0 10px; font-size: 11px; letter-spacing: .05em; font-weight: 600; }
+  .lane.auto h6 { color: var(--run); } .lane.you h6 { color: var(--wait); }
+  .lane h6 span { color: var(--muted); font-weight: 400; letter-spacing: 0; margin-left: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: 11px var(--mono); padding: 3px 8px; border-radius: 6px; background: #1c1c21; color: #b8b8c0;
+    border: 1px solid #2a2a30; }
+  .ask { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+    background: rgba(240,166,58,.07); border: 1px solid rgba(240,166,58,.25); margin-bottom: 6px; }
+  .ask.perm { background: rgba(248,81,73,.07); border-color: rgba(248,81,73,.3); }
+  .ask .who { font: 600 11px var(--mono); color: var(--muted); width: 92px; flex: none; }
+  .ask .what { flex: 1; font-size: 12.5px; }
+  .ask .what code { font: 11px var(--mono); color: #ffb4ad; }
+  .ask button { font: 12px var(--sans); border-radius: 6px; padding: 3px 10px; border: 1px solid #3a3a42;
+    background: #222228; color: var(--text); cursor: pointer; }
+  .ask button.ok { background: #1f3b2a; border-color: #2f5a3f; color: #9be8b6; }
+
+  @keyframes blink { 50% { opacity: .3; } }
+  @keyframes halo { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.7); opacity: 0; } }
+
+  .notes { width: 1320px; margin: 18px auto 0; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+  .notes b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="scene">
+  <div class="head">
+    <div>
+      <div class="title">Crew</div>
+      <div class="sub"><span class="live">LIVE</span><span>세션 · 결제 모듈 리팩터</span><span>· 12:41 경과</span></div>
+    </div>
+    <div class="toggle"><span>목록</span><span class="on">크루</span></div>
+    <div class="stats">
+      <div class="stat run"><b>3</b><small>실행 중</small></div>
+      <div class="stat queue"><b>1</b><small>대기</small></div>
+      <div class="stat done"><b>4</b><small>완료</small></div>
+      <div class="stat you"><b>2</b><small>내 확인 필요</small></div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="list">
+      <h5>AGENTS</h5>
+      <div class="row on" style="--st:var(--run)">
+        <div class="av" style="background:var(--lead)">L</div>
+        <div class="meta"><div class="nm">Lead <em>Swarm</em></div>
+          <div class="act">작업 분배 · 결과 대기 중</div><div class="st">실행 중</div></div>
+      </div>
+      <div class="row" style="--st:var(--run)">
+        <div class="av" style="background:var(--worker)">W</div>
+        <div class="meta"><div class="nm">auth-fix <em>Worker</em></div>
+          <div class="act"><code>edit src/auth/token.mjs</code></div><div class="st">실행 중 · 3:12</div></div>
+      </div>
+      <div class="row" style="--st:var(--run)">
+        <div class="av" style="background:var(--worker)">W</div>
+        <div class="meta"><div class="nm">checkout-ui <em>Worker</em></div>
+          <div class="act"><code>$ npm test checkout</code></div><div class="st">실행 중 · 1:48</div></div>
+      </div>
+      <div class="row" style="--st:var(--perm)">
+        <div class="av" style="background:var(--heavy)">H</div>
+        <div class="meta"><div class="nm">db-migrate <em>Heavy</em></div>
+          <div class="act"><code>git push origin next</code> 승인 대기</div><div class="st">권한 필요</div></div>
+      </div>
+      <div class="row" style="--st:var(--wait)">
+        <div class="av" style="background:var(--advisor)">A</div>
+        <div class="meta"><div class="nm">advisor <em>Advisor</em></div>
+          <div class="act">질문: 마이그레이션 순서 확인</div><div class="st">답변 대기</div></div>
+      </div>
+      <div class="row" style="--st:var(--queue)">
+        <div class="av" style="background:var(--reviewer)">R</div>
+        <div class="meta"><div class="nm">reviewer <em>Reviewer</em></div>
+          <div class="act">auth-fix 완료 후 시작</div><div class="st">대기</div></div>
+      </div>
+    </div>
+
+    <div class="center">
+      <div class="graph">
+        <div class="legend">
+          <span><i style="background:var(--run)"></i>실행 중</span>
+          <span><i style="background:var(--wait)"></i>나를 기다림</span>
+          <span><i style="background:var(--perm)"></i>권한 필요</span>
+          <span><i style="background:var(--queue)"></i>대기</span>
+          <span><i style="background:var(--done)"></i>완료</span>
+        </div>
+        <svg viewBox="0 0 1050 412" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <!-- edges -->
+          <path id="e-auth"   class="edge active" d="M500,92 C500,170 190,150 190,232"/>
+          <path id="e-ui"     class="edge active" d="M500,92 C500,170 390,170 390,232"/>
+          <path id="e-db"     class="edge perm"   d="M500,92 C500,170 610,170 610,232"/>
+          <path id="e-adv"    class="edge"        d="M500,92 C500,170 820,150 820,232"/>
+          <path id="e-rev"    class="edge queued" d="M190,272 C190,340 380,350 470,350"/>
+          <path id="e-you1"   class="edge perm"   d="M650,252 C720,280 880,300 925,330"/>
+          <path id="e-you2"   class="edge"        d="M840,272 C860,300 900,310 930,320" style="stroke:#5a4a2a"/>
+          <path id="e-done"   class="edge dim"    d="M500,92 C430,60 300,50 230,58"/>
+
+          <!-- task badges on edges -->
+          <g class="badge" transform="translate(300,170)"><rect x="-20" y="-9" width="40" height="18" rx="5"/><text>#14</text></g>
+          <g class="badge" transform="translate(430,180)"><rect x="-20" y="-9" width="40" height="18" rx="5"/><text>#15</text></g>
+          <g class="badge" transform="translate(575,180)"><rect x="-20" y="-9" width="40" height="18" rx="5"/><text>#16</text></g>
+          <g class="badge" transform="translate(705,170)"><rect x="-20" y="-9" width="40" height="18" rx="5"/><text>#17</text></g>
+
+          <!-- tool-call pulses travelling down active edges -->
+          <g>
+            <circle r="4.5" fill="var(--run)" filter="url(#glow)"/>
+            <g class="pulse-label" transform="translate(10,-9)"><rect width="140" height="18" rx="5"/><text x="7" y="9">edit src/auth/token.mjs</text></g>
+            <animateMotion dur="2.6s" repeatCount="indefinite"><mpath href="#e-auth"/></animateMotion>
+          </g>
+          <g>
+            <circle r="4.5" fill="var(--run)" filter="url(#glow)"/>
+            <g class="pulse-label" transform="translate(10,-9)"><rect width="128" height="18" rx="5"/><text x="7" y="9">$ npm test checkout</text></g>
+            <animateMotion dur="3.1s" begin="1s" repeatCount="indefinite"><mpath href="#e-ui"/></animateMotion>
+          </g>
+          <g>
+            <circle r="4" fill="var(--perm)" filter="url(#glow)"/>
+            <animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#e-you1"/></animateMotion>
+          </g>
+          <g>
+            <circle r="4" fill="var(--wait)" filter="url(#glow)"/>
+            <animateMotion dur="1.8s" begin=".4s" repeatCount="indefinite"><mpath href="#e-you2"/></animateMotion>
+          </g>
+
+          <!-- done agent (collapsed, dim) -->
+          <g transform="translate(205,58)" opacity=".55">
+            <circle r="16" fill="#1c1c21" stroke="var(--done)"/>
+            <text class="node-glyph" style="fill:#8b8b93;font-size:11px">✓</text>
+            <text class="node-sub" x="0" y="-24">완료 4개</text>
+          </g>
+
+          <!-- Lead -->
+          <g transform="translate(500,62)">
+            <circle class="halo run" r="30" fill="none" stroke="var(--lead)" stroke-width="2"/>
+            <circle r="30" fill="var(--lead)"/>
+            <text class="node-glyph" style="font-size:16px">L</text>
+            <text class="node-label" x="70" y="-4" style="text-anchor:start">Lead</text>
+            <text class="node-sub" x="70" y="12" style="text-anchor:start">Swarm · 작업 분배</text>
+          </g>
+
+          <!-- workers -->
+          <g transform="translate(190,252)">
+            <circle class="halo run" r="22" fill="none" stroke="var(--run)" stroke-width="2"/>
+            <circle r="22" fill="var(--worker)"/><circle class="node-ring" r="27" stroke="var(--run)"/>
+            <text class="node-glyph">W</text>
+            <text class="node-label" y="46">auth-fix</text><text class="node-sub" y="62">Worker · 3:12</text>
+          </g>
+          <g transform="translate(390,252)">
+            <circle class="halo run" r="22" fill="none" stroke="var(--run)" stroke-width="2" style="animation-delay:.7s"/>
+            <circle r="22" fill="var(--worker)"/><circle class="node-ring" r="27" stroke="var(--run)"/>
+            <text class="node-glyph">W</text>
+            <text class="node-label" y="46">checkout-ui</text><text class="node-sub" y="62">Worker · 1:48</text>
+          </g>
+          <g transform="translate(610,252)">
+            <circle class="halo wait" r="22" fill="none" stroke="var(--perm)" stroke-width="2"/>
+            <circle r="22" fill="var(--heavy)"/><circle class="node-ring" r="27" stroke="var(--perm)"/>
+            <text class="node-glyph">H</text>
+            <text class="node-label" y="46">db-migrate</text><text class="node-sub" y="62" style="fill:var(--perm)">권한 필요</text>
+          </g>
+          <g transform="translate(820,252)">
+            <circle class="halo wait" r="22" fill="none" stroke="var(--wait)" stroke-width="2"/>
+            <circle r="22" fill="var(--advisor)"/><circle class="node-ring" r="27" stroke="var(--wait)"/>
+            <text class="node-glyph">A</text>
+            <text class="node-label" y="46">advisor</text><text class="node-sub" y="62" style="fill:var(--wait)">답변 대기</text>
+          </g>
+
+          <!-- reviewer (queued) -->
+          <g transform="translate(495,350)" opacity=".75">
+            <circle r="20" fill="#1c1c21" stroke="var(--reviewer)" stroke-dasharray="4 4" stroke-width="2"/>
+            <text class="node-glyph" style="fill:var(--reviewer)">R</text>
+            <text class="node-label" x="34" y="-3" style="text-anchor:start">reviewer</text>
+            <text class="node-sub" x="34" y="13" style="text-anchor:start">auth-fix 완료 후 시작</text>
+          </g>
+
+          <!-- YOU -->
+          <g transform="translate(960,345)">
+            <rect x="-38" y="-24" width="76" height="48" rx="12" fill="#221a10" stroke="var(--wait)" stroke-width="1.6"/>
+            <rect class="halo wait" x="-38" y="-24" width="76" height="48" rx="12" fill="none" stroke="var(--wait)"/>
+            <text class="node-label" y="-3" style="fill:var(--wait)">YOU</text>
+            <text class="node-sub" y="13">2건 대기</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="inbox">
+        <div class="lane auto">
+          <h6>알아서 진행 <span>되돌릴 수 있는 작업 · 승인 없이 실행</span></h6>
+          <div class="chips">
+            <span class="chip">read</span><span class="chip">grep</span><span class="chip">edit (worktree)</span>
+            <span class="chip">npm test</span><span class="chip">git diff</span><span class="chip">web_search</span>
+          </div>
+        </div>
+        <div class="lane you">
+          <h6>내 확인 필요 <span>되돌리기 어려운 작업 · 멈춰서 기다림</span></h6>
+          <div class="ask perm">
+            <span class="who">db-migrate</span>
+            <span class="what"><code>git push origin next</code> 실행 허용?</span>
+            <button>거절</button><button class="ok">허용</button>
+          </div>
+          <div class="ask">
+            <span class="who">advisor</span>
+            <span class="what">마이그레이션을 배포 전에 돌릴까요, 후에 돌릴까요?</span>
+            <button>답변</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <b>읽는 법</b> — 노드 = 에이전트(색은 역할), 테두리·후광 = 상태. 선 위로 움직이는 점과 라벨 = 방금 실행된 도구 호출.
+  <b>#번호</b> = 작업 배지. 완료된 에이전트는 왼쪽 위 “완료 n개”로 접힘. 사람 손이 필요한 노드는 모두 <b>YOU</b>로 선이 이어지고, 하단 오른쪽 대기함에서 바로 처리.
+  노드 클릭 = 해당 세션 열기. 상단 <b>목록 / 크루</b> 토글로 기존 Agents 패널과 전환.
+</div>
+</body>
+</html>

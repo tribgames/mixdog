@@ -1,6 +1,6 @@
 // Session catalog freshness: the sidebar list state,
 // the optimistic rename/archive/delete overlay, and the three ways a fresh catalog
-// arrives (initial/manual refresh, main-process push, safety-net poll).
+// arrives (initial/manual refresh, push on the app feed).
 import { startTransition, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
@@ -14,10 +14,6 @@ import {
   readCachedSessionCatalog,
   scheduleCachedSessionCatalogWrite,
 } from './session-catalog-cache';
-
-/** Push is the primary freshness path; the poll only guards hosts without it
- *  (the remote browser shim). */
-const FALLBACK_POLL_INTERVAL_MS = 15_000;
 
 interface SessionCatalog {
   sessions: DesktopSessionSummary[];
@@ -175,8 +171,8 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     [commitProjectedRows, projectSessionRows]
   );
 
-  // Push-capable desktop hosts own freshness through their store watcher.
-  // Browser shims without that lane retain the bounded fallback poll.
+  // Freshness is pushed (`thread/summary/updated` on the app feed); a read happens on return to the window and
+  // when a schedule surface announces a new background session.
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
@@ -190,14 +186,11 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       if (document.visibilityState !== 'visible') return;
       void refreshSessions(true).catch(() => undefined);
     };
-    const pushCapable = typeof window.mixdogDesktop?.subscribeSessions === 'function';
-    const timer = pushCapable ? undefined : window.setInterval(refresh, FALLBACK_POLL_INTERVAL_MS);
     document.addEventListener('visibilitychange', refreshOnReturn);
     // Schedule surfaces (Run now / save) announce new background sessions
     // immediately instead of waiting out the poll interval.
     window.addEventListener('mixdog:sessions-refresh', refresh as EventListener);
     return () => {
-      if (timer !== undefined) window.clearInterval(timer);
       document.removeEventListener('visibilitychange', refreshOnReturn);
       window.removeEventListener('mixdog:sessions-refresh', refresh as EventListener);
     };

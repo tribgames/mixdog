@@ -4453,6 +4453,14 @@ pub struct LspDocumentParams {
     pub document: JsonValue,
 }
 
+/// Params of `lsp/subscribe` and `lsp/unsubscribe`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LspSubscribeParams {
+    /// The project root; the feed is `lsp:<root>`.
+    pub root: String,
+}
+
 /// Params of `lsp/request`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
@@ -4592,7 +4600,19 @@ pub struct GitStashListParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitRequestContextParams {
     pub cwd: String,
-    pub input: JsonValue,
+    pub input: GitRequestContextInput,
+}
+
+/// Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed
+/// repository-relative files (0–500, may be empty) and an optional base branch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct GitRequestContextInput {
+    pub paths: Vec<String>,
+    /// Absent or empty: no base branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 /// Params of `git/cliStatus`.
@@ -4674,7 +4694,17 @@ impl crate::common::HasOpId for GitCommitParams {
 pub struct GitCommitPathsParams {
     pub op_id: OpId,
     pub cwd: String,
-    pub input: JsonValue,
+    pub input: GitCommitPathsInput,
+}
+
+/// Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitPathsInput {
+    /// 1–20 000 characters.
+    pub message: String,
+    /// Repository-relative, 1–500 paths.
+    pub paths: Vec<String>,
 }
 
 impl crate::common::HasOpId for GitCommitPathsParams {
@@ -4868,7 +4898,14 @@ impl crate::common::HasOpId for GitDeleteTagParams {
 pub struct GitDeleteBranchParams {
     pub op_id: OpId,
     pub cwd: String,
-    pub input: JsonValue,
+    pub input: GitDeleteBranchInput,
+}
+
+/// Input of `git/deleteBranch` (`gitDeleteBranch(cwd, branch)`): a local branch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDeleteBranchInput {
+    pub branch: String,
 }
 
 impl crate::common::HasOpId for GitDeleteBranchParams {
@@ -4883,7 +4920,15 @@ impl crate::common::HasOpId for GitDeleteBranchParams {
 pub struct GitRenameBranchParams {
     pub op_id: OpId,
     pub cwd: String,
-    pub input: JsonValue,
+    pub input: GitRenameBranchInput,
+}
+
+/// Input of `git/renameBranch` (`gitRenameBranch(cwd, branch, nextBranch)`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRenameBranchInput {
+    pub branch: String,
+    pub next_branch: String,
 }
 
 impl crate::common::HasOpId for GitRenameBranchParams {

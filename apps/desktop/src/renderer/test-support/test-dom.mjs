@@ -14,6 +14,69 @@ const require = createRequire(import.meta.url);
 const BASE_GLOBALS = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'];
 
 /**
+ * A `sections` source that carries only the core's `toolModules` section (the built-in features' state). A test sets
+ * what the core "pushes" with `publish(value)`: before the store has loaded it is part of the app snapshot, afterwards
+ * a push. Install it as `window.mixdogDesktop.sections`.
+ */
+export function toolModulesSource() {
+  // One source may feed several stores (the window's, and one per api object a panel is given).
+  const listeners = new Set();
+  let revision = 0;
+  const latest = new Map();
+  const publishSection = (section, value) => {
+    const entry = { section, key: null, revision: ++revision, value };
+    latest.set(section, entry);
+    for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section, key: null, entry }] });
+  };
+  return {
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [...latest.values()] }),
+      subscribe: (next) => (listeners.add(next), () => void listeners.delete(next)),
+    },
+    publish: (value) => publishSection('toolModules', value),
+    /** Any other section a test needs the core to hold (`projects`, ...). */
+    publishSection,
+  };
+}
+
+/**
+ * The agent pool and the agent catalog reach the renderer as the `agentPool` and `agents` sections
+ * (desktop-services.md §15 P6, P14). A test host that still describes them as `listAgentPool` (the first read),
+ * `subscribeAgentPool` (pushes) and the `listAgents` capability is served as a `sections` source carrying those as
+ * the sections, so the tests keep driving them the way they always did.
+ */
+function withSectionsForLegacyPool(host) {
+  if (!host || typeof host !== 'object' || host.sections) return host;
+  const has = (name) => typeof host[name] === 'function';
+  if (!has('listAgentPool') && !has('subscribeAgentPool') && !has('invokeCapability')) return host;
+  let revision = 0;
+  const entry = (section, value) => ({ section, key: null, revision: ++revision, value });
+  const sections = {
+    async snapshot() {
+      const entries = [];
+      const pool = has('listAgentPool') ? await host.listAgentPool() : null;
+      if (pool) entries.push(entry('agentPool', pool));
+      if (has('invokeCapability')) {
+        const agents = await host.invokeCapability({ capability: 'listAgents', args: [] }).catch(() => null);
+        if (Array.isArray(agents?.value)) entries.push(entry('agents', agents.value));
+      }
+      return { status: 'ready', entries };
+    },
+    subscribe(listener) {
+      const stop = host.subscribeAgentPool?.((rows) =>
+        listener({
+          kind: 'sections',
+          changes: [{ section: 'agentPool', key: null, entry: entry('agentPool', rows) }],
+        })
+      );
+      return typeof stop === 'function' ? stop : () => {};
+    },
+  };
+  // Not enumerable: tests that list a host's methods see only the ones they wrote.
+  return Object.defineProperty(host, 'sections', { value: sections, configurable: true });
+}
+
+/**
  * @param {import('node:test').TestContext | null} t  registers restore via t.after when given
  * @param {object} [options]
  * @param {string} [options.html]            document markup
@@ -41,6 +104,15 @@ export function installTestDom(t, options = {}) {
   // decorative loops lock their phase through getAnimations on mount).
   window.Element.prototype.getAnimations = () => [];
   window.Document.prototype.getAnimations = () => [];
+  let desktopHost;
+  Object.defineProperty(window, 'mixdogDesktop', {
+    configurable: true,
+    enumerable: true,
+    get: () => desktopHost,
+    set: (host) => {
+      desktopHost = withSectionsForLegacyPool(host);
+    },
+  });
   const installed = {
     window,
     document: window.document,

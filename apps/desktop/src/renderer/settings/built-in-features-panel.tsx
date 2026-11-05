@@ -14,6 +14,7 @@ import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { publishAutoEffort } from '../auto-effort-store';
+import { useSection } from '../section-store';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
@@ -325,19 +326,17 @@ export function BuiltInFeaturesPanel({
   const [optimistic, setOptimistic] = useState<{ id: BuiltInFeatureId; value: boolean } | null>(null);
   const [voiceInstalled, setVoiceInstalled] = useState(false);
   const [openId, setOpenId] = useState<BuiltInFeatureId | null>(initialFeature);
-  const toolModules = record(data.toolModules);
-  const localProvider = useLocalProviderStatus(
-    api,
-    toolModules.localProvider,
-    openId === 'localProvider' || action?.id === 'localProvider'
-  );
+  // The core's `toolModules` section is the one source of every module's state; a setter's result arrives through it.
+  const toolModulesSection = useSection<RecordValue>('toolModules');
+  const toolModules = useMemo(() => record(toolModulesSection), [toolModulesSection]);
+  const localProvider = useLocalProviderStatus();
   const tidy = useTidyEngineStatus(
     api,
     openId === 'tidy' || action?.id === 'tidy' || record(toolModules.tidy).installed === true,
     action?.id === 'tidy' && action?.status === 'installing',
     openId === 'tidy'
   );
-  const autoEffort = useAutoEffortStatus(api, toolModules.autoEffort);
+  const autoEffort = useAutoEffortStatus();
   const computerReadiness = useComputerReadiness(api, openId === 'computer');
   const media = useMediaGeneration(api, openId === 'media' && !serverWindow);
   const voice = record(data.voice);
@@ -516,8 +515,9 @@ export function BuiltInFeaturesPanel({
     const available = supported && (feature.id !== 'localProvider' || localProvider.available !== false);
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
-    let ready = sectionLoaded(data, 'toolModules');
-    if (feature.id === 'git') ready = gitStatus !== null && sectionLoaded(data, 'toolModules');
+    const modulesPushed = toolModulesSection !== undefined;
+    let ready = modulesPushed;
+    if (feature.id === 'git') ready = gitStatus !== null && modulesPushed;
     else if (feature.id === 'browser' || feature.id === 'computer') {
       ready = settings !== null;
     } else if (feature.id === 'voice') ready = sectionLoaded(data, 'voice');
@@ -599,3 +599,4 @@ export function BuiltInFeaturesPanel({
     </Group>
   );
 }
+

@@ -326,6 +326,7 @@ impl X11 {
             width,
             height,
             client: (x, y, width, height),
+            content_pid: 0,
         })
     }
 

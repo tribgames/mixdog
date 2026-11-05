@@ -57,6 +57,14 @@ impl Shared {
         let own = at_ms <= self.own_until.load(Ordering::SeqCst);
         self.record(own);
     }
+    /// How many foreign input events have been seen so far.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn foreign_sequence(&self) -> i64 {
+        self.ledger
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .foreign_sequence
+    }
     #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     pub fn set_ready(&self, ready: bool) {
         self.ready.store(ready, Ordering::SeqCst);

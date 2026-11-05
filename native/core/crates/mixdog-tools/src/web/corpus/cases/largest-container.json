@@ -1,0 +1,10 @@
+{
+ "url": "https://example.com/containers",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Containers",
+  "content": "Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text. Long article text.",
+  "extractor": "dom-markdown"
+ }
+}

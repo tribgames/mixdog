@@ -34,10 +34,10 @@ const sharedRuntimeExternalPlugin = {
 const sessionClientExternalPlugin = {
   name: 'mixdog-session-client-external',
   setup(build) {
-    build.onResolve({ filter: /^\.\.\/standalone\/session-client\.mjs$/ }, () => ({
+    build.onResolve({ filter: /^\.\.\/standalone\/protocol-session\/index\.mjs$/ }, () => ({
       // Keep this module outside the TUI bundle so its import.meta.url stays
-      // anchored in src/standalone, where daemon.mjs actually lives.
-      path: '../../standalone/session-client.mjs',
+      // anchored in src/standalone, where packages/protocol-client is resolved from.
+      path: '../../standalone/protocol-session/index.mjs',
       external: true,
     }));
   },

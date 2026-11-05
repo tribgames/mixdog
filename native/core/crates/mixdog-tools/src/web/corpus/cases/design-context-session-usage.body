@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>시안 · 컨텍스트 창 세션 사용량 (1차)</title>
+<style>
+  /* Tokens copied from apps/desktop/src/renderer/desktop/01-tokens.css (dark). */
+  :root {
+    --mx-alpha-light-2: #ffffff05;
+    --mx-bg-app: #1b1b1d;
+    --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d;
+    --mx-text: #e9e9e9;
+    --mx-text-muted: #a8a8a8;
+    --mx-text-faint: #9b9b9b;
+    --mx-text-accent: #8ab4f8;
+    --mx-border-muted: rgba(255, 255, 255, 0.09);
+    --mx-hover: rgba(255, 255, 255, 0.06);
+    --mx-chart-purple: #b3a3da;
+    --mx-chart-teal: #71bcb0;
+    --mx-chart-gold: #d4ba78;
+    --mx-chart-blue: #8fa9d4;
+    --mx-chart-green: #8cb77c;
+    --mx-chart-orange: #d59b79;
+    --mx-chart-sky: #80b6ca;
+    --mx-chart-grey: #9a9fa7;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: start center;
+    padding: 40px 16px;
+    background: var(--mx-bg-app);
+    color: var(--mx-text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  .dialog { width: min(640px, 100%); }
+  .dialog-title {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 0 4px 12px; font-size: 15px; font-weight: 600;
+  }
+  .dialog-title span { color: var(--mx-text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .card {
+    display: grid; overflow: hidden; border-radius: 14px;
+    background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
+    box-shadow: inset 0 0 0 0.5px var(--mx-border-muted), 0 1px 2px rgba(0,0,0,.3);
+  }
+  section { display: grid; gap: 12px; padding: 18px 20px 20px; }
+  section + section { border-top: 0.5px solid var(--mx-border-muted); }
+  h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  h3 small { color: var(--mx-text-muted); font-size: 14px; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .bar { display: flex; gap: 1px; height: 8px; overflow: hidden; border-radius: 999px; background: var(--mx-hover); }
+  .bar b { height: 100%; min-width: 2px; background: var(--c); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .row {
+    min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    border-radius: 8px; background: var(--mx-bg-base); box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  }
+  .row i { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 3px; background: var(--c); }
+  .row span { color: var(--mx-text-muted); }
+  .row strong { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .row em { color: var(--mx-text-faint); font-style: normal; font-size: 12px; }
+  .note { margin: 0; color: var(--mx-text-faint); font-size: 12.5px; }
+  .new { outline: 1.5px dashed var(--mx-text-accent); outline-offset: -6px; border-radius: 0 0 14px 14px; position: relative; }
+  .new-tag {
+    position: absolute; top: 10px; right: 14px; font-size: 11px; color: var(--mx-text-accent);
+    border: 1px solid var(--mx-text-accent); border-radius: 999px; padding: 0 8px;
+  }
+  .new h3 { padding-right: 56px; }
+  .k-system { --c: var(--mx-chart-grey); } .k-tools { --c: var(--mx-chart-green); }
+  .k-memory { --c: var(--mx-chart-sky); } .k-skills { --c: var(--mx-chart-gold); }
+  .k-messages { --c: var(--mx-chart-purple); } .k-free { --c: #6f777d; }
+  .k-read { --c: var(--mx-chart-teal); } .k-write { --c: var(--mx-chart-gold); }
+  .k-input { --c: var(--mx-chart-orange); } .k-output { --c: var(--mx-chart-blue); }
+  .k-plain { --c: transparent; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="dialog">
+  <div class="dialog-title">마지막 요청 기준 <span>96.4k / 200k · 48%</span></div>
+  <div class="card">
+    <!-- Existing: context window reading -->
+    <section>
+      <div class="bar" role="img" aria-label="48% context used">
+        <b class="k-system" style="width:6%"></b><b class="k-tools" style="width:9%"></b>
+        <b class="k-memory" style="width:2%"></b><b class="k-skills" style="width:2%"></b>
+        <b class="k-messages" style="width:29%"></b>
+      </div>
+    </section>
+    <section>
+      <h3>카테고리별 예상 사용량</h3>
+      <div class="grid">
+        <div class="row k-system"><i></i><span>System prompt</span><strong>12.1k</strong></div>
+        <div class="row k-tools"><i></i><span>System tools</span><strong>18.4k</strong></div>
+        <div class="row k-memory"><i></i><span>Memory files</span><strong>3.2k</strong></div>
+        <div class="row k-skills"><i></i><span>Skills</span><strong>4.0k</strong></div>
+        <div class="row k-messages"><i></i><span>Messages</span><strong>58.7k</strong></div>
+        <div class="row k-free"><i></i><span>Free space</span><strong>104k</strong></div>
+      </div>
+    </section>
+
+    <!-- New (1차): session usage, summed from the usage ledger by session id -->
+    <section class="new">
+      <span class="new-tag">1차 추가</span>
+      <h3>이 세션 사용량 <small>~$2.47 · 42턴</small></h3>
+      <div class="bar" role="img" aria-label="프롬프트 구성: 캐시 읽기 89%, 캐시 쓰기 6.3%, 새 입력 4.7%">
+        <b class="k-read" style="width:89%"></b>
+        <b class="k-write" style="width:6.3%"></b>
+        <b class="k-input" style="width:4.7%"></b>
+      </div>
+      <div class="grid">
+        <div class="row k-read"><i></i><span>캐시 읽기</span><strong>3.42m</strong></div>
+        <div class="row k-write"><i></i><span>캐시 쓰기</span><strong>241k</strong></div>
+        <div class="row k-input"><i></i><span>입력</span><strong>182k</strong></div>
+        <div class="row k-output"><i></i><span>출력</span><strong>58.3k</strong></div>
+        <div class="row k-plain"><i></i><span>캐시 적중률</span><strong>89.0%</strong></div>
+        <div class="row k-plain"><i></i><span>비용</span><strong>~$2.47 <em>추정</em></strong></div>
+      </div>
+      <p class="note">컴팩트 2회를 포함한 이 세션 전체 합계입니다. 앱을 재시작해도 유지됩니다. "~"는 구독 사용분처럼 청구서가 아닌 추정 가격이 섞였다는 뜻입니다.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

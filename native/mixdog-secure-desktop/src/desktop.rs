@@ -72,6 +72,11 @@ pub fn input_desktop_name() -> Option<String> {
     object_name(HANDLE(owned.get().0))
 }
 
+/// The console session whose desktop receives physical input.
+pub fn active_console_session() -> u32 {
+    unsafe { windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId() }
+}
+
 /// Whether `session` is locked, from WTS's own session flags
 /// (`WTSQuerySessionInformationW(WTSSessionInfoEx)` →
 /// `WTSINFOEX_LEVEL1_W.SessionFlags`,

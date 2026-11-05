@@ -277,30 +277,44 @@ write('handoff', {
   ],
 });
 
-// ---- 6. display archive projection ----------------------------------------------
-const archiveMod = await load('compaction-archive-capture.mjs');
-const withId = (id, m) => ({ ...m, meta: { ...(m.meta || {}), transcript: { messageId: id } } });
-const archBefore = [
-  withId('m1', { role: 'user', content: 'start' }),
-  withId('m2', asst('reading', call('c1', 'read', { p: 1 }), call('c2', 'read', { p: 2 }))),
-  withId('m3', tool('c1', 'one')),
-  withId('m4', tool('c2', 'two')),
-  withId('m5', asst('', call('c3', 'bash', {}))),
-  withId('m6', tool('c3', 'three')),
-  withId('m7', { role: 'user', content: 'latest' }),
-  { role: 'user', content: 'no id' },
-];
-const archAfter = [
-  withId('m1', { role: 'user', content: 'start' }),
-  withId('m2', { role: 'assistant', content: 'reading', meta: { source: 'compact-execution-text' } }),
-  withId('m5', asst('', call('c3', 'bash', {}))),
-  withId('m6', tool('c3', 'three')),
-  withId('m7', { role: 'user', content: 'latest' }),
-];
-const archProjection = archiveMod.compactionArchiveProjection(archBefore, archAfter);
-write('archive', {
-  before: archBefore,
-  after: archAfter,
-  dropped: archiveMod.droppedByCompaction(archBefore, archAfter).map((m) => m.meta.transcript.messageId),
-  projection: archProjection,
+// ---- 6. dropped identities ----------------------------------------------------
+const { prepareCompactionArchive } = await load('compaction-archive-capture.mjs');
+const { stampMessageIds } = await load('message-ids.mjs');
+mkdirSync(join(dataRoot, 'sessions'), { recursive: true });
+const stampAll = (messages, sessionId) => {
+  const out = messages.slice();
+  stampMessageIds(out, { sessionId });
+  return out;
+};
+const withAt = (value, row) => ({ ...row, meta: { transcript: { at: value } } });
+const droppedCase = async (name, build) => {
+  const sessionId = `dropped-${name}`;
+  const { before, after } = build(sessionId);
+  const prepared = prepareCompactionArchive({ session: { id: sessionId }, sessionId, before, after });
+  const identities = prepared ? prepared.identities : null;
+  if (prepared) {
+    await prepared.durable;
+    prepared.cancel();
+  }
+  return { name, before, after, identities };
+};
+const summaryRow = { role: 'user', content: 'A previous model worked on this task and produced the compacted handoff summary below.\n\n## Goal', meta: { source: 'compact-summary' } };
+write('dropped', {
+  cases: [
+    await droppedCase('mixed', (sid) => {
+      const call = { role: 'assistant', content: 'reading both', toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'a' } }, { id: 'c2', name: 'read', arguments: { path: 'b' } }] };
+      const before = stampAll([withAt(1, { role: 'user', content: 'old question' }), call, tool('c1', 'a very long tool output'), tool('c2', 'b output'), withAt(2, { role: 'assistant', content: 'old answer' }), withAt(3, { role: 'user', content: 'recent question' }), withAt(4, { role: 'assistant', content: 'recent answer' })], sid);
+      const after = [summaryRow, { ...before[1], toolCalls: [before[1].toolCalls[1]] }, { ...before[3], content: '[trimmed]' }, before[5], before[6]];
+      return { before, after };
+    }),
+    await droppedCase('partial', (sid) => {
+      const call = withAt(2, { role: 'assistant', content: 'reading a first', toolCalls: [{ id: 'pc1', name: 'read', arguments: { path: 'a' } }] });
+      const before = stampAll([withAt(1, { role: 'user', content: 'inspect a' }), call, tool('pc1', 'a body')], sid);
+      return { before, after: [before[0], { ...before[1], content: '' }, before[2]] };
+    }),
+    await droppedCase('rewrite_only', (sid) => {
+      const before = stampAll([withAt(1, { role: 'user', content: 'question' }), withAt(2, { role: 'assistant', content: 'answer' })], sid);
+      return { before, after: [before[0], { ...before[1], content: 'answer (rewritten)' }] };
+    }),
+  ],
 });

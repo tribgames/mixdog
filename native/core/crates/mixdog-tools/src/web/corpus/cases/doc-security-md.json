@@ -1,0 +1,10 @@
+{
+ "url": "https://docs.example.com/SECURITY.md",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "SECURITY.md",
+  "content": "# Security Policy\n\n## Supported versions\n\nOnly the latest release of Mixdog receives security fixes. Update before reporting, and check whether the problem still occurs.\n\n## Reporting a vulnerability\n\n**Do not report vulnerabilities in public issues, discussions, or pull requests.**\n\nReport privately through [GitHub private vulnerability reporting](<https://github.com/tribgames/mixdog/security/advisories/new>). Include:\n\n- What an attacker can do, and what they need first (local access, a crafted file, a malicious website, a signed-in account).\n- Steps to reproduce or a proof of concept, against the latest release.\n- The affected version and operating system.\n\nKeep the details private until a fix is released. We credit reporters in the release notes unless you ask us not to.\n\n## Out of scope\n\n- A dependency with a known CVE, without showing that Mixdog actually reaches the vulnerable code.\n- Actions that need the user to run commands or approve tools they were warned about.\n- Problems in third-party model providers or MCP servers themselves.",
+  "extractor": "dom-markdown"
+ }
+}

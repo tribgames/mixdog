@@ -9,8 +9,6 @@ use serde::Serialize;
 use serde::Serializer;
 use serde_json::Value;
 
-use super::blob::DIGEST_PREFIX;
-
 /// Ids: sessions, items, runs, approvals, queue entries, compactions, archive segments,
 /// clients.
 pub const ID_MAX: usize = 256;
@@ -97,44 +95,9 @@ impl<T: Serialize, const MAX: usize> Serialize for List<T, MAX> {
     }
 }
 
-/// `sha256:` + 64 lowercase hex; always 73 encoded bytes.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
-#[serde(try_from = "String")]
-pub struct Digest(String);
-
-impl Digest {
-    pub const LEN: usize = DIGEST_PREFIX.len() + 64;
-
-    pub fn is_valid(text: &str) -> bool {
-        text.len() == Self::LEN
-            && text.starts_with(DIGEST_PREFIX)
-            && text[DIGEST_PREFIX.len()..]
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<String> for Digest {
-    type Error = String;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        if Self::is_valid(&value) {
-            Ok(Self(value))
-        } else {
-            Err(format!("not a sha256 digest: {value:?}"))
-        }
-    }
-}
-
-impl Serialize for Digest {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0)
-    }
-}
+/// `sha256:` + 64 lowercase hex; always 73 encoded bytes. The one digest type of the
+/// codebase: the protocol's, which validates the format wherever it is parsed or built.
+pub type Digest = mixdog_protocol::BlobDigest;
 
 /// A JSON value whose encoding is at most `MAX` bytes.
 #[derive(Debug, Clone, PartialEq, Deserialize)]

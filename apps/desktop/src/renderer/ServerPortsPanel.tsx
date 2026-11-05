@@ -1,7 +1,7 @@
 // The Ports panel of a server window: what listens on the server, the ports
 // forwarded to this PC (127.0.0.1 only), and new ports offered for forwarding.
-// The list is scanned while the panel is visible and on demand; forwards are
-// pushed by main as they start, fail or stop.
+// The core samples the list while the panel is visible and pushes differences;
+// forwards are pushed by main as they start, fail or stop.
 import { ExternalLink, Plus, RefreshCw, Square } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
@@ -13,9 +13,6 @@ import { t } from './i18n';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import './settings/settings.css';
 import './server-ports.css';
-
-/** How often the server is scanned while the panel is visible. */
-export const SERVER_PORTS_POLL_MS = 5_000;
 
 const EMPTY_VIEW: DesktopServerPortsView = { detected: null, forwards: [], suggested: [] };
 
@@ -41,33 +38,35 @@ function forwardStatusText(forward: DesktopPortForward): string {
 function useServerPorts(active: boolean, down: boolean) {
   const [view, setView] = useState<DesktopServerPortsView>(EMPTY_VIEW);
   const [scanning, setScanning] = useState(false);
+  useEffect(() => window.mixdogDesktop?.subscribeServerPorts?.((next) => setView(next)) ?? undefined, []);
+  useEffect(() => {
+    void window.mixdogDesktop
+      ?.listServerPorts?.()
+      .then(setView)
+      .catch(() => undefined);
+  }, []);
+  // The core samples the server's listening ports only while a window views them and pushes the differences
+  // (the `ports` section, 5 s sampler in the core); nothing here asks again.
+  useEffect(() => {
+    const sections = window.mixdogDesktop?.sections;
+    if (!active || down || !sections) return undefined;
+    void sections.call('system/ports/subscribe', {}).catch(() => undefined);
+    return () => void sections.call('system/ports/unsubscribe', {}).catch(() => undefined);
+  }, [active, down]);
+  // "Check ports again": a fresh subscription makes the core sample once now.
   const scan = useCallback(async () => {
-    const api = window.mixdogDesktop;
-    if (!api?.listServerPorts) return;
+    const sections = window.mixdogDesktop?.sections;
+    if (!sections) return;
     setScanning(true);
     try {
-      setView(await api.listServerPorts(true));
+      await sections.call('system/ports/unsubscribe', {});
+      await sections.call('system/ports/subscribe', {});
     } catch {
-      /* the next scan or push replaces the view */
+      /* the pushed list stays as it was */
     } finally {
       setScanning(false);
     }
   }, []);
-  useEffect(() => window.mixdogDesktop?.subscribeServerPorts?.((next) => setView(next)) ?? undefined, []);
-  useEffect(() => {
-    void window.mixdogDesktop
-      ?.listServerPorts?.(false)
-      .then(setView)
-      .catch(() => undefined);
-  }, []);
-  useEffect(() => {
-    if (!active || down) return undefined;
-    void scan();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void scan();
-    }, SERVER_PORTS_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [active, down, scan]);
   return { view, scan, scanning };
 }
 

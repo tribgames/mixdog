@@ -1,0 +1,41 @@
+{
+ "src": "builtin-tools",
+ "name": "find",
+ "annotations": {
+  "title": "Find Files",
+  "readOnlyHint": true,
+  "destructiveHint": false,
+  "idempotentHint": true,
+  "openWorldHint": false,
+  "compressible": true
+ },
+ "schema": {
+  "type": "object",
+  "properties": {
+   "query": {
+    "type": "string",
+    "minLength": 1,
+    "pattern": "\\S",
+    "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+   },
+   "path": {
+    "type": "string",
+    "description": "Base directory; omit for the current Project."
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": 0,
+    "description": "Max paths; default 25; 0 unlimited."
+   },
+   "include_noise": {
+    "type": "boolean",
+    "description": "Also search gitignored trees."
+   }
+  },
+  "required": [
+   "query"
+  ],
+  "additionalProperties": false
+ },
+ "descLen": 176
+}

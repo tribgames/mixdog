@@ -167,7 +167,7 @@ impl Host {
                     || matches_like(&app.name, &query)
                     || matches_like(&app.app_id, &query)
             })
-            .map(|app| json!({ "name": app.name, "app_id": app.app_id, "packaged": false }))
+            .map(|app| json!({ "name": app.name, "app_id": app.app_id, "packaged": app.app_id.contains('!') }))
             .collect();
         let mut payload =
             json!({ "installed": rows, "matched": rows.len(), "catalogue_total": total });

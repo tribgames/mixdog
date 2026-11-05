@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { t } from './i18n';
+import { sectionStoreFor } from './section-store';
 import { callCapability, type StudioApi } from './studio-support';
 
 // Studio boards: user-named collections of results, kept by the runtime's
@@ -114,27 +115,23 @@ export function useStudioBoards(api: StudioApi | undefined, active: boolean): St
   return current;
 }
 
-const WATCH_INTERVAL_MS = 15_000;
-
 /** Results also land from writers a pane never hears (the agent `media`
  *  tool, another window or device), so while a Studio pane is shown it
- *  re-reads the counts when the window comes back (focus, or visible again)
- *  and every few seconds while the window has focus; the pane folds new
- *  results in when the count it shows changes. */
+ *  re-reads the counts when the core publishes a `mediaJobs` change (every
+ *  writer's job ends there; desktop-services.md §15 P9) and when the window
+ *  comes back (focus, or visible again); the pane folds new results in when
+ *  the count it shows changes. No timer. */
 export function useStudioBoardsWatch(api: StudioApi | undefined, active: boolean): void {
   useEffect(() => {
     if (!active) return undefined;
     const read = () => {
       if (document.visibilityState === 'visible') void refreshStudioBoards(api, { join: true }).catch(() => {});
     };
-    const tick = () => {
-      if (document.hasFocus()) read();
-    };
-    const timer = setInterval(tick, WATCH_INTERVAL_MS);
+    const stopJobs = sectionStoreFor(api)?.subscribe('mediaJobs', read);
     window.addEventListener('focus', read);
     document.addEventListener('visibilitychange', read);
     return () => {
-      clearInterval(timer);
+      stopJobs?.();
       window.removeEventListener('focus', read);
       document.removeEventListener('visibilitychange', read);
     };

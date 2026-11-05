@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Mixdog 원격 화면 정리 v3 시안</title>
+<style>
+  :root {
+    --bg: #0e0e10; --band: #151518; --layer: #1b1b1f; --layer2: #232328; --line: rgba(255,255,255,.08);
+    --text: #e9e9ea; --muted: #9a9aa1; --faint: #6d6d74; --green: #4ac885; --red: #e5484d; --accent: #8ab4ff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #08080a; color: var(--text); font: 400 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; padding: 40px 48px 80px; }
+  h1 { font-size: 22px; line-height: 30px; margin-bottom: 6px; }
+  .lead { color: var(--muted); max-width: 920px; margin-bottom: 36px; }
+  h2 { font-size: 16px; margin: 48px 0 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; max-width: 920px; }
+  .row { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+  .cap { color: var(--muted); font-size: 12.5px; margin-top: 10px; text-align: center; max-width: 100%; }
+  .cap b { color: var(--text); font-weight: 600; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 99px; margin-bottom: 8px; }
+  .tag.before { background: rgba(229,72,77,.15); color: #ff8b8f; }
+  .tag.after { background: rgba(74,200,133,.15); color: #7fe0ab; }
+
+  /* phone frame */
+  .phone { width: 300px; height: 620px; border-radius: 38px; background: var(--bg); border: 8px solid #2a2a2f; position: relative; overflow: hidden; }
+  .status { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-size: 12.5px; font-weight: 600; background: var(--band); }
+  .status .icons { letter-spacing: 2px; font-size: 11px; }
+  .strip-old { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--band); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 8px; background: var(--layer2); font-size: 11.5px; }
+  .chip.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
+  .dot.off { background: var(--faint); }
+  .tabs { height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--band); border-bottom: 1px solid var(--line); }
+  .logo { position: relative; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .logo svg { width: 24px; height: 24px; }
+  .logo .dot { position: absolute; right: 2px; bottom: 3px; width: 9px; height: 9px; border: 2px solid var(--band); box-sizing: content-box; }
+  .pill { flex: 1; height: 34px; border-radius: 17px; background: var(--layer2); display: flex; align-items: center; gap: 8px; padding: 0 14px; font-size: 13px; }
+  .ico { width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); font-size: 18px; }
+  .body { position: absolute; inset: auto 0 0 0; top: 116px; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; }
+  .phone.after .body { top: 86px; }
+  .mark { position: absolute; inset: 0; display: grid; place-items: center; opacity: .12; pointer-events: none; }
+  .mark svg { width: 110px; height: 110px; }
+  .composer { border-radius: 16px; background: var(--layer); padding: 12px 14px; color: var(--faint); font-size: 13px; }
+  .composer .meta { margin-top: 16px; color: var(--muted); font-size: 12px; display: flex; gap: 12px; }
+  .ctx { color: var(--muted); font-size: 12px; margin: 0 4px 8px; display: flex; gap: 14px; }
+
+  /* drawer */
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+  .drawer { position: absolute; top: 0; bottom: 0; left: 0; width: 82%; background: var(--layer); padding-top: 34px; border-radius: 0 18px 18px 0; }
+  .pc-head { margin: 10px 10px 6px; padding: 12px; border-radius: 14px; background: var(--layer2); }
+  .pc-head .name { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .pc-head .name .chev { margin-left: auto; color: var(--muted); font-weight: 400; }
+  .pc-head .state { color: var(--muted); font-size: 12px; margin-top: 3px; padding-left: 15px; }
+  .menu { margin: 4px 10px; }
+  .menu div { padding: 9px 10px; border-radius: 10px; font-size: 13px; color: var(--text); display: flex; gap: 10px; align-items: center; }
+  .menu div.hl { background: rgba(255,255,255,.06); }
+  .menu .sep { height: 1px; padding: 0; margin: 6px 4px; background: var(--line); }
+  .menu .muted { color: var(--muted); }
+  .section-label { margin: 14px 20px 6px; color: var(--faint); font-size: 11.5px; }
+
+  /* desktop / tablet window */
+  .win { width: 760px; height: 430px; border-radius: 12px; background: var(--bg); border: 1px solid #2a2a2f; overflow: hidden; position: relative; }
+  .titlebar { height: 36px; display: flex; align-items: center; background: var(--band); padding: 0 0 0 10px; gap: 8px; font-size: 12.5px; }
+  .titlebar .caps { margin-left: auto; display: flex; }
+  .titlebar .caps span { width: 42px; height: 36px; display: grid; place-items: center; color: var(--muted); }
+  .pc-btn { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 9px; border-radius: 7px; color: var(--text); font-size: 12.5px; }
+  .pc-btn:hover, .pc-btn.hover { background: var(--layer2); }
+  .pc-btn .chev { color: var(--muted); }
+  .old-strip { height: 28px; display: flex; align-items: center; gap: 8px; justify-content: flex-end; padding: 0 12px; background: var(--band); font-size: 11.5px; color: var(--muted); }
+  .shell { position: absolute; left: 0; right: 0; bottom: 0; display: flex; }
+  .rail { width: 46px; background: var(--band); display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 12px; color: var(--muted); }
+  .rail i { width: 18px; height: 18px; border-radius: 5px; border: 1.6px solid var(--faint); display: block; }
+  .side { width: 190px; background: var(--layer); border-right: 1px solid var(--line); padding: 12px; color: var(--muted); font-size: 12.5px; }
+  .main { flex: 1; display: flex; flex-direction: column; }
+  .main .tabbar { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+  .main .tabbar .t { height: 26px; padding: 0 12px; border-radius: 7px; background: var(--layer2); display: flex; align-items: center; font-size: 12px; }
+  .main .fill { flex: 1; position: relative; }
+  .main .composer { margin: 12px 40px 14px; }
+  .pop { position: absolute; top: 34px; left: 8px; width: 250px; border-radius: 12px; background: var(--layer2); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0,0,0,.5); padding: 6px; z-index: 5; font-size: 12.5px; }
+  .pop div { padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+  .pop div.on { background: rgba(255,255,255,.06); }
+  .pop .sep { height: 1px; padding: 0; margin: 4px 2px; background: var(--line); }
+  .pop .muted { color: var(--muted); }
+  .pop .right { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+
+  /* settings */
+  .settings { width: 760px; height: 470px; border-radius: 14px; background: var(--layer); border: 1px solid #2a2a2f; display: flex; overflow: hidden; }
+  .settings nav { width: 220px; padding: 14px 10px; background: rgba(0,0,0,.12); border-right: 1px solid var(--line); }
+  .group { margin-bottom: 14px; }
+  .group-h { display: flex; align-items: center; gap: 7px; padding: 4px 10px 6px; color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+  .group-h .pcname { color: var(--text); }
+  .nav-i { padding: 7px 10px; border-radius: 8px; font-size: 13px; display: flex; gap: 9px; align-items: center; }
+  .nav-i.on { background: rgba(255,255,255,.08); }
+  .nav-i small { color: var(--faint); font-size: 11.5px; margin-left: auto; }
+  .settings section { flex: 1; padding: 18px 24px; }
+  .s-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; }
+  .s-title h3 { font-size: 18px; }
+  .s-where { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.05); }
+  .s-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); margin-bottom: 8px; font-size: 13px; }
+  .s-row span { color: var(--muted); font-size: 12.5px; }
+  .old-note { font-size: 12px; color: var(--muted); padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,.04); margin-bottom: 14px; }
+
+  .notes { margin-top: 56px; max-width: 920px; }
+  .notes li { color: var(--muted); margin: 6px 0 6px 18px; }
+  .notes b { color: var(--text); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="mx" viewBox="0 0 64 64"><path d="M40 12a22 22 0 0 1 14 12" stroke="currentColor" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M54 40a22 22 0 0 1-14 12" stroke="currentColor" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M22 16a22 22 0 0 0 0 32" stroke="currentColor" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M32 25l2.2 4.8L39 32l-4.8 2.2L32 39l-2.2-4.8L25 32l4.8-2.2z" fill="currentColor"/></symbol>
+</svg>
+
+<h1>원격 화면 정리 v3 — 시안</h1>
+<p class="lead">"This PC · Remote · 설정은 연결된 PC의 값입니다" 줄을 없애고, 그 정보를 이미 있는 자리(로고, 제목줄, 설정 메뉴)로 옮깁니다. 남기는 정보는 두 가지뿐입니다: <b>어느 PC에 붙어 있는지</b>, <b>연결이 살아 있는지</b>.</p>
+
+<!-- 1. Phone -->
+<h2>1. 폰 (앱 · 브라우저)</h2>
+<p class="sub">별도 줄을 없애 한 줄을 돌려받습니다. 연결 상태는 로고에 붙은 점 하나로 보여 주고, 로고를 누르면 열리는 메뉴 맨 위에서 PC를 확인·전환합니다.</p>
+<div class="row">
+  <div>
+    <span class="tag before">지금</span>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span class="icons">▂▄▆ ◔ ▮</span></div>
+      <div class="strip-old"><span class="chip"><i class="dot"></i>This PC</span><span class="chip ghost">Remote</span></div>
+      <div class="tabs"><span class="logo"><svg><use href="#mx"/></svg></span><span class="pill">💬 새 작업</span><span class="ico">＋</span><span class="ico">⊞</span></div>
+      <div class="mark"><svg><use href="#mx"/></svg></div>
+      <div class="body"><div class="ctx"><span>📁 mobile-audit-proj ▾</span><span>분담 ▾</span></div><div class="composer">무엇이든 물어보세요…<div class="meta"><span>＋</span><span>모델 선택 ▾</span></div></div></div>
+    </div>
+    <p class="cap">위에 줄이 하나 더 있고, 앱은 늘 원격이라<br/>"Remote"는 정보가 없습니다.</p>
+  </div>
+  <div>
+    <span class="tag after">바꾼 뒤</span>
+    <div class="phone after">
+      <div class="status"><span>9:41</span><span class="icons">▂▄▆ ◔ ▮</span></div>
+      <div class="tabs"><span class="logo"><svg><use href="#mx"/></svg><i class="dot"></i></span><span class="pill">💬 새 작업</span><span class="ico">＋</span><span class="ico">⊞</span></div>
+      <div class="mark"><svg><use href="#mx"/></svg></div>
+      <div class="body"><div class="ctx"><span>📁 mobile-audit-proj ▾</span><span>분담 ▾</span></div><div class="composer">무엇이든 물어보세요…<div class="meta"><span>＋</span><span>모델 선택 ▾</span></div></div></div>
+    </div>
+    <p class="cap"><b>줄 삭제.</b> 로고 오른쪽 아래 점 = 연결 상태<br/>(초록 연결됨 · 회색 끊김)</p>
+  </div>
+  <div>
+    <span class="tag after">로고를 누르면</span>
+    <div class="phone after">
+      <div class="status"><span>9:41</span><span class="icons">▂▄▆ ◔ ▮</span></div>
+      <div class="tabs"><span class="logo"><svg><use href="#mx"/></svg><i class="dot"></i></span><span class="pill">💬 새 작업</span><span class="ico">＋</span><span class="ico">⊞</span></div>
+      <div class="scrim"></div>
+      <div class="drawer">
+        <div class="pc-head"><div class="name"><i class="dot"></i>DESKTOP-IBLP835<span class="chev">⇄</span></div><div class="state">연결됨 · 원격 조작 중</div></div>
+        <div class="menu">
+          <div class="hl">💬 세션</div><div>🤖 에이전트</div><div>🕒 스케줄</div><div>📁 프로젝트</div><div>⚙️ 설정</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">메뉴 맨 위 카드 = 지금 붙은 PC.<br/>카드를 누르면 PC 전환 메뉴.</p>
+  </div>
+  <div>
+    <span class="tag after">PC 카드를 누르면</span>
+    <div class="phone after">
+      <div class="status"><span>9:41</span><span class="icons">▂▄▆ ◔ ▮</span></div>
+      <div class="tabs"><span class="logo"><svg><use href="#mx"/></svg><i class="dot"></i></span><span class="pill">💬 새 작업</span><span class="ico">＋</span><span class="ico">⊞</span></div>
+      <div class="scrim"></div>
+      <div class="drawer">
+        <div class="section-label">PC 선택</div>
+        <div class="menu">
+          <div class="hl"><i class="dot"></i>DESKTOP-IBLP835<span style="margin-left:auto;color:var(--muted)">✓</span></div>
+          <div><i class="dot"></i>사무실 PC</div>
+          <div><i class="dot off"></i><span class="muted">노트북 · 꺼짐</span></div>
+          <div class="sep"></div>
+          <div>＋ 다른 PC 연결 (코드·QR)</div>
+          <div class="muted">연결 관리</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">저장된 PC 사이를 바로 전환.<br/>PC가 하나뿐이면 카드에 ⇄ 대신 아무것도 없음.</p>
+  </div>
+</div>
+
+<!-- 2. Desktop / iPad remote window -->
+<h2>2. PC에서 다른 PC로 붙은 원격 창 · 아이패드</h2>
+<p class="sub">이미 있는 제목줄 왼쪽에 PC 이름 버튼 하나만 둡니다. "원격" 배지와 안내 문장은 없앱니다. 창 제목(작업표시줄)에도 PC 이름이 들어갑니다.</p>
+<div class="row">
+  <div>
+    <span class="tag before">지금</span>
+    <div class="win">
+      <div class="titlebar"><span class="caps" style="margin-left:auto"><span>—</span><span>☐</span><span>✕</span></span></div>
+      <div class="old-strip"><span class="chip"><i class="dot"></i>DESKTOP-IBLP835</span><span class="chip ghost">원격</span><span>설정은 연결된 PC의 값입니다</span></div>
+      <div class="shell" style="top:64px"><div class="rail"><i></i><i></i><i></i><i></i></div><div class="side">에이전트</div><div class="main"><div class="tabbar"><span class="t">💬 새 작업</span><span style="color:var(--muted)">＋</span></div><div class="fill"></div><div class="composer">무엇이든 물어보세요…</div></div></div>
+    </div>
+  </div>
+  <div>
+    <span class="tag after">바꾼 뒤</span>
+    <div class="win">
+      <div class="titlebar"><span class="pc-btn"><i class="dot"></i>DESKTOP-IBLP835<span class="chev">▾</span></span><span class="caps"><span>—</span><span>☐</span><span>✕</span></span></div>
+      <div class="shell" style="top:36px"><div class="rail"><i></i><i></i><i></i><i></i></div><div class="side">에이전트</div><div class="main"><div class="tabbar"><span class="t">💬 새 작업</span><span style="color:var(--muted)">＋</span></div><div class="fill"></div><div class="composer">무엇이든 물어보세요…</div></div></div>
+    </div>
+    <p class="cap"><b>줄 삭제.</b> 제목줄 왼쪽 = 붙은 PC (점 = 연결 상태)</p>
+  </div>
+  <div>
+    <span class="tag after">PC 이름을 누르면</span>
+    <div class="win">
+      <div class="titlebar"><span class="pc-btn hover"><i class="dot"></i>DESKTOP-IBLP835<span class="chev">▾</span></span><span class="caps"><span>—</span><span>☐</span><span>✕</span></span></div>
+      <div class="pop">
+        <div class="on"><i class="dot"></i>DESKTOP-IBLP835<span class="right">✓ 연결됨</span></div>
+        <div><i class="dot"></i>사무실 PC</div>
+        <div><i class="dot off"></i><span class="muted">노트북</span><span class="right">꺼짐</span></div>
+        <div class="sep"></div>
+        <div>＋ 다른 PC 연결 (코드)</div>
+        <div class="muted">연결 관리</div>
+        <div class="sep"></div>
+        <div class="muted">이 원격 창 닫기</div>
+      </div>
+      <div class="shell" style="top:36px"><div class="rail"><i></i><i></i><i></i><i></i></div><div class="side">에이전트</div><div class="main"><div class="tabbar"><span class="t">💬 새 작업</span><span style="color:var(--muted)">＋</span></div><div class="fill"></div><div class="composer">무엇이든 물어보세요…</div></div></div>
+    </div>
+    <p class="cap">아이패드도 같은 자리(상태표시줄 아래 제목줄)에 같은 버튼.</p>
+  </div>
+</div>
+
+<!-- 3. Settings -->
+<h2>3. 원격에서 설정 열기</h2>
+<p class="sub">문장 대신 메뉴 구조로 구분합니다. 위 묶음은 <b>이 기기</b>(지금 손에 든 폰·태블릿·PC)의 표시 설정, 아래 묶음은 <b>연결된 PC</b>의 설정입니다. 메인 PC에서 직접 열면 묶음이 하나라 지금과 똑같습니다.</p>
+<div class="row">
+  <div>
+    <span class="tag before">지금</span>
+    <div class="settings">
+      <nav>
+        <div class="nav-i on">⚙️ 일반</div><div class="nav-i">🧠 컨텍스트</div><div class="nav-i">🔌 프로바이더</div><div class="nav-i">✍️ 출력 스타일</div><div class="nav-i">🖥 시스템</div><div class="nav-i">⌨️ 단축키</div><div class="nav-i">📱 연결</div>
+      </nav>
+      <section>
+        <div class="old-note">설정은 연결된 PC의 값입니다</div>
+        <div class="s-title"><h3>일반</h3></div>
+        <div class="s-row">언어<span>System (locale) ▾</span></div>
+        <div class="s-row">테마<span>다크 ▾</span></div>
+        <div class="s-row">웹 검색<span>켜짐</span></div>
+      </section>
+    </div>
+    <p class="cap">어떤 값이 이 기기 것이고 어떤 값이 PC 것인지 안 보임</p>
+  </div>
+  <div>
+    <span class="tag after">바꾼 뒤 — PC 설정을 연 상태</span>
+    <div class="settings">
+      <nav>
+        <div class="group">
+          <div class="group-h">📱 이 기기</div>
+          <div class="nav-i">🎨 표시<small>테마·언어·글꼴</small></div>
+        </div>
+        <div class="group">
+          <div class="group-h"><i class="dot"></i><span class="pcname">DESKTOP-IBLP835</span></div>
+          <div class="nav-i on">⚙️ 일반</div><div class="nav-i">🧠 컨텍스트</div><div class="nav-i">🔌 프로바이더</div><div class="nav-i">✍️ 출력 스타일</div><div class="nav-i">🖥 시스템</div><div class="nav-i">📱 연결</div>
+        </div>
+      </nav>
+      <section>
+        <div class="s-title"><h3>일반</h3><span class="s-where"><i class="dot"></i>DESKTOP-IBLP835</span></div>
+        <div class="s-row">웹 검색<span>켜짐</span></div>
+        <div class="s-row">링크 미리보기<span>켜짐</span></div>
+        <div class="s-row">작업 완료 시 알림<span>켜짐</span></div>
+      </section>
+    </div>
+    <p class="cap">제목 옆 작은 표시 = 지금 바꾸는 곳이 그 PC</p>
+  </div>
+  <div>
+    <span class="tag after">바꾼 뒤 — 이 기기 설정을 연 상태</span>
+    <div class="settings">
+      <nav>
+        <div class="group">
+          <div class="group-h">📱 이 기기</div>
+          <div class="nav-i on">🎨 표시<small>테마·언어·글꼴</small></div>
+        </div>
+        <div class="group">
+          <div class="group-h"><i class="dot"></i><span class="pcname">DESKTOP-IBLP835</span></div>
+          <div class="nav-i">⚙️ 일반</div><div class="nav-i">🧠 컨텍스트</div><div class="nav-i">🔌 프로바이더</div><div class="nav-i">✍️ 출력 스타일</div><div class="nav-i">🖥 시스템</div><div class="nav-i">📱 연결</div>
+        </div>
+      </nav>
+      <section>
+        <div class="s-title"><h3>표시</h3><span class="s-where">📱 이 기기</span></div>
+        <div class="s-row">테마<span>다크 ▾</span></div>
+        <div class="s-row">언어<span>한국어 ▾</span></div>
+        <div class="s-row">글꼴 크기<span>기본 ▾</span></div>
+      </section>
+    </div>
+    <p class="cap">테마·언어·글꼴은 이 기기에만 적용</p>
+  </div>
+</div>
+
+<ul class="notes">
+  <li><b>없어지는 것:</b> 상단 "This PC · Remote · 설정은 연결된 PC의 값입니다" 줄 전체 (폰·아이패드·원격 창 모두).</li>
+  <li><b>연결 상태:</b> 초록 점 = 연결됨, 회색 점 = 끊김. 오래 끊기면 지금처럼 화면 전체 끊김 표시는 그대로.</li>
+  <li><b>메인 PC 화면:</b> 원격이 아니므로 변화 없음.</li>
+  <li><b>PC가 하나뿐일 때:</b> 전환 화살표 없이 이름만 표시. "다른 PC 연결"은 메뉴에 계속 있음.</li>
+</ul>
+</body>
+</html>

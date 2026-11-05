@@ -31,10 +31,11 @@ import type {
   ProviderModelsChange,
 } from '../shared/contract';
 import { record, rows } from './record-utils';
+import { sectionStoreFor } from './section-store';
 import type { RecordValue } from './desktop-types';
 
 type SidebarReferenceApi = Partial<
-  Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects' | 'notifyProviderModelsChanged'>
+  Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects' | 'notifyProviderModelsChanged' | 'sections'>
 >;
 
 interface SidebarReferenceValues {
@@ -181,23 +182,51 @@ type Loader<K extends SidebarReferenceKey> = (
   force: boolean
 ) => Promise<SidebarReferenceValues[K]>;
 
+/** The reference sets the core pushes in its app snapshot (desktop-services.md §15 P13, P14): reading one is reading
+ *  the section store, never a request. The section a key follows, and what of its value the key carries. */
+const SECTION_OF: Partial<Record<SidebarReferenceKey, string>> = {
+  projects: 'projects',
+  workflows: 'workflows',
+  agents: 'agents',
+  providerSetup: 'providerSetup',
+  webSearchRoute: 'webSearch',
+  webSearchModels: 'webSearch',
+};
+
+async function pushed(api: SidebarReferenceApi, section: string): Promise<unknown> {
+  const store = sectionStoreFor(api);
+  await store?.ready();
+  return store?.get(section)?.value;
+}
+
 const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   channelSetup: async (api) => record(await capability(api, 'getChannelSetup')),
   // The route picker and settings read the same catalog: one shared fetch.
   quickProviderModels: (api, force) => fetchProviderModels(api, { quick: false, force }),
   projects: async (api) => {
-    if (!api.listProjects) return [];
-    const projects = await api.listProjects();
-    return Array.isArray(projects) ? projects : [];
+    const projects = await pushed(api, 'projects');
+    return Array.isArray(projects) ? (projects as DesktopProjectSummary[]) : [];
   },
-  workflows: async (api) => rows(await capability(api, 'listWorkflows')),
-  agents: async (api) => rows(await capability(api, 'listAgents')),
-  providerSetup: async (api, force) =>
-    requireDesktopProviders(await capability(api, 'getProviderSetup', force ? [{ force: true }] : [])),
-  webSearchRoute: async (api) => record(await capability(api, 'getWebSearchRoute')),
-  webSearchModels: async (api, force) =>
-    rows(await capability(api, 'listWebSearchModels', [{ quick: false, ...(force ? { force: true } : {}) }])),
+  workflows: async (api) => rows(await pushed(api, 'workflows')),
+  agents: async (api) => rows(await pushed(api, 'agents')),
+  providerSetup: async (api) => requireDesktopProviders(await pushed(api, 'providerSetup')),
+  webSearchRoute: async (api) => record(record(await pushed(api, 'webSearch')).route),
+  webSearchModels: async (api) => rows(record(await pushed(api, 'webSearch')).models),
 };
+
+let followedSections: (() => void) | undefined;
+
+/** A pushed section that changed makes the reference keys read from it untrue: they are read again from the store. */
+function followPushedSections(api: SidebarReferenceApi | undefined): void {
+  followedSections?.();
+  followedSections = undefined;
+  const store = sectionStoreFor(api);
+  if (!store) return;
+  const stops = Object.entries(SECTION_OF).map(([key, section]) =>
+    store.subscribe(section as string, () => invalidateKeys([key as SidebarReferenceKey], false))
+  );
+  followedSections = () => stops.forEach((stop) => stop());
+}
 
 interface CacheEntry {
   value: unknown;
@@ -290,6 +319,7 @@ export function adoptSidebarReferenceHost(api: SidebarReferenceApi | undefined):
   const rebind = hostBound;
   boundApi = api;
   hostBound = true;
+  followPushedSections(api);
   if (!rebind) return false;
   const affected = [...new Set([...entries.keys(), ...failures.keys(), ...inflight.keys()])];
   entries.clear();
@@ -598,6 +628,8 @@ export function resetSidebarReferenceCache(options: { now?: () => number } = {})
   for (const key of SIDEBAR_REFERENCE_KEYS) generations.set(key, (generations.get(key) ?? 0) + 1);
   boundApi = undefined;
   hostBound = false;
+  followedSections?.();
+  followedSections = undefined;
   clock = options.now ?? (() => Date.now());
 }
 

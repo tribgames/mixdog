@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/thinking-spinner-v5.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "Mixdog · 띵킹 아이콘 v5",
+  "content": "선 두께를 레퍼런스 수준(24칸 기준 1.8, 14px에서 약 1px)으로 낮추고, 로고 형태를 유지한 채 움직임을 세 가지 방식으로 다시 만들었습니다.\n\n색감\n\n선 두께\n\n줄 아이콘\n\n속도\n\n레퍼런스 (C:\\\\Project\\\\refs)\n\n·\n\n**Claude Code**· ✢ ✳ ✶ ✻ ✽ 를 앞뒤로 재생. 모양이 피어나며 상태를 표현\n\n**OpenCode**20% 트랙 + 둥근 원호, 900ms 등속 회전, 뮤트 단색\n\n**Lobe Chat**Lucide 로더 회전. 선 두께 2/24, 설명 텍스트 색\n\n⋅\n\n**Grok**⋅ : ⸬ ⁙ 점 개수가 늘어나는 단계식\n\n- **얇은 선** — 공통적으로 24칸 기준 2 안팎(14px에서 1px대). v4의 3은 확실히 굵었습니다.\n- **형태는 항상 보이게** — 흐린 트랙 위로 밝은 부분만 움직여, 어느 순간에도 모양이 읽힙니다.\n- **회전보다 성장** — 모양이 피어나고 접히는 것으로 \"생각 중\"을 표현하면 차분하고 고급스럽습니다.\n- **색은 하나** — 뮤트 단색 또는 브랜드 한 색. 장식 색을 여러 개 쓰지 않습니다.\n\nv5 시안",
+  "extractor": "readability"
+ }
+}

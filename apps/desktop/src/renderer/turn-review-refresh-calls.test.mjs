@@ -9,15 +9,19 @@ function mount(t, sessionId = 'sess-review-calls') {
   const pending = [];
   const requests = [];
   const reviewChanged = new Set();
+  let reviewRevision = 0;
   const { dom, root } = installReviewDom(t, {
     desktop: {
       invokeCapability(request) {
         requests.push(request);
         return new Promise((resolve) => pending.push(resolve));
       },
-      subscribeTurnReviewChanged(listener) {
-        reviewChanged.add(listener);
-        return () => reviewChanged.delete(listener);
+      sections: {
+        snapshot: async () => ({ status: { state: 'connected' }, entries: [] }),
+        subscribe(listener) {
+          reviewChanged.add(listener);
+          return () => reviewChanged.delete(listener);
+        },
       },
     },
   });
@@ -26,7 +30,9 @@ function mount(t, sessionId = 'sess-review-calls') {
   /** The host's TURN_REVIEW_CHANGED push: the runtime says the review may read differently. */
   const push = () =>
     act(async () => {
-      for (const listener of [...reviewChanged]) listener();
+      const entry = { section: 'reviewDiff', key: null, revision: ++reviewRevision, value: {} };
+      for (const listener of [...reviewChanged])
+        listener({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry }] });
     });
   const answer = (value = {}) =>
     act(async () =>

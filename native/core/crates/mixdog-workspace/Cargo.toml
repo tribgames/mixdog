@@ -7,7 +7,44 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+kill-points = []
+count-jobs = []
+
 [dependencies]
 mixdog-rt = { workspace = true }
+mixdog-js = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+crossbeam-channel = { workspace = true }
+flate2 = { workspace = true }
+grep = { workspace = true }
+ignore = { workspace = true }
+trash = { workspace = true }
+notify = { workspace = true }
+regex = { workspace = true }
+regress = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+tokio-util = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_SystemServices", "Win32_System_IO"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+mixdog-workspace = { path = ".", features = ["kill-points", "count-jobs"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }

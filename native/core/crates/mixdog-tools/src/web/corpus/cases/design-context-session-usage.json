@@ -1,0 +1,10 @@
+{
+ "url": "https://design.example.com/context-session-usage.html",
+ "contentType": "text/html; charset=utf-8",
+ "expected": {
+  "ok": true,
+  "title": "시안 · 컨텍스트 창 세션 사용량 (1차)",
+  "content": "### 카테고리별 예상 사용량\n\n**System prompt**12.1k**\n\n**System tools**18.4k**\n\n**Memory files**3.2k**\n\n**Skills**4.0k**\n\n**Messages**58.7k**\n\n**Free space**104k**\n\n1차 추가 \n\n### 이 세션 사용량 ~$2.47 · 42턴\n\n**캐시 읽기**3.42m**\n\n**캐시 쓰기**241k**\n\n**입력**182k**\n\n**출력**58.3k**\n\n**캐시 적중률**89.0%**\n\n**비용**~$2.47 *추정***\n\n컴팩트 2회를 포함한 이 세션 전체 합계입니다. 앱을 재시작해도 유지됩니다. \"~\"는 구독 사용분처럼 청구서가 아닌 추정 가격이 섞였다는 뜻입니다.",
+  "extractor": "readability"
+ }
+}

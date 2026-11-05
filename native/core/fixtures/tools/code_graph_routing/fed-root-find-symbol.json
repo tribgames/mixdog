@@ -1,0 +1,22 @@
+{
+  "complete": true,
+  "cwd": "<FSROOT>",
+  "dependencyRoots": [
+    "<FSROOT>",
+    "<ROOT>/reg/other",
+    "<ROOT>/reg/outer",
+    "<ROOT>/reg/outer/inner"
+  ],
+  "input": {
+    "mode": "find_symbol",
+    "symbol": "innerFn"
+  },
+  "isError": false,
+  "registered": [
+    "reg/outer",
+    "reg/outer/inner",
+    "reg/other"
+  ],
+  "text": "# project other [<ROOT>/reg/other]\n(no symbol matches in cwd=<ROOT>/reg/other)\ngraph: nodes=1\n\n# project outer [<ROOT>/reg/outer]\n(no symbol matches in cwd=<ROOT>/reg/outer)\ngraph: nodes=1\n\n# project inner [<ROOT>/reg/outer/inner]\n# best declaration candidate\ni.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function innerFn() {\n2:   return 1;\n3: }",
+  "tool": "code_graph"
+}

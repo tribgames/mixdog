@@ -20,40 +20,62 @@ use super::symbols::map_items;
 use crate::scan::{PositionJson, RangeJson};
 use crate::scan_lang::ScanLang;
 
+/// One member of an outline item (a method, a field, an interface signature).
 #[derive(Serialize)]
-struct MemberJson {
+pub struct OutlineMember {
     #[serde(rename = "symbolType")]
-    symbol_type: SymbolType,
-    name: String,
+    pub symbol_type: SymbolType,
+    pub name: String,
     #[serde(rename = "isPublic")]
-    is_public: bool,
+    pub is_public: bool,
     /// The member's declaration node, in the same shape and with the same
     /// semantics as the item-level `range`: 0-based lines and columns plus the
     /// byte span. A member whose declaration HAS a body (a class/impl method)
     /// spans the body too; a genuinely bodiless one (an interface or trait
     /// method signature, an `extern` declaration) spans the declaration alone,
     /// because that is the whole declaration the language gives it.
-    range: RangeJson,
+    pub range: RangeJson,
 }
 
+/// One top-level item of a file's outline, ordered by position in the file.
 #[derive(Serialize)]
-struct ItemJson {
+pub struct OutlineItem {
     #[serde(rename = "symbolType")]
-    symbol_type: SymbolType,
-    name: String,
-    range: RangeJson,
+    pub symbol_type: SymbolType,
+    pub name: String,
+    pub range: RangeJson,
     #[serde(rename = "isImport")]
-    is_import: bool,
+    pub is_import: bool,
     #[serde(rename = "isExported")]
-    is_exported: bool,
-    members: Vec<MemberJson>,
+    pub is_exported: bool,
+    pub members: Vec<OutlineMember>,
+}
+
+/// What the outline walk produced for one file.
+pub struct FileOutline {
+    /// Project-relative path.
+    pub file: String,
+    /// The scan language id (`rust`, `typescript`, …).
+    pub lang: &'static str,
+    pub items: Vec<OutlineItem>,
+    pub calls: Vec<crate::calls::CallInfo>,
+    /// The read or parse failure that left `items` and `calls` empty.
+    pub error: Option<String>,
+}
+
+/// The outline of a set of files: the same data `--outline` prints, one record per file whose
+/// language has outline rules, plus the rule and file errors collected on the way.
+pub struct OutlineReport {
+    pub files: Vec<FileOutline>,
+    pub item_count: usize,
+    pub errors: Vec<String>,
 }
 
 #[derive(Serialize)]
 struct FileJson<'a> {
     file: String,
     lang: &'static str,
-    items: Vec<ItemJson>,
+    items: Vec<OutlineItem>,
     /// Call sites in the READABLE object form (`CallDebug`), not the
     /// positional wire tuple a FileRecord carries: `--outline` exists so rule
     /// authors can validate a rule against real sources, and a tuple hides
@@ -142,7 +164,7 @@ fn outline_file(
     lang: ScanLang,
     graph_lang: &str,
     extractors: &LangExtractors,
-) -> (Vec<ItemJson>, Vec<crate::calls::CallInfo>, Option<String>) {
+) -> (Vec<OutlineItem>, Vec<crate::calls::CallInfo>, Option<String>) {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) => {
@@ -197,22 +219,25 @@ fn write_summary(
         .map_err(|error| ScanError::Internal(format!("stdout flush failed: {error}")))
 }
 
-/// `--outline` entry point: dump the raw outline items per file so rule
-/// authors can validate a rule file against real sources, including the
-/// grammars the ast-grep CLI cannot load (objc/zig/r). Never writes files.
-pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
+/// The outline of `rels` (project-relative paths; all scannable files under `root` when empty).
+/// `rules` is an optional extra rule file (a path or `-`) compiled for this call only, ahead of
+/// the bundle. Never writes files. This is what `--outline` prints, as records: the CLI
+/// serialises exactly this report.
+pub fn outline_files(
+    root: &Path,
+    rels: &[String],
+    rules: Option<&str>,
+) -> Result<OutlineReport, crate::scan::ScanError> {
     use crate::scan::ScanError;
-    use std::io::Write;
 
-    let args = parse_args(args).map_err(ScanError::Usage)?;
     let mut errors: Vec<String> = rule_errors().to_vec();
     let mut extra_kinds = RULES.kinds.clone();
-    let extra = load_extra_rules(args.rules.as_deref(), &mut extra_kinds)?;
+    let extra = load_extra_rules(rules, &mut extra_kinds)?;
 
-    let files = if args.files.is_empty() {
+    let files = if rels.is_empty() {
         crate::scan::collect_scan_files(root).map_err(ScanError::Internal)?
     } else {
-        crate::scan::selected_scan_files(root, &args.files).map_err(ScanError::Internal)?
+        crate::scan::selected_scan_files(root, rels).map_err(ScanError::Internal)?
     };
 
     // Extra rules are compiled per run and take precedence over the bundle.
@@ -223,10 +248,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
     }
     let mut per_lang: HashMap<ScanLang, Arc<LangExtractors>> = HashMap::new();
 
-    let stdout = std::io::stdout();
-    let mut handle = std::io::BufWriter::new(stdout.lock());
     let mut item_count = 0usize;
-    let mut file_count = 0usize;
+    let mut records: Vec<FileOutline> = Vec::new();
     for file in &files {
         let extractors = match per_lang.get(&file.lang) {
             Some(found) => Arc::clone(found),
@@ -246,7 +269,6 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
         if extractors.is_empty() {
             continue;
         }
-        file_count += 1;
         let graph_lang = file
             .path
             .extension()
@@ -258,19 +280,47 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
             errors.push(format!("{}: {error}", file.rel));
         }
         item_count += items.len();
-        let record = FileJson {
+        records.push(FileOutline {
             file: file.rel.clone(),
             lang: file.lang.id(),
             items,
-            calls: calls.iter().map(Into::into).collect(),
+            calls,
             error,
+        });
+    }
+    Ok(OutlineReport {
+        files: records,
+        item_count,
+        errors,
+    })
+}
+
+/// `--outline` entry point: dump the raw outline items per file so rule
+/// authors can validate a rule file against real sources, including the
+/// grammars the ast-grep CLI cannot load (objc/zig/r). Never writes files.
+pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
+    use crate::scan::ScanError;
+    use std::io::Write;
+
+    let args = parse_args(args).map_err(ScanError::Usage)?;
+    let report = outline_files(root, &args.files, args.rules.as_deref())?;
+    let stdout = std::io::stdout();
+    let mut handle = std::io::BufWriter::new(stdout.lock());
+    let file_count = report.files.len();
+    for file in report.files {
+        let record = FileJson {
+            file: file.file,
+            lang: file.lang,
+            items: file.items,
+            calls: file.calls.iter().map(Into::into).collect(),
+            error: file.error,
         };
         let line = serde_json::to_string(&record)
             .map_err(|error| ScanError::Internal(format!("serialize failed: {error}")))?;
         writeln!(handle, "{line}")
             .map_err(|error| ScanError::Internal(format!("stdout write failed: {error}")))?;
     }
-    write_summary(&mut handle, file_count, item_count, errors)
+    write_summary(&mut handle, file_count, report.item_count, report.errors)
 }
 
 /// An item's and a member's range are the same thing — the span of the node
@@ -289,15 +339,15 @@ fn range_json(range: &ast_grep_outline::model::SourceRange) -> RangeJson {
     }
 }
 
-fn outline_json(items: &[WalkedItem<'_>]) -> Vec<ItemJson> {
-    let mut out: Vec<ItemJson> = items
+fn outline_json(items: &[WalkedItem<'_>]) -> Vec<OutlineItem> {
+    let mut out: Vec<OutlineItem> = items
         .iter()
         .map(|walked| {
             let item = &walked.item;
             let mut members: Vec<&ast_grep_outline::model::OutlineMember<'_>> =
                 item.members.iter().collect();
             members.sort_by_key(|member| member.entry.range.byte_offset.start);
-            ItemJson {
+            OutlineItem {
                 symbol_type: item.entry.symbol_type,
                 name: item.entry.name.to_string(),
                 range: range_json(&item.entry.range),
@@ -305,7 +355,7 @@ fn outline_json(items: &[WalkedItem<'_>]) -> Vec<ItemJson> {
                 is_exported: item.is_exported,
                 members: members
                     .into_iter()
-                    .map(|member| MemberJson {
+                    .map(|member| OutlineMember {
                         symbol_type: member.entry.symbol_type,
                         name: member.entry.name.to_string(),
                         is_public: member.is_public,

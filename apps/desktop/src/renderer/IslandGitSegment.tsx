@@ -18,9 +18,6 @@ import { requestOpenDockTab } from './open-dock-tab-event';
 import { useSessionChanges } from './session-changes-store';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
 
-/** The Source Control dock's cadence for the shared status snapshot. */
-const ISLAND_GIT_REFRESH = { activityDebounceMs: 125, activityMinGapMs: 3_000 };
-
 /** The checkout's status (branch, commits ahead of upstream), re-read on Git
  *  evidence; null without a folder or before the first read. */
 export function useIslandGitStatus(cwd: string): DesktopGitStatus | null {
@@ -32,7 +29,7 @@ export function useIslandGitStatus(cwd: string): DesktopGitStatus | null {
     const scheduler = createGitRefreshScheduler(async () => {
       const state = await requestDockGitState(cwd);
       if (active) setStatus(state.status);
-    }, ISLAND_GIT_REFRESH);
+    });
     const stop = watchGitRefreshEvidence(cwd, scheduler);
     return () => {
       active = false;

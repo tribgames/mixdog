@@ -1,0 +1,36 @@
+{
+  "name": "load_tool",
+  "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+  "annotations": {
+    "title": "load_tool",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "agentHidden": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "names": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        ],
+        "description": "Exact name(s)/aliases."
+      }
+    },
+    "required": [
+      "names"
+    ],
+    "additionalProperties": false
+  }
+}
