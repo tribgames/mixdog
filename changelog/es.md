@@ -5,7 +5,7 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
-Esta versión añade aprobaciones de acciones, permisos de sitios del navegador y ajustes de proxy de red, y corrige ralentizaciones cuando hay muchas sesiones abiertas.
+Esta versión añade aprobaciones de acciones, permisos de sitios del navegador y ajustes de proxy de red, cambia las sesiones a un registro de solo adición y corrige ralentizaciones cuando hay muchas sesiones abiertas.
 
 ### Nuevas funciones
 
@@ -13,18 +13,27 @@ Esta versión añade aprobaciones de acciones, permisos de sitios del navegador 
 - **Permisos de sitios del navegador** — Se añadieron permisos predeterminados y excepciones por sitio en Configuración › Autenticación, con avisos que recuerdan la elección para un sitio, todos los sitios o hasta que se cierre la app.
 - **Importación automática de cookies de Chrome** — Se añadió "Importar cookies automáticamente" en Configuración › Autenticación para reimportar cookies al cerrar Chrome y mantener las sesiones iniciadas en los sitios.
 - **Códigos de verificación automáticos** — Se añadió el autocompletado de códigos únicos de inicio de sesión desde su buzón conectado, además de avisos en el teléfono para contraseñas y códigos.
-- **Proxy de red** — Se añadieron los modos de proxy del sistema, personalizado `http`/`https`/`socks5` y desactivado con reglas de omisión y prueba de conexión en Configuración › Sistema › Proxy de red y en los ajustes del teléfono (#317).
+- **Proxy de red** — Se añadieron los modos de proxy del sistema, personalizado `http`/`https`/`socks5` y desactivado con reglas de omisión y prueba de conexión en Configuración › Sistema › Proxy de red y en los ajustes del teléfono, aplicando los cambios a la siguiente solicitud en todos los proveedores (#317).
 
 ### Cambios
 
+- Se cambió el guardado de sesiones a un registro de solo adición para que al cerrar sea más rápido y seguro, convirtiendo automáticamente las sesiones existentes en segundo plano en el primer inicio mientras se conservan los archivos originales y se muestra el estado en `/doctor`.
 - Se cambiaron las acciones del navegador para hacer clic directamente en los pasos y probar primero sesiones existentes o inicios guardados, delegando solo contraseñas, tarjetas, códigos o verificaciones de identidad.
 - Se cambió la app de Android para mostrar una pantalla de reconexión, reconectarse automáticamente al volver la red o reabrir la app y ofrecer "Elegir otro PC".
 - Se cambió la eliminación de worktrees para borrar una rama solo cuando la creó Mixdog y git la considera fusionada, manteniendo sus commits recuperables.
+- Se cambió la dirección de soporte a support@mixdog.ai y el enlace del sitio web a mixdog.ai.
 
 ### Correcciones de errores
 
 - Se corrigió que la app se ralentizara o bloqueara con muchas sesiones abiertas y se aceleró la apertura de sesiones tras iniciar la app (#316).
-- Se corrigió que los clics de Computer Use fallaran el objetivo en pantallas HiDPI escaladas y que las acciones en segundo plano quitaran el foco haciendo parpadear la ventana activa.
+- Se corrigió que los clics de Computer Use fallaran el objetivo en pantallas HiDPI escaladas, que las acciones en segundo plano quitaran el foco haciendo parpadear la ventana activa y que la entrada propia de ratón o teclado pausara a todos los agentes en lugar de solo al interrumpido, que ahora se reanuda al quedar inactivo o con Reanudar (#323).
+- Se corrigió que el estado de workers y subagentes muestre el estado real de principio a fin y cuente el razonamiento oculto como progreso, evitando tratar a un agente activo como bloqueado (#319).
+- Se corrigió que los detalles de los tickets de reinicio en la ventana emergente de uso se desplieguen en el mismo lugar para que el vencimiento de cada ticket siga siendo legible (#324).
+- Se corrigió que el marco de la ventana parpadeara con su aspecto inactivo al cambiar el foco a otra ventana o al volver en Windows Mica.
+- Se corrigió que un disco lleno cerrara el servicio en segundo plano en lugar de reintentar el guardado y seguir entregando los resultados de shell.
+- Se corrigió que `/stop` en tareas de shell informe correctamente de las tareas que ya habían terminado en lugar de mostrar "No se pudo detener" y libere la carpeta del proyecto de inmediato.
+- Se corrigió que la app del teléfono esperara contenido grande al abrir paneles laterales, recortara valores en el menú de modelos del editor de rutas, se desconectara tras una sola confirmación perdida y se quedara atascada al iniciar la entrada de voz.
+- Se corrigió que el recorrido de guía y las tarjetas de bienvenida cortaran palabras en coreano al ajustar líneas, que las carpetas de proyecto sin repositorio git mostraran un error en lugar de un menú de ramas vacío y que los reintentos por límite de tasa de Gemini se confundieran con un bloqueo.
 - Se corrigió que los dispositivos HID elegidos en el navegador integrado no lograran conectarse al sitio (#313).
 - Se corrigió que el selector de dispositivos HID mostrara óvalos planos estirados a lo largo de la fila en lugar de los nombres de dispositivos (#314).
 - Se corrigió que la lista Sesiones mostrara filas en blanco al volver de otro menú o saltara al principio al superar las 40 filas (#315).
