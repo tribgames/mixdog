@@ -10,7 +10,7 @@ Bản phát hành này bổ sung phê duyệt thao tác, quyền trang web của
 
 - **Phê duyệt thao tác** — Bổ sung Cho phép trong phiên này và, trong trò chuyện lập trình, Luôn cho phép vào thẻ phê duyệt, có thể thu hồi bằng "Hỏi lại"; thanh toán và xóa vĩnh viễn luôn hỏi xác nhận.
 - **Quyền trang web của trình duyệt** — Bổ sung quyền mặc định và ngoại lệ theo từng trang trong Cài đặt › Xác thực, với lời nhắc ghi nhớ lựa chọn cho một trang, mọi trang hoặc cho đến khi thoát ứng dụng.
-- **Tự động nhập cookie Chrome** — Bổ sung "Tự động nhập cookie" trong Cài đặt › Xác thực để nhập lại cookie khi đóng Chrome và duy trì đăng nhập trên các trang web.
+- **Tự động nhập cookie Chrome** — Bổ sung trong Cài đặt › Xác thực để tự động nhập lại cookie khi khởi động ứng dụng và mỗi khi đóng Chrome sau một lần nhập thủ công đầu tiên có phê duyệt của quản trị viên, giúp duy trì đăng nhập cho Browser Use; có thể tắt tại cùng vị trí.
 - **Mã xác minh tự động** — Bổ sung tính năng tự động điền mã đăng nhập dùng một lần từ hộp thư đã kết nối, cùng lời nhắc trên điện thoại cho mật khẩu và mã xác minh.
 - **Proxy mạng** — Bổ sung các chế độ proxy hệ thống, `http`/`https`/`socks5` tùy chỉnh và tắt kèm quy tắc bỏ qua cùng kiểm tra kết nối trong Cài đặt › Hệ thống › Proxy mạng và cài đặt trên điện thoại, áp dụng thay đổi ngay từ yêu cầu tiếp theo trên mọi nhà cung cấp (#317).
 
