@@ -5,6 +5,7 @@
  */
 import { agentJobResultText, parseAgentJob, parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { isAttachmentReference } from '../../runtime/attachments/store.mjs';
+import { isMediaReferencePart } from '../../runtime/attachments/attachment-reference.mjs';
 import { promptContentText, sessionActivityTimestamp } from '../../runtime/shared/idle-auto-clear-gate.mjs';
 import { recognisedSlashToken } from '../app/slash-commands.mjs';
 
@@ -87,7 +88,9 @@ export { promptContentText, sessionActivityTimestamp };
 
 export function promptDisplayText(content, options = {}) {
   if (typeof options.displayText === 'string' && options.displayText.trim()) return options.displayText;
-  return promptContentText(content);
+  // Attachment references (the attached-files path note included) are
+  // model-facing; the bubble shows the attachment chips instead.
+  return promptContentText(Array.isArray(content) ? content.filter((part) => !isMediaReferencePart(part)) : content);
 }
 
 export function mergePromptContents(entries) {

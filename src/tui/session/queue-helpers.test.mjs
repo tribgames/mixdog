@@ -24,6 +24,16 @@ test('a queued entry is a slash command only when it names a registered command'
   assert.equal(slash('/compact', { skipSlashCommands: true }), false);
 });
 
+test('the bubble text leaves out the attached-files path note', () => {
+  const note = {
+    type: 'text',
+    text: '[Files attached to this message are saved on this PC ...]',
+    attachmentReference: { kind: 'files', files: [] },
+  };
+  assert.equal(promptDisplayText([{ type: 'text', text: '왜 이게 뜨지' }, note]), '왜 이게 뜨지');
+  assert.equal(promptDisplayText([note]), '');
+});
+
 test('image meta carries attachmentRef only for reference parts', () => {
   const ref = 'b'.repeat(64);
   const meta = promptContentImageMeta(
