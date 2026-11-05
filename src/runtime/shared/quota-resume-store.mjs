@@ -106,6 +106,31 @@ function persist(current) {
   );
 }
 
+// A change is staged on a copy, persisted, and only then becomes the state:
+// memory never holds what the disk does not (a failed write leaves both as
+// they were, and the caller sees the error).
+function stage() {
+  const current = load();
+  return { ...current, entries: new Map(current.entries), suspensions: new Map(current.suspensions) };
+}
+
+function commit(next) {
+  persist(next);
+  state = next;
+  unsaved = false;
+}
+
+// The one change memory may hold ahead of the disk: the Goal a quota failure
+// suspended. It is recovery state with no other copy (the settlement that
+// produced it is spent), so a failed write keeps it here, marked, and the next
+// successful write of the store carries it to the disk with its own change.
+let unsaved = false;
+
+/** Whether the store holds a Goal suspension its last write did not save. */
+export function hasUnsavedQuotaSuspension() {
+  return unsaved;
+}
+
 function notify(sessionId) {
   for (const listener of [...listeners]) {
     try {
@@ -151,8 +176,7 @@ export function rekeyQuotaResumeTurn(sessionId, fromTurnKey, toTurnKey) {
   };
   if (moveEntry) next.entries.set(id, normalizeEntry({ ...entry, turnKey: to, generation: next.generation }));
   if (moveGoal) next.suspensions.set(id, normalizeSuspension({ ...suspension, turnKey: to }));
-  persist(next);
-  state = next;
+  commit(next);
   notify(id);
   return true;
 }
@@ -185,7 +209,7 @@ export function scheduleQuotaResumeEntry({
   routeProvider = '',
   routeModel = '',
 } = {}) {
-  const current = load();
+  const current = stage();
   const entry = normalizeEntry({
     sessionId,
     turnKey,
@@ -200,41 +224,41 @@ export function scheduleQuotaResumeEntry({
   if (!entry) throw new TypeError('quota resume needs a session, turn, provider and reset time');
   current.generation = entry.generation;
   current.entries.set(entry.sessionId, entry);
-  persist(current);
+  commit(current);
   notify(entry.sessionId);
   return entry;
 }
 
 /** Remove the session's entry; with `generation`, only that exact entry. */
 export function cancelQuotaResumeEntry(sessionId, { generation = null } = {}) {
-  const current = load();
+  const current = stage();
   const entry = current.entries.get(text(sessionId));
   if (!entry || (generation !== null && entry.generation !== generation)) return false;
   current.entries.delete(entry.sessionId);
-  persist(current);
+  commit(current);
   notify(entry.sessionId);
   return true;
 }
 
 /** Move the exact entry to a later reading, keeping its generation. */
 export function deferQuotaResumeEntry(sessionId, generation, { resetAt, attempts }) {
-  const current = load();
+  const current = stage();
   const entry = current.entries.get(text(sessionId));
   if (!entry || entry.generation !== generation) return null;
   const next = normalizeEntry({ ...entry, resetAt, attempts });
   if (!next) throw new TypeError('quota resume deferral needs a reset time');
   current.entries.set(next.sessionId, next);
-  persist(current);
+  commit(current);
   notify(next.sessionId);
   return next;
 }
 
 export function cancelAllQuotaResumeEntries() {
-  const current = load();
+  const current = stage();
   const count = current.entries.size;
   if (count === 0) return 0;
   current.entries.clear();
-  persist(current);
+  commit(current);
   notify(null);
   return count;
 }
@@ -243,9 +267,15 @@ export function cancelAllQuotaResumeEntries() {
 export function noteQuotaSuspendedGoal(sessionId, turnKey, goalId) {
   const suspension = normalizeSuspension({ sessionId, turnKey, goalId });
   if (!suspension) return false;
-  const current = load();
+  const current = stage();
   current.suspensions.set(suspension.sessionId, suspension);
-  persist(current);
+  try {
+    commit(current);
+  } catch (error) {
+    state = current;
+    unsaved = true;
+    throw error;
+  }
   return true;
 }
 
@@ -256,9 +286,9 @@ export function quotaSuspendedGoal(sessionId, turnKey) {
 }
 
 export function forgetQuotaSuspendedGoal(sessionId) {
-  const current = load();
+  const current = stage();
   if (!current.suspensions.delete(text(sessionId))) return false;
-  persist(current);
+  commit(current);
   return true;
 }
 
@@ -294,4 +324,5 @@ export function setQuotaAutoResumeEnabled(enabled) {
 /** Drop the in-memory copy so the next read loads from disk (a daemon restart). */
 export function reloadQuotaResumeStore() {
   state = null;
+  unsaved = false;
 }

@@ -104,13 +104,27 @@ export function createQuotaResumeScheduler({
   let unsubscribe = null;
   const deps = { store, materializeSession, readQuotaUsable, log, isClosed, now };
 
+  // sessionId → { generation, at }: an entry whose store write failed is not
+  // tried again before `at` (the scheduler's own retry spacing), so a full disk
+  // is not retried in a loop. Only that entry waits; the one timer still goes
+  // to the earliest time any entry may run.
+  const notBefore = new Map();
+  const runnableAt = (entry) => {
+    const hold = notBefore.get(entry.sessionId);
+    if (hold && hold.generation !== entry.generation) notBefore.delete(entry.sessionId);
+    else if (hold) return Math.max(entry.resetAt, hold.at);
+    return entry.resetAt;
+  };
+  const holdOff = (entry) => notBefore.set(entry.sessionId, { generation: entry.generation, at: now() + QUOTA_RESUME_RETRY_MS });
+
   function arm() {
     if (timer) clearTimer(timer);
     timer = null;
     if (!started || isClosed() || running) return;
     const entries = store.listQuotaResumeEntries();
+    for (const id of [...notBefore.keys()]) if (!entries.some((entry) => entry.sessionId === id)) notBefore.delete(id);
     if (entries.length === 0) return;
-    const due = Math.min(...entries.map((entry) => entry.resetAt));
+    const due = Math.min(...entries.map(runnableAt));
     timer = setTimer(
       () => {
         timer = null;
@@ -135,22 +149,41 @@ export function createQuotaResumeScheduler({
       }
       for (const entry of store.listQuotaResumeEntries()) {
         if (isClosed()) return;
-        if (entry.resetAt > now() || !isCurrent(store, entry)) continue;
+        if (runnableAt(entry) > now() || !isCurrent(store, entry)) continue;
         try {
           const outcome = await resumeDueEntry(entry, deps);
+          notBefore.delete(entry.sessionId);
           log(`quota resume session=${entry.sessionId} outcome=${outcome}`);
         } catch (error) {
           log(`quota resume failed session=${entry.sessionId}: ${error?.message || error}`);
-          store.deferQuotaResumeEntry(entry.sessionId, entry.generation, {
-            resetAt: now() + QUOTA_RESUME_RETRY_MS,
-            attempts: entry.attempts,
-          });
+          try {
+            store.deferQuotaResumeEntry(entry.sessionId, entry.generation, {
+              resetAt: now() + QUOTA_RESUME_RETRY_MS,
+              attempts: entry.attempts,
+            });
+          } catch (storeError) {
+            // The store keeps the entry as it was on disk (memory never gets ahead
+            // of it): it stays due and is tried again by a later pass.
+            holdOff(entry);
+            log(`quota resume could not record the deferral session=${entry.sessionId}: ${storeError?.message || storeError}`);
+          }
         }
       }
-    })().finally(() => {
-      running = null;
-      arm();
-    });
+    })()
+      // The store writes before it commits: a full disk throws from any of its
+      // mutations and leaves its state unchanged. The pass reports it and ends;
+      // the timer callback must not reject.
+      .catch((error) => {
+        // Not tied to one entry (the setting's cancel-all, the listing): all wait.
+        try {
+          for (const entry of store.listQuotaResumeEntries()) holdOff(entry);
+        } catch {}
+        log(`quota resume pass failed: ${error?.message || error}`);
+      })
+      .finally(() => {
+        running = null;
+        arm();
+      });
     return running;
   }
 

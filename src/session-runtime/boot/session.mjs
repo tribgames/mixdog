@@ -126,9 +126,10 @@ export function wireSessionLifecycle(boot) {
   scheduleAutomationAutostart(tunables.remoteAutoStartDelayMs);
   // Legacy `<id>.json` sessions become logs in the background (daemon owner
   // only; one file at a time, yielding between files).
-  void import('../../runtime/agent/orchestrator/session/store/session-log-startup.mjs').then((m) =>
-    m.startSessionLogMigration()
-  );
+  // startSessionLogMigration reports its own failures; only the import is owned here.
+  void import('../../runtime/agent/orchestrator/session/store/session-log-startup.mjs')
+    .then((m) => m.startSessionLogMigration())
+    .catch((err) => process.stderr.write(`[session-log-migration] could not start: ${err?.message || err}\n`));
   // Auto effort touches neither network nor memory at boot: creating or
   // opening a session loads the judge, and the first judged turn
   // fetches/updates the model (judge-client.mjs).

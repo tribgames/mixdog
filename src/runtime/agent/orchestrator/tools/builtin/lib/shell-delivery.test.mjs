@@ -1,7 +1,8 @@
 // Import before runtime modules: the plugin data dir is captured at load.
 import '../../lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -33,6 +34,31 @@ function logs(t) {
   writeFileSync(stderr_path, '');
   return { stdout_path, stderr_path };
 }
+
+test('a completion whose full log cannot be saved (disk full) is still delivered, naming no log', (t) => {
+  const real = fs.writeFileSync;
+  fs.writeFileSync = (path, ...rest) => {
+    if (String(path).includes('delivered_')) {
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+    }
+    return real(path, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.writeFileSync = real;
+    syncBuiltinESMExports();
+  });
+  const preview = `${Array.from({ length: 800 }, (_, i) => `line ${i}`).join('\n')}\n`;
+  const completion = buildShellCompletion('job_disk_full', {
+    status: 'completed',
+    exitCode: 0,
+    stdoutPreview: preview,
+  });
+  const body = parseTaskNotification(completion.notification).result;
+  assert.match(body, /line 0\n/);
+  assert.match(body, /line 799\n/);
+  assert.match(body, /full log: unavailable \(ENOSPC\)\]/);
+});
 
 test('repeated waits/reads return only output the agent has not seen', (t) => {
   const paths = logs(t);

@@ -121,7 +121,17 @@ export { newlines as countNewlines };
  *  text can be read; it is resolved only when something is removed. */
 export function textPiece(text, { path }) {
   let archive;
-  const where = () => (archive ??= typeof path === 'function' ? path() : path);
+  // Saving the whole text can fail (a full disk); delivery runs from event and
+  // microtask callbacks that cannot throw, so the marker says the log is not there.
+  const where = () => {
+    if (archive !== undefined) return archive;
+    try {
+      archive = typeof path === 'function' ? path() : path;
+    } catch (error) {
+      archive = `unavailable (${error?.code || error?.message || 'write failed'})`;
+    }
+    return archive;
+  };
   const { text: cutText, cut } = cutLongLines(text);
   const shown = escapeHarnessTags(cutText);
   // Cut long lines are removed content too: the whole text carries the marker.

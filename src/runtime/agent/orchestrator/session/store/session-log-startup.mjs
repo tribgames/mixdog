@@ -39,32 +39,34 @@ export function claimFor(id) {
 }
 
 /** Starts the migration (once per process); resolves with its report, or
- *  null when this process is not the live daemon owner. */
+ *  null when this process is not the live daemon owner or the start failed.
+ *  Never throws or rejects: a failure of any step (the store folder cannot be
+ *  made on a full disk included) is logged, leaves the progress file as it
+ *  was — so Doctor's "Session log" row keeps counting the sessions as pending —
+ *  and the migration runs again at the next start. */
 export function startSessionLogMigration() {
   if (_started) return _started;
-  const dir = dataDir();
-  const { owner, alive } = readSingletonOwner(join(dir, 'daemon-owner.json'));
-  if (!alive || Number(owner?.pid) !== process.pid) {
-    _started = Promise.resolve(null);
-    return _started;
-  }
-  _started = migrateLegacySessions({
-    storeDir: getStoreDir(),
-    progressPath: sessionLogMigrationProgressPath(dir),
-    loader: LEGACY_SESSION_LOADER,
-    claimFor,
-    log: (line) => process.stderr.write(`[session-log-migration] ${line}\n`),
-  })
-    .then((report) => {
+  _started = (async () => {
+    try {
+      const dir = dataDir();
+      const { owner, alive } = readSingletonOwner(join(dir, 'daemon-owner.json'));
+      if (!alive || Number(owner?.pid) !== process.pid) return null;
+      const report = await migrateLegacySessions({
+        storeDir: getStoreDir(),
+        progressPath: sessionLogMigrationProgressPath(dir),
+        loader: LEGACY_SESSION_LOADER,
+        claimFor,
+        log: (line) => process.stderr.write(`[session-log-migration] ${line}\n`),
+      });
       process.stderr.write(
         `[session-log-migration] migrated=${report.migrated} converted=${report.converted} total=${report.total} ` +
           `skipped=${JSON.stringify(report.skipped)} complete=${report.complete} ms=${report.ms}\n`
       );
       return report;
-    })
-    .catch((err) => {
+    } catch (err) {
       process.stderr.write(`[session-log-migration] failed: ${err?.message || err}\n`);
       return null;
-    });
+    }
+  })();
   return _started;
 }
