@@ -8,7 +8,7 @@
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -87,8 +87,9 @@ const cases = [
   ['code_graph', 'graph-symbols', 'graph', 'code_graph', { mode: 'symbols', file: 'src/lib/math.mjs' }],
 ];
 
-const outDir = join(FIXTURES_ROOT, 'tools');
-rmSync(outDir, { recursive: true, force: true });
+// Replaces only the files this recorder owns; git/task/office/memory/... and record-tools-extra's cases are kept.
+const finalDir = join(FIXTURES_ROOT, 'tools');
+const outDir = stageSet(finalDir, [...cases.map(([tool, name]) => `${tool}/${name}.json`), 'existing']);
 const recorded = [];
 for (const [tool, name, kind, toolName, input] of cases) {
   let outcome;
@@ -118,5 +119,6 @@ writeSetManifest(outDir, {
   command: 'node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> --native-root <dir with native/*/target/release>',
   extra: { cases: recorded, workspaceFiles: Object.keys(files), missingNativeBinaries: missing },
 });
+commitStage(outDir, finalDir);
 rmSync(work, { recursive: true, force: true });
 console.log(`recorded ${recorded.length} cases; missing natives: ${missing.join(',') || 'none'}`);

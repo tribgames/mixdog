@@ -310,7 +310,7 @@
         "action": "upload",
         "ref": "p2-s15-e19",
         "paths": [
-          "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.cc65f78984c572b6\\mixdog-browser-golden-profile-Bk2iac\\browser-upload-fixture.txt"
+          "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.cc65f78984c572b6\\mixdog-browser-golden-profile-zCKad8\\browser-upload-fixture.txt"
         ],
         "tab": "alpha"
       },
@@ -519,7 +519,7 @@
         "tab": "alpha"
       },
       "ok": true,
-      "text": "Performance trace stopped.\nTrace duration: <N>ms\nEvents: 55\nTop trace events:\n- RunMicrotasks: 6 event(s), <N>ms total\n- V8.StackGuard: 7 event(s), <N>ms total\n- V8.HandleInterrupts: 7 event(s), <N>ms total\n- V8.InvokeApiInterruptCallbacks: 2 event(s), <N>ms total\n- V8.GC_HEAP_ENSURE_SWEEPING_COMPLETED: 16 event(s), <N>ms total\n- V8.GC_TIME_TO_SAFEPOINT: 4 event(s), <N>ms total\n- V8.BytecodeBudgetInterrupt: 6 event(s), <N>ms total\n- thread_name: 2 event(s), <N>ms total\n- ProfileChunk: 2 event(s), <N>ms total\n- process_name: 1 event(s), <N>ms total\n- process_uptime_seconds: 1 event(s), <N>ms total\n- Profile: 1 event(s), <N>ms total",
+      "text": "Performance trace stopped.\nTrace duration: <N>ms\nEvents: 7\nTop trace events:\n- V8.GC_MARK_COMPACTOR: 1 event(s), <N>ms total\n- RunTask: 2 event(s), <N>ms total\n- FunctionCall: 3 event(s), <N>ms total\n- thread_name: 1 event(s), <N>ms total",
       "hasTiming": true,
       "hostChannelIdentical": true
     },

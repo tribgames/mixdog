@@ -1,0 +1,9 @@
+{
+  "input": {
+    "command": "echo started; Start-Sleep 30"
+  },
+  "isError": true,
+  "text": "Error: [shell-run-failed] [signal: SIGKILL cause: cancellation]\n\nstarted\n",
+  "tool": "shell",
+  "note": "aborted after the command was running"
+}

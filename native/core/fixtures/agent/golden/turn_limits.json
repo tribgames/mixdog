@@ -7,7 +7,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "assistant",
@@ -31,7 +32,8 @@
         }
       ],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "tool",
@@ -40,7 +42,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": "c1",
-      "toolKind": "normal"
+      "toolKind": "normal",
+      "turnReminder": null
     },
     {
       "role": "tool",
@@ -49,7 +52,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": "c2",
-      "toolKind": "error"
+      "toolKind": "error",
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -58,7 +62,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     }
   ],
   "result": {

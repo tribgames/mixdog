@@ -1,0 +1,35 @@
+{
+  "name": "tail_reminder_korean",
+  "model": "anthropic/claude-opus-5.5",
+  "provider": "anthropic",
+  "language": {
+    "id": "ko",
+    "name": "Korean"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "looking",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {
+            "a": 1
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "all done",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

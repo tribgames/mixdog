@@ -1,0 +1,10 @@
+{
+  "input": {
+    "command": "echo tick; Start-Sleep 30",
+    "background": true
+  },
+  "isError": false,
+  "text": "background task\ntask_id: JOB\nlabel: echo tick; Start-Sleep 30\nstatus: running\nstarted: TS\nlogs: LOGS\nstarted in the background; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] no new output since you last saw it — still running, not an error\n\n(no new output)",
+  "tool": "shell",
+  "note": "normalized: JOB task id, TS timestamps, LOGS paths"
+}

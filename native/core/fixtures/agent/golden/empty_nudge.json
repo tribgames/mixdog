@@ -7,7 +7,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -16,7 +17,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -25,7 +27,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -34,7 +37,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     }
   ],
   "result": {

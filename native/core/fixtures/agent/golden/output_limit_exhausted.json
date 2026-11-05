@@ -7,7 +7,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "assistant",
@@ -16,7 +17,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -25,7 +27,8 @@
       "attempt": 1,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "assistant",
@@ -34,7 +37,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -43,7 +47,8 @@
       "attempt": 2,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "assistant",
@@ -52,7 +57,8 @@
       "attempt": null,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     },
     {
       "role": "user",
@@ -61,7 +67,8 @@
       "attempt": 3,
       "toolCalls": [],
       "toolCallId": null,
-      "toolKind": null
+      "toolKind": null,
+      "turnReminder": null
     }
   ],
   "result": {

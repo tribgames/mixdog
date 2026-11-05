@@ -1,6 +1,6 @@
 {
   "command": "see benchmarks/rust-core/README.md",
-  "fileCount": 15,
+  "fileCount": 16,
   "files": [
     {
       "bytes": 3900,
@@ -18,9 +18,9 @@
       "sha256": "4fef8e5fa252b53011417f9c7f15e8cbf5d0e2f64b08cde8cc5297ff7043c985"
     },
     {
-      "bytes": 5033,
+      "bytes": 4117,
       "path": "lsp/corpus.json",
-      "sha256": "304600829148c2270e0035b6d099dc22382ca22dc6af756c1955281843efc907"
+      "sha256": "79dcfb8727f5154106a1056fad49f00c2c0ec4129d9127062a2a10eae0dea19e"
     },
     {
       "bytes": 27301,
@@ -68,23 +68,28 @@
       "sha256": "063713201b0e6c9cff74acc7f07da84e2ce0d8ffb9e413cc77e6804695764846"
     },
     {
-      "bytes": 2683,
+      "bytes": 2190099,
+      "path": "settings/tool-modules-twin.json",
+      "sha256": "06db5ffc1f6955e7893c19cc18ac5b2dda1f7e301e174126964d899070bf0d24"
+    },
+    {
+      "bytes": 2684,
       "path": "terminal/corpus.json",
-      "sha256": "c371b23077b602369daf66a2a35983fc050e0bb6a0cf5112a1fb54ceaa71166f"
+      "sha256": "30da02b536eab6247c06259acb669c120d2208f28ef9fcef761b263543e9dc87"
     },
     {
       "bytes": 3799,
       "path": "transfer/corpus.json",
-      "sha256": "95cc2df9b69045043a881af457f650965fd6e92e1bb3ee7e91d249320d147b86"
+      "sha256": "78e8b2ade65289ac5bd536e7c56951c365e54487de7bb18821950d8154a8180a"
     }
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "commit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -105,5 +110,5 @@
     "remote-relay:10"
   ],
   "set": "desktop",
-  "totalBytes": 1612417
+  "totalBytes": 3801601
 }

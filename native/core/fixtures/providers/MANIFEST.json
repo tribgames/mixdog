@@ -3,9 +3,9 @@
   "fileCount": 53,
   "files": [
     {
-      "bytes": 292491,
+      "bytes": 309490,
       "path": "anthropic-effort/cases.json",
-      "sha256": "5c3040d20e7ba38423268f4d738408c45530202f923c2e2a6a50fed03685cae2"
+      "sha256": "d1d052f5bbb7cd697e731e9c8306cb9e1751342f3a6de6160600e766403f6b7a"
     },
     {
       "bytes": 3290,
@@ -270,11 +270,11 @@
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "commit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "closestCommit": "ce8eec3a8e6f804b44b447fc93a030d2d4035c5e",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -303,5 +303,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 731813
+  "totalBytes": 748812
 }

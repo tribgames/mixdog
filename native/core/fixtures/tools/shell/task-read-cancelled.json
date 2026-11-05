@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "read",
+    "task_id": "JOB"
+  },
+  "isError": false,
+  "text": "background task\ntask_id: JOB\nsurface: shell\nstatus: cancelled\nexit_code: 137\nstarted: TS\nfinished: TS\nlogs: LOGS\n\n(no new output)",
+  "tool": "task"
+}

@@ -60,7 +60,7 @@
       ],
       "op": "termSnapshot",
       "result": {
-        "containsMarker": true,
+        "containsMarker": false,
         "cursorType": "number",
         "keys": [
           "cursor",
@@ -142,7 +142,7 @@
       "result": null
     },
     {
-      "count": 7,
+      "count": 2,
       "kinds": [
         "unknown"
       ],

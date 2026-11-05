@@ -29,6 +29,22 @@ const user = (content) => ({ role: 'user', content });
 
 const scenarios = [
   {
+    name: 'tail_reminder_korean',
+    model: 'anthropic/claude-opus-5.5',
+    provider: 'anthropic',
+    language: { id: 'ko', name: 'Korean' },
+    messages: [user('go')],
+    script: [toolTurn('looking', call('c1', 'echo', { a: 1 })), turn('all done', 'end_turn')],
+  },
+  {
+    name: 'tail_reminder_other_language',
+    model: 'claude-opus-5-5',
+    provider: 'anthropic-oauth',
+    language: { id: 'en', name: 'English' },
+    messages: [user('go')],
+    script: [turn('hello', 'end_turn')],
+  },
+  {
     name: 'tool_round',
     messages: [user('go')],
     script: [toolTurn('looking', call('c1', 'echo', { a: 1 })), turn('all done', 'end_turn')],
@@ -74,6 +90,12 @@ const scenarios = [
     name: 'empty_incomplete_nudge',
     messages: [user('go')],
     script: [turn('', 'OTHER'), turn('done', 'end_turn')],
+  },
+  {
+    name: 'empty_max_tokens_nudge_spelling',
+    messages: [user('go')],
+    escalated: null,
+    script: [turn('', 'MAX_TOKENS'), turn('x', 'end_turn')],
   },
   {
     name: 'pause_turn',
@@ -167,6 +189,7 @@ function normalizeMessage(m) {
     toolCalls: (m.toolCalls || []).map((c) => ({ id: c.id, name: c.name, arguments: c.arguments })),
     toolCallId: m.toolCallId ?? null,
     toolKind: m.toolKind ?? null,
+    turnReminder: m.turnReminder ?? null,
   };
 }
 
@@ -183,7 +206,8 @@ async function record(scenario) {
   const session = {
     id: scopeId,
     owner: 'cli',
-    provider: 'openrouter',
+    provider: scenario.provider ?? 'openrouter',
+    responseLanguage: scenario.language ?? null,
     mcpScopeId: scopeId,
     cwd: process.cwd(),
     contextWindow: 200_000,
@@ -225,7 +249,7 @@ async function record(scenario) {
   let result;
   let error = null;
   try {
-    result = await agentLoop(provider, messages, 'fixture-model', session.tools, null, session.cwd, sendOpts);
+    result = await agentLoop(provider, messages, scenario.model ?? 'fixture-model', session.tools, null, session.cwd, sendOpts);
   } catch (e) {
     error = String(e?.message || e);
   } finally {

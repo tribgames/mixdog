@@ -1,0 +1,10 @@
+{
+  "input": {
+    "action": "cancel",
+    "task_id": "JOB"
+  },
+  "isError": false,
+  "text": "status: completed\ntask_id: JOB\ncancelled: shell/shell",
+  "tool": "task",
+  "note": "cancel of a task that already ended"
+}

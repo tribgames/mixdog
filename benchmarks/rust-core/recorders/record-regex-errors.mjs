@@ -52,6 +52,6 @@ const cases = patterns.flatMap((query) =>
 );
 const out = join(dirname(fileURLToPath(import.meta.url)), '../../../native/core/fixtures/desktop/search/regex-errors.json');
 writeFileSync(out, `${JSON.stringify({ node: process.version, v8: process.versions.v8, cases, fuzz: fuzzCases })}\n`);
-const { FIXTURES_ROOT, refreshSetManifest } = await import('./lib/common.mjs');
-refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), null);
+const { FIXTURES_ROOT, parseArgs, refreshSetManifest, resolveTree } = await import('./lib/common.mjs');
+refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), resolveTree(parseArgs()));
 console.log(`${cases.length} error cases, node ${process.version}`);
