@@ -1,0 +1,10 @@
+{
+  "name": "@mixdog/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mixdog protocol 2 wire types, generated from native/core/crates/mixdog-app-protocol. Types and the method table.",
+  "types": "./src/index.ts",
+  "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } },
+  "scripts": { "typecheck": "tsc -p ." }
+}

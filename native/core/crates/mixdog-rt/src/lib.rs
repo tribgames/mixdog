@@ -1,0 +1,180 @@
+//! Executors, lanes and lane tokens (RL §3, §7.1, §13; SPEC R47).
+//!
+//! Every async task is spawned through [`spawn`], which instruments its polls. Every job that
+//! needs a dedicated thread pool is submitted through a zero-sized lane token
+//! ([`tokens::LaneToken`]) and receives an [`InLane`] proof while it runs, so a function that
+//! must run on a given lane takes `&InLane<ThatLane>` and calling it anywhere else is a compile
+//! error. Dedicated OS threads (management listener, computer sessions, video encoders, SQLite
+//! writers) start through a thread token ([`tokens::ThreadToken`]).
+//!
+//! The executors themselves sit behind [`Backend`]: WP-RT implements it (thread pools, OS
+//! priorities, queue caps, histograms) and the composition root calls [`install`] once at boot,
+//! which mints the only [`LaneTokens`] of the process. Tokens cannot be constructed elsewhere.
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::OnceLock;
+use std::task::Context;
+use std::task::Poll;
+use std::time::Duration;
+use std::time::Instant;
+
+pub mod lanes;
+pub mod tokens;
+
+pub use lanes::JobDropped;
+pub use lanes::JobHandle;
+pub use lanes::JobRun;
+pub use lanes::LaneFull;
+pub use lanes::LaneKind;
+pub use lanes::QueuedJob;
+pub use lanes::ThreadKind;
+pub use tokens::ComputerThread;
+pub use tokens::ControlThread;
+pub use tokens::CpuBulk;
+pub use tokens::CpuInteractive;
+pub use tokens::DurabilityIo;
+pub use tokens::InLane;
+pub use tokens::InteractiveIo;
+pub use tokens::LaneToken;
+pub use tokens::LaneTokens;
+pub use tokens::MaintenanceIo;
+pub use tokens::MediaThread;
+pub use tokens::OnThread;
+pub use tokens::PtyIo;
+pub use tokens::SpawnIo;
+pub use tokens::SqliteWriterThread;
+pub use tokens::ThreadToken;
+pub use tokio_util::sync::CancellationToken;
+
+/// The two async executors (RL §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TaskClass {
+    /// RT-C: listener, connection reader/writer tasks, request decode, routing, directory
+    /// lookups, control-cell operations, `ArcSwap` reads, admission counters. Never
+    /// filesystem, SQLite, process spawn, encodes above 64 KiB, or an await on another class.
+    Control,
+    /// RT-W: session actors, runs, provider streams, MCP clients, tool orchestration,
+    /// extension dispatcher, channels and scheduler, Postgres client.
+    Work,
+}
+
+impl TaskClass {
+    /// Poll bound checked by the instrumentation (RL §13): a longer poll fails a gate run.
+    pub const fn poll_bound(self) -> Duration {
+        match self {
+            TaskClass::Control => Duration::from_millis(5),
+            TaskClass::Work => Duration::from_millis(50),
+        }
+    }
+}
+
+/// The executor implementation (WP-RT). Installed once per process with [`install`].
+pub trait Backend: Send + Sync + 'static {
+    /// Runtime handle of the async executor for `class`.
+    fn handle(&self, class: TaskClass) -> tokio::runtime::Handle;
+    /// One poll of an instrumented task finished after `elapsed`.
+    fn record_poll(&self, task: &'static str, class: TaskClass, elapsed: Duration);
+    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: a full queue answers
+    /// [`LaneFull`]. The lane thread calls [`QueuedJob::run`], which drops a cancelled job at
+    /// dequeue (RL §7.1).
+    fn submit(&self, job: QueuedJob) -> Result<(), LaneFull>;
+    /// Called first on every thread started through a [`ThreadToken`]: sets the OS priority
+    /// of `kind` and registers the thread with the instrumentation.
+    fn enter_thread(&self, kind: ThreadKind);
+}
+
+static BACKEND: OnceLock<Arc<dyn Backend>> = OnceLock::new();
+
+/// The backend was already installed; tokens are minted exactly once per process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AlreadyInstalled;
+
+impl std::fmt::Display for AlreadyInstalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("mixdog-rt backend already installed")
+    }
+}
+
+impl std::error::Error for AlreadyInstalled {}
+
+/// Installs the executors and mints the process's lane and thread tokens. The composition
+/// root calls this once at boot and hands each token only to the modules that own that lane.
+pub fn install(backend: Arc<dyn Backend>) -> Result<LaneTokens, AlreadyInstalled> {
+    BACKEND.set(backend).map_err(|_| AlreadyInstalled)?;
+    Ok(LaneTokens::mint())
+}
+
+pub(crate) fn backend() -> &'static dyn Backend {
+    match BACKEND.get() {
+        Some(backend) => backend.as_ref(),
+        None => panic!("mixdog-rt: spawn or submit before install"),
+    }
+}
+
+/// Spawns `fut` on the executor of `class`, instrumented under `name` (RL §13).
+pub fn spawn<F>(name: &'static str, class: TaskClass, fut: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    backend().handle(class).spawn(Instrumented {
+        name,
+        class,
+        inner: Box::pin(fut),
+    })
+}
+
+struct Instrumented<F> {
+    name: &'static str,
+    class: TaskClass,
+    inner: Pin<Box<F>>,
+}
+
+impl<F: Future> Future for Instrumented<F> {
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<F::Output> {
+        let this = self.get_mut();
+        let started = Instant::now();
+        let out = this.inner.as_mut().poll(cx);
+        backend().record_poll(this.name, this.class, started.elapsed());
+        out
+    }
+}
+
+/// Test executors for packages that develop against mocks.
+#[cfg(feature = "test-support")]
+pub mod testing {
+    use super::*;
+
+    /// Runs lane jobs inline on the submitting thread (deterministic), spawns tasks on the
+    /// ambient tokio runtime, and starts dedicated threads without priorities.
+    pub struct InlineBackend;
+
+    impl Backend for InlineBackend {
+        fn handle(&self, _class: TaskClass) -> tokio::runtime::Handle {
+            tokio::runtime::Handle::current()
+        }
+
+        fn record_poll(&self, _task: &'static str, _class: TaskClass, _elapsed: Duration) {}
+
+        fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+            job.run();
+            Ok(())
+        }
+
+        fn enter_thread(&self, _kind: ThreadKind) {}
+    }
+
+    /// The tokens of the test process: the first call passes [`InlineBackend`] to [`install`],
+    /// later calls return copies of the tokens it minted. Panics when another backend was
+    /// installed first.
+    pub fn tokens() -> LaneTokens {
+        static TOKENS: OnceLock<LaneTokens> = OnceLock::new();
+        *TOKENS.get_or_init(|| {
+            install(Arc::new(InlineBackend)).expect("a non-test backend is installed")
+        })
+    }
+}

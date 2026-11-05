@@ -1,0 +1,5800 @@
+{
+  "inventory": [
+    {
+      "list": "operations",
+      "name": "deleteEditorBackup",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/backup/delete"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrCheckout",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/checkout"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrCreate",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/create"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrDefaultBranch",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/defaultBranch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrDiff",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/diff"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrList",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/list"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrMerge",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/merge"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "ghPrView",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/view"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "cancelGithubCliLogin",
+      "target": {
+        "kind": "method",
+        "target": "github/login/cancel"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubCliAccount",
+      "target": {
+        "kind": "method",
+        "target": "github/account"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubCliLoginStart",
+      "target": {
+        "kind": "method",
+        "target": "github/login/start"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubCliLoginStatus",
+      "target": {
+        "kind": "method",
+        "target": "github/login/status"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubCliLoginOpenBrowser",
+      "target": {
+        "kind": "method",
+        "target": "github/login/openBrowser"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubCliLogout",
+      "target": {
+        "kind": "method",
+        "target": "github/logout"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubCliStatus",
+      "target": {
+        "kind": "method",
+        "target": "github/status"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitCliStatus",
+      "target": {
+        "kind": "method",
+        "target": "git/cliStatus"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitGlobalConfig",
+      "target": {
+        "kind": "method",
+        "target": "git/globalConfig/read"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "installGitCli",
+      "target": {
+        "kind": "method",
+        "target": "git/cli/install"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "installGithubCli",
+      "target": {
+        "kind": "method",
+        "target": "github/install"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "setGitGlobalConfig",
+      "target": {
+        "kind": "method",
+        "target": "git/globalConfig/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "libreOfficeStatus",
+      "target": {
+        "kind": "method",
+        "target": "document/libreOfficeStatus"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitAbortOperation",
+      "target": {
+        "kind": "method",
+        "target": "git/abortOperation"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitAmend",
+      "target": {
+        "kind": "method",
+        "target": "git/amend"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitApplyPatch",
+      "target": {
+        "kind": "method",
+        "target": "git/applyPatch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitBranches",
+      "target": {
+        "kind": "method",
+        "target": "git/branches"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitCherryPickCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/cherryPickCommit"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/commit"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitCommitPaths",
+      "target": {
+        "kind": "method",
+        "target": "git/commitPaths"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitContinue",
+      "target": {
+        "kind": "method",
+        "target": "git/continue"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitCreateTag",
+      "target": {
+        "kind": "method",
+        "target": "git/createTag"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitDeleteBranch",
+      "target": {
+        "kind": "method",
+        "target": "git/deleteBranch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitDeleteTag",
+      "target": {
+        "kind": "method",
+        "target": "git/deleteTag"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitDiff",
+      "target": {
+        "kind": "method",
+        "target": "git/diff"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitFetch",
+      "target": {
+        "kind": "method",
+        "target": "git/fetch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitIgnore",
+      "target": {
+        "kind": "method",
+        "target": "git/ignore"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitLog",
+      "target": {
+        "kind": "method",
+        "target": "git/log"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitPull",
+      "target": {
+        "kind": "method",
+        "target": "git/pull"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitPush",
+      "target": {
+        "kind": "method",
+        "target": "git/push"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitRenameBranch",
+      "target": {
+        "kind": "method",
+        "target": "git/renameBranch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitResetToCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/resetToCommit"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitRevertCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/revertCommit"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitRevertFile",
+      "target": {
+        "kind": "method",
+        "target": "git/revertFile"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitReview",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitReviewDiff",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitReviewDiffs",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitShow",
+      "target": {
+        "kind": "method",
+        "target": "git/show"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitShowDiff",
+      "target": {
+        "kind": "method",
+        "target": "git/showDiff"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitShowFile",
+      "target": {
+        "kind": "method",
+        "target": "git/showFile"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitRequestContext",
+      "target": {
+        "kind": "method",
+        "target": "git/requestContext"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitPathspecChanges",
+      "target": {
+        "kind": "deleted",
+        "target": "no caller (DS §17.2)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStage",
+      "target": {
+        "kind": "method",
+        "target": "git/stage"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStash",
+      "target": {
+        "kind": "method",
+        "target": "git/stash"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStashApply",
+      "target": {
+        "kind": "method",
+        "target": "git/stashApply"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStashDrop",
+      "target": {
+        "kind": "method",
+        "target": "git/stashDrop"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStashList",
+      "target": {
+        "kind": "method",
+        "target": "git/stashList"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStashPop",
+      "target": {
+        "kind": "method",
+        "target": "git/stashPop"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitStatus",
+      "target": {
+        "kind": "method",
+        "target": "git/status"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitSync",
+      "target": {
+        "kind": "method",
+        "target": "git/sync"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitUndoLastCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/undoLastCommit"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "gitUnstage",
+      "target": {
+        "kind": "method",
+        "target": "git/unstage"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readEditorBackup",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/backup/read"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readLocalFileAbs",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readLocal"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "statLocalEntryAbs",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/statLocal"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readProjectTextFileIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readText"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readProjectTextFileAuthorized",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readText"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeProjectTextFileAuthorized",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeText"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readMarkdownDefaultView",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readScopedEditorSettings",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readEditorSettings"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeMarkdownDefaultView",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readWorkspaceFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/workspaceFile/read"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "searchWorkspaceTextIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/searchText"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "statProjectFileIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/stat"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "listHostDirectories",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/browseDirs"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "listServerDirectories",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/browseDirs"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeEditorBackup",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/backup/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeProjectTextFileIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeText"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeWorkspaceFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/workspaceFile/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "projectRecoveryIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/recovery"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeProjectTextFilesIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeTextBatch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "writeProjectTextFilesAuthorized",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeTextBatch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "replaceWorkspaceTextIn",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/replaceText"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubRequest",
+      "target": {
+        "kind": "method",
+        "target": "github/request"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "githubStarStatus",
+      "target": {
+        "kind": "method",
+        "target": "github/starStatus"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "starGithub",
+      "target": {
+        "kind": "method",
+        "target": "github/star"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "documentPreviewIn",
+      "target": {
+        "kind": "method",
+        "target": "document/preview"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "documentPreviewPagesIn",
+      "target": {
+        "kind": "method",
+        "target": "document/previewPages"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "installLibreOffice",
+      "target": {
+        "kind": "method",
+        "target": "document/installLibreOffice"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readSettings",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readActivityRailPins",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "updateActivityRailPins",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "updateSetting",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "updateNotificationVolume",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "updateBrowserPermissions",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "updateSessionRetention",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readZoom",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "updateZoom",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "notifyProviderModelsChanged",
+      "target": {
+        "kind": "deleted",
+        "target": "publishers own their changes (DS §3)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "notifySettingsChanged",
+      "target": {
+        "kind": "deleted",
+        "target": "publishers own their changes (DS §3)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "publishUpdaterState",
+      "target": {
+        "kind": "clientNotification",
+        "target": "host/update/report"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "publishBrowserApprovalSessions",
+      "target": {
+        "kind": "deleted",
+        "target": "browser approvals are core state (DS §12.3)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "readBrowserApprovalSessions",
+      "target": {
+        "kind": "deleted",
+        "target": "browser approvals are core state (DS §12.3)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "lspDocument",
+      "target": {
+        "kind": "method",
+        "target": "lsp/document"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "lspRequest",
+      "target": {
+        "kind": "method",
+        "target": "lsp/request"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "lspDisposeUnder",
+      "target": {
+        "kind": "internal",
+        "target": "project/delete disposes LSP under the path (DS §4.1)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termEnsure",
+      "target": {
+        "kind": "method",
+        "target": "terminal/ensure"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termAttach",
+      "target": {
+        "kind": "method",
+        "target": "terminal/attach"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termProfiles",
+      "target": {
+        "kind": "method",
+        "target": "terminal/profiles"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termSessionTabs",
+      "target": {
+        "kind": "internal",
+        "target": "terminal tool calls the terminal module in-process (DS §6.3)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termSnapshot",
+      "target": {
+        "kind": "internal",
+        "target": "terminal tool calls the terminal module in-process (DS §6.3)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termWrite",
+      "target": {
+        "kind": "clientNotification",
+        "target": "terminal/input"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termActivity",
+      "target": {
+        "kind": "section",
+        "target": "terminalActivity"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termFocus",
+      "target": {
+        "kind": "method",
+        "target": "terminal/focus"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termResize",
+      "target": {
+        "kind": "clientNotification",
+        "target": "terminal/resize"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termPause",
+      "target": {
+        "kind": "method",
+        "target": "terminal/pause"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termResume",
+      "target": {
+        "kind": "method",
+        "target": "terminal/resume"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termDispose",
+      "target": {
+        "kind": "method",
+        "target": "terminal/dispose"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "termDisposeUnder",
+      "target": {
+        "kind": "internal",
+        "target": "project/delete disposes processes under the path (DS §4.1)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "folderWatch",
+      "target": {
+        "kind": "method",
+        "target": "fs/watch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "folderUnwatch",
+      "target": {
+        "kind": "method",
+        "target": "fs/unwatch"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "listListeningPorts",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "system/ports/subscribe",
+          "system/ports/unsubscribe"
+        ]
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessStart",
+      "target": {
+        "kind": "internal",
+        "target": "relay starts at core boot from config remote.enabled (DS §7.2)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessInfo",
+      "target": {
+        "kind": "section",
+        "target": "remote"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessSettings",
+      "target": {
+        "kind": "section",
+        "target": "remote"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessSetEnabled",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/setEnabled"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessSetName",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/setName"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessSetClientAlias",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/setClientAlias"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessRotate",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/rotate"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessListClaims",
+      "target": {
+        "kind": "section",
+        "target": "remote"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessResolveClaim",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/resolveClaim"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessPairCode",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/pairCode"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessRevokeClient",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/revokeClient"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessControllerKeys",
+      "target": {
+        "kind": "section",
+        "target": "remote"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessOwedControllerKeys",
+      "target": {
+        "kind": "section",
+        "target": "remote"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessSettleOwedControllerKeys",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/settleOwedControllerKeys"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessResume",
+      "target": {
+        "kind": "clientNotification",
+        "target": "host/power"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteAccessSuspend",
+      "target": {
+        "kind": "clientNotification",
+        "target": "host/power"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "browserRemoteFrame",
+      "target": {
+        "kind": "mediaFrame",
+        "target": "browserView"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "browserRemoteWebrtcSignal",
+      "target": {
+        "kind": "internal",
+        "target": "WebRTC runs in mixdog-remote (SPEC R36)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "browserRemoteTabs",
+      "target": {
+        "kind": "method",
+        "target": "host/state/set"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "browserRemoteImportProgress",
+      "target": {
+        "kind": "method",
+        "target": "host/state/set"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "browserRemoteOpen",
+      "target": {
+        "kind": "notification",
+        "target": "ui/openRequested"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "terminalRemoteOpen",
+      "target": {
+        "kind": "notification",
+        "target": "ui/openRequested"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "visualizeRemotePublish",
+      "target": {
+        "kind": "method",
+        "target": "host/state/set"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "visualizeRemoteViewing",
+      "target": {
+        "kind": "method",
+        "target": "host/state/set"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "browserRemoteResolve",
+      "target": {
+        "kind": "serverRequestResponse",
+        "target": "item/browser/requestApproval"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "systemProxyAttach",
+      "target": {
+        "kind": "hostRequest",
+        "target": "host/systemProxy/resolve"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "systemProxyResolved",
+      "target": {
+        "kind": "hostRequest",
+        "target": "host/systemProxy/resolve"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverUploadBegin",
+      "target": {
+        "kind": "method",
+        "target": "transfer/beginWrite"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverUploadChunk",
+      "target": {
+        "kind": "method",
+        "target": "transfer/writeChunk"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverUploadCommit",
+      "target": {
+        "kind": "method",
+        "target": "transfer/commit"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverUploadAbort",
+      "target": {
+        "kind": "method",
+        "target": "transfer/abort"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverFileReadRange",
+      "target": {
+        "kind": "method",
+        "target": "transfer/readRange"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverTrashInfo",
+      "target": {
+        "kind": "method",
+        "target": "transfer/trash/info"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverTrashEntry",
+      "target": {
+        "kind": "method",
+        "target": "transfer/trash/entry"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "notificationPreferencesState",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "setNotificationPreferences",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "listConversationNotifications",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "setConversationNotification",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "sendTestNotification",
+      "target": {
+        "kind": "method",
+        "target": "notify/test"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "modelProxyClaim",
+      "target": {
+        "kind": "deleted",
+        "target": "replaced by server request model/proxy/execute (DS §12.4)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "modelProxyEvent",
+      "target": {
+        "kind": "deleted",
+        "target": "replaced by server request model/proxy/execute (DS §12.4)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "modelProxyResolve",
+      "target": {
+        "kind": "deleted",
+        "target": "replaced by server request model/proxy/execute (DS §12.4)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "modelProxyHeartbeat",
+      "target": {
+        "kind": "deleted",
+        "target": "replaced by connection liveness (DS §12.4)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteTransportPeerAttach",
+      "target": {
+        "kind": "internal",
+        "target": "WebRTC peer connections run in mixdog-remote (SPEC R36)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteTransportPeerReport",
+      "target": {
+        "kind": "internal",
+        "target": "WebRTC peer connections run in mixdog-remote (SPEC R36)"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "remoteTransportPeerDetach",
+      "target": {
+        "kind": "internal",
+        "target": "WebRTC peer connections run in mixdog-remote (SPEC R36)"
+      }
+    },
+    {
+      "list": "services",
+      "name": "startProject",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "services",
+      "name": "startProjectTask",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "services",
+      "name": "startTask",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "services",
+      "name": "listProjects",
+      "target": {
+        "kind": "method",
+        "target": "project/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "addProject",
+      "target": {
+        "kind": "method",
+        "target": "project/create"
+      }
+    },
+    {
+      "list": "services",
+      "name": "projectDirectory",
+      "target": {
+        "kind": "method",
+        "target": "project/directory"
+      }
+    },
+    {
+      "list": "services",
+      "name": "projectRecoveryDirectory",
+      "target": {
+        "kind": "method",
+        "target": "project/recoveryDirectory"
+      }
+    },
+    {
+      "list": "services",
+      "name": "renameProject",
+      "target": {
+        "kind": "method",
+        "target": "project/update"
+      }
+    },
+    {
+      "list": "services",
+      "name": "removeProject",
+      "target": {
+        "kind": "method",
+        "target": "project/delete"
+      }
+    },
+    {
+      "list": "services",
+      "name": "listProjectDir",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/listDir"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readProjectTextFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readText"
+      }
+    },
+    {
+      "list": "services",
+      "name": "writeProjectTextFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeText"
+      }
+    },
+    {
+      "list": "services",
+      "name": "statProjectFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/stat"
+      }
+    },
+    {
+      "list": "services",
+      "name": "createProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/create"
+      }
+    },
+    {
+      "list": "services",
+      "name": "renameProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/rename"
+      }
+    },
+    {
+      "list": "services",
+      "name": "moveProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/move"
+      }
+    },
+    {
+      "list": "services",
+      "name": "copyProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/copy"
+      }
+    },
+    {
+      "list": "services",
+      "name": "projectEntryPath",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/entryPath"
+      }
+    },
+    {
+      "list": "services",
+      "name": "codeGraphQuery",
+      "target": {
+        "kind": "method",
+        "target": "project/codeGraph"
+      }
+    },
+    {
+      "list": "services",
+      "name": "listSessions",
+      "target": {
+        "kind": "method",
+        "target": "thread/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readSessionFinalAnswer",
+      "target": {
+        "kind": "method",
+        "target": "thread/finalAnswer/read"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readAttachmentImage",
+      "target": {
+        "kind": "method",
+        "target": "blob/read"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readSessionTranscript",
+      "target": {
+        "kind": "method",
+        "target": "thread/read"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readSessionHistory",
+      "target": {
+        "kind": "method",
+        "target": "thread/items/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "markSessionRead",
+      "target": {
+        "kind": "method",
+        "target": "thread/readState/update"
+      }
+    },
+    {
+      "list": "services",
+      "name": "listAgentPool",
+      "target": {
+        "kind": "method",
+        "target": "agent/pool/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "searchSessionContent",
+      "target": {
+        "kind": "method",
+        "target": "thread/search"
+      }
+    },
+    {
+      "list": "services",
+      "name": "renameSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/name/set"
+      }
+    },
+    {
+      "list": "services",
+      "name": "continueSessionInModel",
+      "target": {
+        "kind": "method",
+        "target": "thread/continueInModel"
+      }
+    },
+    {
+      "list": "services",
+      "name": "scheduleQuotaResume",
+      "target": {
+        "kind": "method",
+        "target": "thread/quotaResume/schedule"
+      }
+    },
+    {
+      "list": "services",
+      "name": "cancelQuotaResume",
+      "target": {
+        "kind": "method",
+        "target": "thread/quotaResume/cancel"
+      }
+    },
+    {
+      "list": "services",
+      "name": "stopShellJob",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/terminate"
+      }
+    },
+    {
+      "list": "services",
+      "name": "releaseShellJob",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/release"
+      }
+    },
+    {
+      "list": "services",
+      "name": "getQuotaAutoResume",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "services",
+      "name": "getTaskWorkspace",
+      "target": {
+        "kind": "method",
+        "target": "project/taskWorkspace"
+      }
+    },
+    {
+      "list": "services",
+      "name": "setQuotaAutoResume",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "services",
+      "name": "setSessionArchived",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "thread/archive",
+          "thread/unarchive"
+        ]
+      }
+    },
+    {
+      "list": "services",
+      "name": "openAgentHome",
+      "target": {
+        "kind": "method",
+        "target": "agent/home/open"
+      }
+    },
+    {
+      "list": "services",
+      "name": "resetAgentHome",
+      "target": {
+        "kind": "method",
+        "target": "agent/home/reset"
+      }
+    },
+    {
+      "list": "services",
+      "name": "listAgentMemory",
+      "target": {
+        "kind": "method",
+        "target": "agent/memory/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "deleteAgentMemory",
+      "target": {
+        "kind": "method",
+        "target": "agent/memory/delete"
+      }
+    },
+    {
+      "list": "services",
+      "name": "agentRoomAction",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "room/create",
+          "room/update",
+          "room/continue",
+          "room/leave",
+          "room/remove"
+        ]
+      }
+    },
+    {
+      "list": "services",
+      "name": "setSessionFavorite",
+      "target": {
+        "kind": "method",
+        "target": "thread/metadata/update"
+      }
+    },
+    {
+      "list": "services",
+      "name": "setSessionProject",
+      "target": {
+        "kind": "method",
+        "target": "thread/metadata/update"
+      }
+    },
+    {
+      "list": "services",
+      "name": "deleteSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/delete"
+      }
+    },
+    {
+      "list": "services",
+      "name": "prefetchSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/read"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readTranscriptHistory",
+      "target": {
+        "kind": "method",
+        "target": "thread/items/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "setVisibleSessions",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "thread/resume",
+          "thread/unsubscribe"
+        ]
+      }
+    },
+    {
+      "list": "services",
+      "name": "searchProjectFiles",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "search/start",
+          "search/update",
+          "search/stop"
+        ]
+      }
+    },
+    {
+      "list": "services",
+      "name": "submitNewTask",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "services",
+      "name": "inheritSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/fork"
+      }
+    },
+    {
+      "list": "services",
+      "name": "submitToSession",
+      "target": {
+        "kind": "method",
+        "target": "turn/start"
+      }
+    },
+    {
+      "list": "services",
+      "name": "abortSession",
+      "target": {
+        "kind": "method",
+        "target": "turn/interrupt"
+      }
+    },
+    {
+      "list": "services",
+      "name": "resolveToolApprovalForSession",
+      "target": {
+        "kind": "serverRequestResponse",
+        "target": "item/tool/requestApproval"
+      }
+    },
+    {
+      "list": "services",
+      "name": "listProviderModels",
+      "target": {
+        "kind": "method",
+        "target": "model/list"
+      }
+    },
+    {
+      "list": "services",
+      "name": "setModelRoute",
+      "target": {
+        "kind": "method",
+        "target": "route/set"
+      }
+    },
+    {
+      "list": "services",
+      "name": "setFast",
+      "target": {
+        "kind": "method",
+        "target": "fast/set"
+      }
+    },
+    {
+      "list": "services",
+      "name": "invokeCapability",
+      "target": {
+        "kind": "byDesign",
+        "target": "each capability is its own method (P §12.3)"
+      }
+    },
+    {
+      "list": "services",
+      "name": "readCapabilities",
+      "target": {
+        "kind": "byDesign",
+        "target": "each capability is its own method; settings reads are sections (DS §15 P13)"
+      }
+    },
+    {
+      "list": "services",
+      "name": "invokeDesktopOperation",
+      "target": {
+        "kind": "byDesign",
+        "target": "each operation is its own method (P §12.5)"
+      }
+    },
+    {
+      "list": "services",
+      "name": "perfLog",
+      "target": {
+        "kind": "clientNotification",
+        "target": "client/perfLog"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "submitFeedback",
+      "target": {
+        "kind": "method",
+        "target": "feedback/upload"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readActivityRailPins",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "updateActivityRailPins",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "notifyProviderModelsChanged",
+      "target": {
+        "kind": "deleted",
+        "target": "publishers own their changes (DS §3)"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "startProject",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "startProjectTask",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "startTask",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listProjects",
+      "target": {
+        "kind": "method",
+        "target": "project/list"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "addProject",
+      "target": {
+        "kind": "method",
+        "target": "project/create"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "renameProject",
+      "target": {
+        "kind": "method",
+        "target": "project/update"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "removeProject",
+      "target": {
+        "kind": "method",
+        "target": "project/delete"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listHostDirectories",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/browseDirs"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listProjectDir",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/listDir"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readProjectFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readText"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "statProjectFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/stat"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "previewDocumentPages",
+      "target": {
+        "kind": "method",
+        "target": "document/previewPages"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "pushPublicKey",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/pushPublicKey"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "registerPushSubscription",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/registerPushSubscription"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "removePushSubscription",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/removePushSubscription"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "registerNativePush",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/registerNativePush"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "removeNativePush",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/removeNativePush"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listSessions",
+      "target": {
+        "kind": "method",
+        "target": "thread/list"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listAgentPool",
+      "target": {
+        "kind": "method",
+        "target": "agent/pool/list"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "searchSessionContent",
+      "target": {
+        "kind": "method",
+        "target": "thread/search"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "viewerDevice",
+      "target": {
+        "kind": "initializeField",
+        "target": "connection.device"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "markSessionRead",
+      "target": {
+        "kind": "method",
+        "target": "thread/readState/update"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readAttachmentThumbnail",
+      "target": {
+        "kind": "method",
+        "target": "blob/read"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readTranscriptItem",
+      "target": {
+        "kind": "method",
+        "target": "thread/items/read"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "renameSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/name/set"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "continueSessionInModel",
+      "target": {
+        "kind": "method",
+        "target": "thread/continueInModel"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "scheduleQuotaResume",
+      "target": {
+        "kind": "method",
+        "target": "thread/quotaResume/schedule"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "cancelQuotaResume",
+      "target": {
+        "kind": "method",
+        "target": "thread/quotaResume/cancel"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "stopShellJob",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/terminate"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "releaseShellJob",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/release"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "getQuotaAutoResume",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "getTaskWorkspace",
+      "target": {
+        "kind": "method",
+        "target": "project/taskWorkspace"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setQuotaAutoResume",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setSessionArchived",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "thread/archive",
+          "thread/unarchive"
+        ]
+      }
+    },
+    {
+      "list": "remote",
+      "name": "openAgentHome",
+      "target": {
+        "kind": "method",
+        "target": "agent/home/open"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "resetAgentHome",
+      "target": {
+        "kind": "method",
+        "target": "agent/home/reset"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "agentRoomAction",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "room/create",
+          "room/update",
+          "room/continue",
+          "room/leave",
+          "room/remove"
+        ]
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setSessionFavorite",
+      "target": {
+        "kind": "method",
+        "target": "thread/metadata/update"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setSessionProject",
+      "target": {
+        "kind": "method",
+        "target": "thread/metadata/update"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "deleteSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/delete"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "prefetchSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/read"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readTranscriptHistory",
+      "target": {
+        "kind": "method",
+        "target": "thread/items/list"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "submitNewTask",
+      "target": {
+        "kind": "method",
+        "target": "thread/start"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "submitToSession",
+      "target": {
+        "kind": "method",
+        "target": "turn/start"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "abortSession",
+      "target": {
+        "kind": "method",
+        "target": "turn/interrupt"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "resolveToolApprovalForSession",
+      "target": {
+        "kind": "serverRequestResponse",
+        "target": "item/tool/requestApproval"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "answerApprovalNotification",
+      "target": {
+        "kind": "serverRequestResponse",
+        "target": "item/tool/requestApproval"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "inheritSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/fork"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "searchProjectFiles",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "search/start",
+          "search/update",
+          "search/stop"
+        ]
+      }
+    },
+    {
+      "list": "remote",
+      "name": "getSnapshot",
+      "target": {
+        "kind": "byDesign",
+        "target": "thread feeds and the client store (P §12.3)"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listProviderModels",
+      "target": {
+        "kind": "method",
+        "target": "model/list"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setModelRoute",
+      "target": {
+        "kind": "method",
+        "target": "route/set"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setFast",
+      "target": {
+        "kind": "method",
+        "target": "fast/set"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "invokeCapability",
+      "target": {
+        "kind": "byDesign",
+        "target": "each capability is its own method (P §12.3)"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readCapabilities",
+      "target": {
+        "kind": "byDesign",
+        "target": "each capability is its own method; settings reads are sections (DS §15 P13)"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserRemoteControl",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserRemoteTabOpen",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserRemoteTabClose",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserHistorySearch",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserCredentialSuggestions",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserCredentialFill",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserProfileImportSources",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserProfileImportStart",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStatus",
+      "target": {
+        "kind": "method",
+        "target": "git/status"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitDiff",
+      "target": {
+        "kind": "method",
+        "target": "git/diff"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitApplyPatch",
+      "target": {
+        "kind": "method",
+        "target": "git/applyPatch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStage",
+      "target": {
+        "kind": "method",
+        "target": "git/stage"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitUnstage",
+      "target": {
+        "kind": "method",
+        "target": "git/unstage"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitIgnore",
+      "target": {
+        "kind": "method",
+        "target": "git/ignore"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/commit"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitCommitPaths",
+      "target": {
+        "kind": "method",
+        "target": "git/commitPaths"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitAmend",
+      "target": {
+        "kind": "method",
+        "target": "git/amend"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitUndoLastCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/undoLastCommit"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitRevert",
+      "target": {
+        "kind": "method",
+        "target": "git/revertFile"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitReview",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitReviewDiff",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitReviewDiffs",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStash",
+      "target": {
+        "kind": "method",
+        "target": "git/stash"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStashPop",
+      "target": {
+        "kind": "method",
+        "target": "git/stashPop"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStashList",
+      "target": {
+        "kind": "method",
+        "target": "git/stashList"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStashApply",
+      "target": {
+        "kind": "method",
+        "target": "git/stashApply"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitStashDrop",
+      "target": {
+        "kind": "method",
+        "target": "git/stashDrop"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitBranches",
+      "target": {
+        "kind": "method",
+        "target": "git/branches"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitRenameBranch",
+      "target": {
+        "kind": "method",
+        "target": "git/renameBranch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitDeleteBranch",
+      "target": {
+        "kind": "method",
+        "target": "git/deleteBranch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitCreateTag",
+      "target": {
+        "kind": "method",
+        "target": "git/createTag"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitDeleteTag",
+      "target": {
+        "kind": "method",
+        "target": "git/deleteTag"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitPush",
+      "target": {
+        "kind": "method",
+        "target": "git/push"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitFetch",
+      "target": {
+        "kind": "method",
+        "target": "git/fetch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitPull",
+      "target": {
+        "kind": "method",
+        "target": "git/pull"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitSync",
+      "target": {
+        "kind": "method",
+        "target": "git/sync"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitContinue",
+      "target": {
+        "kind": "method",
+        "target": "git/continue"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitAbortOperation",
+      "target": {
+        "kind": "method",
+        "target": "git/abortOperation"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitLog",
+      "target": {
+        "kind": "method",
+        "target": "git/log"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitShow",
+      "target": {
+        "kind": "method",
+        "target": "git/show"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitShowDiff",
+      "target": {
+        "kind": "method",
+        "target": "git/showDiff"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitRequestContext",
+      "target": {
+        "kind": "method",
+        "target": "git/requestContext"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitShowFile",
+      "target": {
+        "kind": "method",
+        "target": "git/showFile"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitResetToCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/resetToCommit"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitRevertCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/revertCommit"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitCherryPickCommit",
+      "target": {
+        "kind": "method",
+        "target": "git/cherryPickCommit"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitGlobalConfig",
+      "target": {
+        "kind": "method",
+        "target": "git/globalConfig/read"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setGitGlobalConfig",
+      "target": {
+        "kind": "method",
+        "target": "git/globalConfig/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubStarStatus",
+      "target": {
+        "kind": "method",
+        "target": "github/starStatus"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "starGithub",
+      "target": {
+        "kind": "method",
+        "target": "github/star"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "gitCliStatus",
+      "target": {
+        "kind": "method",
+        "target": "git/cliStatus"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "installGitCli",
+      "target": {
+        "kind": "method",
+        "target": "git/cli/install"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "libreOfficeStatus",
+      "target": {
+        "kind": "method",
+        "target": "document/libreOfficeStatus"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "installLibreOffice",
+      "target": {
+        "kind": "method",
+        "target": "document/installLibreOffice"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliStatus",
+      "target": {
+        "kind": "method",
+        "target": "github/status"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubRequest",
+      "target": {
+        "kind": "method",
+        "target": "github/request"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "installGithubCli",
+      "target": {
+        "kind": "method",
+        "target": "github/install"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliLoginStart",
+      "target": {
+        "kind": "method",
+        "target": "github/login/start"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliLoginStatus",
+      "target": {
+        "kind": "method",
+        "target": "github/login/status"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliLoginOpenBrowser",
+      "target": {
+        "kind": "method",
+        "target": "github/login/openBrowser"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliLoginCancel",
+      "target": {
+        "kind": "method",
+        "target": "github/login/cancel"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliLogout",
+      "target": {
+        "kind": "method",
+        "target": "github/logout"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "githubCliAccount",
+      "target": {
+        "kind": "method",
+        "target": "github/account"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrList",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/list"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrDefaultBranch",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/defaultBranch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrCreate",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/create"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrView",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/view"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrCheckout",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/checkout"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrMerge",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/merge"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "ghPrDiff",
+      "target": {
+        "kind": "method",
+        "target": "github/pr/diff"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "folderWatch",
+      "target": {
+        "kind": "method",
+        "target": "fs/watch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "folderUnwatch",
+      "target": {
+        "kind": "method",
+        "target": "fs/unwatch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "resolveLocalPaths",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/statLocal"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readLocalFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readLocal"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "fileDownloadAuthorize",
+      "target": {
+        "kind": "method",
+        "target": "transfer/beginRead"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "fileDownloadBegin",
+      "target": {
+        "kind": "method",
+        "target": "transfer/beginRead"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "fileDownloadRange",
+      "target": {
+        "kind": "method",
+        "target": "transfer/readRange"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "fileDownloadFinish",
+      "target": {
+        "kind": "method",
+        "target": "transfer/endRead"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "fileDownloadAbort",
+      "target": {
+        "kind": "method",
+        "target": "transfer/endRead"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "trashProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/trash"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "createProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/create"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "renameProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/rename"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "moveProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/move"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "copyProjectEntry",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/copy"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "getUpdaterState",
+      "target": {
+        "kind": "section",
+        "target": "update"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "checkForDesktopUpdate",
+      "target": {
+        "kind": "method",
+        "target": "update/desktop/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "showDesktopUpdate",
+      "target": {
+        "kind": "method",
+        "target": "update/desktop/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "provideSecretInput",
+      "target": {
+        "kind": "method",
+        "target": "approval/provideSecret"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readHostDisplayPreferences",
+      "target": {
+        "kind": "section",
+        "target": "hostState"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "browserReleasePage",
+      "target": {
+        "kind": "method",
+        "target": "browser/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "writeProjectFile",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeText"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readEditorSettings",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/readEditorSettings"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readEditorBackup",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/backup/read"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "writeEditorBackup",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/backup/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "deleteEditorBackup",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/backup/delete"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "saveWorkspace",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/workspaceFile/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "codeGraphQuery",
+      "target": {
+        "kind": "method",
+        "target": "project/codeGraph"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "searchWorkspaceText",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/searchText"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "replaceWorkspaceText",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/replaceText"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "lspDocument",
+      "target": {
+        "kind": "method",
+        "target": "lsp/document"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "lspRequest",
+      "target": {
+        "kind": "method",
+        "target": "lsp/request"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "lspApplyWorkspaceEdit",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/writeTextBatch"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "projectRecovery",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/recovery"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "previewProjectFile",
+      "target": {
+        "kind": "method",
+        "target": "transfer/beginRead"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "captureFileSnapshot",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/captureSnapshot"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "previewProjectFileRange",
+      "target": {
+        "kind": "method",
+        "target": "transfer/readRange"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "localPageUrl",
+      "target": {
+        "kind": "method",
+        "target": "projectFs/localPageUrl"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "attachmentOpen",
+      "target": {
+        "kind": "method",
+        "target": "transfer/beginRead"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizeState",
+      "target": {
+        "kind": "section",
+        "target": "hostState"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizePaneInline",
+      "target": {
+        "kind": "method",
+        "target": "visualize/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizeCommand",
+      "target": {
+        "kind": "method",
+        "target": "visualize/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizePaneFile",
+      "target": {
+        "kind": "method",
+        "target": "visualize/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizePanePages",
+      "target": {
+        "kind": "method",
+        "target": "document/previewPages"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizeExport",
+      "target": {
+        "kind": "method",
+        "target": "visualize/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "visualizePaneRange",
+      "target": {
+        "kind": "method",
+        "target": "visualize/command"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "getNotificationPreferences",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setNotificationPreferences",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "sendTestNotification",
+      "target": {
+        "kind": "method",
+        "target": "notify/test"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "listConversationNotifications",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "setConversationNotification",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "readSettings",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "updateSetting",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termEnsure",
+      "target": {
+        "kind": "method",
+        "target": "terminal/ensure"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termAttach",
+      "target": {
+        "kind": "method",
+        "target": "terminal/attach"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termProfiles",
+      "target": {
+        "kind": "method",
+        "target": "terminal/profiles"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termWrite",
+      "target": {
+        "kind": "clientNotification",
+        "target": "terminal/input"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termResize",
+      "target": {
+        "kind": "clientNotification",
+        "target": "terminal/resize"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termDispose",
+      "target": {
+        "kind": "method",
+        "target": "terminal/dispose"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termActivity",
+      "target": {
+        "kind": "section",
+        "target": "terminalActivity"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "termFocus",
+      "target": {
+        "kind": "method",
+        "target": "terminal/focus"
+      }
+    },
+    {
+      "list": "remote",
+      "name": "deliverScreenControllerKey",
+      "target": {
+        "kind": "method",
+        "target": "remoteAccess/deliverScreenControllerKey"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "inspectProjectBranch",
+      "target": {
+        "kind": "method",
+        "target": "project/inspectProjectBranch"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "isSessionTerminal",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "contextStatus",
+      "target": {
+        "kind": "method",
+        "target": "thread/contextStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "agentDefinitionPresence",
+      "target": {
+        "kind": "method",
+        "target": "agent/agentDefinitionPresence"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "archivedAgentIdentities",
+      "target": {
+        "kind": "method",
+        "target": "agent/archivedAgentIdentities"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAgentDefinition",
+      "target": {
+        "kind": "method",
+        "target": "agent/getAgentDefinition"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listInstructionFiles",
+      "target": {
+        "kind": "method",
+        "target": "instructions/listInstructionFiles"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getInstructionFile",
+      "target": {
+        "kind": "method",
+        "target": "instructions/getInstructionFile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAgentAvatarImage",
+      "target": {
+        "kind": "method",
+        "target": "agent/getAgentAvatarImage"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAgentConnectors",
+      "target": {
+        "kind": "method",
+        "target": "agent/getAgentConnectors"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getProjectConnectors",
+      "target": {
+        "kind": "method",
+        "target": "project/getProjectConnectors"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAgentAlwaysAllowedTools",
+      "target": {
+        "kind": "method",
+        "target": "agent/getAgentAlwaysAllowedTools"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAgentConnectorTools",
+      "target": {
+        "kind": "method",
+        "target": "agent/getAgentConnectorTools"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAgentPermissions",
+      "target": {
+        "kind": "method",
+        "target": "agent/getAgentPermissions"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listConnectors",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listConnectorTools",
+      "target": {
+        "kind": "method",
+        "target": "connector/listConnectorTools"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getLeadPersona",
+      "target": {
+        "kind": "method",
+        "target": "agent/getLeadPersona"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getLeadAgentBody",
+      "target": {
+        "kind": "method",
+        "target": "agent/getLeadAgentBody"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getLeadStatus",
+      "target": {
+        "kind": "method",
+        "target": "agent/getLeadStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getLeadHomeRoute",
+      "target": {
+        "kind": "method",
+        "target": "agent/getLeadHomeRoute"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getAutoClear",
+      "target": {
+        "kind": "method",
+        "target": "config/getAutoClear"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getChannelSettings",
+      "target": {
+        "kind": "method",
+        "target": "channel/getChannelSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getChannelSetup",
+      "target": {
+        "kind": "method",
+        "target": "channel/getChannelSetup"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getChannelWorkerStatus",
+      "target": {
+        "kind": "method",
+        "target": "channel/getChannelWorkerStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getCacheWarmingSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getCacheWarmingSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getCompactionSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getCompactionSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getConversationImportJobs",
+      "target": {
+        "kind": "method",
+        "target": "import/getConversationImportJobs"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getDeveloperSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getDeveloperSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getDisabledSkills",
+      "target": {
+        "kind": "method",
+        "target": "skills/getDisabledSkills"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getMediaDefault",
+      "target": {
+        "kind": "method",
+        "target": "media/getMediaDefault"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getMediaJob",
+      "target": {
+        "kind": "method",
+        "target": "media/getMediaJob"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getMediaPins",
+      "target": {
+        "kind": "method",
+        "target": "media/getMediaPins"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getMcpServerConfig",
+      "target": {
+        "kind": "method",
+        "target": "mcp/getMcpServerConfig"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getMcpOAuthLoginStatus",
+      "target": {
+        "kind": "method",
+        "target": "mcp/getMcpOAuthLoginStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getOnboardingStatus",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getOAuthProviderLoginStatus",
+      "target": {
+        "kind": "method",
+        "target": "account/getOAuthProviderLoginStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getOutputStyle",
+      "target": {
+        "kind": "method",
+        "target": "config/getOutputStyle"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getOrchestrationMode",
+      "target": {
+        "kind": "method",
+        "target": "config/getOrchestrationMode"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getConfiguredOrchestrationMode",
+      "target": {
+        "kind": "method",
+        "target": "config/getConfiguredOrchestrationMode"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getProfile",
+      "target": {
+        "kind": "method",
+        "target": "config/getProfile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getProviderSetup",
+      "target": {
+        "kind": "section",
+        "target": "providerSetup"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getProviderAccounts",
+      "target": {
+        "kind": "section",
+        "target": "providerAccounts"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getQuotaAutoResume",
+      "target": {
+        "kind": "section",
+        "target": "config"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getQuotaHistory",
+      "target": {
+        "kind": "method",
+        "target": "account/getQuotaHistory"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getRecapSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getRecapSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSessionTitleSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getSessionTitleSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getHeartbeatSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getHeartbeatSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getReactionSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getReactionSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getLeadAppearance",
+      "target": {
+        "kind": "method",
+        "target": "agent/getLeadAppearance"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getBotOrder",
+      "target": {
+        "kind": "section",
+        "target": "botOrder"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getWebSearchRoute",
+      "target": {
+        "kind": "section",
+        "target": "webSearch"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSettingsSnapshot",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSystemShell",
+      "target": {
+        "kind": "method",
+        "target": "config/getSystemShell"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTheme",
+      "target": {
+        "kind": "method",
+        "target": "config/getTheme"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTidyEngineStatus",
+      "target": {
+        "kind": "method",
+        "target": "tidy/getTidyEngineStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTidyInstallStatus",
+      "target": {
+        "kind": "method",
+        "target": "tidy/getTidyInstallStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getToolModuleSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getToolModuleSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "searchLocalProviderModels",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/searchLocalProviderModels"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "inspectHuggingFaceModel",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/inspectHuggingFaceModel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getLocalProviderModelDetails",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/getLocalProviderModelDetails"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSessionReviewDiff",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSessionReviewFilePatch",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSessionUsage",
+      "target": {
+        "kind": "method",
+        "target": "thread/getSessionUsage"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTurnChanges",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTurnReviewDiff",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTurnReviewFilePatch",
+      "target": {
+        "kind": "method",
+        "target": "review/diff/get"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getTurnLiveness",
+      "target": {
+        "kind": "internal",
+        "target": "INT_ONLY (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getUpdateSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getUpdateSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getUpdateStatus",
+      "target": {
+        "kind": "method",
+        "target": "update/getUpdateStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getUsageDashboard",
+      "target": {
+        "kind": "method",
+        "target": "usage/getUsageDashboard"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getUsageStats",
+      "target": {
+        "kind": "method",
+        "target": "usage/getUsageStats"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getUsageRequests",
+      "target": {
+        "kind": "method",
+        "target": "usage/getUsageRequests"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getVoiceStatus",
+      "target": {
+        "kind": "method",
+        "target": "voice/getVoiceStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "isSetupRequestActive",
+      "target": {
+        "kind": "method",
+        "target": "config/isSetupRequestActive"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getWorkflowPack",
+      "target": {
+        "kind": "method",
+        "target": "config/getWorkflowPack"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getWorktreeSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/getWorktreeSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getNetworkProxy",
+      "target": {
+        "kind": "method",
+        "target": "config/getNetworkProxy"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "testNetworkProxy",
+      "target": {
+        "kind": "method",
+        "target": "config/testNetworkProxy"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getBranchMenu",
+      "target": {
+        "kind": "method",
+        "target": "thread/getBranchMenu"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getProjectBranchMenu",
+      "target": {
+        "kind": "method",
+        "target": "project/getProjectBranchMenu"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listWorktrees",
+      "target": {
+        "kind": "method",
+        "target": "project/listWorktrees"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "previewWorktreeCleanup",
+      "target": {
+        "kind": "method",
+        "target": "project/previewWorktreeCleanup"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "getSessionWorktreeWork",
+      "target": {
+        "kind": "method",
+        "target": "thread/getSessionWorktreeWork"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "hooksStatus",
+      "target": {
+        "kind": "internal",
+        "target": "INT_ONLY (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "inheritancePreflight",
+      "target": {
+        "kind": "method",
+        "target": "thread/inheritancePreflight"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listAgents",
+      "target": {
+        "kind": "section",
+        "target": "agents"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listImportableConversations",
+      "target": {
+        "kind": "method",
+        "target": "import/listImportableConversations"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listMediaAssets",
+      "target": {
+        "kind": "method",
+        "target": "media/listMediaAssets"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listMediaBoards",
+      "target": {
+        "kind": "method",
+        "target": "media/listMediaBoards"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listMediaLanes",
+      "target": {
+        "kind": "method",
+        "target": "media/listMediaLanes"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listOutputStyles",
+      "target": {
+        "kind": "method",
+        "target": "config/listOutputStyles"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listPresets",
+      "target": {
+        "kind": "section",
+        "target": "presets"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listProviderModels",
+      "target": {
+        "kind": "method",
+        "target": "model/list"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listProviders",
+      "target": {
+        "kind": "section",
+        "target": "providerSetup"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listWebSearchModels",
+      "target": {
+        "kind": "method",
+        "target": "account/listWebSearchModels"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listThemes",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listShellJobs",
+      "target": {
+        "kind": "method",
+        "target": "thread/listShellJobs"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listStoppableShellJobs",
+      "target": {
+        "kind": "method",
+        "target": "thread/listStoppableShellJobs"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "listWorkflows",
+      "target": {
+        "kind": "section",
+        "target": "workflows"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "mcpStatus",
+      "target": {
+        "kind": "method",
+        "target": "mcp/mcpStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "pluginsStatus",
+      "target": {
+        "kind": "method",
+        "target": "plugins/pluginsStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "readMediaAsset",
+      "target": {
+        "kind": "method",
+        "target": "media/readMediaAsset"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "resolveMediaFile",
+      "target": {
+        "kind": "method",
+        "target": "media/resolveMediaFile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "skillContent",
+      "target": {
+        "kind": "method",
+        "target": "skills/skillContent"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "skillsStatus",
+      "target": {
+        "kind": "method",
+        "target": "skills/skillsStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "toolsStatus",
+      "target": {
+        "kind": "method",
+        "target": "tools/toolsStatus"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "addHookRule",
+      "target": {
+        "kind": "internal",
+        "target": "INT_ONLY (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "addMcpServer",
+      "target": {
+        "kind": "method",
+        "target": "mcp/addMcpServer"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "addConnectorAccount",
+      "target": {
+        "kind": "method",
+        "target": "connector/addConnectorAccount"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "addPlugin",
+      "target": {
+        "kind": "method",
+        "target": "plugins/addPlugin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "addSkill",
+      "target": {
+        "kind": "method",
+        "target": "skills/addSkill"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "agentControl",
+      "target": {
+        "kind": "method",
+        "target": "thread/agentControl"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "appendRoomRows",
+      "target": {
+        "kind": "internal",
+        "target": "rooms run in mixdog-core (DS §9)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "askSide",
+      "target": {
+        "kind": "method",
+        "target": "thread/askSide"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "authenticateProvider",
+      "target": {
+        "kind": "method",
+        "target": "account/authenticateProvider"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "beginOAuthProviderLogin",
+      "target": {
+        "kind": "method",
+        "target": "account/beginOAuthProviderLogin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "beginMcpOAuthLogin",
+      "target": {
+        "kind": "method",
+        "target": "mcp/beginMcpOAuthLogin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "updateProviderAccounts",
+      "target": {
+        "kind": "method",
+        "target": "account/updateProviderAccounts"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cacheMediaThumbnail",
+      "target": {
+        "kind": "method",
+        "target": "media/cacheMediaThumbnail"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelMediaJob",
+      "target": {
+        "kind": "method",
+        "target": "media/cancelMediaJob"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelOAuthProviderLogin",
+      "target": {
+        "kind": "method",
+        "target": "account/cancelOAuthProviderLogin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelMcpOAuthLogin",
+      "target": {
+        "kind": "method",
+        "target": "mcp/cancelMcpOAuthLogin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelConversationImport",
+      "target": {
+        "kind": "method",
+        "target": "import/cancelConversationImport"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelSide",
+      "target": {
+        "kind": "method",
+        "target": "thread/cancelSide"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "checkForUpdate",
+      "target": {
+        "kind": "method",
+        "target": "update/checkForUpdate"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "clear",
+      "target": {
+        "kind": "method",
+        "target": "thread/clear"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "compact",
+      "target": {
+        "kind": "method",
+        "target": "thread/compact/start"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "completeOnboarding",
+      "target": {
+        "kind": "method",
+        "target": "config/completeOnboarding"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "completeOAuthProviderLogin",
+      "target": {
+        "kind": "method",
+        "target": "account/completeOAuthProviderLogin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "completeMcpOAuthLogin",
+      "target": {
+        "kind": "method",
+        "target": "mcp/completeMcpOAuthLogin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "consumeCodexRateLimitResetCredit",
+      "target": {
+        "kind": "method",
+        "target": "account/consumeCodexRateLimitResetCredit"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "createWorkflow",
+      "target": {
+        "kind": "method",
+        "target": "config/createWorkflow"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteAgentDefinition",
+      "target": {
+        "kind": "method",
+        "target": "agent/deleteAgentDefinition"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "restoreAgentDefinition",
+      "target": {
+        "kind": "method",
+        "target": "agent/restoreAgentDefinition"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "purgeAgentDefinition",
+      "target": {
+        "kind": "method",
+        "target": "agent/purgeAgentDefinition"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveInstructionFile",
+      "target": {
+        "kind": "method",
+        "target": "instructions/saveInstructionFile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "resetInstructionFile",
+      "target": {
+        "kind": "method",
+        "target": "instructions/resetInstructionFile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteHookRule",
+      "target": {
+        "kind": "internal",
+        "target": "INT_ONLY (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteMediaAsset",
+      "target": {
+        "kind": "method",
+        "target": "media/deleteMediaAsset"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteMediaAssets",
+      "target": {
+        "kind": "method",
+        "target": "media/deleteMediaAssets"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "createMediaBoard",
+      "target": {
+        "kind": "method",
+        "target": "media/createMediaBoard"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "renameMediaBoard",
+      "target": {
+        "kind": "method",
+        "target": "media/renameMediaBoard"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteMediaBoard",
+      "target": {
+        "kind": "method",
+        "target": "media/deleteMediaBoard"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setMediaAssetBoard",
+      "target": {
+        "kind": "method",
+        "target": "media/setMediaAssetBoard"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteSchedule",
+      "target": {
+        "kind": "method",
+        "target": "channel/deleteSchedule"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveCustomProvider",
+      "target": {
+        "kind": "method",
+        "target": "account/saveCustomProvider"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveCustomProviderKey",
+      "target": {
+        "kind": "method",
+        "target": "account/saveCustomProviderKey"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "removeCustomProvider",
+      "target": {
+        "kind": "method",
+        "target": "account/removeCustomProvider"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "updateCustomProviderModel",
+      "target": {
+        "kind": "method",
+        "target": "account/updateCustomProviderModel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setModelPreferences",
+      "target": {
+        "kind": "method",
+        "target": "config/setModelPreferences"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "testCustomProvider",
+      "target": {
+        "kind": "method",
+        "target": "account/testCustomProvider"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "checkCustomProviderKeyEnv",
+      "target": {
+        "kind": "method",
+        "target": "account/checkCustomProviderKeyEnv"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "discoverCustomProviderModels",
+      "target": {
+        "kind": "method",
+        "target": "account/discoverCustomProviderModels"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteSession",
+      "target": {
+        "kind": "method",
+        "target": "thread/delete"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteSessionIfIdle",
+      "target": {
+        "kind": "method",
+        "target": "thread/delete"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteWebhook",
+      "target": {
+        "kind": "method",
+        "target": "channel/deleteWebhook"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteWorkflow",
+      "target": {
+        "kind": "method",
+        "target": "config/deleteWorkflow"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "enablePluginMcp",
+      "target": {
+        "kind": "method",
+        "target": "mcp/enablePluginMcp"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "forgetProviderAuth",
+      "target": {
+        "kind": "method",
+        "target": "account/forgetProviderAuth"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "goalControl",
+      "target": {
+        "kind": "methods",
+        "target": [
+          "thread/goal/set",
+          "thread/goal/clear",
+          "thread/goal/control"
+        ]
+      }
+    },
+    {
+      "list": "actions",
+      "name": "inheritFrom",
+      "target": {
+        "kind": "method",
+        "target": "thread/fork"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "loginOAuthProvider",
+      "target": {
+        "kind": "method",
+        "target": "account/loginOAuthProvider"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "memoryControl",
+      "target": {
+        "kind": "method",
+        "target": "memory/memoryControl"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "openMediaAsset",
+      "target": {
+        "kind": "method",
+        "target": "media/openMediaAsset"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "openMediaFolder",
+      "target": {
+        "kind": "method",
+        "target": "media/openMediaFolder"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "probeMcpServerAuth",
+      "target": {
+        "kind": "method",
+        "target": "mcp/probeMcpServerAuth"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "pushNotice",
+      "target": {
+        "kind": "method",
+        "target": "thread/pushNotice"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "recall",
+      "target": {
+        "kind": "method",
+        "target": "memory/recall"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "reconnectMcp",
+      "target": {
+        "kind": "method",
+        "target": "mcp/reconnectMcp"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "registerConversationImportFile",
+      "target": {
+        "kind": "method",
+        "target": "import/registerConversationImportFile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "reloadPlugins",
+      "target": {
+        "kind": "method",
+        "target": "plugins/reloadPlugins"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "reloadSkills",
+      "target": {
+        "kind": "method",
+        "target": "skills/reloadSkills"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "rememberPromptHistory",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "removeMcpServer",
+      "target": {
+        "kind": "method",
+        "target": "mcp/removeMcpServer"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "removeSkill",
+      "target": {
+        "kind": "method",
+        "target": "skills/removeSkill"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "continueSessionInModel",
+      "target": {
+        "kind": "method",
+        "target": "thread/continueInModel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "decideRoomTurn",
+      "target": {
+        "kind": "internal",
+        "target": "room supervisor runs in mixdog-core (DS §9)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "scheduleQuotaResume",
+      "target": {
+        "kind": "method",
+        "target": "thread/quotaResume/schedule"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelQuotaResume",
+      "target": {
+        "kind": "method",
+        "target": "thread/quotaResume/cancel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "retryFailedTurn",
+      "target": {
+        "kind": "method",
+        "target": "turn/retryFailed"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setQuotaAutoResume",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "removeNotice",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "removePlugin",
+      "target": {
+        "kind": "method",
+        "target": "plugins/removePlugin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "renameSessionTitle",
+      "target": {
+        "kind": "method",
+        "target": "thread/name/set"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "resizeImage",
+      "target": {
+        "kind": "method",
+        "target": "thread/resizeImage"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "stageAttachmentOriginal",
+      "target": {
+        "kind": "method",
+        "target": "thread/stageAttachmentOriginal"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "prioritizeQueued",
+      "target": {
+        "kind": "method",
+        "target": "turn/steer"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "restoreNewerTranscript",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "restoreOlderTranscript",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "restoreQueued",
+      "target": {
+        "kind": "method",
+        "target": "thread/queue/delete"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "revertTurnReview",
+      "target": {
+        "kind": "method",
+        "target": "thread/revertTurnReview"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "revertTurnReviewFile",
+      "target": {
+        "kind": "method",
+        "target": "thread/revertTurnReviewFile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "revertTurnChanges",
+      "target": {
+        "kind": "method",
+        "target": "thread/revertTurnChanges"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "reapplyTurnChanges",
+      "target": {
+        "kind": "method",
+        "target": "thread/reapplyTurnChanges"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "clearSessionChangeHistory",
+      "target": {
+        "kind": "method",
+        "target": "thread/clearSessionChangeHistory"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "rewindToItem",
+      "target": {
+        "kind": "method",
+        "target": "thread/rewind"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "runDoctor",
+      "target": {
+        "kind": "method",
+        "target": "diagnostics/runDoctor"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "runScheduleNow",
+      "target": {
+        "kind": "method",
+        "target": "channel/runScheduleNow"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "runUpdateNow",
+      "target": {
+        "kind": "method",
+        "target": "update/runUpdateNow"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "runWebhookNow",
+      "target": {
+        "kind": "method",
+        "target": "channel/runWebhookNow"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "retryRoutineDelivery",
+      "target": {
+        "kind": "method",
+        "target": "channel/retryRoutineDelivery"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveAgentDefinition",
+      "target": {
+        "kind": "method",
+        "target": "agent/saveAgentDefinition"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAgentConnectors",
+      "target": {
+        "kind": "method",
+        "target": "agent/setAgentConnectors"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAgentConnectorEnabled",
+      "target": {
+        "kind": "method",
+        "target": "agent/setAgentConnectorEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAgentConnectorToolPermission",
+      "target": {
+        "kind": "method",
+        "target": "agent/setAgentConnectorToolPermission"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setProjectConnectorEnabled",
+      "target": {
+        "kind": "method",
+        "target": "project/setProjectConnectorEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAgentPermission",
+      "target": {
+        "kind": "method",
+        "target": "agent/setAgentPermission"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "recordAgentApprovalAudit",
+      "target": {
+        "kind": "method",
+        "target": "agent/recordAgentApprovalAudit"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveLeadPersona",
+      "target": {
+        "kind": "method",
+        "target": "agent/saveLeadPersona"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveLeadAgentBody",
+      "target": {
+        "kind": "method",
+        "target": "agent/saveLeadAgentBody"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setLeadCreated",
+      "target": {
+        "kind": "method",
+        "target": "agent/setLeadCreated"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveLeadIdentity",
+      "target": {
+        "kind": "method",
+        "target": "agent/saveLeadIdentity"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveMcpServer",
+      "target": {
+        "kind": "method",
+        "target": "mcp/saveMcpServer"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveOpenAIUsageSessionKey",
+      "target": {
+        "kind": "method",
+        "target": "account/saveOpenAIUsageSessionKey"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveProviderApiKey",
+      "target": {
+        "kind": "method",
+        "target": "account/saveProviderApiKey"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveSchedule",
+      "target": {
+        "kind": "method",
+        "target": "channel/saveSchedule"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveSkill",
+      "target": {
+        "kind": "method",
+        "target": "skills/saveSkill"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveWebhook",
+      "target": {
+        "kind": "method",
+        "target": "channel/saveWebhook"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveWorkflowPack",
+      "target": {
+        "kind": "method",
+        "target": "config/saveWorkflowPack"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "selectTools",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAgentRoute",
+      "target": {
+        "kind": "method",
+        "target": "route/set"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAutoClear",
+      "target": {
+        "kind": "method",
+        "target": "config/setAutoClear"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAutoUpdate",
+      "target": {
+        "kind": "method",
+        "target": "config/setAutoUpdate"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setCacheWarmingEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setCacheWarmingEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setCompactionSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/setCompactionSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setCwd",
+      "target": {
+        "kind": "method",
+        "target": "thread/setCwd"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setDeveloperOption",
+      "target": {
+        "kind": "method",
+        "target": "config/setDeveloperOption"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setDisabledSkills",
+      "target": {
+        "kind": "method",
+        "target": "skills/setDisabledSkills"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setEffort",
+      "target": {
+        "kind": "method",
+        "target": "thread/setEffort"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setExtensionScope",
+      "target": {
+        "kind": "method",
+        "target": "config/setExtensionScope"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setFast",
+      "target": {
+        "kind": "method",
+        "target": "fast/set"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setHookRuleEnabled",
+      "target": {
+        "kind": "internal",
+        "target": "INT_ONLY (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setMcpServerEnabled",
+      "target": {
+        "kind": "method",
+        "target": "mcp/setMcpServerEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setMemoryToolsEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setMemoryToolsEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setBuiltinToolEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setBuiltinToolEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "installBuiltinFeature",
+      "target": {
+        "kind": "method",
+        "target": "config/installBuiltinFeature"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "installLocalProviderModel",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/installLocalProviderModel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "startLocalProviderInstallation",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/startLocalProviderInstallation"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "cancelLocalProviderInstallation",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/cancelLocalProviderInstallation"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "discardLocalProviderInstallation",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/discardLocalProviderInstallation"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setLocalProviderIdleTtl",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/setLocalProviderIdleTtl"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setLocalProviderContext",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/setLocalProviderContext"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "registerHuggingFaceModel",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/registerHuggingFaceModel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "startLocalProviderModelMaintenance",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/startLocalProviderModelMaintenance"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteLocalProviderModel",
+      "target": {
+        "kind": "method",
+        "target": "localProvider/deleteLocalProviderModel"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setMediaDefault",
+      "target": {
+        "kind": "method",
+        "target": "media/setMediaDefault"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setMediaPin",
+      "target": {
+        "kind": "method",
+        "target": "media/setMediaPin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setModel",
+      "target": {
+        "kind": "method",
+        "target": "route/set"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setOutputStyle",
+      "target": {
+        "kind": "method",
+        "target": "thread/setOutputStyle"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setPluginEnabled",
+      "target": {
+        "kind": "method",
+        "target": "plugins/setPluginEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setProfile",
+      "target": {
+        "kind": "method",
+        "target": "config/setProfile"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setProgressHint",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setRecapEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setRecapEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAiSessionTitles",
+      "target": {
+        "kind": "method",
+        "target": "config/setAiSessionTitles"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setHeartbeatEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setHeartbeatEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setHeartbeatInterval",
+      "target": {
+        "kind": "method",
+        "target": "config/setHeartbeatInterval"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "noteUserInput",
+      "target": {
+        "kind": "clientNotification",
+        "target": "client/activity"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setReactionsEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setReactionsEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setLeadAppearance",
+      "target": {
+        "kind": "method",
+        "target": "agent/setLeadAppearance"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setBotOrder",
+      "target": {
+        "kind": "method",
+        "target": "agent/setBotOrder"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setRoute",
+      "target": {
+        "kind": "method",
+        "target": "route/set"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setScheduleEnabled",
+      "target": {
+        "kind": "method",
+        "target": "channel/setScheduleEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setWebSearchRoute",
+      "target": {
+        "kind": "method",
+        "target": "config/setWebSearchRoute"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setSystemShell",
+      "target": {
+        "kind": "method",
+        "target": "config/setSystemShell"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setTheme",
+      "target": {
+        "kind": "method",
+        "target": "config/setTheme"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setToolMode",
+      "target": {
+        "kind": "method",
+        "target": "thread/setToolMode"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setWebSearchEnabled",
+      "target": {
+        "kind": "method",
+        "target": "config/setWebSearchEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setInstructionFiles",
+      "target": {
+        "kind": "method",
+        "target": "instructions/setInstructionFiles"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setAutoEffortBase",
+      "target": {
+        "kind": "method",
+        "target": "config/setAutoEffortBase"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setWebhookConfig",
+      "target": {
+        "kind": "method",
+        "target": "channel/setWebhookConfig"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setWebhookEnabled",
+      "target": {
+        "kind": "method",
+        "target": "channel/setWebhookEnabled"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setWorkflow",
+      "target": {
+        "kind": "method",
+        "target": "thread/setWorkflow"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setOrchestrationMode",
+      "target": {
+        "kind": "method",
+        "target": "thread/setOrchestrationMode"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "signOutMcpServer",
+      "target": {
+        "kind": "method",
+        "target": "mcp/signOutMcpServer"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "saveStarterGuideState",
+      "target": {
+        "kind": "method",
+        "target": "config/saveStarterGuideState"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "skipOnboarding",
+      "target": {
+        "kind": "method",
+        "target": "config/skipOnboarding"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "startConversationImport",
+      "target": {
+        "kind": "method",
+        "target": "import/startConversationImport"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "startMediaJob",
+      "target": {
+        "kind": "method",
+        "target": "media/startMediaJob"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "stopShellJob",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/terminate"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "stopShellJobs",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/clean"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "releaseShellJob",
+      "target": {
+        "kind": "method",
+        "target": "thread/backgroundTerminals/release"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "switchContext",
+      "target": {
+        "kind": "method",
+        "target": "thread/switchContext"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "taskControl",
+      "target": {
+        "kind": "deleted",
+        "target": "caller-less action (DS §17.1)"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "testWebhook",
+      "target": {
+        "kind": "method",
+        "target": "channel/testWebhook"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "toggleFast",
+      "target": {
+        "kind": "method",
+        "target": "fast/set"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "toggleVoice",
+      "target": {
+        "kind": "method",
+        "target": "voice/toggleVoice"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "claimSetupRequest",
+      "target": {
+        "kind": "method",
+        "target": "config/claimSetupRequest"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "completeSetupRequest",
+      "target": {
+        "kind": "method",
+        "target": "config/completeSetupRequest"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "transcribeAudio",
+      "target": {
+        "kind": "method",
+        "target": "voice/transcribeAudio"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "prepareTranscription",
+      "target": {
+        "kind": "method",
+        "target": "voice/prepareTranscription"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "updatePlugin",
+      "target": {
+        "kind": "method",
+        "target": "plugins/updatePlugin"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setWorktreeSettings",
+      "target": {
+        "kind": "method",
+        "target": "config/setWorktreeSettings"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setNetworkProxy",
+      "target": {
+        "kind": "method",
+        "target": "config/setNetworkProxy"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "selectBranch",
+      "target": {
+        "kind": "method",
+        "target": "thread/selectBranch"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "selectProjectBranch",
+      "target": {
+        "kind": "method",
+        "target": "project/selectProjectBranch"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "mergeProjectBranch",
+      "target": {
+        "kind": "method",
+        "target": "project/mergeProjectBranch"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "manageProjectBranch",
+      "target": {
+        "kind": "method",
+        "target": "project/manageProjectBranch"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "requestWorktree",
+      "target": {
+        "kind": "method",
+        "target": "thread/requestWorktree"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "mergeWorkspace",
+      "target": {
+        "kind": "method",
+        "target": "thread/mergeWorkspace"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "removeWorktree",
+      "target": {
+        "kind": "method",
+        "target": "project/removeWorktree"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "pruneWorktrees",
+      "target": {
+        "kind": "method",
+        "target": "project/pruneWorktrees"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "deleteWorktree",
+      "target": {
+        "kind": "method",
+        "target": "project/deleteWorktree"
+      }
+    },
+    {
+      "list": "actions",
+      "name": "setArchivedSessionWorktrees",
+      "target": {
+        "kind": "method",
+        "target": "project/setArchivedSessionWorktrees"
+      }
+    }
+  ]
+}

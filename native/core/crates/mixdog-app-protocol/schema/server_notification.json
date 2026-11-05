@@ -1,0 +1,4600 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AppSnapshotParams": {
+      "description": "`app/snapshot`: every unkeyed app section plus keyed sections bounded by configuration (SPEC R14). Replaces the whole section store.",
+      "properties": {
+        "sections": {
+          "items": {
+            "$ref": "#/definitions/SectionUpdate"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sections"
+      ],
+      "type": "object"
+    },
+    "ApprovalRemember": {
+      "enum": [
+        "once",
+        "session",
+        "agent",
+        "always"
+      ],
+      "type": "string"
+    },
+    "ApprovalResolution": {
+      "description": "Durable outcome of a server request (P §8.4).",
+      "oneOf": [
+        {
+          "description": "First valid decision from any eligible connection.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "connectionKind": {
+              "$ref": "#/definitions/ConnectionKind"
+            },
+            "decision": {
+              "$ref": "#/definitions/ToolApprovalDecision"
+            },
+            "device": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "decided"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "connectionKind",
+            "decision",
+            "device",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The request's own `expiresAt` passed.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "timedOut"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Own-turn interrupt or session close.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "interrupted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The asking run was cancelled from its parent.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "cancelled"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The copy shown on a surface was taken away unanswered.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "withdrawn"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BlobDescriptor": {
+      "additionalProperties": false,
+      "description": "Server-produced and embedded in store records, which parse it strictly.",
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "mediaType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bytes",
+        "digest",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "BlobRef": {
+      "description": "`{\"blob\":{\"digest\":\"sha256:…\",\"bytes\":n,\"mediaType\":\"…\"}}`.",
+      "properties": {
+        "blob": {
+          "$ref": "#/definitions/BlobDescriptor"
+        }
+      },
+      "required": [
+        "blob"
+      ],
+      "type": "object"
+    },
+    "ConnectionKind": {
+      "enum": [
+        "desktop",
+        "tui",
+        "cli",
+        "remoteDesktop",
+        "phone",
+        "channelBridge"
+      ],
+      "type": "string"
+    },
+    "DeliveryState": {
+      "enum": [
+        "notSent",
+        "ambiguous",
+        "accepted"
+      ],
+      "type": "string"
+    },
+    "ErrorNotificationParams": {
+      "description": "`error`: a connection-scoped failure, or a thread error with `willRetry`.",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/JsonRpcErrorBody"
+        },
+        "providerError": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderErrorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "willRetry": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "FeedSnapshotParams": {
+      "description": "`feed/snapshot`: the read model of a scoped feed (terminal screen text, search result set, login flow state, port list).",
+      "properties": {
+        "feedId": {
+          "type": "string"
+        },
+        "state": true
+      },
+      "required": [
+        "feedId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "FileUpdateChange": {
+      "properties": {
+        "diff": {
+          "$ref": "#/definitions/MaybeBlob_for_String"
+        },
+        "kind": {
+          "description": "`add` | `delete` | `update` | `rename`.",
+          "type": "string"
+        },
+        "oldPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "diff",
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
+    "FsChangedParams": {
+      "properties": {
+        "changedPaths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "description": "`modified` | `removed` | `renamed` | `git` | `overflow`.",
+          "type": "string"
+        },
+        "watchId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "changedPaths",
+        "kind",
+        "watchId"
+      ],
+      "type": "object"
+    },
+    "HistoryResetReason": {
+      "enum": [
+        "rewind",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "HostBrowserViewFramesParams": {
+      "description": "First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).",
+      "properties": {
+        "on": {
+          "type": "boolean"
+        },
+        "request": {
+          "description": "Phone stream request (fit, quality) as today's take-over request."
+        },
+        "streamId": {
+          "description": "The X17 `streamId` the host stamps on this tab's frames.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "tabId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "on",
+        "request",
+        "streamId",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    "HostNotificationShowParams": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "sound": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "volume": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "body",
+        "title"
+      ],
+      "type": "object"
+    },
+    "HumanGateResponse": {
+      "enum": [
+        "approve",
+        "deny",
+        "edit-and-approve",
+        "provide-secret",
+        "skip",
+        "done"
+      ],
+      "type": "string"
+    },
+    "ItemDeltaParams": {
+      "description": "Deltas are hints; `item/completed` is authoritative.",
+      "properties": {
+        "delta": {
+          "type": "string"
+        },
+        "index": {
+          "description": "Reasoning summary part index.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "itemId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "delta",
+        "itemId",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "ItemMeta": {
+      "description": "Attributes shared by every item (today's `DesktopTranscriptItem` common fields).",
+      "properties": {
+        "agent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ext": {
+          "additionalProperties": true,
+          "description": "Remaining row attributes of today's transcript row.",
+          "type": "object"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "Human-readable model label.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelId": {
+          "description": "Actual route id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ItemStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ItemNotificationParams": {
+      "properties": {
+        "item": {
+          "$ref": "#/definitions/ThreadItem"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "item",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "ItemProgressParams": {
+      "properties": {
+        "itemId": {
+          "type": "string"
+        },
+        "progress": true,
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemId",
+        "progress",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "ItemStatus": {
+      "enum": [
+        "inProgress",
+        "completed",
+        "failed",
+        "declined",
+        "interrupted"
+      ],
+      "type": "string"
+    },
+    "JsonRpcErrorBody": {
+      "description": "`data` is always `{\"reason\": \"<camelCase>\", …typed fields}` (`ErrorData`); clients branch on `code` + `data.reason` only and never parse `message`.",
+      "properties": {
+        "code": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "data": true,
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "LoginUpdatedParams": {
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "state": {
+          "description": "Device code, verification URL, `waiting|done|failed`, error."
+        }
+      },
+      "required": [
+        "flowId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "MaybeBlob_for_AnyValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BlobRef"
+        },
+        true
+      ],
+      "description": "A body that is inline when its encoding is ≤ `INLINE_MAX`, else a blob reference."
+    },
+    "MaybeBlob_for_String": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BlobRef"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "A body that is inline when its encoding is ≤ `INLINE_MAX`, else a blob reference."
+    },
+    "ModelProxyRunEventParams": {
+      "description": "Local core → Electron: one streamed event of a `modelProxy/run` request.",
+      "properties": {
+        "event": true,
+        "runId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "runId"
+      ],
+      "type": "object"
+    },
+    "OpenKind": {
+      "enum": [
+        "browser",
+        "terminal",
+        "visualize"
+      ],
+      "type": "string"
+    },
+    "OrchestrationMode": {
+      "enum": [
+        "none",
+        "focused",
+        "balanced",
+        "swarm"
+      ],
+      "type": "string"
+    },
+    "ProcessExitedParams": {
+      "properties": {
+        "code": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "processHandle": {
+          "type": "string"
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "processHandle"
+      ],
+      "type": "object"
+    },
+    "ProcessOutputDeltaParams": {
+      "properties": {
+        "bytesB64": {
+          "type": "string"
+        },
+        "processHandle": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bytesB64",
+        "processHandle"
+      ],
+      "type": "object"
+    },
+    "PromptRestore": {
+      "properties": {
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "device": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "device",
+        "id",
+        "ids",
+        "text"
+      ],
+      "type": "object"
+    },
+    "ProviderAccountChange": {
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accountId",
+        "at",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "ProviderErrorDetail": {
+      "properties": {
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DeliveryState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Delivery state of the failed attempt (SPEC §4.9)."
+        },
+        "kind": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "status": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "QuestionAnswer": {
+      "description": "One `ask_user` answer, aligned by index with the questions.",
+      "properties": {
+        "selected": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "selected"
+      ],
+      "type": "object"
+    },
+    "QuotaResume": {
+      "description": "Today's `DesktopQuotaResume`.",
+      "properties": {
+        "attempts": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "resetAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "state": {
+          "description": "Always `waiting`.",
+          "type": "string"
+        },
+        "turnKey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempts",
+        "model",
+        "provider",
+        "resetAt",
+        "state",
+        "turnKey"
+      ],
+      "type": "object"
+    },
+    "RemotePointerParams": {
+      "description": "App-feed event: remote pointer position (today's `notify` remote pointer).",
+      "properties": {
+        "pointer": true
+      },
+      "required": [
+        "pointer"
+      ],
+      "type": "object"
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "format": "int64",
+          "type": "integer"
+        }
+      ]
+    },
+    "SearchCompletedParams": {
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SearchUpdatedParams": {
+      "properties": {
+        "files": {
+          "items": true,
+          "type": "array"
+        },
+        "query": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "files",
+        "query",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SectionName": {
+      "description": "Every section name. The registry is closed: adding one is a contract change.",
+      "oneOf": [
+        {
+          "description": "`mixdog-config.json` subtrees (`desktop`, `notifications`, `toolPolicy`, `onboarding`, …); key = subtree.",
+          "enum": [
+            "config"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Registered projects.",
+          "enum": [
+            "projects"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Agent pool rows.",
+          "enum": [
+            "agentPool"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Agent list (today's `listAgents`).",
+          "enum": [
+            "agents"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Bot order (today's `getBotOrder`).",
+          "enum": [
+            "botOrder"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Model presets (today's `listPresets`).",
+          "enum": [
+            "presets"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Model catalog; pages through `model/list` when stubbed.",
+          "enum": [
+            "modelCatalog"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Workflow list (today's `listWorkflows`).",
+          "enum": [
+            "workflows"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Web-search route (today's `getWebSearchRoute`).",
+          "enum": [
+            "webSearch"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Provider setup view (today's `getProviderSetup`, `listProviders`).",
+          "enum": [
+            "providerSetup"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Provider accounts; key = provider id.",
+          "enum": [
+            "providerAccounts"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Usage summaries; key = scope.",
+          "enum": [
+            "usage"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Host-wide background shell totals.",
+          "enum": [
+            "hostShellJobs"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Terminal activity per tab.",
+          "enum": [
+            "terminalActivity"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Terminal tab list.",
+          "enum": [
+            "terminalTabs"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys}`.",
+          "enum": [
+            "remote"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "In-app notices; key = notice id.",
+          "enum": [
+            "notice"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Update status (core updater and the desktop's `host/update/report`).",
+          "enum": [
+            "update"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences`.",
+          "enum": [
+            "hostState"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Computer use: `{active, observeOnly, controller, sessionThreadId}` (R40).",
+          "enum": [
+            "computer"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Pending approvals: count and per-thread summary.",
+          "enum": [
+            "approvalInbox"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Core state, including `draining{reason}` (R21).",
+          "enum": [
+            "core"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Stall monitor report (`{stalledMs}`, R48).",
+          "enum": [
+            "coreHealth"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Migration progress.",
+          "enum": [
+            "migration"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Review summary of a thread; key = thread id (thread feed).",
+          "enum": [
+            "reviewDiff"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Repository status; key = repo root (scoped feed `git:<root>`).",
+          "enum": [
+            "gitStatus"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Language-server status; key = root (scoped feed `lsp:<root>`).",
+          "enum": [
+            "lspStatus"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Diagnostics; key = document uri (scoped feed `lsp:<root>`).",
+          "enum": [
+            "lspDiagnostics"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Media job state; key = job id (scoped feed `media:<jobId>`).",
+          "enum": [
+            "mediaJobs"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Listening ports (scoped feed `ports`).",
+          "enum": [
+            "ports"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SectionStub": {
+      "description": "Value above `INLINE_MAX` is replaced by a stub; the client pages the detail with the section's list method.",
+      "properties": {
+        "count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "stub": {
+          "description": "Always `true`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "count",
+        "stub"
+      ],
+      "type": "object"
+    },
+    "SectionUpdate": {
+      "description": "Params of every section notification: `{\"section\", \"key\", \"revision\", \"value\"}` or `{…, \"removed\": true}` or `{…, \"stub\": {count, stub:true}}`. Exactly one of `value`, `removed`, `stub`. The client keeps `(section,key)` iff `revision` is greater than the stored one.",
+      "properties": {
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "removed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "revision": {
+          "description": "Per `(section,key)`, strictly increasing.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "section": {
+          "$ref": "#/definitions/SectionName"
+        },
+        "stub": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SectionStub"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": true
+      },
+      "required": [
+        "revision",
+        "section"
+      ],
+      "type": "object"
+    },
+    "ServerRequestResolvedParams": {
+      "description": "To every eligible connection, losers included (P §8.4 step 4).",
+      "properties": {
+        "requestId": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "resolution": {
+          "$ref": "#/definitions/ApprovalResolution"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "resolution",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "StorageState": {
+      "oneOf": [
+        {
+          "enum": [
+            "ok"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Durability waits under slow storage (R12).",
+          "enum": [
+            "durabilityPending"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Outcome of a barrier unknown; the thread is read-only.",
+          "enum": [
+            "indeterminate"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ThreadActiveFlag": {
+      "description": "Active-state flags of a loaded thread (Codex flags plus Mixdog's).",
+      "enum": [
+        "waitingOnApproval",
+        "waitingOnUserInput",
+        "quotaWaiting",
+        "goalActive",
+        "backgroundJobs"
+      ],
+      "type": "string"
+    },
+    "ThreadAgents": {
+      "properties": {
+        "agentJobs": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
+        "agentWorkers": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ThreadApprovals": {
+      "properties": {
+        "handoffQuestions": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "toolApprovalResult": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolApprovalResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ThreadContext": {
+      "properties": {
+        "contextDefaultPercent": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "contextPercent": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "contextTokens": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ThreadHistoryResetParams": {
+      "properties": {
+        "fromItemId": {
+          "description": "Items after this one are discarded; absent for `clear`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/definitions/HistoryResetReason"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadIdParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadItem": {
+      "oneOf": [
+        {
+          "properties": {
+            "appliedSkills": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "checkpointId": {
+              "description": "The turn's change-record key (what review reads and reverts address).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "clientSubmissionId": {
+              "description": "The client correlation id of the submit.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "content": {
+              "items": {
+                "$ref": "#/definitions/UserInput"
+              },
+              "type": "array"
+            },
+            "device": {
+              "description": "Device that submitted the prompt (host-stamped).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "type": {
+              "enum": [
+                "userMessage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "text": {
+              "$ref": "#/definitions/MaybeBlob_for_String"
+            },
+            "type": {
+              "enum": [
+                "agentMessage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "content": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "summary": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "reasoning"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "plan"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The `shell` tool.",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "durationMs": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "exitCode": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "output": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MaybeBlob_for_String"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "commandExecution"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Patch and write tools.",
+          "properties": {
+            "changes": {
+              "items": {
+                "$ref": "#/definitions/FileUpdateChange"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "type": {
+              "enum": [
+                "fileChange"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "changes",
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "arguments": true,
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "result": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MaybeBlob_for_AnyValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "server": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mcpToolCall"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "arguments",
+            "id",
+            "server",
+            "tool",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "query": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "webSearch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "query",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/BlobRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "imageView"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MaybeBlob_for_String"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "contextCompaction"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "threadId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "subAgentActivity"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent",
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Every other built-in tool.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "input": true,
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "name": {
+              "type": "string"
+            },
+            "output": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MaybeBlob_for_AnyValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "toolCall"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "input",
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`statusdone` / `turndone` rows and notices.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "type": {
+              "enum": [
+                "statusRow"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A group-room line.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "speaker": {
+              "type": "string"
+            },
+            "text": {
+              "$ref": "#/definitions/MaybeBlob_for_String"
+            },
+            "type": {
+              "enum": [
+                "roomRow"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "speaker",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A sub-agent dispatch row.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ItemMeta"
+                }
+              ],
+              "default": {}
+            },
+            "tag": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "taskId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "agentJob"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ThreadNameUpdatedParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "title"
+      ],
+      "type": "object"
+    },
+    "ThreadQueueChangedParams": {
+      "properties": {
+        "queued": {
+          "items": true,
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "queued",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadRoute": {
+      "properties": {
+        "autoEffort": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fast": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fastCapable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "modelParameters": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "selectedContextWindow": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionModel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionProvider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ThreadRuntime": {
+      "properties": {
+        "activeTools": true,
+        "busy": {
+          "default": false,
+          "type": "boolean"
+        },
+        "commandBusy": {
+          "default": false,
+          "type": "boolean"
+        },
+        "commandStatus": true,
+        "progressHint": true,
+        "spinner": true,
+        "storage": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StorageState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thinking": true,
+        "waitingOnProviderSince": {
+          "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ThreadSectionParams_for_AnyValue": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_Boolean": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_Nullable_AnyValue": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_Nullable_PromptRestore": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PromptRestore"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_Nullable_QuotaResume": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QuotaResume"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ProviderAccountChange": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ProviderAccountChange"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ThreadAgents": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ThreadAgents"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ThreadApprovals": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ThreadApprovals"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ThreadContext": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ThreadContext"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ThreadRoute": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ThreadRoute"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ThreadRuntime": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ThreadRuntime"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_ThreadWorkflow": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ThreadWorkflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadSnapshotParams": {
+      "properties": {
+        "hasOlder": {
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/ThreadItem"
+          },
+          "type": "array"
+        },
+        "state": {
+          "$ref": "#/definitions/ThreadState"
+        },
+        "thread": {
+          "$ref": "#/definitions/ThreadSummary"
+        }
+      },
+      "required": [
+        "hasOlder",
+        "items",
+        "state",
+        "thread"
+      ],
+      "type": "object"
+    },
+    "ThreadStartedParams": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/ThreadSummary"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "type": "object"
+    },
+    "ThreadState": {
+      "description": "The runtime projection of one thread (today's `DesktopSessionState` fields, grouped as the thread-feed notifications of P §5.1 carry them).",
+      "properties": {
+        "agents": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadAgents"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvals": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadApprovals"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "goal": true,
+        "promptRestore": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PromptRestore"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "providerAccountChange": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderAccountChange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "queued": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "quotaResume": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QuotaResume"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remoteEnabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "route": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadRoute"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadRuntime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shellJobs": true,
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "todo": true,
+        "workflow": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadWorkflow"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workspace": true
+      },
+      "type": "object"
+    },
+    "ThreadStatus": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "notLoaded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "idle"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "systemError"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "activeFlags": {
+              "items": {
+                "$ref": "#/definitions/ThreadActiveFlag"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "active"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "activeFlags",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ThreadStatusChangedParams": {
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ThreadStatus"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadSummary": {
+      "description": "One list row (today's `DesktopSessionSummary`), live on the app feed as `thread/summary/updated`.",
+      "properties": {
+        "activityAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "agentDeleted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "agentHome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agentRoom": {
+          "description": "Today's `DesktopAgentRoomSummary`."
+        },
+        "agentSession": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "agentWorking": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "archived": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "awaitingApproval": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "awaitingQuestion": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "classification": {
+          "description": "Today's `DesktopSessionClassification`."
+        },
+        "compactCount": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "favorite": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "forkedFromId": {
+          "description": "Inherit source (`inheritedFromSessionId` today).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handedBy": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "incomingTail": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "lastMessagePreview": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastMessageRoutine": {
+          "description": "Today's `RoutineProvenance`."
+        },
+        "leadWorking": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "messageCount": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preview": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "readMessageCount": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "readRevision": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "readWith": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionMode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "taskAgent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "taskFrom": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "working": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "workspace": {
+          "description": "Today's `DesktopSessionWorkspace`."
+        }
+      },
+      "required": [
+        "classification",
+        "cwd",
+        "id",
+        "messageCount",
+        "preview",
+        "title",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "ThreadSummaryUpdatedParams": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/ThreadSummary"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "type": "object"
+    },
+    "ThreadValueParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "threadId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ThreadWorkflow": {
+      "properties": {
+        "orchestrationMode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OrchestrationMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pendingOrchestrationModeSwitch": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pendingWorkflowSwitch": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "workflow": true
+      },
+      "type": "object"
+    },
+    "TokenUsageUpdatedParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "usage": true
+      },
+      "required": [
+        "threadId",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "ToolApprovalDecision": {
+      "description": "Mixdog's `ToolApprovalDecision` without `device`: the core stamps the device from the answering connection (P §8.1). The result type of every approval server request.",
+      "properties": {
+        "answers": {
+          "description": "`ask_user` answers aligned with the questions; `null` = unanswered.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/QuestionAnswer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "editedArgs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "edit-and-approve: the edited text of the request's editable fields.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remember": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalRemember"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reply": {
+          "description": "`ask_user`: the composer message that answered the question.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HumanGateResponse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Human-in-the-loop response; a secret value never travels here (`approval/provideSecret`)."
+        },
+        "scope": {
+          "description": "Permission requests: the chosen scope id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "approved"
+      ],
+      "type": "object"
+    },
+    "ToolApprovalResult": {
+      "description": "How the last approval of a thread ended (today's `toolApprovalResult`).",
+      "properties": {
+        "approved": {
+          "type": "boolean"
+        },
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "device": {
+          "type": "string"
+        },
+        "expired": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "interrupted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "withdrawn": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "approved",
+        "at",
+        "device",
+        "id"
+      ],
+      "type": "object"
+    },
+    "Turn": {
+      "properties": {
+        "completedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TurnError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "description": "Present only when the read asked for items (`itemsView`).",
+          "items": {
+            "$ref": "#/definitions/ThreadItem"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "startedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/TurnStatus"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "TurnError": {
+      "description": "Why a turn failed: an error reason object (`{reason, …}`, P §10) and, for provider failures, the typed upstream detail.",
+      "properties": {
+        "data": {
+          "description": "`{reason, …typed fields}` exactly as in JSON-RPC error `data` (P §10)."
+        },
+        "message": {
+          "type": "string"
+        },
+        "providerError": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderErrorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "data",
+        "message"
+      ],
+      "type": "object"
+    },
+    "TurnNotificationParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "turn": {
+          "$ref": "#/definitions/Turn"
+        }
+      },
+      "required": [
+        "threadId",
+        "turn"
+      ],
+      "type": "object"
+    },
+    "TurnStatus": {
+      "enum": [
+        "inProgress",
+        "completed",
+        "interrupted",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "UiOpenRequestedParams": {
+      "description": "App-feed event: a UI should open a pane (today's `*-open-requested` events).",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/OpenKind"
+        },
+        "target": true,
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "target"
+      ],
+      "type": "object"
+    },
+    "UserInput": {
+      "description": "One input element of a user message.",
+      "oneOf": [
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "text"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An image or file attachment, by content digest.",
+          "properties": {
+            "blob": {
+              "$ref": "#/definitions/BlobDescriptor"
+            },
+            "filename": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "original": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/BlobDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "attachment"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "blob",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pasted text kept out of line (today's `pastedTexts`).",
+          "properties": {
+            "filename": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "$ref": "#/definitions/MaybeBlob_for_String"
+            },
+            "type": {
+              "enum": [
+                "pastedText"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WarningParams": {
+      "properties": {
+        "detail": true,
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "description": "`configWarning`: the offending config path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "description": "Atomic snapshot at the feed seq it is stamped with.",
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/snapshot"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSnapshotParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/closed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadIdParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/status/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadStatusChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/name/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadNameUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/tokenUsage/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TokenUsageUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/goal/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadValueParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/goal/cleared"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadIdParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/queue/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadQueueChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "turn/started"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TurnNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "turn/completed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TurnNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/started"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The authoritative, persisted row.",
+      "properties": {
+        "method": {
+          "enum": [
+            "item/completed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/agentMessage/delta"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemDeltaParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/reasoning/textDelta"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemDeltaParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/reasoning/summaryTextDelta"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemDeltaParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/commandExecution/outputDelta"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemDeltaParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/plan/delta"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemDeltaParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "item/mcpToolCall/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ItemProgressParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/historyReset"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadHistoryResetParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/runtime/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ThreadRuntime"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/route/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ThreadRoute"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/context/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ThreadContext"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/todo/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_Nullable_AnyValue"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/quotaResume/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_Nullable_QuotaResume"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/agents/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ThreadAgents"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/shellJobs/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_AnyValue"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/workflow/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ThreadWorkflow"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/workspace/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_Nullable_AnyValue"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/approvals/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ThreadApprovals"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/promptRestore"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_Nullable_PromptRestore"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/providerAccount/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_ProviderAccountChange"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/remote/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_Boolean"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `reviewDiff`, key = thread id.",
+      "properties": {
+        "method": {
+          "enum": [
+            "review/diff/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "error"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ErrorNotificationParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "serverRequest/resolved"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ServerRequestResolvedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "host/notification/show"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostNotificationShowParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/viewFrames"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserViewFramesParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "modelProxy/run/event"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelProxyRunEventParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "app/snapshot"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/AppSnapshotParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/started"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadStartedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/summary/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSummaryUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/deleted"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadIdParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/archived"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadIdParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/unarchived"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadIdParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "warning"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WarningParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "configWarning"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WarningParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/openRequested"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiOpenRequestedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "remote/pointer"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemotePointerParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "config/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "project/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "agent/pool/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "agent/list/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "agent/botOrder/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "model/presets/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "model/catalog/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/list/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "webSearch/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Sections `providerSetup` and `providerAccounts`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "account/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "usage/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "shellJobs/host/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "terminal/activity/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "terminal/tabs/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "remote/state/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "notice/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "update/status/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "host/state/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "computer/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "approval/inbox/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "core/state/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "core/health/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "migration/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Snapshot of any scoped feed (its read model).",
+      "properties": {
+        "method": {
+          "enum": [
+            "feed/snapshot"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/FeedSnapshotParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "fs/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/FsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "search/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SearchUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "search/completed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SearchCompletedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "process/outputDelta"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProcessOutputDeltaParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "process/exited"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProcessExitedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "login/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/LoginUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "git/status/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "lsp/status/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "lsp/diagnostics/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "media/job/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "system/ports/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "ServerNotification"
+}

@@ -1,0 +1,308 @@
+{
+  "appFeedId": "app",
+  "closeCodes": [
+    {
+      "code": 1000,
+      "reason": "normal"
+    },
+    {
+      "code": 1001,
+      "reason": "draining"
+    },
+    {
+      "code": 1003,
+      "reason": "binaryNotAllowed"
+    },
+    {
+      "code": 1007,
+      "reason": "invalidFrame"
+    },
+    {
+      "code": 1008,
+      "reason": "policy"
+    },
+    {
+      "code": 1009,
+      "reason": "frameTooBig"
+    },
+    {
+      "code": 4000,
+      "reason": "slowConsumer"
+    },
+    {
+      "code": 4001,
+      "reason": "peerUnresponsive"
+    },
+    {
+      "code": 4002,
+      "reason": "versionRefused"
+    }
+  ],
+  "errorCodes": {
+    "internalError": -32603,
+    "invalidParams": -32602,
+    "invalidRequest": -32600,
+    "methodNotFound": -32601,
+    "overloaded": -32001
+  },
+  "inlineMax": 262144,
+  "limits": {
+    "appRingBytes": 1048576,
+    "controlReserveBytes": 524288,
+    "eventBudgetBytes": 7864320,
+    "heartbeatTickMs": 15000,
+    "inflight": {
+      "c0": 64,
+      "c1": 16,
+      "c2": 8,
+      "c3": 4
+    },
+    "maxBlobPageBytes": 1048576,
+    "maxBlobPutChunkBytes": 196608,
+    "maxConnections": 128,
+    "maxFrameBytes": 327680,
+    "maxInboundFrameBytes": 262144,
+    "maxItemFieldBytes": 262144,
+    "maxMediaFrameBytes": 67108864,
+    "maxProcesses": 64,
+    "maxSnapshotBytes": 3145728,
+    "queueBytes": 8388608,
+    "ringBytes": 4194304,
+    "terminalInputBufferBytes": 1048576,
+    "terminalRingChars": 200000
+  },
+  "maxBlobBytes": 67108864,
+  "mediaFrame": {
+    "byteOrder": "bigEndian",
+    "fields": [
+      {
+        "name": "purpose",
+        "offset": 0,
+        "size": 1,
+        "values": {
+          "browserView": 1
+        }
+      },
+      {
+        "bits": {
+          "fitFailed": 2,
+          "fitSettled": 1
+        },
+        "name": "flags",
+        "offset": 1,
+        "size": 1
+      },
+      {
+        "name": "streamId",
+        "offset": 2,
+        "size": 4
+      },
+      {
+        "name": "width",
+        "offset": 6,
+        "size": 2
+      },
+      {
+        "name": "height",
+        "offset": 8,
+        "size": 2
+      },
+      {
+        "name": "format",
+        "offset": 10,
+        "size": 1,
+        "values": {
+          "jpeg": 1
+        }
+      },
+      {
+        "name": "padding",
+        "offset": 11,
+        "size": 5
+      }
+    ],
+    "headerBytes": 16
+  },
+  "sections": [
+    {
+      "feed": "app",
+      "keyed": true,
+      "notification": "config/updated",
+      "section": "config"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "project/updated",
+      "section": "projects"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "agent/pool/updated",
+      "section": "agentPool"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "agent/list/updated",
+      "section": "agents"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "agent/botOrder/updated",
+      "section": "botOrder"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "model/presets/updated",
+      "section": "presets"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "model/catalog/updated",
+      "section": "modelCatalog"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "workflow/list/updated",
+      "section": "workflows"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "webSearch/updated",
+      "section": "webSearch"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "account/updated",
+      "section": "providerSetup"
+    },
+    {
+      "feed": "app",
+      "keyed": true,
+      "notification": "account/updated",
+      "section": "providerAccounts"
+    },
+    {
+      "feed": "app",
+      "keyed": true,
+      "notification": "usage/updated",
+      "section": "usage"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "shellJobs/host/updated",
+      "section": "hostShellJobs"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "terminal/activity/updated",
+      "section": "terminalActivity"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "terminal/tabs/updated",
+      "section": "terminalTabs"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "remote/state/updated",
+      "section": "remote"
+    },
+    {
+      "feed": "app",
+      "keyed": true,
+      "notification": "notice/updated",
+      "section": "notice"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "update/status/updated",
+      "section": "update"
+    },
+    {
+      "feed": "app",
+      "keyed": true,
+      "notification": "host/state/updated",
+      "section": "hostState"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "computer/updated",
+      "section": "computer"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "approval/inbox/updated",
+      "section": "approvalInbox"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "core/state/updated",
+      "section": "core"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "core/health/updated",
+      "section": "coreHealth"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
+      "notification": "migration/progress",
+      "section": "migration"
+    },
+    {
+      "feed": "thread",
+      "keyed": true,
+      "notification": "review/diff/updated",
+      "section": "reviewDiff"
+    },
+    {
+      "feed": "git",
+      "keyed": true,
+      "notification": "git/status/updated",
+      "section": "gitStatus"
+    },
+    {
+      "feed": "lsp",
+      "keyed": true,
+      "notification": "lsp/status/updated",
+      "section": "lspStatus"
+    },
+    {
+      "feed": "lsp",
+      "keyed": true,
+      "notification": "lsp/diagnostics/updated",
+      "section": "lspDiagnostics"
+    },
+    {
+      "feed": "media",
+      "keyed": true,
+      "notification": "media/job/updated",
+      "section": "mediaJobs"
+    },
+    {
+      "feed": "ports",
+      "keyed": false,
+      "notification": "system/ports/updated",
+      "section": "ports"
+    }
+  ]
+}
