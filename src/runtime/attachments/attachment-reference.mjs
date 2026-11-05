@@ -191,17 +191,10 @@ export function attachedFilesNote(prompt, options, attachments) {
     });
   }
   if (!files.length) return null;
-  const lines = files.map(
-    (file) => `- ${quotedName(file.name, 'attachment')} (${file.mimeType}, ${sizeLabel(file.sizeBytes)}): ${file.path}`
-  );
+  // Each path already ends in the file's original name and extension.
   return {
     type: 'text',
-    text: [
-      '[Files attached to this message are saved on this PC as ordinary files under their original names. ' +
-        'Use these paths to upload, open or copy them:',
-      ...lines,
-      ']',
-    ].join('\n'),
+    text: ['[Attached files on this PC:', ...files.map((file) => `- ${file.path}`), ']'].join('\n'),
     attachmentReference: { kind: 'files', files },
   };
 }
