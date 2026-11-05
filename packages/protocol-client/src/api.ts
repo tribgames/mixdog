@@ -80,6 +80,8 @@ export interface TransportSink {
 /** Outbound half. One JSON message per text frame. */
 export interface TransportWriter {
   send(text: string): void;
+  /** One binary frame (X17 host media). Absent on transports that cannot carry one. */
+  sendBinary?(data: Uint8Array): void;
   close(code: number, reason: string): void;
 }
 export interface Connector {
@@ -137,6 +139,12 @@ export interface ThreadFold<S = Json> {
  */
 export interface ThreadReducer<S = Json> {
   initial(snapshot: Json): S;
+  /**
+   * `initial` in steps, for a snapshot too large to fold in one turn: the client runs the generator and, whenever the turn's
+   * budget is spent, gives the thread back before it resumes it (`yield` where the work divides, e.g. every few items). The
+   * return value is the state, equal to `initial(snapshot)`. Without it the client calls `initial` in one piece.
+   */
+  initialSteps?(snapshot: Json): Generator<void, S, void>;
   apply(state: S, notification: JsonRpcNotification): S;
 }
 
@@ -150,7 +158,17 @@ export interface SectionEntry {
 
 export type StoreChange =
   | { readonly type: 'thread'; readonly threadId: string }
-  | { readonly type: 'section'; readonly section: SectionName; readonly key: string | null };
+  | { readonly type: 'section'; readonly section: SectionName; readonly key: string | null }
+  /**
+   * A whole `app/snapshot` is folded. Until then the store still holds the previous app state, whole and consistent: the
+   * snapshot is staged section by section across turns and swapped in at once. Before this change, `section` changes announce
+   * every section of the new snapshot and every section it removed.
+   */
+  | { readonly type: 'appSnapshot' }
+  /** A subscription was re-attached after a reconnect. `feedId` is the thread id, or `app`. Its snapshot (or the missed notifications) follows as ordinary changes. */
+  | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'restored' }
+  /** Re-attaching failed with a typed error (the `subscriptionLost` client event); the subscription is dropped and a thread's fold is gone. */
+  | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'lost'; readonly error: ClientErrorDetail };
 
 export interface FoldStore<S = Json> {
   thread(threadId: string): ThreadFold<S> | undefined;
@@ -184,7 +202,10 @@ export type ClientEvent =
   /** Delivered in order. Removed when `serverRequest/resolved` arrives or the socket closes (the core re-delivers). */
   | { readonly type: 'serverRequest'; readonly request: ServerRequest }
   | { readonly type: 'serverRequestResolved'; readonly params: ServerRequestResolvedParams }
-  /** Connection-scoped notifications (no `feed`) other than `serverRequest/resolved`, and app-feed notifications that are not sections. */
+  /** Connection-scoped notifications (no `feed`) other than `serverRequest/resolved`; app-feed notifications that are not sections;
+   * and every notification of a scoped feed (`fs/changed`, `system/ports/updated`, `search/updated`, ...), in feed order with text
+   * blob stubs resolved. Scoped-feed notifications keep their `feed` stamp (`fs:<watchId>`, `ports`); a gap or epoch change inside
+   * one closes the connection with 1002 as for a thread. `feed/snapshot` re-bases the feed and is delivered too. */
   | { readonly type: 'notification'; readonly notification: JsonRpcNotification }
   /** Restoring a subscription after reconnect failed with a typed error (e.g. `threadNotFound`); the subscription is dropped. */
   | { readonly type: 'subscriptionLost'; readonly threadId: string; readonly error: ClientErrorDetail }
@@ -219,6 +240,9 @@ export interface ProtocolClient<S = Json> {
   call<K extends keyof ClientMethods & string>(method: K, params: CallParams<ClientMethods[K]['params']>, options?: CallOptions): Promise<ClientMethods[K]['result']>;
   /** Client notification (`terminal/input`, `terminal/resize`, `client/perfLog`, ...). Throws `connectionLost` when not ready. */
   notify(method: string, params: Json): void;
+  /** Sends one binary frame (X17: 16-byte media header + payload, host role only). Throws `connectionLost` when not ready and
+   * `protocolViolation` when the transport has no binary lane or the frame exceeds `limits.maxMediaFrameBytes` + 16. */
+  sendBinary(data: Uint8Array): void;
 
   /** `thread/resume`. Registers the subscription for restore after reconnect, sending the folded position as `resumeFrom`. */
   resumeThread(threadId: string, window: ResumeWindow): Promise<ThreadResumeResponse>;
@@ -254,6 +278,19 @@ export interface ConnectOptions<S = Json> {
   /** UUIDv7 by default (protocol.md §9.1). */
   readonly newOpId?: () => OpId;
   readonly ladder?: LadderConfig;
+  /** Bounds how long the fold may hold the thread it runs on. Defaults: 8 ms, `performance.now`, a `setTimeout(0)` macrotask. */
+  readonly turn?: TurnOptions;
+}
+
+/**
+ * A fold that has run for `budgetMs` since its turn began (the frame's arrival, or the last yield) gives the thread back through
+ * `yieldTurn` before it continues: the app snapshot's section staging and its change announcements, and blob-stub resolution
+ * inside any feed's notification. A frame is parsed in one piece, before the fold starts; that cost is outside the budget.
+ */
+export interface TurnOptions {
+  readonly budgetMs?: number;
+  readonly now?: () => number;
+  readonly yieldTurn?: () => Promise<void>;
 }
 
 /**

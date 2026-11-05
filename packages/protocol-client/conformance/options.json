@@ -23,7 +23,7 @@
       "appRingBytes": 1048576,
       "terminalRingChars": 200000,
       "maxBlobPageBytes": 1048576,
-      "maxBlobPutChunkBytes": 196608,
+      "maxBlobPutChunkBytes": 193536,
       "inflight": { "c0": 64, "c1": 16, "c2": 8, "c3": 4 },
       "maxConnections": 128,
       "heartbeatTickMs": 15000,

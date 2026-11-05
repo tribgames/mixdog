@@ -3,6 +3,8 @@ import type { Connector, Target, TransportSink, TransportWriter } from './api.ts
 
 export class MockConn {
   readonly sent: string[] = [];
+  /** Binary frames the client wrote (X17). */
+  readonly binary: Uint8Array[] = [];
   clientClose: { code: number; reason: string } | undefined;
   private waiter: ((t: string) => void) | undefined;
   private closedFlag = false;
@@ -20,6 +22,10 @@ export class MockConn {
         this.waiter = undefined;
         w(text);
       } else this.sent.push(text);
+    },
+    sendBinary: (data) => {
+      if (this.closedFlag) throw new Error('send on closed mock connection');
+      this.binary.push(data);
     },
     close: (code, reason) => {
       this.clientClose = { code, reason };
