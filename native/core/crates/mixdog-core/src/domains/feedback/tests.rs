@@ -7,7 +7,6 @@ use std::net::TcpListener;
 use std::sync::Mutex;
 
 use mixdog_core_api::error::CoreError;
-use mixdog_protocol::DomainErrorDetail;
 
 use super::*;
 use crate::domains::support::testing::request;
@@ -141,12 +140,10 @@ async fn upload(service: &FeedbackService, op: u64, input: Value) -> Result<Valu
 fn message(error: CoreError) -> String {
     match error {
         CoreError::DomainError {
-            detail: Some(detail),
+            message: Some(message),
+            detail: None,
             ..
-        } => match *detail {
-            DomainErrorDetail::CommandFailed { message } => message,
-            other => panic!("unexpected detail {other:?}"),
-        },
+        } => message.to_string(),
         other => panic!("unexpected error {other:?}"),
     }
 }

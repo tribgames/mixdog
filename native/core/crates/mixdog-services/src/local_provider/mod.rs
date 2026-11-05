@@ -16,6 +16,10 @@ pub mod request_queue;
 pub mod server_process;
 pub mod service;
 pub mod setup_actions;
+#[cfg(test)]
+mod process_twin_tests;
+#[cfg(test)]
+mod twin_tests;
 
 pub use installations::Installations;
 pub use provider::{LocalProvider, Parts, ProviderError};

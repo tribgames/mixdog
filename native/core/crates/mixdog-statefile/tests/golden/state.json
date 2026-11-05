@@ -1,0 +1,1118 @@
+[
+ {
+  "name": "read: intact file",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "a": 1
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: absent file answers the fallback",
+  "files": {},
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {},
+   "trace": []
+  }
+ },
+ {
+  "name": "read: byte order mark is skipped",
+  "files": {
+   "f.json": "﻿{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "a": 1
+   },
+   "threw": null,
+   "files": {
+    "f.json": "﻿{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: invalid UTF-8 decodes lossily and parses",
+  "files": {
+   "f.json": {
+    "b64": "eyJhIjoi/yJ9"
+   }
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "a": "�"
+   },
+   "threw": null,
+   "files": {
+    "f.json": {
+     "b64": "eyJhIjoi/yJ9"
+    }
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: damaged without a backup is set aside",
+  "files": {
+   "f.json": "{\"a\":"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>"
+   ]
+  }
+ },
+ {
+  "name": "read: damaged restores the backup",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "b": 2
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"b\":2}\n",
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "read: NUL-filled restores the backup",
+  "files": {
+   "f.json": "\u0000\u0000\u0000\u0000",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "b": 2
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"b\":2}\n",
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "\u0000\u0000\u0000\u0000"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "read: damaged backup does not restore",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {}
+  },
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json.bak": "{\"b\":",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>"
+   ]
+  }
+ },
+ {
+  "name": "read: validate rejection is damage",
+  "files": {
+   "f.json": "[1]",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "object",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "b": 2
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"b\":2}\n",
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "[1]"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "read: newer version stays in place",
+  "files": {
+   "f.json": "{\"version\":2}\n",
+   "f.json.bak": "{\"version\":1,\"x\":1}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "versioned",
+   "opts": {}
+  },
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json": "{\"version\":2}\n",
+    "f.json.bak": "{\"version\":1,\"x\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: restoreBackup false sets aside and answers the fallback",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {
+    "restoreBackup": false
+   }
+  },
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>"
+   ]
+  }
+ },
+ {
+  "name": "read: keepWithoutBackup leaves a damaged file",
+  "files": {
+   "f.json": "{\"a\":"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {
+    "keepWithoutBackup": true
+   }
+  },
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: keepWithoutBackup still restores a good backup",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {
+    "keepWithoutBackup": true
+   }
+  },
+  "expect": {
+   "returned": {
+    "b": 2
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"b\":2}\n",
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "read: busy lock leaves the damaged file",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {
+    "timeoutMs": 0
+   }
+  },
+  "lockHeld": true,
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":",
+    "f.json.bak": "{\"b\":2}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: lock timeout leaves the damaged file",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {
+    "timeoutMs": 100
+   }
+  },
+  "lockHeld": true,
+  "expect": {
+   "returned": "FALLBACK",
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":",
+    "f.json.bak": "{\"b\":2}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "read: an intact file is read while the lock is held",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "read",
+   "validate": "none",
+   "opts": {
+    "timeoutMs": 0
+   }
+  },
+  "lockHeld": true,
+  "expect": {
+   "returned": {
+    "a": 1
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "update: absent file is created",
+  "files": {},
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "seen": null
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": null\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: backup keeps the replaced version",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": {
+    "seen": {
+     "a": 1
+    }
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": {\n    \"a\": 1\n  }\n}\n",
+    "f.json.bak": "{\"a\":1}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "create f.json.bak.mixdog-tmp-<H>",
+    "fsync f.json.bak.mixdog-tmp-<H>",
+    "rename f.json.bak.mixdog-tmp-<H> f.json.bak",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: no change writes nothing",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "noop",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "a": 1
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "update: damaged file feeds the backup to the mutator",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "seen": {
+     "b": 2
+    }
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": {\n    \"b\": 2\n  }\n}\n",
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: damaged file without a backup feeds null",
+  "files": {
+   "f.json": "{\"a\":"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {}
+  },
+  "expect": {
+   "returned": {
+    "seen": null
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": null\n}\n",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: NUL-filled file feeds null",
+  "files": {
+   "f.json": "\u0000\u0000\u0000\u0000"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": {
+    "seen": null
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": null\n}\n",
+    "f.json.corrupt-<N>": "\u0000\u0000\u0000\u0000"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: restoreBackup false feeds null",
+  "files": {
+   "f.json": "{\"a\":",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "restoreBackup": false
+   }
+  },
+  "expect": {
+   "returned": {
+    "seen": null
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": null\n}\n",
+    "f.json.bak": "{\"b\":2}\n",
+    "f.json.corrupt-<N>": "{\"a\":"
+   },
+   "trace": [
+    "rename f.json f.json.corrupt-<N>",
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: keepWithoutBackup leaves the file and feeds null",
+  "files": {
+   "f.json": "{\"a\":"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "keepWithoutBackup": true
+   }
+  },
+  "expect": {
+   "returned": {
+    "seen": null
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": null\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "update: a throwing mutator writes nothing",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "throw",
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": null,
+   "threw": "EMUTATOR",
+   "files": {
+    "f.json": "{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "update: busy lock fails",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "timeoutMs": 0
+   }
+  },
+  "lockHeld": true,
+  "expect": {
+   "returned": null,
+   "threw": "ELOCKCONTENDED",
+   "files": {
+    "f.json": "{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "update: lock timeout fails",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "timeoutMs": 100
+   }
+  },
+  "lockHeld": true,
+  "expect": {
+   "returned": null,
+   "threw": "ELOCKTIMEOUT",
+   "files": {
+    "f.json": "{\"a\":1}\n"
+   },
+   "trace": []
+  }
+ },
+ {
+  "name": "update: fsyncDir syncs the directory last",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "update",
+   "mutate": "wrap",
+   "opts": {
+    "fsyncDir": true,
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": {
+    "seen": {
+     "a": 1
+    }
+   },
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"seen\": {\n    \"a\": 1\n  }\n}\n",
+    "f.json.bak": "{\"a\":1}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "create f.json.bak.mixdog-tmp-<H>",
+    "fsync f.json.bak.mixdog-tmp-<H>",
+    "rename f.json.bak.mixdog-tmp-<H> f.json.bak",
+    "rename f.json.mixdog-tmp-<H> f.json",
+    "open-dir",
+    "fsync-dir"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: fresh file",
+  "files": {},
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "a": [
+     1,
+     2
+    ],
+    "b": "x"
+   },
+   "opts": {}
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"a\": [\n    1,\n    2\n  ],\n  \"b\": \"x\"\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: compact",
+  "files": {},
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "a": [
+     1,
+     2
+    ],
+    "b": "x"
+   },
+   "opts": {
+    "compact": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\"a\":[1,2],\"b\":\"x\"}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: backup publishes before the rename",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "c": 3
+   },
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"c\": 3\n}\n",
+    "f.json.bak": "{\"a\":1}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "create f.json.bak.mixdog-tmp-<H>",
+    "fsync f.json.bak.mixdog-tmp-<H>",
+    "rename f.json.bak.mixdog-tmp-<H> f.json.bak",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: backup skips a damaged file",
+  "files": {
+   "f.json": "{\"a\":"
+  },
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "c": 3
+   },
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"c\": 3\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: backup skips a NUL-filled file",
+  "files": {
+   "f.json": "\u0000\u0000\u0000\u0000"
+  },
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "c": 3
+   },
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"c\": 3\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: backup replaces an older backup",
+  "files": {
+   "f.json": "{\"a\":1}\n",
+   "f.json.bak": "{\"b\":2}\n"
+  },
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "c": 3
+   },
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"c\": 3\n}\n",
+    "f.json.bak": "{\"a\":1}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "create f.json.bak.mixdog-tmp-<H>",
+    "fsync f.json.bak.mixdog-tmp-<H>",
+    "rename f.json.bak.mixdog-tmp-<H> f.json.bak",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: no fsync",
+  "files": {},
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "a": 1
+   },
+   "opts": {
+    "fsync": false
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"a\": 1\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: fsyncDir",
+  "files": {},
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "a": 1
+   },
+   "opts": {
+    "fsyncDir": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"a\": 1\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json",
+    "open-dir",
+    "fsync-dir"
+   ]
+  }
+ },
+ {
+  "name": "writeJson: lock",
+  "files": {
+   "f.json": "{\"a\":1}\n"
+  },
+  "call": {
+   "fn": "writeJson",
+   "value": {
+    "a": 1
+   },
+   "opts": {
+    "lock": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "{\n  \"a\": 1\n}\n"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeFile: createOnly on an absent file",
+  "files": {},
+  "call": {
+   "fn": "writeFile",
+   "text": "hello",
+   "opts": {
+    "createOnly": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "hello"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "link f.json.mixdog-tmp-<H> f.json",
+    "unlink f.json.mixdog-tmp-<H>"
+   ]
+  }
+ },
+ {
+  "name": "writeFile: createOnly leaves an existing file",
+  "files": {
+   "f.json": "keep"
+  },
+  "call": {
+   "fn": "writeFile",
+   "text": "hello",
+   "opts": {
+    "createOnly": true
+   }
+  },
+  "expect": {
+   "returned": false,
+   "threw": null,
+   "files": {
+    "f.json": "keep"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "link f.json.mixdog-tmp-<H> f.json",
+    "unlink f.json.mixdog-tmp-<H>"
+   ]
+  }
+ },
+ {
+  "name": "writeFile: backup keeps a text file",
+  "files": {
+   "f.json": "old text"
+  },
+  "call": {
+   "fn": "writeFile",
+   "text": "new text",
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "new text",
+    "f.json.bak": "old text"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "create f.json.bak.mixdog-tmp-<H>",
+    "fsync f.json.bak.mixdog-tmp-<H>",
+    "rename f.json.bak.mixdog-tmp-<H> f.json.bak",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeFile: backup skips a NUL-filled file",
+  "files": {
+   "f.json": "\u0000\u0000\u0000\u0000"
+  },
+  "call": {
+   "fn": "writeFile",
+   "text": "new text",
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "new text"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeFile: backup keeps an unparsable text file",
+  "files": {
+   "f.json": "{\"a\":"
+  },
+  "call": {
+   "fn": "writeFile",
+   "text": "new text",
+   "opts": {
+    "backup": true
+   }
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "new text",
+    "f.json.bak": "{\"a\":"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "create f.json.bak.mixdog-tmp-<H>",
+    "fsync f.json.bak.mixdog-tmp-<H>",
+    "rename f.json.bak.mixdog-tmp-<H> f.json.bak",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ },
+ {
+  "name": "writeFile: replaces without a backup",
+  "files": {
+   "f.json": "old text"
+  },
+  "call": {
+   "fn": "writeFile",
+   "text": "new text",
+   "opts": {}
+  },
+  "expect": {
+   "returned": true,
+   "threw": null,
+   "files": {
+    "f.json": "new text"
+   },
+   "trace": [
+    "create f.json.mixdog-tmp-<H>",
+    "fsync f.json.mixdog-tmp-<H>",
+    "rename f.json.mixdog-tmp-<H> f.json"
+   ]
+  }
+ }
+]

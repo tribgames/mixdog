@@ -1,0 +1,1857 @@
+{
+  "domain": "local-process-twin",
+  "parse": [
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 20971520000,
+          "index": 0,
+          "memoryBytes": 25757220864,
+          "name": "NVIDIA RTX 4090",
+          "uuid": "GPU-aaaa-1111",
+          "vendor": "NVIDIA"
+        },
+        {
+          "freeMemoryBytes": 12582912000,
+          "index": 1,
+          "memoryBytes": 12884901888,
+          "name": "NVIDIA RTX 3060",
+          "uuid": "GPU-bbbb-2222",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 20971520000,
+          "index": 0,
+          "memoryBytes": 25757220864,
+          "name": "NVIDIA RTX 4090",
+          "uuid": "GPU-aaaa-1111",
+          "vendor": "NVIDIA"
+        },
+        {
+          "freeMemoryBytes": 12582912000,
+          "index": 1,
+          "memoryBytes": 12884901888,
+          "name": "NVIDIA RTX 3060",
+          "uuid": "GPU-bbbb-2222",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\r\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\r\n"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 20971520000,
+          "index": 0,
+          "memoryBytes": 25757220864,
+          "name": "NVIDIA RTX 4090",
+          "uuid": "GPU-aaaa-1111",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\nbroken line\n2, not-a-uuid, X, 100, 50\n"
+    },
+    {
+      "gpus": [],
+      "output": ""
+    },
+    {
+      "gpus": [],
+      "output": "\n\n"
+    },
+    {
+      "gpus": [],
+      "output": "no commas at all"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-a, n, 100"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "NVIDIA, Corp, Ti",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, NVIDIA, Corp, Ti, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, 100, 200"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 104857600,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, n, 100, 100"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 0,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, n, 100, 0"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, 100, -1"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, 0, 0"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, -5, 0"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "gpu-AB-cd",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, gpu-AB-cd, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-xyz, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-ab_cd, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-ab cd, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": " 0 , GPU-aa , n , 100 , 50 "
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": ", GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 10,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "1e1, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 2,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0x2, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "-0, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "1.5, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "-1, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "NaN, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [],
+      "output": "x, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 5242880000,
+          "index": 0,
+          "memoryBytes": 10485760000,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, n, 1e4, 5e3"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 8388608,
+          "index": 0,
+          "memoryBytes": 16777216,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, n, 0x10, 0x8"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 105381888,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, n, 100.5, 50"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, 100.0001, 50"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, NaN, 5"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, Infinity, 5"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, , "
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, 9007199254740991, 1"
+    },
+    {
+      "gpus": [],
+      "output": "0, GPU-aa, n, 8589934592, 1"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 1048576,
+          "index": 0,
+          "memoryBytes": 9007199253692416,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, n, 8589934591, 1"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 104857600,
+          "index": 3,
+          "memoryBytes": 8388608000,
+          "name": "C",
+          "uuid": "GPU-cc",
+          "vendor": "NVIDIA"
+        },
+        {
+          "freeMemoryBytes": 524288000,
+          "index": 1,
+          "memoryBytes": 8388608000,
+          "name": "A",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        },
+        {
+          "freeMemoryBytes": 104857600,
+          "index": 2,
+          "memoryBytes": 16777216000,
+          "name": "B",
+          "uuid": "GPU-bb",
+          "vendor": "NVIDIA"
+        },
+        {
+          "freeMemoryBytes": 524288000,
+          "index": 0,
+          "memoryBytes": 8388608000,
+          "name": "D",
+          "uuid": "GPU-dd",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "3, GPU-cc, C, 8000, 100\n1, GPU-aa, A, 8000, 500\n2, GPU-bb, B, 16000, 100\n0, GPU-dd, D, 8000, 500\n"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "Name, With, Commas",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, Name, With, Commas, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0,GPU-aa,n,100,50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "n",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": " 0, GPU-aa, n, 100, 50"
+    },
+    {
+      "gpus": [
+        {
+          "freeMemoryBytes": 52428800,
+          "index": 0,
+          "memoryBytes": 104857600,
+          "name": "ünï",
+          "uuid": "GPU-aa",
+          "vendor": "NVIDIA"
+        }
+      ],
+      "output": "0, GPU-aa, ünï, 100, 50"
+    }
+  ],
+  "probe": [
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      },
+      "name": "two gpus sorted by memory",
+      "platform": "win32",
+      "query": {
+        "nvidia": "0, GPU-aa, A, 8000, 5000\n1, GPU-bb, B, 24000, 1000\n2, GPU-cc, C, 24000, 2000\n3, GPU-dd, D, 24000, 2000\n"
+      },
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 2097152000,
+          "index": 2,
+          "memoryBytes": 25165824000,
+          "name": "C",
+          "uuid": "GPU-cc",
+          "vendor": "NVIDIA"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 2097152000,
+            "index": 2,
+            "memoryBytes": 25165824000,
+            "name": "C",
+            "uuid": "GPU-cc",
+            "vendor": "NVIDIA"
+          },
+          {
+            "freeMemoryBytes": 2097152000,
+            "index": 3,
+            "memoryBytes": 25165824000,
+            "name": "D",
+            "uuid": "GPU-dd",
+            "vendor": "NVIDIA"
+          },
+          {
+            "freeMemoryBytes": 1048576000,
+            "index": 1,
+            "memoryBytes": 25165824000,
+            "name": "B",
+            "uuid": "GPU-bb",
+            "vendor": "NVIDIA"
+          },
+          {
+            "freeMemoryBytes": 5242880000,
+            "index": 0,
+            "memoryBytes": 8388608000,
+            "name": "A",
+            "uuid": "GPU-aa",
+            "vendor": "NVIDIA"
+          }
+        ],
+        "platform": "win32",
+        "supported": true
+      }
+    },
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      },
+      "name": "no compatible gpu",
+      "platform": "win32",
+      "query": {
+        "nvidia": ""
+      },
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": "No compatible NVIDIA GPU detected.",
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      }
+    },
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      },
+      "name": "only garbage",
+      "platform": "win32",
+      "query": {
+        "nvidia": "error: driver\n"
+      },
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": "No compatible NVIDIA GPU detected.",
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      }
+    },
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      },
+      "name": "query fails",
+      "platform": "win32",
+      "query": {
+        "error": "boom"
+      },
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": "boom",
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      }
+    },
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      },
+      "name": "unsupported platform",
+      "platform": "linux",
+      "query": null,
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "linux",
+        "supported": false
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      },
+      "name": "unsupported arch",
+      "platform": "win32",
+      "query": null,
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      }
+    },
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "mac on intel",
+      "platform": "darwin",
+      "query": null,
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "apple default two thirds",
+      "platform": "darwin",
+      "query": {
+        "apple": {
+          "name": "Apple M4",
+          "totalBytes": 17179869184,
+          "wiredLimitMb": 0
+        }
+      },
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 11453246122,
+          "index": 0,
+          "memoryBytes": 11453246122,
+          "name": "Apple M4",
+          "uuid": "MTL0",
+          "vendor": "Apple"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 11453246122,
+            "index": 0,
+            "memoryBytes": 11453246122,
+            "name": "Apple M4",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          }
+        ],
+        "platform": "darwin",
+        "supported": true
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "apple wired limit",
+      "platform": "darwin",
+      "query": {
+        "apple": {
+          "name": "Apple M2 Max",
+          "totalBytes": 68719476736,
+          "wiredLimitMb": 49152
+        }
+      },
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 51539607552,
+          "index": 0,
+          "memoryBytes": 51539607552,
+          "name": "Apple M2 Max",
+          "uuid": "MTL0",
+          "vendor": "Apple"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 51539607552,
+            "index": 0,
+            "memoryBytes": 51539607552,
+            "name": "Apple M2 Max",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          }
+        ],
+        "platform": "darwin",
+        "supported": true
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "apple odd memory",
+      "platform": "darwin",
+      "query": {
+        "apple": {
+          "name": "Apple M1",
+          "totalBytes": 8589934593,
+          "wiredLimitMb": 0
+        }
+      },
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 5726623062,
+          "index": 0,
+          "memoryBytes": 5726623062,
+          "name": "Apple M1",
+          "uuid": "MTL0",
+          "vendor": "Apple"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 5726623062,
+            "index": 0,
+            "memoryBytes": 5726623062,
+            "name": "Apple M1",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          }
+        ],
+        "platform": "darwin",
+        "supported": true
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "apple negative limit",
+      "platform": "darwin",
+      "query": {
+        "apple": {
+          "name": "Apple M1",
+          "totalBytes": 8589934592,
+          "wiredLimitMb": -4
+        }
+      },
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 5726623061,
+          "index": 0,
+          "memoryBytes": 5726623061,
+          "name": "Apple M1",
+          "uuid": "MTL0",
+          "vendor": "Apple"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 5726623061,
+            "index": 0,
+            "memoryBytes": 5726623061,
+            "name": "Apple M1",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          }
+        ],
+        "platform": "darwin",
+        "supported": true
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "apple no name",
+      "platform": "darwin",
+      "query": {
+        "apple": {
+          "name": "Apple Silicon",
+          "totalBytes": 25769803776,
+          "wiredLimitMb": 0
+        }
+      },
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 17179869184,
+          "index": 0,
+          "memoryBytes": 17179869184,
+          "name": "Apple Silicon",
+          "uuid": "MTL0",
+          "vendor": "Apple"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 17179869184,
+            "index": 0,
+            "memoryBytes": 17179869184,
+            "name": "Apple Silicon",
+            "uuid": "MTL0",
+            "vendor": "Apple"
+          }
+        ],
+        "platform": "darwin",
+        "supported": true
+      }
+    },
+    {
+      "arch": "arm64",
+      "initial": {
+        "arch": "arm64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      },
+      "name": "apple query fails",
+      "platform": "darwin",
+      "query": {
+        "error": "sysctl failed"
+      },
+      "status": {
+        "arch": "arm64",
+        "checking": false,
+        "error": "sysctl failed",
+        "gpu": null,
+        "gpus": [],
+        "platform": "darwin",
+        "supported": false
+      }
+    },
+    {
+      "arch": "x64",
+      "initial": {
+        "arch": "x64",
+        "checking": true,
+        "error": null,
+        "gpu": null,
+        "gpus": [],
+        "platform": "win32",
+        "supported": false
+      },
+      "name": "first unforced refresh queries",
+      "platform": "win32",
+      "query": {
+        "nvidia": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000"
+      },
+      "status": {
+        "arch": "x64",
+        "checking": false,
+        "error": null,
+        "gpu": {
+          "freeMemoryBytes": 20971520000,
+          "index": 0,
+          "memoryBytes": 25757220864,
+          "name": "NVIDIA RTX 4090",
+          "uuid": "GPU-aaaa-1111",
+          "vendor": "NVIDIA"
+        },
+        "gpus": [
+          {
+            "freeMemoryBytes": 20971520000,
+            "index": 0,
+            "memoryBytes": 25757220864,
+            "name": "NVIDIA RTX 4090",
+            "uuid": "GPU-aaaa-1111",
+            "vendor": "NVIDIA"
+          }
+        ],
+        "platform": "win32",
+        "supported": true
+      }
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-local-process.mjs",
+  "select": [
+    {
+      "gpu": {
+        "freeMemoryBytes": 20971520000,
+        "index": 0,
+        "memoryBytes": 25757220864,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 1073741824,
+        "minimumVramBytes": 1073741824
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 20971520000,
+        "index": 0,
+        "memoryBytes": 25757220864,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 10737418240,
+        "minimumVramBytes": 1073741824
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 22548578304 bytes; best compatible GPU has 20971520000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 22548578304,
+        "minimumVramBytes": 1
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 32212254720 bytes; best compatible GPU has 20971520000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 32212254720,
+        "minimumVramBytes": 1
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 20971520000,
+        "index": 0,
+        "memoryBytes": 25757220864,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 21474836480
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 100 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 42949672960
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] model is missing a GPU memory estimate",
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 0,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] model is missing a GPU memory estimate",
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": -5,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 20971520000,
+        "index": 0,
+        "memoryBytes": 25757220864,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 1,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 20971520000,
+        "index": 0,
+        "memoryBytes": 25757220864,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 12582912000,
+        "minimumVramBytes": 12582912000
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 20971520000,
+        "index": 0,
+        "memoryBytes": 25757220864,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "two gpus",
+      "model": {
+        "estimatedVramBytes": 12582912001,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 24564, 20000\n1, GPU-bb, B, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 1073741824,
+        "minimumVramBytes": 1073741824
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 10737418240,
+        "minimumVramBytes": 1073741824
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 22548578304 bytes; best compatible GPU has 12582912000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 22548578304,
+        "minimumVramBytes": 1
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 32212254720 bytes; best compatible GPU has 12582912000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 32212254720,
+        "minimumVramBytes": 1
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 100 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 21474836480
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 100 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 42949672960
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] model is missing a GPU memory estimate",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 0,
+        "minimumVramBytes": 0
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] model is missing a GPU memory estimate",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": -5,
+        "minimumVramBytes": 0
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 1,
+        "minimumVramBytes": 0
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 12582912000,
+        "minimumVramBytes": 12582912000
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 12582912001 bytes; best compatible GPU has 12582912000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "equal free memory picks the lower index",
+      "model": {
+        "estimatedVramBytes": 12582912001,
+        "minimumVramBytes": 0
+      },
+      "output": "1, GPU-bb, B, 12288, 12000\n0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 1073741824,
+        "minimumVramBytes": 1073741824
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 10737418240,
+        "minimumVramBytes": 1073741824
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 22548578304 bytes; best compatible GPU has 12582912000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 22548578304,
+        "minimumVramBytes": 1
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 32212254720 bytes; best compatible GPU has 12582912000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 32212254720,
+        "minimumVramBytes": 1
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 100 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 21474836480
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 100 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 42949672960
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] model is missing a GPU memory estimate",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 0,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] model is missing a GPU memory estimate",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": -5,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 1,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "gpu": {
+        "freeMemoryBytes": 12582912000,
+        "index": 0,
+        "memoryBytes": 12884901888,
+        "name": "A",
+        "uuid": "GPU-aa",
+        "vendor": "NVIDIA"
+      },
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 12582912000,
+        "minimumVramBytes": 12582912000
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] insufficient available GPU memory: estimated requirement 12582912001 bytes; best compatible GPU has 12582912000 bytes free. Free GPU memory or choose a smaller compatible model.",
+      "hardware": "one small gpu",
+      "model": {
+        "estimatedVramBytes": 12582912001,
+        "minimumVramBytes": 0
+      },
+      "output": "0, GPU-aa, A, 12288, 12000\n"
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 1073741824,
+        "minimumVramBytes": 1073741824
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 10737418240,
+        "minimumVramBytes": 1073741824
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 22548578304,
+        "minimumVramBytes": 1
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 32212254720,
+        "minimumVramBytes": 1
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 21474836480
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 100,
+        "minimumVramBytes": 42949672960
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 0,
+        "minimumVramBytes": 0
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": -5,
+        "minimumVramBytes": 0
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 1,
+        "minimumVramBytes": 0
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 12582912000,
+        "minimumVramBytes": 12582912000
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+      "hardware": "no gpu",
+      "model": {
+        "estimatedVramBytes": 12582912001,
+        "minimumVramBytes": 0
+      },
+      "output": ""
+    },
+    {
+      "error": "[local-provider] GPU detection failed: unsupported hardware",
+      "hardware": "unsupported platform",
+      "model": {
+        "estimatedVramBytes": 1073741824,
+        "minimumVramBytes": 1073741824
+      },
+      "output": null
+    },
+    {
+      "error": "[local-provider] GPU detection failed: boom",
+      "hardware": "probe failed",
+      "model": {
+        "estimatedVramBytes": 1073741824,
+        "minimumVramBytes": 1073741824
+      },
+      "output": null
+    }
+  ],
+  "server": [
+    {
+      "health": [
+        {
+          "authorized": true,
+          "url": "http://127.0.0.1:{PORT}/health"
+        },
+        {
+          "authorized": true,
+          "url": "http://127.0.0.1:{PORT}/props"
+        }
+      ],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "nvidia host, default context",
+      "outcome": {
+        "ok": true
+      },
+      "platform": "win32-x64",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [
+        {
+          "args": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "file": "nvidia-smi",
+          "kind": "execFile",
+          "timeoutMs": 5000,
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{PORT}",
+            "--api-key",
+            "{KEY}",
+            "--model",
+            "{DATA}\\local-provider\\models\\hf-000000000000000000000007.gguf",
+            "--alias",
+            "hf-000000000000000000000007",
+            "--ctx-size",
+            "16384",
+            "--parallel",
+            "1",
+            "--split-mode",
+            "none",
+            "--main-gpu",
+            "0",
+            "--n-gpu-layers",
+            "99",
+            "--flash-attn",
+            "on",
+            "--cache-type-k",
+            "q8_0",
+            "--cache-type-v",
+            "q8_0",
+            "--jinja",
+            "--no-webui"
+          ],
+          "cwd": "{DATA}\\local-provider\\runtime\\b10621",
+          "env": {
+            "CUDA_VISIBLE_DEVICES": "GPU-aaaa-1111"
+          },
+          "file": "{DATA}\\local-provider\\runtime\\b10621\\llama-server.exe",
+          "kind": "spawn",
+          "stdio": [
+            "ignore",
+            "pipe",
+            "pipe"
+          ],
+          "windowsHide": true
+        }
+      ]
+    },
+    {
+      "health": [
+        {
+          "authorized": true,
+          "url": "http://127.0.0.1:{PORT}/health"
+        },
+        {
+          "authorized": true,
+          "url": "http://127.0.0.1:{PORT}/props"
+        }
+      ],
+      "model": {
+        "contextWindow": 32768,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "larger context window",
+      "outcome": {
+        "ok": true
+      },
+      "platform": "win32-x64",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [
+        {
+          "args": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "file": "nvidia-smi",
+          "kind": "execFile",
+          "timeoutMs": 5000,
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{PORT}",
+            "--api-key",
+            "{KEY}",
+            "--model",
+            "{DATA}\\local-provider\\models\\hf-000000000000000000000007.gguf",
+            "--alias",
+            "hf-000000000000000000000007",
+            "--ctx-size",
+            "32768",
+            "--parallel",
+            "1",
+            "--split-mode",
+            "none",
+            "--main-gpu",
+            "0",
+            "--n-gpu-layers",
+            "99",
+            "--flash-attn",
+            "on",
+            "--cache-type-k",
+            "q8_0",
+            "--cache-type-v",
+            "q8_0",
+            "--jinja",
+            "--no-webui"
+          ],
+          "cwd": "{DATA}\\local-provider\\runtime\\b10621",
+          "env": {
+            "CUDA_VISIBLE_DEVICES": "GPU-aaaa-1111"
+          },
+          "file": "{DATA}\\local-provider\\runtime\\b10621\\llama-server.exe",
+          "kind": "spawn",
+          "stdio": [
+            "ignore",
+            "pipe",
+            "pipe"
+          ],
+          "windowsHide": true
+        }
+      ]
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 22548578304,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 22548578304,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "model needs more free memory than any gpu has",
+      "outcome": {
+        "error": "[local-provider] insufficient available GPU memory: estimated requirement 22548578304 bytes; best compatible GPU has 20971520000 bytes free. Free GPU memory or choose a smaller compatible model."
+      },
+      "platform": "win32-x64",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [
+        {
+          "args": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "file": "nvidia-smi",
+          "kind": "execFile",
+          "timeoutMs": 5000,
+          "windowsHide": true
+        }
+      ]
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 42949672960,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 42949672960,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "model needs a bigger gpu than any present",
+      "outcome": {
+        "error": "[local-provider] insufficient available GPU memory: estimated requirement 42949672960 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model."
+      },
+      "platform": "win32-x64",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [
+        {
+          "args": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "file": "nvidia-smi",
+          "kind": "execFile",
+          "timeoutMs": 5000,
+          "windowsHide": true
+        }
+      ]
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "no gpu found",
+      "outcome": {
+        "error": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected."
+      },
+      "platform": "win32-x64",
+      "smi": "",
+      "smiOutput": "",
+      "spawns": [
+        {
+          "args": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "file": "nvidia-smi",
+          "kind": "execFile",
+          "timeoutMs": 5000,
+          "windowsHide": true
+        }
+      ]
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "nvidia-smi fails",
+      "outcome": {
+        "error": "[local-provider] GPU detection failed: spawn nvidia-smi ENOENT"
+      },
+      "platform": "win32-x64",
+      "smiFailure": "spawn nvidia-smi ENOENT",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [
+        {
+          "args": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "file": "nvidia-smi",
+          "kind": "execFile",
+          "timeoutMs": 5000,
+          "windowsHide": true
+        }
+      ]
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "runtime not installed",
+      "outcome": {
+        "error": "[local-provider] runtime is not installed"
+      },
+      "platform": "win32-x64",
+      "runtime": false,
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": []
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "model file missing",
+      "outcome": {
+        "error": "[local-provider] model is not installed: owner/name · dir/m q.gguf"
+      },
+      "platform": "win32-x64",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [],
+      "weights": false
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "model file of another size",
+      "outcome": {
+        "error": "[local-provider] model is not installed: owner/name · dir/m q.gguf"
+      },
+      "platform": "win32-x64",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": [],
+      "weightsBytes": 99
+    },
+    {
+      "health": [],
+      "model": {
+        "contextWindow": 16384,
+        "estimatedVramBytes": 200,
+        "filename": "hf-000000000000000000000007.gguf",
+        "id": "hf-000000000000000000000007",
+        "minimumVramBytes": 200,
+        "name": "owner/name · dir/m q.gguf",
+        "remoteFilename": "dir/m q.gguf",
+        "repository": "owner/name",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 100,
+        "url": "https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf"
+      },
+      "name": "unknown model",
+      "outcome": {
+        "error": "[local-provider] unknown model: hf-unknown"
+      },
+      "platform": "win32-x64",
+      "requestId": "hf-unknown",
+      "smiOutput": "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\n",
+      "spawns": []
+    }
+  ]
+}

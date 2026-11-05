@@ -25,7 +25,6 @@ use mixdog_core_api::domain::keepalive::TransportKeepalive;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_rt::TaskClass;
-use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 use tokio_tungstenite::MaybeTlsStream;
@@ -34,13 +33,21 @@ use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::Response;
 
+use crate::netproxy::NetworkProxy;
+use crate::netproxy::ProxyConfigError;
+use crate::netproxy::RouteError;
+use crate::netproxy::tunnel::Conn;
+use crate::netproxy::tunnel::TunnelError;
+use crate::netproxy::tunnel::tls_code;
+use crate::netproxy::tunnel::open_proxy_tunnel;
+
 use super::fault::fault_from_io;
 use super::fault::fault_from_ws_error;
 use super::tcp;
 
 pub use tokio_tungstenite::tungstenite::Message;
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Socket = WebSocketStream<MaybeTlsStream<Conn>>;
 
 /// Frames queued toward the socket and the consumer.
 const QUEUE: usize = 64;
@@ -52,6 +59,9 @@ pub enum ConnectError {
     Transport(TransportFault),
     /// The server answered the upgrade with a non-101 response: `Accepted`.
     Rejected(Response<Option<Vec<u8>>>),
+    /// The network proxy policy or the proxy refused: nothing reached the server.
+    /// code is the failure's code (MIXDOG_PROXY_CONFIG, EPROXY, undici's).
+    Proxy { code: String, message: String },
 }
 
 /// Liveness and age of one WebSocket connection, shared with its tasks.
@@ -139,6 +149,64 @@ pub async fn connect(
     request: impl IntoClientRequest,
     schedule: &KeepaliveSchedule,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
+    connect_via(request, schedule, None).await
+}
+
+/// Opens the socket the upgrade runs on: straight to the server, or, when the
+/// network proxy policy names a proxy for it, through a tunnel. A proxy that
+/// cannot be reached or refuses the tunnel is an error, never a direct connect.
+async fn open_stream(
+    host: &str,
+    port: u16,
+    target: &str,
+    schedule: &KeepaliveSchedule,
+    policy: Option<&NetworkProxy>,
+) -> Result<Conn, ConnectError> {
+    if let Some(policy) = policy {
+        let route = policy.route_for_url(target).await.map_err(|error| ConnectError::Proxy {
+            code: match &error {
+                RouteError::Config(_) => ProxyConfigError::CODE.to_owned(),
+                RouteError::InvalidTarget(_) => "ERR_INVALID_URL".to_owned(),
+            },
+            message: error.to_string(),
+        })?;
+        if let Some(proxy) = route.proxy {
+            let bare = host.trim_start_matches('[').trim_end_matches(']');
+            return open_proxy_tunnel(&proxy, bare, port, &schedule.tcp).await.map_err(|err| match err {
+                TunnelError::Dns => ConnectError::Transport(TransportFault::Dns),
+                TunnelError::Connect(io) => ConnectError::Transport(fault_from_io(&io, true)),
+                TunnelError::Io(io) => ConnectError::Transport(fault_from_io(&io, false)),
+                TunnelError::Tls(failure) => {
+                    ConnectError::Proxy { code: tls_code(&failure).to_owned(), message: failure.error.to_string() }
+                }
+                TunnelError::Dropped(io) => ConnectError::Proxy { code: "UND_ERR_SOCKET".into(), message: io.to_string() },
+                TunnelError::TimedOut => ConnectError::Proxy { code: "UND_ERR_HEADERS_TIMEOUT".into(), message: err.to_string() },
+                refused @ TunnelError::Refused { .. } => ConnectError::Proxy {
+                    code: refused.socket_code().unwrap_or("EPROXY").to_owned(),
+                    message: refused.to_string(),
+                },
+            });
+        }
+    }
+    let addrs = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|_| ConnectError::Transport(TransportFault::Dns))?;
+    let mut failure = TransportFault::Dns;
+    for addr in addrs {
+        match tcp::connect(addr, &schedule.tcp).await {
+            Ok(stream) => return Ok(Conn::Tcp(stream)),
+            Err(err) => failure = fault_from_io(&err, true),
+        }
+    }
+    Err(ConnectError::Transport(failure))
+}
+
+/// [`connect`] following the network proxy policy of `policy`.
+pub async fn connect_via(
+    request: impl IntoClientRequest,
+    schedule: &KeepaliveSchedule,
+    policy: Option<&NetworkProxy>,
+) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
     let request = request
         .into_client_request()
         .map_err(|err| ConnectError::Transport(fault_from_ws_error(&err)))?;
@@ -151,21 +219,8 @@ pub async fn connect(
         Some("wss") => 443,
         _ => 80,
     });
-    let addrs = tokio::net::lookup_host((host.as_str(), port))
-        .await
-        .map_err(|_| ConnectError::Transport(TransportFault::Dns))?;
-    let mut failure = TransportFault::Dns;
-    let mut connected = None;
-    for addr in addrs {
-        match tcp::connect(addr, &schedule.tcp).await {
-            Ok(stream) => {
-                connected = Some(stream);
-                break;
-            }
-            Err(err) => failure = fault_from_io(&err, true),
-        }
-    }
-    let stream = connected.ok_or(ConnectError::Transport(failure))?;
+    let target = uri.to_string();
+    let stream = open_stream(&host, port, &target, schedule, policy).await?;
     let (socket, response) = tokio_tungstenite::client_async_tls_with_config(
         request, stream, None, None,
     )

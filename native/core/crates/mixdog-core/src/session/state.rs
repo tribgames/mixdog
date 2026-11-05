@@ -87,6 +87,8 @@ pub(crate) enum Change {
     PromptPersisted(Vec<String>),
     /// A prompt handed back to the composer leaves the published list.
     PromptWithout(String),
+    /// No change: its effects run once every earlier record is durable.
+    Barrier,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +181,7 @@ impl SessionState {
             Change::PromptWithout(text) => {
                 self.prompt_history = prompt_history::without(&self.prompt_history, text);
             }
+            Change::Barrier => {}
         }
     }
 

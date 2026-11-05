@@ -36,6 +36,45 @@ fn refusal_reason_text(reason: &str) -> Option<&'static str> {
     })
 }
 
+/// Node's `error.message` for a coded failure whose producer set none: the contract default
+/// of its code (`contract.mjs` `DEFAULT_ERROR_MESSAGES`), or for `WORKTREE_BUSY_JOBS` with a
+/// shared reason that reason's text (`worktreeRefusal`).
+pub fn contract_message(code: &str, detail: Option<&DomainErrorDetail>) -> Option<&'static str> {
+    if let (WORKTREE_BUSY_JOBS_CODE, Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. })) = (code, detail) {
+        if let Some(text) = refusal_reason_text(reason) {
+            return Some(text);
+        }
+    }
+    Some(match code {
+        "WORKTREE_BUSY_JOBS" => "The session has running jobs; wait for them or stop them before changing its workspace.",
+        "WORKTREE_BRANCH_OCCUPIED" => "The branch is checked out in another worktree.",
+        "WORKTREE_DEFAULT_BRANCH" => "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.",
+        "WORKTREE_DISK_INSUFFICIENT" => "Not enough free disk space to create the worktree.",
+        "WORKTREE_LARGE_REPO_CONFIRM" => "The repository is large; confirm before creating a worktree.",
+        "WORKTREE_DIRTY" => "The worktree has uncommitted changes.",
+        "WORKTREE_DIRTY_CHOICE" => "The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree.",
+        "WORKTREE_FILE_RECOVERY" => "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.",
+        "WORKTREE_UNMERGED" => "The worktree branch has commits that are not merged.",
+        "WORKTREE_MISSING" => "The managed worktree no longer exists.",
+        "WORKTREE_UNSUPPORTED_REPO" => "This repository does not support managed worktrees.",
+        "WORKTREE_REVISION_CONFLICT" => "The session workspace changed; reload and try again.",
+        "WORKTREE_NOT_IMPLEMENTED" => "Worktree support is not implemented yet.",
+        "WORKTREE_CONFIRM_REQUIRED" => "A merge requires explicit confirmation.",
+        "WORKTREE_TARGET_MISMATCH" => "The project folder is not on the branch the merge was confirmed for.",
+        "WORKTREE_PROJECT_MISMATCH" => "The retained worktree belongs to another project or repository.",
+        "WORKTREE_PARTIAL_TRANSITION" => "The branch change failed part-way; the project folder stayed on the new branch.",
+        "WORKTREE_PROJECT_UNKNOWN" => "Project is not available.",
+        "WORKTREE_REMOVAL_INCOMPLETE" => "The worktree was only partly removed (a file or folder is still in use); remove it again to finish.",
+        "WORKTREE_PATH_UNSAFE" => "The worktree folder is not a managed checkout of this repository; nothing was deleted.",
+        "MERGE_CONFLICT" => "The merge would conflict.",
+        "MERGE_TARGET_DIRTY" => "The merge target has uncommitted changes.",
+        "MERGE_FAILED" => "The merge failed; the project folder is unchanged.",
+        _ => return None,
+    })
+}
+
+const WORKTREE_BUSY_JOBS_CODE: &str = "WORKTREE_BUSY_JOBS";
+
 fn merge_failed_reason(reason: &str, source: Option<&str>) -> String {
     match reason {
         "source-invalid" => "A merge source branch is required.".to_owned(),

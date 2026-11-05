@@ -13,6 +13,7 @@ pub mod message_class;
 pub mod section;
 pub mod text_class;
 pub mod thread;
+pub mod tool_call_ids;
 pub mod tool_modules;
 pub mod tool_visibility;
 

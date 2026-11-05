@@ -1,0 +1,501 @@
+//! The typed body of a proxied model call (DS §12.4): a server core asks the core on a PC to run
+//! a call with that PC's accounts (`model/proxy/execute` → `modelProxy/run`). Both ends are the
+//! Rust core, so a send is the provider request itself, not Node's option bag. The events of the
+//! call are [`ProxyEvent`]s (`modelProxy/run/event`); a failed call answers with a
+//! [`ProxyFailure`] as the error data.
+//!
+//! These are wire shapes: the conversions to and from the core-api types are
+//! `mixdog-core::domains::ai_admin::model_proxy`.
+
+use std::collections::BTreeMap;
+
+use mixdog_protocol::JsonValue;
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde::Serialize;
+use ts_rs::TS;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyRole {
+    System,
+    User,
+    Assistant,
+    Tool,
+    Developer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyCacheTier {
+    Tier3,
+    Env,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyPhase {
+    Commentary,
+    FinalAnswer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyMessageSource {
+    Steering,
+    StreamCutRecovery,
+    TailReminder,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyImage {
+    Base64 { data: String, mime_type: String },
+    Url { url: String },
+    FileId { id: String },
+}
+
+/// A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it
+/// is never carried: the sender inlines the bytes (under its byte budget), and a reference that
+/// stays travels as `unavailable`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProxyBinary {
+    Base64 { data: String },
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyDocument {
+    Base64 { media_type: String, data: String },
+    Text { media_type: Option<String>, data: String },
+    Content { content: JsonValue },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyPart {
+    Text { text: String },
+    Image { source: ProxyImage },
+    File { source: ProxyBinary, mime_type: String, filename: Option<String> },
+    Document { source: ProxyDocument, title: Option<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(untagged)]
+pub enum ProxyContent {
+    Text(String),
+    Parts(Vec<ProxyPart>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: JsonValue,
+    pub native_type: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyReplay {
+    pub owner: String,
+    pub items: JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyMessage {
+    pub role: ProxyRole,
+    pub content: ProxyContent,
+    pub cache_tier: Option<ProxyCacheTier>,
+    pub tool_calls: Vec<ProxyToolCall>,
+    pub tool_call_id: Option<String>,
+    pub is_error: bool,
+    pub phase: Option<ProxyPhase>,
+    pub thinking_blocks: Option<JsonValue>,
+    pub assistant_blocks: Option<JsonValue>,
+    pub native_tool_search: Option<JsonValue>,
+    pub source: Option<ProxyMessageSource>,
+    pub turn_reminder: Option<String>,
+    pub provider_replay: Vec<ProxyReplay>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyTool {
+    pub name: String,
+    pub description: String,
+    pub input_schema: JsonValue,
+    pub defer_loading: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyLocation {
+    pub country: Option<String>,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    pub timezone: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyHostedTool {
+    WebSearch {
+        tool_type: String,
+        allowed_domains: Vec<String>,
+        user_location: Option<ProxyLocation>,
+        max_uses: Option<u32>,
+        context_size: Option<String>,
+        include_sources: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyThread {
+    pub id: String,
+    #[ts(type = "number")]
+    pub window: u64,
+    pub turn: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyEffortProjection {
+    pub initial_effort: String,
+    /// `(message index, effort)` pairs; a JSON object would key them by text.
+    pub updates: Vec<(u32, String)>,
+}
+
+/// `RequestOptions` field for field. The connection scope and the model's output ceiling are the
+/// PC's to derive, so they are not carried.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyOptions {
+    pub session_id: Option<String>,
+    pub effort: Option<String>,
+    pub max_output_tokens_override: Option<u32>,
+    pub fast: bool,
+    pub tool_choice: Option<String>,
+    pub verbosity: Option<String>,
+    pub request_kind: Option<String>,
+    pub iteration: u32,
+    pub prompt_cache_key: Option<String>,
+    pub prompt_cache_scope: Option<String>,
+    pub xai_responses_cache_scope: Option<String>,
+    pub model_parameters: Option<JsonValue>,
+    pub thread: Option<ProxyThread>,
+    pub parent_session_id: Option<String>,
+    pub parallel_tool_calls: Option<bool>,
+    pub temperature: Option<f64>,
+    pub effort_projection: Option<ProxyEffortProjection>,
+    pub hosted_tools: Vec<ProxyHostedTool>,
+    pub shared_cache_prefix_count: Option<u32>,
+    pub provider_state: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRequest {
+    pub model: String,
+    pub messages: Vec<ProxyMessage>,
+    pub tools: Vec<ProxyTool>,
+    pub options: ProxyOptions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRouteContext {
+    pub agent: bool,
+}
+
+/// What the remote runtime asks of the PC's providers (`ModelProxyProvider`,
+/// `quota-reading.mjs:93`, `loadModelProxyProviderConfig`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "method", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyCall {
+    Send { provider: String, request: Box<ProxyRequest> },
+    /// `listModels`; `refresh` re-reads the provider first (`_refreshModelCache`).
+    ListModels { provider: String, refresh: bool },
+    QuotaUsable { provider: String, model: String },
+    ResolveWireRoute { provider: String, model: String, context: ProxyRouteContext },
+    ProviderConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyBudget {
+    #[ts(type = "number")]
+    pub transport_ms: u64,
+    #[ts(type = "number")]
+    pub semantic_ms: u64,
+}
+
+/// A model the PC's provider lists, with the first-response budget of its catalog entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyModel {
+    pub id: String,
+    pub display_name: Option<String>,
+    #[ts(type = "number | null")]
+    pub context_window: Option<u64>,
+    #[ts(type = "number | null")]
+    pub max_output_tokens: Option<u64>,
+    pub supports_reasoning: Option<bool>,
+    pub reasoning_levels: Vec<String>,
+    pub default_reasoning_level: Option<String>,
+    pub supports_images: Option<bool>,
+    pub hidden: bool,
+    pub raw: Option<JsonValue>,
+    pub first_response_budget: Option<ProxyBudget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyWire {
+    Chat,
+    Responses,
+    Messages,
+    Gemini,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyRouteSource {
+    Pinned,
+    Override,
+    Catalog,
+    Endpoints,
+    Agent,
+    Default,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyWireRoute {
+    pub wire: ProxyWire,
+    pub source: ProxyRouteSource,
+}
+
+/// The adapter traits of a PC provider its stand-in needs.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ProxyTraits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_excludes_cache: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_pdf: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consumes_read_windows: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub takes_images: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_response_budget: Option<ProxyBudget>,
+}
+
+/// What a server learns of one PC provider: usable or not, and its traits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ProxyProviderInfo {
+    pub enabled: bool,
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden_models: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_state: Option<String>,
+    pub model_proxy: ProxyTraits,
+}
+
+/// The answer to a [`ProxyCall`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "result", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyAnswer {
+    /// `Send` finished; its events came ahead of it.
+    Sent { attempts: u32 },
+    Models { models: Vec<ProxyModel> },
+    Usable { usable: bool },
+    /// `None` for a single-wire adapter or a model no offered wire serves.
+    Route { route: Option<ProxyWireRoute> },
+    ProviderConfig { providers: BTreeMap<String, ProxyProviderInfo>, ready: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyUsage {
+    #[ts(type = "number")]
+    pub input_tokens: u64,
+    #[ts(type = "number")]
+    pub output_tokens: u64,
+    #[ts(type = "number")]
+    pub cache_read_tokens: u64,
+    #[ts(type = "number")]
+    pub cache_write_tokens: u64,
+    #[ts(type = "number")]
+    pub cache_write_1h_tokens: u64,
+    #[ts(type = "number")]
+    pub reasoning_tokens: u64,
+    pub raw: Option<JsonValue>,
+    #[ts(type = "number | null")]
+    pub cost_ticks: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProxyStop {
+    EndTurn,
+    ToolUse,
+    MaxTokens,
+    StopSequence,
+    ContentFilter,
+    Refusal,
+    ContinueTurn,
+    Other { value: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyItemKind {
+    Text,
+    Reasoning,
+    Tool,
+}
+
+/// One stream event of an attempt (`StreamEvent`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyEvent {
+    ItemStart { item: ProxyItemKind, phase: Option<ProxyPhase> },
+    TextDelta { text: String },
+    ReasoningDelta { text: String },
+    ReasoningReplay { replay: ProxyReplay },
+    ToolCallStart { id: String, name: String },
+    ToolCallArgsDelta { id: String, delta: String },
+    ToolCallDone { call: ProxyToolCall },
+    Usage { usage: ProxyUsage },
+    Refusal { text: String },
+    Citation { value: JsonValue },
+    ServerToolBlock { value: JsonValue },
+    ProviderKeepalive,
+    ProviderState { state: JsonValue },
+    Completed { stop: Option<ProxyStop> },
+    /// The attempt failed and a retry begins: everything its events showed is dropped.
+    AttemptDiscarded,
+    /// A retried attempt reported usage before it died; it is billed once, here.
+    AttemptAbandoned { usage: ProxyUsage, model: Option<String> },
+}
+
+/// How the PC's broker ended a failed send.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "outcome", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyOutcome {
+    /// The retry verdict surfaced the error.
+    Provider,
+    /// Retries are spent.
+    Exhausted,
+    /// Repeated overload: send again with `model`.
+    Fallback { model: String },
+    /// The PC's admission refused the call; the message says why.
+    Admission,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyErrorKind {
+    Overloaded,
+    RateLimited,
+    QuotaExhausted,
+    Entitlement,
+    Billing,
+    Auth,
+    Permission,
+    ContextOverflow,
+    RequestTooLarge,
+    Policy,
+    ServiceTierUnavailable,
+    InvalidRequest,
+    ImageRejected,
+    ReplayRejected,
+    ToolSchemaRejected,
+    Transient,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyDelivery {
+    NotSent,
+    Ambiguous,
+    Accepted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyQuotaScope {
+    Minute,
+    Day,
+    Plan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyTransportKind {
+    Http1,
+    Http2,
+    WebSocket,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "fault", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProxyFault {
+    Connect { os_code: Option<i32> },
+    Dns,
+    Reset,
+    Closed,
+    Tls,
+    H2GoAway { code: u32 },
+    H2RstStream { code: u32 },
+    WsClose { code: Option<u16> },
+    KeepaliveExpired { transport: ProxyTransportKind },
+    TruncatedStream,
+    Io { os_code: Option<i32> },
+}
+
+/// A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
+/// credential-shaped text in the message is redacted and nothing else of the PC leaves it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyFailure {
+    pub outcome: ProxyOutcome,
+    pub kind: ProxyErrorKind,
+    pub code: Option<String>,
+    pub status: Option<u16>,
+    #[ts(type = "number | null")]
+    pub retry_after_ms: Option<u64>,
+    #[ts(type = "number | null")]
+    pub reset_at_ms: Option<u64>,
+    pub quota_scope: Option<ProxyQuotaScope>,
+    pub reauth_required: bool,
+    pub should_retry: Option<bool>,
+    pub text_emitted: bool,
+    pub tool_dispatched: bool,
+    pub tool_input_cut: bool,
+    pub delivery: ProxyDelivery,
+    pub transport: Option<ProxyFault>,
+    pub message: String,
+    pub partial_usage: Option<ProxyUsage>,
+    pub verification_url: Option<String>,
+    pub rejected_tool: Option<String>,
+    pub account_blocked: bool,
+    pub unsafe_to_retry: bool,
+    pub quota_limit: Option<String>,
+}

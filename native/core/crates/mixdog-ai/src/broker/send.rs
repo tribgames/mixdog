@@ -26,9 +26,11 @@ pub trait AttemptSink: Send {
     fn event(&mut self, event: StreamEvent);
     fn discard(&mut self);
     /// A retried attempt the provider still billed (`noteAbandonedUsage`):
-    /// the usage its failure reported, called before `discard`. The default
-    /// ignores it; the accounting sink records it as `<requestId>:abandoned:<i>`.
-    fn abandoned(&mut self, _usage: &Usage, _model: &str) {}
+    /// the usage its failure reported (`ProviderError::partial_usage`), called
+    /// before `discard`. `model` is the served model when known; `None` means
+    /// the send's own. The default ignores it; the accounting sink records it
+    /// as `<requestId>:abandoned:<i>`.
+    fn abandoned(&mut self, _usage: &Usage, _model: Option<&str>) {}
 }
 
 pub struct SendRequest {
@@ -91,10 +93,7 @@ impl ModelBroker {
         loop {
             attempts += 1;
             let mut streamed = false;
-            let mut reported = None;
-            let failure = match self
-                .attempt(adapter, &send.request, sink, cancel, &mut streamed, &mut reported)
-                .await
+            let failure = match self.attempt(adapter, &send.request, sink, cancel, &mut streamed).await
             {
                 Ok(()) => {
                     permit.finish(Outcome::Success);
@@ -104,14 +103,7 @@ impl ModelBroker {
                     permit.finish(Outcome::Abandoned);
                     return Err(SendError::Cancelled);
                 }
-                Err(Stop::Failed(mut err)) => {
-                    // The usage the stream reported is billed even when the
-                    // failure did not carry it.
-                    if err.partial_usage.is_none() {
-                        err.partial_usage = reported.map(Box::new);
-                    }
-                    err
-                }
+                Err(Stop::Failed(err)) => err,
             };
             if failure.status == Some(429) {
                 permit.report_rate_limit(failure.retry_after);
@@ -135,7 +127,7 @@ impl ModelBroker {
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
                     if let Some(usage) = &failure.partial_usage {
-                        sink.abandoned(usage, &send.request.model);
+                        sink.abandoned(usage, None);
                     }
                     sink.discard();
                     if !pause(delay, cancel).await {
@@ -162,8 +154,8 @@ impl ModelBroker {
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
         streamed: &mut bool,
-        reported: &mut Option<Usage>,
     ) -> Result<(), Stop> {
+        let mut reported: Option<Usage> = None;
         let mut stream = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Stop::Cancelled),
@@ -179,7 +171,7 @@ impl ModelBroker {
                 Some(Ok(event)) => {
                     *streamed = true;
                     if let StreamEvent::Usage(usage) = &event {
-                        *reported = Some(usage.clone());
+                        reported = Some(usage.clone());
                     }
                     let done = matches!(event, StreamEvent::Completed { .. });
                     sink.event(event);
@@ -190,8 +182,12 @@ impl ModelBroker {
                 Some(Err(err)) => return Err(Stop::Failed(err)),
                 None => {
                     // A stream that ends silently is a protocol fault by the
-                    // trait's contract; surface it as a truncated stream.
-                    return Err(Stop::Failed(truncated(stream.delivery())));
+                    // trait's contract; surface it as a truncated stream. This
+                    // error is built here, so it carries the last usage the
+                    // stream reported, as an adapter's error would.
+                    let mut fault = truncated(stream.delivery());
+                    fault.partial_usage = reported.map(Box::new);
+                    return Err(Stop::Failed(fault));
                 }
             }
         }

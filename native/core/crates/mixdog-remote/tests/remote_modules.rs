@@ -13,7 +13,6 @@ use mixdog_remote::leg::inbound::{Inbound, classify};
 use mixdog_remote::leg::redial::Redial;
 use mixdog_remote::media::crypto::*;
 use mixdog_remote::media::range::{Range, parse_range, window};
-use mixdog_remote::push::decision::*;
 use mixdog_remote::push::web::{WebPushTarget, encrypt_web_push_payload};
 use mixdog_rt::LaneToken;
 use mixdog_rt::CancellationToken;
@@ -189,42 +188,6 @@ fn web_push_payload_is_bounded_and_decryptable_shape() {
     assert_eq!(body.len(), 16 + 4 + 1 + 65 + 5 + 1 + 16);
     assert!(encrypt_web_push_payload(&keys, &[0u8; 4000], [1u8; 16], &local).is_err());
     let _ = WebPushTarget { endpoint: String::new(), client_id: String::new(), p256dh: String::new(), auth: String::new() };
-}
-
-#[test]
-fn notification_decision_orders_its_rules() {
-    let prefs = DevicePreferences::default();
-    let conversation = Conversation {
-        session_id: "s".into(),
-        kind: ConversationKind::Coding,
-        origin: Origin::User,
-        agent_id: String::new(),
-        room_id: String::new(),
-    };
-    let input = |prefs: &DevicePreferences, foreground: bool, overrides: &[Override]| {
-        decide(&DecisionInput {
-            event: Event::Finished,
-            conversation: &conversation,
-            preferences: prefs,
-            overrides,
-            now: 1000,
-            local: LocalTime { minute: 600, weekday: 2 },
-            foreground,
-            desktop_active: false,
-        })
-    };
-    assert_eq!(input(&prefs, false, &[]), Decision::Notify);
-    assert_eq!(input(&prefs, true, &[]), Decision::Skip(SkipReason::Foreground));
-    let muted = [Override { kind: TargetKind::Session, id: "s".into(), setting: Setting::Muted { until: None } }];
-    assert_eq!(input(&prefs, false, &muted), Decision::Skip(SkipReason::Muted));
-    let mut bots = prefs.clone();
-    bots.scope = Scope::Bots;
-    assert_eq!(input(&bots, false, &[]), Decision::Skip(SkipReason::Scope));
-    let mut quiet = prefs;
-    quiet.quiet_hours.enabled = true;
-    quiet.quiet_hours.start = "09:00".into();
-    quiet.quiet_hours.end = "11:00".into();
-    assert_eq!(input(&quiet, false, &[]), Decision::Skip(SkipReason::QuietHours));
 }
 
 #[tokio::test]

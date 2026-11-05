@@ -10,7 +10,6 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::mock::MockStatePublisher;
-use mixdog_protocol::DomainErrorDetail;
 use serde_json::Value;
 use serde_json::json;
 
@@ -24,6 +23,7 @@ use crate::config::ConfigLanes;
 use crate::domains::support::testing::request;
 use crate::domains::support::testing::scopes;
 use crate::domains::support::testing::value;
+use crate::domains::support::testing::with_op;
 
 fn fixtures() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/workflow-config")
@@ -69,13 +69,20 @@ impl WorkflowHost for Host {
     fn web_search_capable(&self, _provider: &str, _meta: Option<&Value>) -> bool {
         self.capable
     }
-    fn coerce_effort(&self, _provider: &str, _meta: Option<&Value>, _effort: &str) -> Option<String> {
-        None
-    }
     fn fast_capable(&self, _: &str, _: Option<&Value>, _: Option<&str>, _: Option<&Value>) -> bool {
         false
     }
     fn web_search_route_saved(&self, _route: &Value) {}
+}
+
+/// The recorder's `scrub`: the data dir reads `<data>` and every path separator `/`.
+fn scrub(value: &Value, data: &str) -> Value {
+    match value {
+        Value::String(text) => Value::String(text.replace(data, "<data>").replace('\\', "/")),
+        Value::Array(items) => Value::Array(items.iter().map(|item| scrub(item, data)).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), scrub(item, data))).collect()),
+        other => other.clone(),
+    }
 }
 
 fn method_name(name: &str) -> &'static str {
@@ -136,13 +143,12 @@ async fn methods_match_node() {
             if params.is_null() {
                 params = json!({});
             }
-            let req = request(method_name(method), params, Some(i as u64 + 1));
+            let n = i as u64 + 1;
+            let params = if method.starts_with("get") { params } else { with_op(params, n) };
+            let req = request(method_name(method), params, Some(n));
             let got = match value(&*service, req).await {
-                Ok(v) => json!({ "result": v }),
-                Err(CoreError::DomainError { detail: Some(detail), .. }) => match *detail {
-                    DomainErrorDetail::CommandFailed { message } => json!({ "error": message }),
-                    other => panic!("{name} #{i} {method}: {other:?}"),
-                },
+                Ok(v) => json!({ "result": scrub(&v, &data.to_string_lossy()) }),
+                Err(CoreError::DomainError { message: Some(message), detail: None, .. }) => json!({ "error": &*message }),
                 Err(other) => panic!("{name} #{i} {method}: {other:?}"),
             };
             let want = match step.get("error") {
@@ -150,7 +156,7 @@ async fn methods_match_node() {
                 None => json!({ "result": step["result"] }),
             };
             assert_eq!(got, want, "{name} #{i} {method} {}", step["params"]);
-            assert_eq!(Value::Object(config.agent()), step["config"], "{name} #{i} {method} config");
+            assert_eq!(scrub(&Value::Object(config.agent()), &data.to_string_lossy()), step["config"], "{name} #{i} {method} config");
             let files: BTreeMap<String, String> = serde_json::from_value(step["files"].clone()).unwrap();
             assert_eq!(files_of(&data), files, "{name} #{i} {method} files");
         }

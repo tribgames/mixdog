@@ -14,6 +14,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { recordAnthropicEffort } from './record-anthropic-effort.mjs';
 import { recordAnthropicSharedPrefix } from './record-anthropic-shared-prefix.mjs';
+import { recordXaiCacheRouting } from './record-xai-cache-routing.mjs';
 import { recordXaiResponsesContinuation } from './record-xai-responses-continuation.mjs';
 import { installDeterminism } from './lib/determinism.mjs';
 import { cleanHeaders } from './lib/headers.mjs';
@@ -249,6 +250,7 @@ if (!existsSync(join(setDir, 'oracles', 'native-request-bytes.head.json'))) cpSy
 await recordAnthropicEffort(tree, join(setDir, 'anthropic-effort', 'cases.json'));
 await recordAnthropicSharedPrefix(tree, join(setDir, 'anthropic-shared-prefix', 'cases.json'));
 await recordXaiResponsesContinuation(tree, join(setDir, 'oracles', 'xai-responses-continuation.json'));
+await recordXaiCacheRouting(tree, join(setDir, 'oracles', 'xai-cache-routing.json'));
 
 writeSetManifest(setDir, {
   set: 'providers',

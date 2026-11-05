@@ -18,6 +18,7 @@ pub mod codec;
 pub mod decode;
 pub mod error;
 pub mod json;
+pub mod models;
 pub mod policy;
 pub mod request;
 pub mod schema;

@@ -25,7 +25,12 @@ flate2 = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["stream"] }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["stream", "socks"] }
+# A proxy reached over https: the TLS client of the CONNECT tunnel and of the connection check.
+rustls = { workspace = true, features = ["ring", "std"] }
+rustls-native-certs = { workspace = true }
+tokio-rustls = { workspace = true, features = ["ring"] }
 serde = { workspace = true }
 # preserve_order: wire bodies keep insertion order (prompt-cache prefixes are byte prefixes).
 serde_json = { workspace = true, features = ["preserve_order", "raw_value"] }

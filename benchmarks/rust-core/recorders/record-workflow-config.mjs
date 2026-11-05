@@ -31,6 +31,9 @@ globalThis.Date = class extends RealDate {
   }
 };
 
+// The config file is Node's own (`config.mjs` persistence), isolated per scenario by MIXDOG_DATA_DIR.
+process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
+
 const s = 'src/session-runtime/';
 const rc = 'src/runtime/agent/orchestrator/runtime-core/';
 const { createWorkflowAgentsApi } = await importFrom(tree, `${s}workflow-agents-api.mjs`);
@@ -39,7 +42,8 @@ const { createWebSearchRouteApi } = await importFrom(tree, `${s}model-route/web-
 const { saveModelPreferences, isKnownProvider } = await importFrom(tree, `${s}services/provider-admin.mjs`);
 const wf = await importFrom(tree, `${rc}workflow.mjs`);
 const cfgHelpers = await importFrom(tree, `${rc}config-helpers.mjs`);
-const caps = await importFrom(tree, `${rc}model-capabilities.mjs`);
+const cfgReal = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
+const { withGrandfatheredBuiltins } = await importFrom(tree, `${rc}builtin-features.mjs`);
 const md = await importFrom(tree, 'src/runtime/shared/markdown-frontmatter.mjs');
 const { ONBOARDING_VERSION } = await importFrom(tree, `${s}quick-web-search-models.mjs`);
 
@@ -211,17 +215,38 @@ async function run(scenario) {
     normalizeAgentPermissionOrNone: md.normalizeAgentPermissionOrNone,
   });
   const routeHelpers = wf.createWorkflowRouteHelpers({ findPreset: cfgHelpers.findPreset });
-  const state = { config: clone(scenario.config) };
+  // Node's own config file, in a directory apart from the workflow data dir.
+  const cfgDir = mkdtempSync(join(tmpdir(), 'wf-config-file-'));
+  process.env.MIXDOG_DATA_DIR = cfgDir;
+  process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(cfgDir, 'backups');
+  const cfgFile = join(cfgDir, 'mixdog-config.json');
+  writeFileSync(cfgFile, JSON.stringify({ agent: clone(scenario.config), defaultsVersion: 2 }));
+  const stored = () => JSON.parse(readFileSync(cfgFile, 'utf8')).agent ?? {};
+  // `adoptConfig` / `saveConfigAndAdopt` of config-lifecycle.mjs: the runtime keeps the adopted
+  // config in memory; the file takes the patch against the previous baseline plus the seeds.
+  const state = { config: withGrandfatheredBuiltins(clone(scenario.config)) };
+  let baseline = clone(state.config);
+  const adoptConfig = (next) => {
+    state.config = withGrandfatheredBuiltins(next);
+    return state.config;
+  };
+  const saveConfigAndAdopt = (next) => {
+    const adopted = adoptConfig(next);
+    const changes = cfgReal.createConfigPatch(baseline, adopted);
+    baseline = clone(adopted);
+    if (changes.length) {
+      const seeds = ['builtins']
+        .filter((key) => adopted[key] !== undefined && !changes.some((change) => change.path[0] === key))
+        .map((key) => ({ path: [key], value: clone(adopted[key]), ifAbsent: true }));
+      cfgReal.saveConfigPatch([...changes, ...seeds]);
+    }
+    return adopted;
+  };
   const main = scenario.main ?? { provider: 'openai', model: 'main-model' };
   let route = { ...main };
   const resolveRoute = cfgHelpers.makeResolveRoute(cfgHelpers.makeResolveDefaultProvider(isKnownProvider));
-  const cfgMod = {
-    getPluginData: () => dataDir,
-    loadConfig: () => state.config,
-    saveConfig: (next) => {
-      state.config = clone(next);
-    },
-  };
+  // The packs live in `dataDir`; the real module would answer the config directory.
+  const cfgMod = { ...cfgReal, getPluginData: () => dataDir };
   const deps = {
     ...helpers,
     rootDir: shippedRoot,
@@ -235,9 +260,7 @@ async function run(scenario) {
     setRouteState: (next) => {
       route = next;
     },
-    saveConfigAndAdopt: (value) => {
-      state.config = clone(value);
-    },
+    saveConfigAndAdopt,
     listCustomAgentIds: () => scenario.customAgents ?? [],
     lookupModelMeta: async () => ({}),
     ensureProvidersReady: async () => {},
@@ -249,10 +272,8 @@ async function run(scenario) {
     api,
     createProfileSettings({
       getConfig: () => state.config,
-      adoptConfig: (next) => {
-        state.config = next;
-      },
-      saveConfigAndAdopt: deps.saveConfigAndAdopt,
+      adoptConfig,
+      saveConfigAndAdopt,
       scheduleSkillsSave() {},
       cfgMod,
       hasOwn: Object.hasOwn,
@@ -269,7 +290,7 @@ async function run(scenario) {
     },
     webSearchCapableFor: () => scenario.webSearch?.capable === true,
     lookupModelMeta: async () => ({}),
-    saveConfigAndAdopt: deps.saveConfigAndAdopt,
+    saveConfigAndAdopt,
     ensureFullConfig() {},
     awaitKeychainPrewarm: async () => {},
     ensureProvidersReady: async () => {},
@@ -296,9 +317,10 @@ async function run(scenario) {
     } catch (error) {
       outcome = { error: String(error?.message ?? error) };
     }
-    steps.push({ method, params, ...outcome, config: scrub(state.config, dataDir), files: scrub(listFiles(dataDir), dataDir), route: scrub(route, dataDir) });
+    steps.push({ method, params, ...outcome, config: scrub(stored(), dataDir), files: scrub(listFiles(dataDir), dataDir), route: scrub(route, dataDir) });
   }
   rmSync(dataDir, { recursive: true, force: true });
+  rmSync(cfgDir, { recursive: true, force: true });
   return {
     name: scenario.name,
     config: scenario.config,

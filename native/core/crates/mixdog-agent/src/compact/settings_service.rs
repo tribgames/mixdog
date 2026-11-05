@@ -13,7 +13,6 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_protocol::DomainErrorDetail;
 use mixdog_core_api::service::Admit;
 use serde_json::Value;
 
@@ -69,7 +68,8 @@ fn failed(error: SettingsError) -> CoreError {
     CoreError::DomainError {
         domain: "config".into(),
         code: None,
-        detail: Some(Box::new(DomainErrorDetail::ExternalFailure { message: error.0 })),
+        message: Some(error.0.into()),
+        detail: None,
     }
 }
 

@@ -42,7 +42,10 @@ fn node_base64_accepts_padding_and_both_alphabets() {
     assert_eq!(node_base64_decode("-_8"), node_base64_decode("+/8="));
 }
 
-struct Recorder(Mutex<Vec<(String, Vec<(String, String)>, usize)>>, u16);
+/// (endpoint, headers, body length) of each post.
+type Posted = (String, Vec<(String, String)>, usize);
+
+struct Recorder(Mutex<Vec<Posted>>, u16);
 
 #[async_trait]
 impl PushPoster for Recorder {

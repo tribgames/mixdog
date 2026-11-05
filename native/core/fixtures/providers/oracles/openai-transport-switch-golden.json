@@ -1,0 +1,289 @@
+{
+ "source": "openai-oauth-dispatch.mjs shouldUseHttpFallback; openai-ws.mjs send (shouldFallbackDirectTransport); openai-transport-policy.mjs",
+ "cases": [
+  {
+   "name": "503 not exhausted",
+   "status": 503,
+   "oauth": false,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "503 exhausted",
+   "status": 503,
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "408 exhausted",
+   "status": 408,
+   "exhausted": true,
+   "oauth": true,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "409 exhausted",
+   "status": 409,
+   "exhausted": true,
+   "oauth": true,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "429 exhausted",
+   "status": 429,
+   "exhausted": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "401 exhausted",
+   "status": 401,
+   "exhausted": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "400 exhausted",
+   "status": 400,
+   "exhausted": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "525 exhausted",
+   "status": 525,
+   "exhausted": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "426",
+   "status": 426,
+   "oauth": true,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "426 with live text",
+   "status": 426,
+   "exposed": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "404 not a handshake",
+   "status": 404,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "404 handshake",
+   "status": 404,
+   "handshake": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "403 handshake",
+   "status": 403,
+   "handshake": true,
+   "oauth": false,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "429 handshake",
+   "status": 429,
+   "handshake": true,
+   "oauth": false,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "401 handshake",
+   "status": 401,
+   "handshake": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "500 handshake",
+   "status": 500,
+   "handshake": true,
+   "oauth": false,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "404 handshake with live text",
+   "status": 404,
+   "handshake": true,
+   "exposed": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "close 1009",
+   "wsClose": 1009,
+   "oauth": true,
+   "direct": true,
+   "directSticky": true
+  },
+  {
+   "name": "close 1009 with live text",
+   "wsClose": 1009,
+   "exposed": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "close 1006 not exhausted",
+   "wsClose": 1006,
+   "oauth": false,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "close 1006 exhausted",
+   "wsClose": 1006,
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "close 1011 exhausted",
+   "wsClose": 1011,
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "close 4000 exhausted",
+   "wsClose": 4000,
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "close 1000 exhausted",
+   "wsClose": 1000,
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "close 1008 exhausted",
+   "wsClose": 1008,
+   "exhausted": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  },
+  {
+   "name": "reset exhausted",
+   "fault": "reset",
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "dns exhausted",
+   "fault": "dns",
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "refused exhausted",
+   "fault": "refused",
+   "exhausted": true,
+   "oauth": true,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "reset not exhausted",
+   "fault": "reset",
+   "oauth": false,
+   "direct": true,
+   "directSticky": false
+  },
+  {
+   "name": "nothing typed exhausted",
+   "exhausted": true,
+   "oauth": false,
+   "direct": false,
+   "directSticky": false
+  }
+ ],
+ "modes": {
+  "auto": {
+   "mode": "auto",
+   "transport": "ws",
+   "allowHttpFallback": true,
+   "delta": true
+  },
+  "ws-delta": {
+   "mode": "ws-delta",
+   "transport": "ws",
+   "allowHttpFallback": false,
+   "delta": true
+  },
+  "ws-full": {
+   "mode": "ws-full",
+   "transport": "ws",
+   "allowHttpFallback": false,
+   "delta": false
+  },
+  "http-sse": {
+   "mode": "http-sse",
+   "transport": "http",
+   "allowHttpFallback": false,
+   "delta": false
+  },
+  "ws": {
+   "mode": "ws-full",
+   "transport": "ws",
+   "allowHttpFallback": false,
+   "delta": false
+  },
+  "delta": {
+   "mode": "ws-delta",
+   "transport": "ws",
+   "allowHttpFallback": false,
+   "delta": true
+  },
+  "sse": {
+   "mode": "http-sse",
+   "transport": "http",
+   "allowHttpFallback": false,
+   "delta": false
+  },
+  "http": {
+   "mode": "http-sse",
+   "transport": "http",
+   "allowHttpFallback": false,
+   "delta": false
+  }
+ }
+}

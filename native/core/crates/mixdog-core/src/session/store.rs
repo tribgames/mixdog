@@ -382,6 +382,15 @@ impl super::seams::TurnIngest for SessionSearchTurns {
     }
 }
 
+/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store.
+pub struct SensitiveMarksOf(pub Arc<mixdog_services::memory::sensitive::SensitiveStore>);
+
+impl super::seams::SensitiveMarks for SensitiveMarksOf {
+    fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
+        Box::new(self.0.on_marked(thread.as_str(), move |_| listener()))
+    }
+}
+
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
 /// memory was not started this run (today's `getMemoryModPromise()` returning null).
 pub struct MemoryCloseIngest(pub Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>);

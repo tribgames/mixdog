@@ -53,15 +53,23 @@ impl RelayTunnelStarter {
         Self { lane, data_dir, relay_url_env }
     }
 
-    /// The install's stable hook identity; a damaged file is kept aside and replaced.
-    async fn identity(&self) -> Result<DeviceIdentity, String> {
+    /// The install's stable hook identity; a damaged file is kept aside and replaced. A file that
+    /// can be neither read nor written is logged and the tunnel runs on a fresh in-memory
+    /// identity, as Node's `startHookTunnel` does.
+    async fn identity(&self) -> DeviceIdentity {
         let files = DeviceFiles::at(self.data_dir.clone(), IDENTITY_FILE);
-        let job = self
-            .lane
-            .submit_wait(&CancellationToken::new(), move |lane| files.load_or_create(lane))
-            .await
-            .map_err(|e| format!("identity read failed — {e}"))?;
-        job.await.map_err(|e| format!("identity read failed — {e}"))?.map_err(|e| format!("identity read failed — {e}"))
+        let loaded = async {
+            let job = self
+                .lane
+                .submit_wait(&CancellationToken::new(), move |lane| files.load_or_create(lane))
+                .await
+                .map_err(|e| e.to_string())?;
+            job.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+        };
+        loaded.await.unwrap_or_else(|error| {
+            tracing::warn!("hook relay identity unavailable, using an in-memory one: {error}");
+            DeviceIdentity::mint()
+        })
     }
 }
 
@@ -84,7 +92,7 @@ impl HookTunnel for RelayTunnel {
 impl TunnelStarter for RelayTunnelStarter {
     async fn start(&self, local_port: LocalPort) -> Result<Option<Box<dyn HookTunnel>>, String> {
         let Some(relay_url) = resolve_relay_url(self.relay_url_env.as_deref())? else { return Ok(None) };
-        let identity = self.identity().await?;
+        let identity = self.identity().await;
         let public_base = hook_public_base(&relay_url, &identity.device_id)?;
         let cancel = CancellationToken::new();
         let (events_tx, events) = mpsc::channel(64);
@@ -256,6 +264,18 @@ mod tests {
         let mut again = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         again.close();
         assert_eq!(again.public_base(), first.public_base(), "the repaired identity is stable");
+    }
+
+    /// Node logs an identity it can neither read nor write and runs on an in-memory one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_unreadable_identity_file_leaves_the_tunnel_running_on_a_fresh_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(IDENTITY_FILE)).unwrap();
+        let relay = Relay::start().await;
+        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
+        assert!(tunnel.public_base().contains("/hook/"));
+        assert!(dir.path().join(IDENTITY_FILE).is_dir(), "nothing was written over the unreadable path");
+        tunnel.close();
     }
 
     /// Node `relay-tunnel.tunnel.test.mjs`: the leg authenticates with the persisted identity on

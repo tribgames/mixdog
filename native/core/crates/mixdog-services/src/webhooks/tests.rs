@@ -236,17 +236,161 @@ async fn serve_on_loopback(f: &Fx) -> WebhookListener {
     WebhookListener::start(service, 0).await.unwrap()
 }
 
-/// Sends `parts` one after the other and returns (status, body text) of the whole reply.
-async fn exchange(port: u16, parts: &[&[u8]]) -> (u16, String) {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    for part in parts {
-        stream.write_all(part).await.unwrap();
+/// One response off the stream, framed by its `Content-Length`; None when the peer closed first.
+async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, String)> {
+    let mut chunk = [0u8; 8192];
+    let head_end = loop {
+        if let Some(at) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
+            break at;
+        }
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => return None,
+            Ok(n) => pending.extend_from_slice(&chunk[..n]),
+        }
+    };
+    let head = String::from_utf8_lossy(&pending[..head_end]).into_owned();
+    let status = head.split(' ').nth(1)?.parse().ok()?;
+    let length: usize = head
+        .lines()
+        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap()))
+        .unwrap_or(0);
+    while pending.len() < head_end + 4 + length {
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => return None,
+            Ok(n) => pending.extend_from_slice(&chunk[..n]),
+        }
     }
+    let body = String::from_utf8_lossy(&pending[head_end + 4..head_end + 4 + length]).into_owned();
+    pending.drain(..head_end + 4 + length);
+    Some((status, body))
+}
+
+/// Sends `parts` one after the other and returns the first reply, None when the server closed
+/// without one.
+async fn try_exchange(port: u16, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
+    let stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let (mut read, mut write) = stream.into_split();
+    let parts: Vec<Vec<u8>> = parts.iter().map(|p| p.to_vec()).collect();
+    // The writer runs beside the reader: a reply may arrive while the sender is still sending,
+    // and a server that closes on it must not take the reply down with a failed write.
+    let writer = tokio::spawn(async move {
+        for part in parts {
+            if write.write_all(&part).await.is_err() {
+                return;
+            }
+        }
+        if half_close {
+            let _ = write.shutdown().await;
+        }
+        std::future::pending::<()>().await;
+    });
+    let reply = read_response(&mut read, &mut Vec::new()).await;
+    writer.abort();
+    reply
+}
+
+/// Sends `parts` one after the other and returns (status, body text) of the first reply.
+async fn exchange(port: u16, parts: &[&[u8]]) -> (u16, String) {
+    try_exchange(port, parts, false).await.expect("a reply")
+}
+
+// ---- hand-rolled-parser probes: each is a status Node's http server gives ----
+
+/// A chunk that declares far more than the cap is judged frame by frame: the 413 arrives while
+/// the sender is still inside the declared chunk, and an endless size line is refused.
+#[tokio::test]
+async fn a_huge_declared_chunk_is_capped_per_frame_and_an_endless_size_line_is_refused() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let head = post("/webhook/hook", &[JSON_CT], "Transfer-Encoding: chunked\r\n");
+    let megabyte = vec![b' '; 1024 * 1024];
+    let mut parts: Vec<&[u8]> = vec![&head, b"6400000\r\n"];
+    parts.extend(std::iter::repeat_n(megabyte.as_slice(), MAX_BODY_BYTES / megabyte.len() + 1));
+    let (status, text) = exchange(listener.port(), &parts).await;
+    assert_eq!(status, 413, "{text}");
+
+    let line = vec![b'1'; 64 * 1024];
+    let (status, _) = exchange(listener.port(), &[&head, &line]).await;
+    assert_eq!(status, 400);
+    assert!(f.dispatched.0.lock().unwrap().is_empty());
+    listener.stop().await;
+}
+
+#[tokio::test]
+async fn malformed_body_framing_is_a_400_and_never_dispatches() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let signed = [JSON_CT, ("x-github-delivery", "m1")];
+    let chunked = post("/webhook/hook", &signed, "Transfer-Encoding: chunked\r\n");
+    // Junk where the chunk's CRLF belongs.
+    assert_eq!(exchange(listener.port(), &[&chunked, b"2\r\n{}XX0\r\n\r\n"]).await.0, 400);
+    // The last chunk never terminated, and the sender went away.
+    let unterminated = try_exchange(listener.port(), &[&chunked, b"2\r\n{}\r\n0\r\n"], true).await;
+    assert!(matches!(unterminated, Some((400, _)) | None), "{unterminated:?}");
+    assert!(f.dispatched.0.lock().unwrap().is_empty());
+    listener.stop().await;
+}
+
+/// A request framed both ways is the smuggling shape. Node's parser answers it 400; hyper takes
+/// RFC 9112 §6.1's other permitted course (chunked wins, Content-Length is dropped) and closes
+/// the connection after the reply. Either way the bytes behind the body are never a second
+/// request, which is what this pins.
+#[tokio::test]
+async fn a_request_framed_both_ways_never_carries_a_second_request() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let both = post("/webhook/hook", &[JSON_CT, ("x-github-delivery", "m2")], "Transfer-Encoding: chunked\r\nContent-Length: 2\r\n");
+    let behind = b"2\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n";
+    let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
+    stream.write_all(&both).await.unwrap();
+    stream.write_all(behind).await.unwrap();
+    let mut replies = Vec::new();
+    stream.read_to_end(&mut replies).await.unwrap();
+    let text = String::from_utf8(replies).unwrap();
+    assert_eq!(text.matches("HTTP/1.1 ").count(), 1, "{text}");
+    assert!(f.dispatched.0.lock().unwrap().is_empty());
+    listener.stop().await;
+}
+
+#[tokio::test]
+async fn headers_past_16_kib_get_431() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let big = "a".repeat(20 * 1024);
+    let head = post("/webhook/hook", &[JSON_CT, ("x-big", big.as_str())], "Content-Length: 0\r\n");
+    assert_eq!(exchange(listener.port(), &[&head]).await.0, 431);
+    listener.stop().await;
+}
+
+/// Node's 60 s `headersTimeout`: a head that never completes is cut off. The clock is paused, so
+/// the minute costs no wall time.
+#[tokio::test(start_paused = true)]
+async fn a_head_that_never_completes_is_closed_after_the_headers_timeout() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
+    stream.write_all(b"POST /webhook/hook HTTP/1.1\r\nHost: x\r\nX-Slow: ").await.unwrap();
+    tokio::time::sleep(super::listener::HEADERS_TIMEOUT + std::time::Duration::from_secs(1)).await;
     let mut reply = Vec::new();
-    stream.read_to_end(&mut reply).await.unwrap();
-    let text = String::from_utf8(reply).unwrap();
-    let (head, body) = text.split_once("\r\n\r\n").unwrap();
-    (head.split(' ').nth(1).unwrap().parse().unwrap(), body.to_string())
+    let _ = stream.read_to_end(&mut reply).await;
+    assert!(reply.is_empty() || reply.starts_with(b"HTTP/1.1 408"), "{}", String::from_utf8_lossy(&reply));
+    listener.stop().await;
+}
+
+/// Node serves pipelined requests in order on one connection.
+#[tokio::test]
+async fn pipelined_requests_are_each_answered_in_order() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
+    stream.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+    let mut pending = Vec::new();
+    let mut replies = Vec::new();
+    for _ in 0..3 {
+        replies.push(read_response(&mut stream, &mut pending).await.expect("a reply per request"));
+    }
+    assert_eq!(replies, vec![(200, "OK".to_string()), (404, "Not Found".to_string()), (200, "OK".to_string())]);
+    listener.stop().await;
 }
 
 fn post(path: &str, headers: &[(&str, &str)], framing: &str) -> Vec<u8> {

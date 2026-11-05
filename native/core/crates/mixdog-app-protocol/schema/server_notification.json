@@ -1078,7 +1078,9 @@
     "ModelProxyRunEventParams": {
       "description": "Local core → Electron: one streamed event of a `modelProxy/run` request.",
       "properties": {
-        "event": true,
+        "event": {
+          "$ref": "#/definitions/ProxyEvent"
+        },
         "runId": {
           "type": "string"
         }
@@ -1315,6 +1317,500 @@
       "required": [
         "kind",
         "provider"
+      ],
+      "type": "object"
+    },
+    "ProxyEvent": {
+      "description": "One stream event of an attempt (`StreamEvent`).",
+      "oneOf": [
+        {
+          "properties": {
+            "item": {
+              "$ref": "#/definitions/ProxyItemKind"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyPhase"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "itemStart"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "item",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "textDelta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "reasoningDelta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "replay": {
+              "$ref": "#/definitions/ProxyReplay"
+            },
+            "type": {
+              "enum": [
+                "reasoningReplay"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "replay",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolCallStart"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "delta": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolCallArgsDelta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "delta",
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "call": {
+              "$ref": "#/definitions/ProxyToolCall"
+            },
+            "type": {
+              "enum": [
+                "toolCallDone"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "call",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "usage"
+              ],
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/ProxyUsage"
+            }
+          },
+          "required": [
+            "type",
+            "usage"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "refusal"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "citation"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "serverToolBlock"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "providerKeepalive"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "state": true,
+            "type": {
+              "enum": [
+                "providerState"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "stop": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyStop"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "completed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyItemKind": {
+      "enum": [
+        "text",
+        "reasoning",
+        "tool"
+      ],
+      "type": "string"
+    },
+    "ProxyPhase": {
+      "enum": [
+        "commentary",
+        "finalAnswer"
+      ],
+      "type": "string"
+    },
+    "ProxyReplay": {
+      "properties": {
+        "items": true,
+        "owner": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items",
+        "owner"
+      ],
+      "type": "object"
+    },
+    "ProxyStop": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "endTurn"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "toolUse"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "maxTokens"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "stopSequence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "contentFilter"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "refusal"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "continueTurn"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "other"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyToolCall": {
+      "properties": {
+        "arguments": true,
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nativeType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "arguments",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ProxyUsage": {
+      "properties": {
+        "cacheReadTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cacheWrite1hTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cacheWriteTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "costTicks": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "inputTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "outputTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "raw": true,
+        "reasoningTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cacheReadTokens",
+        "cacheWrite1hTokens",
+        "cacheWriteTokens",
+        "inputTokens",
+        "outputTokens",
+        "reasoningTokens"
       ],
       "type": "object"
     },

@@ -3,6 +3,8 @@
 
 pub mod agent_route_service;
 pub mod chain;
+pub mod hidden_agents;
+pub mod model_proxy;
 
 #[cfg(test)]
 mod agent_route_tests;

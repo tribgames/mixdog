@@ -31,7 +31,6 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
-use mixdog_protocol::DomainErrorDetail;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneTokens;
@@ -577,7 +576,8 @@ impl UpdateService {
                     Err(HostError::Rpc { message, .. }) => Err(CoreError::DomainError {
                         domain: DOMAIN.into(),
                         code: None,
-                        detail: Some(Box::new(DomainErrorDetail::ExternalFailure { message })),
+                        message: Some(message.into()),
+                        detail: None,
                     }),
                 }
             },

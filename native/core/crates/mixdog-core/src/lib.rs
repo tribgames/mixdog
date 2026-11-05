@@ -4,7 +4,7 @@
 pub mod approvals;
 pub mod config;
 pub mod domains;
-// pub mod workflow; // WP-WORKFLOW: unverified (blocked by mixdog-services errors); re-enable at "freeze lifted"
+pub mod workflow;
 pub mod feed;
 pub mod notify;
 pub mod ops;

@@ -3,6 +3,13 @@
 //! index never blocks the provider: its bytes are kept as `<file>.corrupt-<ts>`, the last good
 //! copy (`<file>.bak`) is restored when there is one, else no model is registered. A newer
 //! build's index is left in place (it reads as no models) and refuses writes.
+//!
+//! The index is read once, at construction, and answered from memory afterwards. Node
+//! (`registered-models.mjs:65`) rereads the file on every lookup (`catalog.mjs:44`), which is only
+//! observable if something else writes it. The writers in Node are `registerLocalModel`
+//! (`hugging-face.mjs:201`), `forgetRegisteredLocalModel` (`model-maintenance.mjs:150`) and the
+//! corrupt-index recovery inside the read; here those are `register`, `forget` and the load. The
+//! core owns the data directory, so no other process writes the file; `reload()` rereads it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -34,9 +41,9 @@ pub enum RegistryError {
     Io(String),
 }
 
-/// `owner/name` of a Hugging Face model.
+/// `owner/name` of a Hugging Face model: `/^[\w.-]+\/[\w.-]+$/`, where `\w` is ASCII only.
 pub fn is_repository_id(value: &str) -> bool {
-    let valid = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    let valid = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
     value.split_once('/').is_some_and(|(owner, name)| valid(owner) && valid(name) && !name.contains('/'))
 }
 

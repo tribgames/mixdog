@@ -142,6 +142,13 @@ impl SessionMeta {
     }
 }
 
+/// Today's `onSensitiveValuesMarked(sessionId, listener)` (`sensitive-values.mjs:87`).
+pub trait SensitiveMarks: Send + Sync + 'static {
+    /// Calls `listener` whenever `thread` gains a sensitive value, until the returned guard
+    /// drops.
+    fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send>;
+}
+
 /// Today's `ingestSessionIntoMemory` (`memory-ingest.mjs:15`) when a session closes.
 pub trait CloseIngest: Send + Sync + 'static {
     /// Best effort: never fails. `cwd` is the session's; `messages` its model context.

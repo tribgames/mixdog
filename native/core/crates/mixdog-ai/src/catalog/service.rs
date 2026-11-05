@@ -17,11 +17,12 @@ use crate::oauth::CredentialIo;
 use super::ModelsDevSource;
 use super::ProviderCatalog;
 use super::RefreshOutcome;
+use super::store::Ask;
 use super::store::CatalogSnapshot;
 
 pub struct CatalogService {
     catalog: Arc<ProviderCatalog>,
-    sources: Vec<Arc<dyn ModelSource>>,
+    sources: Vec<ModelSource>,
     metadata: Arc<ModelsDevSource>,
     /// The live-roster files, swapped whole when the catalog refreshes.
     pub(super) rosters: ArcSwap<RosterSnapshot>,
@@ -36,7 +37,7 @@ impl CatalogService {
     /// `catalog_wire` and `outputs_text` carry data before the first refresh.
     pub async fn cold_start(
         initial: CatalogSnapshot,
-        sources: Vec<Arc<dyn ModelSource>>,
+        sources: Vec<ModelSource>,
         metadata: Arc<ModelsDevSource>,
     ) -> Self {
         let catalog = Arc::new(ProviderCatalog::new(initial));
@@ -111,13 +112,29 @@ impl CatalogService {
     /// One refresh: model listings and models.dev (fetched only when its
     /// cache is stale or a retry is due), published as one snapshot.
     pub async fn refresh(&self) -> RefreshOutcome {
+        self.refresh_asking(Ask::All).await
+    }
+
+    /// A non-forced refresh: asks only the providers that are due (never
+    /// listed, or failed with their backoff passed).
+    pub async fn refresh_due(&self) -> RefreshOutcome {
+        self.refresh_asking(Ask::Due).await
+    }
+
+    /// An auth/account change: the rows listed under the previous account are
+    /// dropped (`invalidateSharedProviderCatalog`).
+    pub fn invalidate_accounts(&self) {
+        self.catalog.invalidate_accounts();
+    }
+
+    async fn refresh_asking(&self, ask: Ask) -> RefreshOutcome {
         let litellm = async {
             if let Some(source) = &self.litellm {
                 source.load(false).await;
             }
         };
         let (outcome, ()) = futures::future::join(
-            self.catalog.refresh_with_metadata(&self.sources, &self.metadata),
+            self.catalog.refresh_with_metadata_asking(&self.sources, &self.metadata, ask),
             litellm,
         )
         .await;

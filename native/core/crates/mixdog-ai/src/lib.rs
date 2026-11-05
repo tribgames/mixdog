@@ -18,6 +18,8 @@ pub mod accounts;
 pub mod admission;
 pub mod broker;
 pub mod catalog;
+pub mod effort;
+pub mod netproxy;
 pub mod oauth;
 pub mod providers;
 pub mod registry;

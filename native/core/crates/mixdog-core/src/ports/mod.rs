@@ -4,5 +4,6 @@
 pub mod gate;
 pub mod memory_source;
 pub mod route;
+pub mod route_write;
 pub mod threads;
 pub mod tools_status;

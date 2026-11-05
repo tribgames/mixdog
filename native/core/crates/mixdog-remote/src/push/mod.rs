@@ -1,8 +1,7 @@
-//! Push to paired devices. Relay-owned only: browser push goes through the relay's Web Push
-//! identity and app push through its APNs/FCM credentials; this PC never posts to a push service
-//! itself. The decision whether to push at all is [`decision`], shared with every channel.
+//! Push to paired devices: the relay's Web Push identity and APNs/FCM credentials, and the
+//! browsers that subscribed to this PC's own VAPID key ([`legacy`]). The decision whether to push
+//! at all is the engine's (`mixdog-core` `notify::decision`); this crate only delivers.
 
-pub mod decision;
 pub mod legacy;
 pub mod native;
 pub mod native_crypto;

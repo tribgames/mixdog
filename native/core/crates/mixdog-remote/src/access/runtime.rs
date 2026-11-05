@@ -6,7 +6,7 @@
 //! decrypted here and handed to the bridge byte for byte (R25); a slow phone stalls only its own
 //! bridge task.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -30,6 +30,7 @@ use crate::leg::frame::{Payload, encode_binary_frame, json_frame};
 use crate::leg::inbound::Inbound;
 use crate::leg::socket::{LegConfig, LegEvent, Outgoing, run_leg, validated_relay_url};
 use crate::leg::{MAX_WS_PAYLOAD_BYTES, open_envelopes};
+use crate::clients::foreground::{Report, parse_report};
 use crate::pair_code::{PairCode, PairCodeEffects, PairCodeView};
 use crate::push::native_crypto::{NativePushContent, Reason, collapse_key, encrypt_native_push_fresh};
 use crate::push::web::{RelayWebPush, WebPushTarget, encrypt_for_target};
@@ -59,6 +60,10 @@ pub struct PushDelivery {
     pub reason: Reason,
     /// This PC's relay device id: the phone opens the session on the PC that sent it.
     pub host_id: String,
+    /// The tool approval an approval-pending push is about: its id (already clipped to 120
+    /// units) and whether the phone may offer Allow. Native content only, inside the
+    /// encryption; `allowOnce` is written only when true.
+    pub approval: Option<(String, bool)>,
 }
 
 /// Writes a frame to the open relay leg; false when there is none.
@@ -199,8 +204,8 @@ struct Inner {
     cfg: RuntimeConfig,
     state: Mutex<State>,
     roster: tokio::sync::OnceCell<Arc<Mutex<Roster>>>,
-    /// Starts, rotations and stops run one at a time.
-    gate: tokio::sync::Mutex<()>,
+    /// Starts, rotations and stops run one at a time; a permit is held across the relay dial.
+    gate: tokio::sync::Semaphore,
     bridge: Bridge,
 }
 
@@ -231,6 +236,11 @@ impl Inner {
 
     fn host_name(&self) -> String {
         mixdog_js::slice_utf16(&self.cfg.settings.read().name, HOST_NAME_MAX)
+    }
+
+    /// Waits for the one place in a start, rotation or stop.
+    async fn enter(&self) -> tokio::sync::SemaphorePermit<'_> {
+        self.gate.acquire().await.unwrap_or_else(|_| unreachable!("the gate is never closed"))
     }
 
     /// Runs `job` on the durability lane (the secret files and the roster live there).
@@ -375,7 +385,7 @@ impl RemoteRuntime {
                     retry_cancel: None,
                 }),
                 roster: tokio::sync::OnceCell::new(),
-                gate: tokio::sync::Mutex::new(()),
+                gate: tokio::sync::Semaphore::new(1),
                 bridge: Bridge::new(dialer, sink),
             }
         });
@@ -417,7 +427,7 @@ impl RemoteRuntime {
     /// Boot, resume and retry starts only connect once activated, so a fresh install never
     /// registers on the relay on its own.
     pub async fn start(&self, explicit: bool) -> Result<(), RemoteError> {
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.enter().await;
         self.start_gated(explicit).await
     }
 
@@ -562,7 +572,7 @@ impl RemoteRuntime {
 
     /// Switched off: no retry; the leg is closed (`before_close` has read its list one last time).
     pub async fn stop(&self) -> Result<(), RemoteError> {
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.enter().await;
         if let Some(cancel) = self.inner.state().retry_cancel.take() {
             cancel.cancel();
         }
@@ -577,7 +587,7 @@ impl RemoteRuntime {
 
     /// The runtime ends (core shutdown).
     pub async fn close(&self) {
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.enter().await;
         if let Some(cancel) = self.inner.state().retry_cancel.take() {
             cancel.cancel();
         }
@@ -607,10 +617,10 @@ impl RemoteRuntime {
     /// New pairing token, device and E2EE identities: every paired phone pairs again.
     pub async fn rotate(&self) -> Result<(), RemoteError> {
         {
-            let _gate = self.inner.gate.lock().await;
+            let _gate = self.inner.enter().await;
             self.start_gated(true).await?;
         }
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.enter().await;
         self.close_leg();
         self.rotate_identities().await?;
         self.start_gated(true).await?;
@@ -795,7 +805,7 @@ impl RemoteRuntime {
         let live = self.inner.state().live.clone();
         let Some(live) = live else { return self.start(false).await };
         live.cancel.cancel();
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.enter().await;
         self.close_leg();
         self.start_gated(false).await
     }
@@ -980,6 +990,35 @@ impl RemoteRuntime {
         self.inner.state().live.as_ref().map(|live| live.device.device_id.clone()).unwrap_or_default()
     }
 
+    /// The client ids (paired credentials) of every phone that is not awaiting removal; empty
+    /// until the roster has loaded (`prepare`).
+    pub fn paired_devices(&self) -> Vec<String> {
+        self.inner
+            .roster
+            .get()
+            .map(|roster| lock(roster).list().into_iter().filter(|row| !row.pending_removal).map(|row| row.id).collect())
+            .unwrap_or_default()
+    }
+
+    /// Whether a phone of `client_id` shows `thread_id` right now (push-notifier.ts
+    /// `isClientForeground`): a paired credential with a live leg painting it, or a leg that
+    /// reported the id as its browser id (what a direct Web Push subscription names).
+    pub fn is_client_foreground(&self, client_id: &str, thread_id: &str) -> bool {
+        let state = self.inner.state();
+        state.table.credential_shows(client_id, thread_id) || state.table.browser_shows(client_id, thread_id)
+    }
+
+    /// `setForeground(visible, browserId?)` from the leg `peer_id`.
+    pub fn report_foreground(&self, peer_id: &str, visible: bool, browser_id: Option<&str>) {
+        let report = Report::Visible { visible, browser_id: browser_id.map(str::to_owned) };
+        self.inner.state().table.report(peer_id, report);
+    }
+
+    /// `setScreenSessions(ids)` from the leg `peer_id`; the ids are taken as filtered.
+    pub fn report_screen_sessions(&self, peer_id: &str, ids: HashSet<String>) {
+        self.inner.state().table.report(peer_id, Report::Screens(ids));
+    }
+
     /// Delivers one notification the engine decided on to one paired device, over every path
     /// that device registered: relay-owned Web Push, native push, and the PC-signed legacy
     /// subscription (only for a browser that holds no relay association). `Err` is the sentence
@@ -1031,8 +1070,8 @@ impl RemoteRuntime {
                 body,
                 session_id: push.session_id.clone(),
                 reason,
-                approval_id: None,
-                allow_once: None,
+                approval_id: push.approval.as_ref().map(|(id, _)| id.clone()),
+                allow_once: push.approval.as_ref().filter(|(_, allow)| *allow).map(|_| true),
                 host_id: (!host_id.is_empty()).then(|| host_id.clone()),
             };
             let Ok(mx) = encrypt_native_push_fresh(&row.public_key, &content) else { continue };
@@ -1307,7 +1346,15 @@ impl RemoteRuntime {
                     Frame::Binary(bytes)
                 } else {
                     match String::from_utf8(bytes) {
-                        Ok(text) => Frame::Text(text),
+                        // The phone's account of its own screen is the relay layer's, not the
+                        // core's: recorded here and answered by nothing.
+                        Ok(text) => match parse_report(&text) {
+                            Some(Report::Visible { visible, browser_id }) => {
+                                return self.report_foreground(client_id, visible, browser_id.as_deref());
+                            }
+                            Some(Report::Screens(ids)) => return self.report_screen_sessions(client_id, ids),
+                            None => Frame::Text(text),
+                        },
                         Err(_) => return self.close_client(client_id, "invalid encrypted relay frame"),
                     }
                 };
@@ -1329,7 +1376,7 @@ impl RemoteRuntime {
         };
         let browser = row.as_ref().map(|row| row.browser.clone()).unwrap_or_default();
         let alias = self.inner.cfg.settings.device_aliases().get(&credential).cloned().unwrap_or_default();
-        let listed = row.map(|row| mixdog_js::slice_utf16(&mixdog_js::js_trim(&row.name), 80)).unwrap_or_default();
+        let listed = row.map(|row| mixdog_js::slice_utf16(mixdog_js::js_trim(&row.name), 80)).unwrap_or_default();
         let name = if !alias.is_empty() { alias } else { listed };
         self.inner.cfg.registry.attach_peer(client_id, if name.is_empty() { crate::registry::DEFAULT_DEVICE_NAME } else { &name }, &browser);
     }

@@ -1023,7 +1023,10 @@ mod responses_heads {
             r.options.session_id = Some("sess-1".into());
             r
         };
-        let derived = crate::providers::compat::responses::xai_cache_key(&with_session(native_history())).unwrap();
+        let derived = {
+            let body: JsonValue = serde_json::from_slice(&http.encode(&with_session(native_history())).unwrap().body).unwrap();
+            body["prompt_cache_key"].as_str().unwrap().to_owned()
+        };
         for (label, history) in [("native/plain-tools", native_history()), ("oauth/plain-tools", oauth_history())] {
             for (transport, codec) in [("http", &http), ("ws", &ws)] {
                 let name = format!("{transport}/{label}");
@@ -1038,6 +1041,99 @@ mod responses_heads {
         let wire = ws.encode(&with_session(native_history())).unwrap();
         assert!(wire.url.starts_with("wss://api.x.ai/v1/responses"));
         assert!(String::from_utf8(wire.body).unwrap().starts_with("{\"type\":\"response.create\""));
+    }
+
+    struct MapEnv(std::collections::HashMap<String, String>);
+
+    impl crate::registry::keys::Environment for MapEnv {
+        fn var(&self, name: &str) -> Option<String> {
+            self.0.get(name).cloned()
+        }
+    }
+
+    /// Every scope, namespace and lane setting reaches the `prompt_cache_key`
+    /// Node's `xaiResponsesCacheRouting` computes (null: the field is not sent).
+    #[test]
+    fn xai_cache_keys_match_nodes_routing_for_every_scope() {
+        use crate::providers::compat::chat::EnvSource;
+        let golden = read_json("providers/oracles/xai-cache-routing.json");
+        let cases = golden["cases"].as_array().unwrap();
+        // The unbounded lane counts seeds per codec, so cases sharing an environment share one.
+        let mut codecs: std::collections::BTreeMap<String, CompatResponsesCodec> = Default::default();
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let env: std::collections::HashMap<String, String> = case["env"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+                .collect();
+            let signature = serde_json::to_string(&case["env"]).unwrap();
+            let codec = codecs.entry(signature).or_insert_with(|| {
+                let config = CompatConfig {
+                    environment: Some(EnvSource(std::sync::Arc::new(MapEnv(env)))),
+                    ..CompatConfig::default()
+                };
+                CompatResponsesCodec::new(CompatProfile::xai(), config, TransportKind::Http1)
+            });
+            let role = |r: &str| match r {
+                "system" => Role::System,
+                "developer" => Role::Developer,
+                _ => Role::User,
+            };
+            let messages = case["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| text_message(role(m["role"].as_str().unwrap()), m["content"].as_str().unwrap()))
+                .collect();
+            let tools = case["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| tool_def(t["name"].as_str().unwrap(), t["description"].as_str().unwrap(), t["inputSchema"].clone()))
+                .collect();
+            let mut req = request(case["model"].as_str().unwrap(), messages, tools, None);
+            let options = &case["options"];
+            let text = |key: &str| options.get(key).map(|v| v.as_str().unwrap().to_owned());
+            req.options.session_id = text("sessionId");
+            req.options.prompt_cache_key = text("promptCacheKey");
+            req.options.prompt_cache_scope = text("promptCacheScope");
+            req.options.xai_responses_cache_scope = text("xaiResponsesCacheScope");
+            let body: JsonValue = serde_json::from_slice(&codec.encode(&req).unwrap().body).unwrap();
+            assert_eq!(body.get("prompt_cache_key").unwrap_or(&JsonValue::Null), &case["key"], "{name}");
+        }
+    }
+
+    /// A socket turn that resumed an imported `previous_response_id` and whose
+    /// response has no id keeps the resumed id as the slot's `responseId`
+    /// (Node: `result.responseId || previousResponseId`); the HTTP turn does not.
+    #[test]
+    fn a_socket_turn_without_a_response_id_keeps_the_resumed_one() {
+        let golden = oracle("xai-responses-continuation.json");
+        let turn = &golden["websocketResumed"];
+        let mut req = request("grok-4.5", vec![text_message(Role::User, "go")], Vec::new(), None);
+        req.messages = (0..4).map(|_| text_message(Role::User, "m")).collect();
+        req.options.provider_state = Some(serde_json::from_value(turn["priorState"].clone()).unwrap());
+        let slot = |transport: TransportKind| -> JsonValue {
+            let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), transport);
+            let frame = json!({"type": "response.completed", "response": {"status": "completed", "output": []}});
+            let bytes = if transport == TransportKind::WebSocket { frame.to_string() } else { format!("data: {frame}\n\n") };
+            let mut decoder = codec.decoder(&req);
+            let mut events = decoder.feed(bytes.as_bytes()).unwrap();
+            events.extend(decoder.finish().unwrap());
+            let mut state = events
+                .into_iter()
+                .find_map(|e| match e {
+                    StreamEvent::ProviderState(s) => Some(serde_json::to_value(s).unwrap()),
+                    _ => None,
+                })
+                .expect("the turn reports its provider state");
+            state["xaiResponses"]["updatedAt"] = turn["providerState"]["xaiResponses"]["updatedAt"].clone();
+            state
+        };
+        assert_eq!(slot(TransportKind::WebSocket), turn["providerState"]);
+        assert_eq!(slot(TransportKind::Http1)["xaiResponses"]["responseId"], JsonValue::Null);
     }
 
     #[test]

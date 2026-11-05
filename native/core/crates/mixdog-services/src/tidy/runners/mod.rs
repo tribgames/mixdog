@@ -34,6 +34,9 @@ pub fn runner_for(id: &str) -> Option<Box<dyn Runner>> {
 }
 
 #[cfg(test)]
+mod twin_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

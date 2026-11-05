@@ -18,7 +18,6 @@ use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_protocol::DomainErrorDetail;
 use serde_json::Value;
 
 struct Store(Mutex<Doc>);
@@ -140,10 +139,10 @@ async fn every_recorded_call_equals_nodes_result_and_state() {
             }
             let reply = service.call(request(&method, Value::Object(params))).await;
             match (step.get("error"), reply) {
-                (Some(message), Err(CoreError::DomainError { domain, code, detail })) => {
+                (Some(expected), Err(CoreError::DomainError { domain, code, message, detail })) => {
                     assert_eq!((&*domain, code), ("config", None), "{at}");
-                    let expected = DomainErrorDetail::ExternalFailure { message: message.as_str().unwrap().into() };
-                    assert_eq!(detail.as_deref(), Some(&expected), "{at}");
+                    assert_eq!(message.as_deref(), expected.as_str(), "{at}");
+                    assert_eq!(detail, None, "{at}");
                 }
                 (None, Ok(Reply::Value(value))) => assert_eq!(value, step["result"], "{at} result"),
                 (error, other) => panic!("{at}: node error {error:?}, rust {other:?}"),

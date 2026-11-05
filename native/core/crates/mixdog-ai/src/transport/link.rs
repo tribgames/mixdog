@@ -20,6 +20,12 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::Response;
 
+use crate::netproxy::NetworkProxy;
+use crate::netproxy::ProxyConfigError;
+use crate::netproxy::RouteError;
+use crate::netproxy::RoutedClients;
+use crate::netproxy::clients::ClientError;
+
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
@@ -91,38 +97,81 @@ pub trait BidiOpen: Send + Sync {
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError>;
 }
 
+/// The clients behind a [`ReqwestLink`]: one fixed client, or the clients of
+/// the network proxy policy, one per route.
+enum Clients {
+    Fixed(reqwest::Client),
+    Routed(RoutedClients),
+}
+
 /// The shared `reqwest` client as both HTTP seams. Redirects are never
 /// followed: the request carries credentials nobody validated the target of.
 pub struct ReqwestLink {
-    client: reqwest::Client,
+    clients: Clients,
+}
+
+fn link_builder(schedule: &KeepaliveSchedule, http2_only: bool) -> reqwest::ClientBuilder {
+    let mut builder = client_builder(schedule).redirect(reqwest::redirect::Policy::none());
+    if http2_only {
+        builder = builder.http2_prior_knowledge();
+    }
+    builder
 }
 
 impl ReqwestLink {
     /// `http2_only` speaks HTTP/2 without negotiation (Connect streams need
     /// it, and so do the h2c peers of tests).
     pub fn new(schedule: &KeepaliveSchedule, http2_only: bool) -> Result<Self, reqwest::Error> {
-        let mut builder = client_builder(schedule).redirect(reqwest::redirect::Policy::none());
-        if http2_only {
-            builder = builder.http2_prior_knowledge();
-        }
         Ok(Self {
-            client: builder.build()?,
+            clients: Clients::Fixed(link_builder(schedule, http2_only).build()?),
         })
     }
 
+    /// Every request follows the network proxy policy: it asks the route of
+    /// its origin and rides the client of that route (direct, or one proxy); a
+    /// change of the setting retires the clients, so no pooled connection
+    /// opened under the old setting is reused.
+    pub fn routed(schedule: &KeepaliveSchedule, http2_only: bool, policy: Arc<NetworkProxy>) -> Self {
+        let schedule = *schedule;
+        let clients = RoutedClients::new(policy, move |proxy| {
+            let builder = link_builder(&schedule, http2_only);
+            match proxy {
+                Some(uri) => builder.proxy(reqwest::Proxy::all(uri)?),
+                None => builder.no_proxy(),
+            }
+            .build()
+        });
+        Self { clients: Clients::Routed(clients) }
+    }
+
     #[allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
-    fn builder(&self, request: &WireRequest) -> Result<reqwest::RequestBuilder, ProviderError> {
+    async fn builder(&self, request: &WireRequest) -> Result<reqwest::RequestBuilder, ProviderError> {
         let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| {
             let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
             error.message = format!("invalid HTTP method {}", request.method);
             error
         })?;
-        let mut builder = self.client.request(method, &request.url);
+        let client = match &self.clients {
+            Clients::Fixed(client) => client.clone(),
+            Clients::Routed(routed) => routed.client_for(&request.url).await.map_err(proxy_error)?,
+        };
+        let mut builder = client.request(method, &request.url);
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }
         Ok(builder)
     }
+}
+
+/// A request the proxy policy could not route: nothing was sent, and it never
+/// goes direct instead.
+fn proxy_error(error: ClientError) -> ProviderError {
+    let mut failure = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+    failure.message = error.to_string();
+    if matches!(error, ClientError::Route(RouteError::Config(_))) {
+        failure.code = Some(ProxyConfigError::CODE.to_owned());
+    }
+    failure
 }
 
 struct ReqwestBody(reqwest::Response);
@@ -154,7 +203,7 @@ fn response_of(response: reqwest::Response) -> HttpResponse {
 #[async_trait]
 impl HttpSend for ReqwestLink {
     async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
-        let builder = self.builder(&request)?.body(request.body);
+        let builder = self.builder(&request).await?.body(request.body);
         let response = builder
             .send()
             .await
@@ -188,7 +237,8 @@ impl BidiOpen for ReqwestLink {
                 .map(|bytes| (Ok::<_, std::io::Error>(bytes), rx))
         });
         let builder = self
-            .builder(&request)?
+            .builder(&request)
+            .await?
             .body(reqwest::Body::wrap_stream(stream));
         let response = builder
             .send()
@@ -235,11 +285,17 @@ pub trait WsDial: Send + Sync {
 /// Dials with the keepalive schedule on the socket and the PING driver.
 pub struct KeepaliveDialer {
     schedule: KeepaliveSchedule,
+    policy: Option<Arc<NetworkProxy>>,
 }
 
 impl KeepaliveDialer {
     pub fn new(schedule: KeepaliveSchedule) -> Self {
-        Self { schedule }
+        Self { schedule, policy: None }
+    }
+
+    /// Every dial follows the network proxy policy.
+    pub fn routed(schedule: KeepaliveSchedule, policy: Arc<NetworkProxy>) -> Self {
+        Self { schedule, policy: Some(policy) }
     }
 }
 
@@ -249,7 +305,7 @@ impl WsDial for KeepaliveDialer {
         &self,
         request: Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
-        let (connection, response) = ws::connect(request, &self.schedule).await?;
+        let (connection, response) = ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?;
         Ok((Box::new(connection), response))
     }
 }

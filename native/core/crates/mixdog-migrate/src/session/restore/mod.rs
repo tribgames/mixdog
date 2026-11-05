@@ -40,12 +40,14 @@ use user_text::UserText;
 /// the attachment store the user text reads offloaded parts from.
 pub fn convert<'r>(rows: impl IntoIterator<Item = &'r mut Row>, blobs: &dyn Blobs) {
     let mut text = UserText::new(blobs);
+    let rows: Vec<&mut Row> = rows.into_iter().collect();
+    let ids = reasoning::session_wire_ids(rows.iter().map(|row| &row.body));
     for row in rows {
         if let Some(facts) = row_facts(&mut row.body, &mut text) {
             row.visible &= facts.visible;
             row.prompt = facts.prompt;
         } else if str_of(&row.body, "role") == Some("assistant") {
-            reasoning::convert(&mut row.body);
+            reasoning::convert(&mut row.body, &ids);
         }
     }
 }

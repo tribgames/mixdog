@@ -11,6 +11,8 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ModelListing;
+use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -34,6 +36,8 @@ use super::cache::layer::ExplicitCache;
 use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
+use super::codec::Target;
+use super::models;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -139,6 +143,47 @@ impl GoogleAdapter {
         }
         Ok(response)
     }
+
+    /// One listing fetch: no credential recovery and no resend. Node's listing
+    /// calls take whatever credential is current and report what comes back.
+    async fn fetch_listing(&self, wire: &WireRequest) -> Result<Vec<u8>, ProviderError> {
+        let authorization = self.auth.authorize().await?;
+        self.check_identity(&authorization)?;
+        let response = self.http.send(Self::authorized(wire, &authorization)).await?;
+        let succeeded = response.is_success();
+        let read = response.read_all().await?;
+        if !succeeded {
+            return Err(self.codec.classify(&read));
+        }
+        Ok(read.body)
+    }
+}
+
+#[async_trait]
+impl ModelListing for GoogleAdapter {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        match self.codec.target() {
+            // Vertex AI has no listing endpoint: its own list, with no credential.
+            Target::Vertex { .. } => Ok(models::vertex_records()),
+            Target::Gemini { origin } => {
+                let mut items = Vec::new();
+                let mut token: Option<String> = None;
+                loop {
+                    let body = self.fetch_listing(&models::gemini_request(origin, token.as_deref())).await?;
+                    let page = models::gemini_page(&body)?;
+                    items.extend(page.models);
+                    match page.next {
+                        Some(next) => token = Some(next),
+                        None => return Ok(models::gemini_records(&items)),
+                    }
+                }
+            }
+            Target::Antigravity { origin, project, client_version } => {
+                let body = self.fetch_listing(&models::antigravity_request(origin, project, client_version)).await?;
+                models::antigravity_records(&body, self.codec.traits())
+            }
+        }
+    }
 }
 
 struct Cached {
@@ -164,6 +209,10 @@ impl ProviderAdapter for GoogleAdapter {
 
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

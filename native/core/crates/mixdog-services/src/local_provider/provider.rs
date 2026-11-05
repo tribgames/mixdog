@@ -21,6 +21,7 @@ use super::hugging_face::{HfHttp, HuggingFaceCatalog};
 use super::installations::{Installations, Progress, wait};
 use super::model_state::ModelState;
 use super::request_queue::{DEFAULT_LOCAL_IDLE_TTL_SECONDS, QueueError, RequestQueue, Unload};
+use crate::tidy::process::Processes;
 use super::server_process::{Health, Launch, Launcher, Ready, ServerProcess, StartSpec, Timing, fetch_props};
 
 const CONFIRMATION_TTL: Duration = Duration::from_secs(5 * 60);
@@ -90,6 +91,7 @@ pub struct LocalProvider {
     pub hf: HuggingFaceCatalog,
     fetcher: Arc<dyn Fetcher>,
     durability: mixdog_rt::DurabilityIo,
+    processes: Processes,
     confirmations: Mutex<HashMap<String, Receipt>>,
     platform_key: String,
     signal: ChangeSignal,
@@ -98,8 +100,9 @@ pub struct LocalProvider {
 pub struct Parts {
     pub data_dir: PathBuf,
     pub fetcher: Arc<dyn Fetcher>,
-    /// The io-durability lane token the composition root hands this module: partial downloads are written on it.
-    pub durability: mixdog_rt::DurabilityIo,
+    /// The one process manager every child runs under (GPU probes, archive extraction) and the
+    /// io-durability lane the composition root hands this module: partial downloads are written on it.
+    pub processes: Processes,
     pub hf_http: Box<dyn HfHttp>,
     pub launcher: Arc<dyn Launcher>,
     pub health: Arc<dyn Health>,
@@ -111,9 +114,10 @@ pub struct Parts {
 impl LocalProvider {
     pub fn new(parts: Parts) -> Arc<Self> {
         let signal = ChangeSignal::default();
-        let hardware = HardwareProbe::with_signal(std::env::consts::OS, std::env::consts::ARCH, None, signal.clone());
+        let durability = parts.processes.durability();
+        let hardware = HardwareProbe::with_signal(std::env::consts::OS, std::env::consts::ARCH, None, signal.clone(), parts.processes.clone());
         let state = Arc::new(ModelState::with_signal(signal.clone()));
-        let catalog = Arc::new(Catalog::new(&parts.data_dir, hardware, state, parts.durability));
+        let catalog = Arc::new(Catalog::new(&parts.data_dir, hardware, state, durability));
         let on_exit: Arc<dyn Fn(&Value) + Send + Sync> = Arc::new(|d| {
             if d["expected"] != true {
                 eprintln!("[local-provider] llama-server exit {d}");
@@ -129,7 +133,8 @@ impl LocalProvider {
             server,
             hf,
             fetcher: parts.fetcher,
-            durability: parts.durability,
+            durability,
+            processes: parts.processes,
             confirmations: Mutex::default(),
             platform_key: parts.platform_key.unwrap_or_else(|| host_platform_key().to_owned()),
             signal,
@@ -297,7 +302,7 @@ impl LocalProvider {
                     return Err(ProviderError::Invalid("runtime installation does not accept modelId.".into()));
                 }
                 Ok(self.installs.track("runtime", None, move |progress: Progress, cancel| async move {
-                    install_runtime(&this.catalog, this.fetcher.as_ref(), this.durability, &this.platform_key, progress, cancel).await.map_err(|e| e.to_string())
+                    install_runtime(&this.catalog, this.fetcher.as_ref(), &this.processes, &this.platform_key, progress, cancel).await.map_err(|e| e.to_string())
                 }))
             }
             "model" => {
@@ -515,8 +520,9 @@ pub(crate) mod tests {
         }
     }
     struct NoLaunch;
+    #[async_trait]
     impl Launcher for NoLaunch {
-        fn launch(&self, _: &str, _: &[String], _: &str, _: &[(String, String)], _: Arc<dyn Fn(&str) + Send + Sync>) -> Result<Arc<dyn super::super::server_process::RunningProcess>, String> {
+        async fn launch(&self, _: &str, _: &[String], _: &str, _: &[(String, String)], _: super::super::server_process::LogSink) -> Result<Arc<dyn super::super::server_process::RunningProcess>, String> {
             Err("no process in tests".into())
         }
     }
@@ -531,13 +537,18 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn provider(dir: &std::path::Path) -> Arc<LocalProvider> {
+        provider_with(dir, Processes::for_tests(), Arc::new(NoLaunch), Arc::new(NoNet))
+    }
+
+    /// A provider whose children, launcher and health probe are the caller's.
+    pub(crate) fn provider_with(dir: &std::path::Path, processes: Processes, launcher: Arc<dyn Launcher>, health: Arc<dyn Health>) -> Arc<LocalProvider> {
         LocalProvider::new(Parts {
             data_dir: dir.to_owned(),
             fetcher: Arc::new(NoNet),
-            durability: mixdog_rt::testing::tokens().durability_io,
+            processes,
             hf_http: Box::new(NoNet),
-            launcher: Arc::new(NoLaunch),
-            health: Arc::new(NoNet),
+            launcher,
+            health,
             timing: Timing::default(),
             idle_ttl_seconds: Some(0),
             platform_key: Some("win32-x64-nvidia".into()),

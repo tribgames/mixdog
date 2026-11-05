@@ -16,7 +16,6 @@ use super::routes::normalize_route_chain;
 
 pub const DEFAULT_PROVIDER: &str = "anthropic-oauth";
 pub const DEFAULT_CONTEXT_WINDOW_CEILING: f64 = 500_000.0;
-const ALL_EFFORT_LEVELS: [&str; 8] = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 pub type Obj = Map<String, Value>;
 
@@ -77,22 +76,8 @@ fn is_undefined_or_null(v: Option<&Value>) -> bool {
 
 // -- effort ---------------------------------------------------------------------------
 
-/// `normalizeEffortInput`: `None` for empty / `auto`; a level, or the error text.
-pub fn normalize_effort_input(value: Option<&Value>) -> Result<Option<String>, String> {
-    let v = clean(value).to_lowercase();
-    if v.is_empty() || v == "auto" {
-        return Ok(None);
-    }
-    if !ALL_EFFORT_LEVELS.contains(&v.as_str()) {
-        return Err(format!("effort must be one of auto, {}", ALL_EFFORT_LEVELS.join(", ")));
-    }
-    Ok(Some(v))
-}
-
-/// `normalizeSavedEffort`.
-pub fn normalize_saved_effort(value: Option<&Value>) -> Option<String> {
-    normalize_effort_input(value).ok().flatten()
-}
+pub use crate::effort::normalize_effort_input;
+pub use crate::effort::normalize_saved_effort;
 
 fn opt_str(v: Option<String>) -> Value {
     v.map_or(Value::Null, Value::String)
@@ -541,6 +526,113 @@ pub fn normalize_workflow_route(route: &Value, fallback: &Value, strict: bool) -
         return Err(e);
     }
     result
+}
+
+// -- refreshRouteEffort ---------------------------------------------------------------------
+
+/// `routeModelDisplay(config, route, meta)` (route-state.mjs:46).
+pub fn route_model_display(config: &Obj, route: &Obj, meta: Option<&Value>) -> String {
+    let field = |key: &str| clean(meta.and_then(|m| m.get(key)));
+    let alias = clean(model_settings_for(config, &clean(route.get("provider")), &clean(route.get("model"))).get("alias"));
+    if !alias.is_empty() {
+        return alias;
+    }
+    for key in ["display", "displayName"] {
+        let v = field(key);
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    let name = field("name");
+    if !name.is_empty() && name != clean(route.get("model")) {
+        return name;
+    }
+    clean(route.get("modelDisplay"))
+}
+
+/// `fastCapableFor(provider, meta, effort, modelParameters)`.
+pub type FastCapable<'a> = &'a dyn Fn(&str, &Value, Option<&str>, &Value) -> bool;
+
+/// `resolveRouteEffortState` (route-state.mjs:11): the effective effort (`null` when none) and
+/// whether the route may run Fast.
+pub fn resolve_route_effort_state(target: &Obj, meta: Option<&Value>, fast: FastCapable<'_>) -> (Value, bool) {
+    let requested = if target.contains_key("effort") {
+        target["effort"].clone()
+    } else {
+        let preset_effort = target.get("preset").and_then(|p| p.get("effort"));
+        if truthy(preset_effort) { preset_effort.cloned().unwrap_or(Value::Null) } else { Value::Null }
+    };
+    if !model_meta_looks_resolved(meta) {
+        let effective = if truthy(Some(&requested)) { requested } else { Value::Null };
+        return (effective, target.get("fast") == Some(&Value::Bool(true)));
+    }
+    let meta = meta.unwrap_or(&Value::Null);
+    let provider = target.get("provider").and_then(Value::as_str).unwrap_or("");
+    let effective = requested.as_str().and_then(|e| crate::effort::coerce_effort_for(provider, meta, e, None));
+    let params = target.get("modelParameters").cloned().unwrap_or(Value::Null);
+    let capable = fast(provider, meta, effective.as_deref(), &params);
+    (effective.map_or(Value::Null, Value::String), capable)
+}
+
+fn positive_number(value: Option<&Value>) -> Option<f64> {
+    let n = number(value);
+    (n > 0.0).then_some(n)
+}
+
+/// The route `refreshRouteEffort` (route-resolution.mjs:36) leaves on the runtime: the effort, Fast,
+/// context and display fields derived from `target` and its model row. `live_provider` is the
+/// provider of the runtime's current route, whose ladder lists the effort options.
+pub fn refresh_route_fields(config: &Obj, target: &Obj, meta: Option<&Value>, live_provider: &str, fast: FastCapable<'_>) -> Obj {
+    let (effective_effort, fast_capable) = resolve_route_effort_state(target, meta, fast);
+    let state = resolve_route_context_state(target, meta);
+    let context_value = clean(target.get("modelParameters").and_then(|p| p.get("context")));
+    let context_option = meta
+        .and_then(|m| m.get("modelParameterOptions"))
+        .and_then(Value::as_array)
+        .and_then(|options| options.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("context")))
+        .and_then(|o| o.get("options"))
+        .and_then(Value::as_array)
+        .and_then(|list| list.iter().find(|o| clean(o.get("value")) == context_value));
+    let model_display = route_model_display(config, target, meta);
+    let window_known = state.context_default_percent.is_some();
+    let selected = state
+        .selected_context_window
+        .filter(|w| *w > 0.0)
+        .or_else(|| positive_number(context_option.and_then(|o| o.get("contextWindow"))))
+        .or_else(|| if window_known { None } else { positive_number(target.get("selectedContextWindow")) });
+    let context_tokens = if window_known { state.context_tokens } else { normalize_context_tokens(target.get("contextTokens")) };
+    let mut route = target.clone();
+    route.shift_remove("contextTokens");
+    route.insert("fast".into(), Value::Bool(fast_capable && target.get("fast") == Some(&Value::Bool(true))));
+    route.insert("fastCapable".into(), Value::Bool(fast_capable));
+    let active = effective_effort.as_str().map(str::to_owned);
+    route.insert("effectiveEffort".into(), effective_effort);
+    let items = crate::effort::effort_items_for(live_provider, meta.unwrap_or(&Value::Null), active.as_deref(), None);
+    route.insert(
+        "effortOptions".into(),
+        Value::Array(
+            items.into_iter().map(|i| serde_json::json!({ "value": i.value, "label": i.label, "description": i.description })).collect(),
+        ),
+    );
+    let percent = if window_known { state.context_percent.map(jnum) } else { target.get("contextPercent").cloned() };
+    match percent {
+        Some(p) => route.insert("contextPercent".into(), p),
+        None => route.shift_remove("contextPercent"),
+    };
+    match state.context_default_percent {
+        Some(p) => route.insert("contextDefaultPercent".into(), jnum(p)),
+        None => route.shift_remove("contextDefaultPercent"),
+    };
+    if let Some(tokens) = context_tokens.filter(|t| *t != 0.0) {
+        route.insert("contextTokens".into(), jnum(tokens));
+    }
+    if let Some(window) = selected {
+        route.insert("selectedContextWindow".into(), jnum(window));
+    }
+    if !model_display.is_empty() {
+        route.insert("modelDisplay".into(), Value::String(model_display));
+    }
+    route
 }
 
 #[cfg(test)]

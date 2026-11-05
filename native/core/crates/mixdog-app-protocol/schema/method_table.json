@@ -10836,6 +10836,12 @@
       "result": "HostSystemProxyResolveResponse"
     },
     {
+      "method": "host/notification/status",
+      "params": "HostNotificationStatusParams",
+      "requires": "host.notifications",
+      "result": "HostNotificationStatus"
+    },
+    {
       "method": "host/update/command",
       "params": "HostUpdateCommandParams",
       "requires": "host.updater",

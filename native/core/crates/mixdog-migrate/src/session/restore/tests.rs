@@ -431,7 +431,7 @@ fn legacy_replay_fields_convert_on_the_corpus() {
     // The envelope is the converter's (golden-checked against Node in `reasoning`), and it
     // carries the message's text and calls besides the reasoning.
     let mut want = plain[first].clone();
-    super::reasoning::convert(&mut want);
+    super::reasoning::convert(&mut want, &super::reasoning::session_wire_ids(&plain));
     let replay = &body(lead, first)["providerReplay"];
     assert_eq!(serde_json::to_string(replay).unwrap(), serde_json::to_string(&want["providerReplay"]).unwrap());
     let kinds: Vec<&str> = replay["items"].as_array().unwrap().iter().map(|i| i["type"].as_str().unwrap_or("")).collect();

@@ -16,6 +16,7 @@ pub mod retry;
 pub mod schema;
 pub mod sse;
 pub mod wire_route;
+pub(crate) mod xai_cache;
 
 #[cfg(test)]
 mod tests;

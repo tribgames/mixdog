@@ -52,10 +52,16 @@ use super::config::WireContext;
 use super::config::request_scope;
 use super::effort::EffortProjection;
 use super::effort_retry::without_effort_updates;
+use super::delta;
+use super::delta::Chain;
+use super::pool::Checkout;
+use super::pool::Compat;
+use super::pool::WsPool;
+use super::switch;
+use super::switch::TransportMode;
 use crate::transport::link::BodyStream;
 use crate::transport::link::HttpSend;
 use crate::transport::link::WsDial;
-use crate::transport::link::WsSocket;
 use crate::transport::ws::ConnectError;
 use crate::transport::ws::Message;
 
@@ -185,6 +191,10 @@ pub struct OpenAiAdapter {
     dial: Arc<dyn WsDial>,
     credentials: Arc<dyn CredentialSource>,
     context: Arc<SessionContext>,
+    /// The HTTP/SSE twin of a WebSocket codec, for the transport switch.
+    http_codec: Option<OpenAiCodec>,
+    pool: Arc<WsPool>,
+    mode: TransportMode,
 }
 
 /// The seams and sources an adapter runs on.
@@ -200,16 +210,31 @@ impl OpenAiAdapter {
     /// `codec.transport()` (`Http1` or `WebSocket`) selects the wire; moving
     /// between them is a decision above the adapter.
     pub fn new(id: ProviderId, codec: OpenAiCodec, links: AdapterLinks) -> Self {
+        let http_codec = (codec.transport() == TransportKind::WebSocket).then(|| codec.with_transport(TransportKind::Http1));
         Self {
             id,
             codec,
-            policy: RetryPolicy::codex_default(),
+            policy: super::policy::retry_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             http: links.http,
             dial: links.dial,
             credentials: links.credentials,
             context: links.context,
+            http_codec,
+            pool: Arc::new(WsPool::default()),
+            mode: TransportMode::default(),
         }
+    }
+
+    /// The transport policy of a WebSocket codec (default `auto`).
+    pub fn with_mode(mut self, mode: TransportMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// The session ended: its parked sockets and transport state go.
+    pub fn release_session(&self, session: &str) {
+        self.pool.release_session(session);
     }
 
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {
@@ -239,59 +264,96 @@ impl OpenAiAdapter {
         }
     }
 
-    async fn open_http(&self, request: &ModelRequest, wire: WireRequest) -> Result<Opened, ProviderError> {
+    async fn open_http(&self, codec: &OpenAiCodec, request: &ModelRequest, wire: WireRequest) -> Result<Opened, ProviderError> {
         let response = self.http.send(wire).await?;
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());
-            return Ok(Opened::Stream(ResponsesStream::new(
-                Source::Http(response.body),
-                self.codec.decoder(request),
-            )));
+            return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.decoder(request))));
         }
         Ok(Opened::Rejected(read_failure(response).await?))
     }
 
-    async fn open_ws(&self, request: &ModelRequest, wire: WireRequest) -> Result<Opened, ProviderError> {
-        let handshake = ws_request(&wire)?;
-        let (socket, upgrade) = match self.dial.dial(handshake).await {
-            Ok(connected) => connected,
-            Err(ConnectError::Transport(fault)) => {
-                return Err(ProviderError::transport(fault, DeliveryState::NotSent));
-            }
-            Err(ConnectError::Rejected(response)) => {
-                let headers = response
-                    .headers()
-                    .iter()
-                    .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
-                    .collect();
-                return Ok(Opened::Rejected(ErrorResponse {
-                    status: Some(response.status().as_u16()),
-                    headers,
-                    body: response.into_body().unwrap_or_default(),
-                }));
-            }
-        };
-        let upgrade_token = upgrade
-            .headers()
-            .get(TURN_STATE_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        self.remember_turn_state(request, upgrade_token.as_deref());
-        let frame = String::from_utf8(wire.body)
+    /// One exchange on a pooled socket. `wire` carries the request frame (and
+    /// the handshake headers for a new socket); the frame actually sent is
+    /// the delta against the socket's last response when it extends it.
+    async fn open_ws(
+        &self,
+        request: &ModelRequest,
+        wire: WireRequest,
+        credential: &Credential,
+    ) -> Result<Opened, ProviderError> {
+        let mut body: serde_json::Map<String, Value> = serde_json::from_slice(&wire.body)
             .map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
+        body.shift_remove("type");
+        body.shift_remove("client_metadata");
+        let cache_key = body.get("prompt_cache_key").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let identity = credential.account_id.as_deref().unwrap_or(&credential.bearer);
+        let compat = Compat::new(&format!("{:?}", self.codec.route()), identity, &cache_key);
+        let (key, shared) = match request_scope(request) {
+            Some(scope) => (scope.to_owned(), false),
+            None => (format!("\0shared:{}:{}", compat.auth, compat.cache_key), true),
+        };
+        let mut checkout = self.pool.checkout(&key, &compat, shared, false);
+        if checkout.socket.is_none() {
+            let handshake = ws_request(&wire)?;
+            let (socket, upgrade) = match self.dial.dial(handshake).await {
+                Ok(connected) => connected,
+                Err(ConnectError::Transport(fault)) => {
+                    return Err(ProviderError::transport(fault, DeliveryState::NotSent));
+                }
+                Err(ConnectError::Proxy { code, message }) => {
+                    // The network proxy policy or the proxy refused: nothing was sent.
+                    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                    error.code = Some(code);
+                    error.message = message;
+                    return Err(error);
+                }
+                Err(ConnectError::Rejected(response)) => {
+                    let headers = response
+                        .headers()
+                        .iter()
+                        .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
+                        .collect();
+                    return Ok(Opened::Rejected(ErrorResponse {
+                        status: Some(response.status().as_u16()),
+                        headers,
+                        body: response.into_body().unwrap_or_default(),
+                    }));
+                }
+            };
+            let upgrade_token = upgrade
+                .headers()
+                .get(TURN_STATE_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned);
+            self.remember_turn_state(request, upgrade_token.as_deref());
+            checkout.socket = Some(socket);
+        }
+        let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
+        let framed = delta::compute(&chain, &body);
+        let frame = self.codec.ws_frame(request, framed.frame);
+        let text = serde_json::to_string(&Value::Object(frame))
+            .map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
+        let socket = checkout.socket.as_ref().expect("a checked-out socket");
         socket
-            .send(Message::text(frame))
+            .send(Message::text(text))
             .await
             .map_err(|fault| ProviderError::transport(fault, DeliveryState::Ambiguous))?;
-        let mut stream = ResponsesStream::new(
-            Source::Ws { socket, pending: None },
-            self.codec.decoder(request),
-        );
+        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request));
+        stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
+        stream.ledger = Some((self.pool.clone(), key, self.mode.http_fallback()));
         // The first frame decides whether the server took the request.
         stream.prime().await;
         Ok(Opened::Stream(stream))
     }
+}
+
+/// The request a pooled socket's response answers, for the next delta.
+struct Anchor {
+    body: serde_json::Map<String, Value>,
+    response_id: Option<String>,
+    items: Vec<Value>,
 }
 
 /// The outcome of opening one exchange.
@@ -369,17 +431,91 @@ impl ProviderAdapter for OpenAiAdapter {
         &self.keepalive
     }
 
+    /// One attempt. On a WebSocket codec in `auto` mode the attempt may move
+    /// to HTTP/SSE inside itself, as Node's send does ([`switch`]): at once
+    /// for a refused upgrade, a 426 or a server close 1009, and when the
+    /// session's WebSocket budget is spent (the sixth attempt goes straight to
+    /// HTTP/SSE rather than trying a sixth socket). A switch of an `openai-oauth`
+    /// session and every 1009 stay switched for the session.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let mut wire = self.codec.encode_with(&request, effort_of(&request).as_ref())?;
+        let route = self.codec.route();
+        let scope = request_scope(&request).map(str::to_owned);
+        let keys: Vec<&str> = scope.iter().map(String::as_str).chain(request.options.session_id.as_deref()).collect();
+        let switching = self.mode.http_fallback();
+        if self.codec.transport() != TransportKind::WebSocket || (switching && self.pool.http_active(&keys)) {
+            return self.run(Wire::Http, &request).await.map_err(|failed| failed.error);
+        }
+        if switching
+            && let Some(key) = scope.as_deref()
+            && self.pool.budget_spent(key, switch::WS_ATTEMPTS)
+        {
+            if route == Route::Codex {
+                self.pool.mark_http(key);
+            }
+            self.pool.ws_ok(key);
+            return self.run(Wire::Http, &request).await.map_err(|failed| failed.error);
+        }
+        match self.run(Wire::Ws, &request).await {
+            Ok(stream) => Ok(stream),
+            Err(failed) => {
+                if let Some(key) = scope.as_deref() {
+                    self.pool.ws_failed(key, switch::eligible(&failed.error));
+                }
+                let Some(fallback) = switching.then(|| switch::decide(route, &failed.error, failed.handshake, false)).flatten()
+                else {
+                    return Err(failed.error);
+                };
+                if fallback.sticky
+                    && let Some(key) = scope.as_deref()
+                {
+                    self.pool.mark_http(key);
+                }
+                // A transport switch does not outrun the server's retry deadline.
+                if let Some(wait) = failed.error.retry_after {
+                    tokio::time::sleep(wait).await;
+                }
+                self.run(Wire::Http, &request).await.map_err(|failed| failed.error)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Wire {
+    Ws,
+    Http,
+}
+
+/// A failed attempt; `handshake` when the WebSocket upgrade itself was refused.
+struct Failed {
+    error: ProviderError,
+    handshake: bool,
+}
+
+impl From<ProviderError> for Failed {
+    fn from(error: ProviderError) -> Self {
+        Self { error, handshake: false }
+    }
+}
+
+impl OpenAiAdapter {
+    /// The exchange on one wire with the credential repeats of an attempt.
+    async fn run(&self, wire_kind: Wire, request: &Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, Failed> {
+        let codec = match wire_kind {
+            Wire::Ws => &self.codec,
+            Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
+        };
+        let mut wire = codec.encode_with(request, effort_of(request).as_ref())?;
         let mut credential = self.credentials.current().await?;
         let mut refreshed = false;
         let mut stripped = false;
         loop {
             let authorized = self.authorize(wire.clone(), &credential);
-            let opened = match self.codec.transport() {
-                TransportKind::WebSocket => self.open_ws(&request, authorized).await?,
-                _ => self.open_http(&request, authorized).await?,
+            let opened = match wire_kind {
+                Wire::Ws => self.open_ws(request, authorized, &credential).await?,
+                Wire::Http => self.open_http(codec, request, authorized).await?,
             };
+            let handshake = wire_kind == Wire::Ws && matches!(opened, Opened::Rejected(_));
             let rejected = match opened {
                 Opened::Stream(stream) => match stream.first_frame_failure() {
                     Some(failure) if !stripped && without_effort_updates(&wire, &failure).is_some() => failure,
@@ -387,9 +523,7 @@ impl ProviderAdapter for OpenAiAdapter {
                 },
                 Opened::Rejected(rejected) => rejected,
             };
-            if rejected.status == Some(401)
-                && !refreshed
-            {
+            if rejected.status == Some(401) && !refreshed {
                 refreshed = true;
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {
                     credential = next;
@@ -401,11 +535,11 @@ impl ProviderAdapter for OpenAiAdapter {
                 wire = next;
                 continue;
             }
-            let mut err = self.codec.classify(&rejected);
+            let mut err = codec.classify(&rejected);
             if rejected.status == Some(401) && refreshed && err.kind == ErrorKind::Auth {
                 err.reauth_required = true;
             }
-            return Err(err);
+            return Err(Failed { error: err, handshake });
         }
     }
 }
@@ -417,7 +551,7 @@ impl ProviderAdapter for OpenAiAdapter {
 enum Source {
     Http(Box<dyn BodyStream>),
     Ws {
-        socket: Box<dyn WsSocket>,
+        checkout: Checkout,
         /// The first frame, read before the stream was handed out.
         pending: Option<Result<Message, TransportFault>>,
     },
@@ -428,10 +562,10 @@ impl Source {
     async fn next_unit(&mut self) -> Option<Result<Bytes, TransportFault>> {
         match self {
             Self::Http(body) => body.next().await,
-            Self::Ws { socket, pending } => loop {
+            Self::Ws { checkout, pending } => loop {
                 let item = match pending.take() {
                     Some(item) => Some(item),
-                    None => socket.recv().await,
+                    None => checkout.socket.as_mut()?.recv().await,
                 };
                 match item? {
                     Ok(Message::Text(text)) => return Some(Ok(Bytes::copy_from_slice(text.as_bytes()))),
@@ -449,17 +583,77 @@ struct ResponsesStream {
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
+    /// A pooled socket's request, to anchor its response.
+    anchor: Option<Anchor>,
+    /// The pool and session a failed exchange is recorded on, and whether the
+    /// session may switch transports.
+    ledger: Option<(Arc<WsPool>, String, bool)>,
 }
 
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
-        Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None }
+        Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None }
     }
 
     /// Reads a WebSocket's first frame ahead of the consumer.
     async fn prime(&mut self) {
-        if let Some(Source::Ws { socket, pending }) = &mut self.source {
+        if let Some(Source::Ws { checkout, pending }) = &mut self.source
+            && let Some(socket) = checkout.socket.as_mut()
+        {
             *pending = socket.recv().await;
+        }
+    }
+
+    /// Notes what a frame says about the response it belongs to.
+    fn note_frame(&mut self, unit: &[u8]) {
+        let Some(anchor) = self.anchor.as_mut() else {
+            return;
+        };
+        let names = |needle: &[u8]| unit.windows(needle.len()).any(|w| w == needle);
+        if names(b"response.created") || names(b"response.completed") || names(b"response.done") {
+            if let Ok(frame) = serde_json::from_slice::<Value>(unit)
+                && let Some(id) = frame.get("response").and_then(|r| r.get("id")).and_then(Value::as_str).filter(|i| !i.is_empty())
+            {
+                anchor.response_id = Some(id.to_owned());
+            }
+        }
+    }
+
+    /// Queues decoded events; the response's output items are kept for the anchor.
+    fn push(&mut self, events: Vec<StreamEvent>) {
+        for event in &events {
+            if let (StreamEvent::ReasoningReplay(replay), Some(anchor)) = (event, self.anchor.as_mut())
+                && let Value::Array(items) = &replay.items
+            {
+                anchor.items.clone_from(items);
+            }
+        }
+        self.queue.extend(events);
+    }
+
+    /// The response completed on a pooled socket: it keeps the anchor.
+    fn park(&mut self) {
+        let Some(Source::Ws { checkout, .. }) = self.source.take() else {
+            return;
+        };
+        let mut chain = Chain::default();
+        if let Some(anchor) = self.anchor.take()
+            && let Some(id) = anchor.response_id
+        {
+            chain.anchor(&id, &anchor.body, &anchor.items);
+        }
+        checkout.finish(chain);
+    }
+
+    /// A pooled exchange failed with `error`: count it, and keep the session
+    /// on HTTP/SSE when the server refused the frame itself.
+    fn record_failure(&self, error: &ProviderError) {
+        let Some((pool, key, switching)) = &self.ledger else {
+            return;
+        };
+        pool.ws_failed(key, switch::eligible(error));
+        if *switching && switch::too_big_close(error) {
+            pool.mark_http(key);
         }
     }
 
@@ -493,28 +687,37 @@ impl ModelStream for ResponsesStream {
             let source = self.source.as_mut()?;
             // The terminal event ends the attempt; anything after it is dropped.
             if self.decoder.terminal_seen() {
+                self.park();
                 self.source = None;
                 return None;
             }
             match source.next_unit().await {
-                Some(Ok(unit)) => match self.decoder.feed(&unit) {
-                    Ok(events) => self.queue.extend(events),
-                    Err(err) => {
-                        self.source = None;
-                        self.failed = Some(err);
+                Some(Ok(unit)) => {
+                    self.note_frame(&unit);
+                    match self.decoder.feed(&unit) {
+                        Ok(events) => self.push(events),
+                        Err(err) => {
+                            self.record_failure(&err);
+                            self.source = None;
+                            self.failed = Some(err);
+                        }
                     }
-                },
+                }
                 Some(Err(fault)) => {
                     self.source = None;
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
+                    self.record_failure(&err);
                     self.failed = Some(err);
                 }
                 None => {
                     self.source = None;
                     match self.decoder.finish() {
-                        Ok(events) => self.queue.extend(events),
-                        Err(err) => self.failed = Some(err),
+                        Ok(events) => self.push(events),
+                        Err(err) => {
+                            self.record_failure(&err);
+                            self.failed = Some(err);
+                        }
                     }
                 }
             }
@@ -525,3 +728,4 @@ impl ModelStream for ResponsesStream {
         DeliveryState::Accepted
     }
 }
+

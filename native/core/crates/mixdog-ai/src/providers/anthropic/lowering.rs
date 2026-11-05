@@ -14,13 +14,11 @@ use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::MessageSource;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_protocol::ProviderId;
+use mixdog_protocol::tool_call_ids;
+use mixdog_protocol::tool_call_ids::ANTHROPIC_IDS;
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
-use sha2::Sha256;
 
-const ID_MAX_LEN: usize = 64;
-const ID_HASH_CHARS: usize = 10;
 const ERROR_RESULT_EMPTY_TEXT: &str =
     "[error result had no text; its attached content follows this block]";
 const ERROR_RESULT_MEDIA_NOTE: &str =
@@ -90,85 +88,17 @@ fn block_type(block: &Value) -> Option<&str> {
 // Tool-call ids at the wire
 // ---------------------------------------------------------------------------
 
-fn id_is_valid(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= ID_MAX_LEN
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
-fn id_stand_in(id: &str, salt: u32) -> String {
-    let digest = Sha256::digest(format!("{salt}\u{0}{id}").as_bytes());
-    let hash: String = digest
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>()
-        .chars()
-        .take(ID_HASH_CHARS)
-        .collect();
-    let mut stem = String::new();
-    let mut in_run = false;
-    for ch in id.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-            stem.push(ch);
-            in_run = false;
-        } else if !in_run {
-            stem.push('_');
-            in_run = true;
-        }
-    }
-    let stem: String = stem
-        .trim_matches('_')
-        .chars()
-        .take(ID_MAX_LEN - ID_HASH_CHARS - 1)
-        .collect();
-    if stem.is_empty() {
-        format!("call_{hash}").chars().take(ID_MAX_LEN).collect()
-    } else {
-        format!("{stem}_{hash}")
-    }
-}
-
 /// id → wire id for every id Anthropic would refuse. A valid id passes
 /// unchanged; a call and its result always map to the same stand-in.
 fn wire_id_map(messages: &[Message]) -> HashMap<String, String> {
-    let mut ids: Vec<&str> = Vec::new();
-    let mut seen = HashSet::new();
-    for message in messages {
-        let call_ids = (message.role == Role::Assistant)
-            .then(|| message.tool_calls.iter().map(|c| c.id.as_str()))
-            .into_iter()
-            .flatten();
-        let result_id = (message.role == Role::Tool)
-            .then_some(message.tool_call_id.as_deref())
-            .flatten();
-        for id in call_ids.chain(result_id) {
-            if !id.is_empty() && seen.insert(id) {
-                ids.push(id);
-            }
+    let ids = messages.iter().flat_map(|message| -> Vec<&str> {
+        match message.role {
+            Role::Assistant => message.tool_calls.iter().map(|call| call.id.as_str()).collect(),
+            Role::Tool => message.tool_call_id.as_deref().into_iter().collect(),
+            _ => Vec::new(),
         }
-    }
-    let mut taken: HashSet<String> = ids
-        .iter()
-        .filter(|id| id_is_valid(id))
-        .map(|id| (*id).to_owned())
-        .collect();
-    let mut map = HashMap::new();
-    for id in ids {
-        if id_is_valid(id) {
-            continue;
-        }
-        let mut salt = 0;
-        let mut wire = id_stand_in(id, salt);
-        while taken.contains(&wire) {
-            salt += 1;
-            wire = id_stand_in(id, salt);
-        }
-        taken.insert(wire.clone());
-        map.insert(id.to_owned(), wire);
-    }
-    map
+    });
+    tool_call_ids::wire_id_map(ids, ANTHROPIC_IDS)
 }
 
 // ---------------------------------------------------------------------------

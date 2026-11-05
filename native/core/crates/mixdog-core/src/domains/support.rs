@@ -15,7 +15,6 @@ use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_protocol::DomainErrorDetail;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::LaneToken;
@@ -59,9 +58,8 @@ pub(crate) fn failed(domain: &'static str, message: impl Into<String>) -> CoreEr
     CoreError::DomainError {
         domain: domain.into(),
         code: None,
-        detail: Some(Box::new(DomainErrorDetail::CommandFailed {
-            message: message.into(),
-        })),
+        message: Some(Into::<String>::into(message).into()),
+        detail: None,
     }
 }
 
@@ -70,9 +68,8 @@ pub(crate) fn coded(domain: &'static str, code: &str, message: impl Into<String>
     CoreError::DomainError {
         domain: domain.into(),
         code: Some(code.into()),
-        detail: Some(Box::new(DomainErrorDetail::CommandFailed {
-            message: message.into(),
-        })),
+        message: Some(Into::<String>::into(message).into()),
+        detail: None,
     }
 }
 

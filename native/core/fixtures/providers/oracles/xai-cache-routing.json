@@ -1,0 +1,1829 @@
+{
+  "_doc": "Recorded from src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs (xaiResponsesCacheRouting over toOpenAIMessages output). `key` is the prompt_cache_key Node sends (null: the field is omitted). A session-less prefix lane with shards falls back on process.pid, so it is not recorded.",
+  "cases": [
+    {
+      "env": {},
+      "key": "02733410-c9ef-45c6-9a6f-f3f3178d70f3",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "session",
+      "model": "grok-4.5",
+      "name": "session_default",
+      "options": {
+        "sessionId": "s1"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "e7aae31c-14f0-4227-883c-affc8310f7f1",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "session",
+      "model": "grok-4.5",
+      "name": "session_default_other_session",
+      "options": {
+        "sessionId": "s2"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "37c8c4df-a33e-4c48-9d50-bc90142afdf1",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "session",
+      "model": "grok-4.5",
+      "name": "session_default_namespace",
+      "options": {
+        "promptCacheKey": "ns-a",
+        "sessionId": "s1"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "session_default_blank_session",
+      "options": {
+        "sessionId": "  "
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "no_session_default",
+      "options": {},
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "scope_none",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "none"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "scope_off",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "off"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "scope_omit_cased",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": " Omit "
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "scope_prefix",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "scope_prefix_other_session_same_key",
+      "options": {
+        "sessionId": "s2",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "581be3ea-317e-49fb-9095-9e6065eabe5e",
+      "messages": [
+        {
+          "content": "You are verbose.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "scope_prefix_other_system",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "developer"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "scope_prefix_developer_counts_as_system",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "35e3a39e-2542-44f1-977e-2e00a5525235",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "scope_prefix_no_tools",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": []
+    },
+    {
+      "env": {},
+      "key": "bcc7ff7e-5101-46e0-a89a-07bafb5a88d7",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "scope_prefix_namespace",
+      "options": {
+        "promptCacheKey": "ns-a",
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "shared_role",
+      "options": {
+        "promptCacheScope": "shared",
+        "sessionId": "s1"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "shared_role_no_session",
+      "options": {
+        "promptCacheScope": "shared"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "shared_role_explicit_none",
+      "options": {
+        "promptCacheScope": "shared",
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "none"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "key": "d3a6a16c-629a-4141-9636-baa70851f852",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "shared_role_explicit_session",
+      "options": {
+        "promptCacheScope": "shared",
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "session"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_SCOPE": "none"
+      },
+      "key": null,
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "none",
+      "model": "grok-4.5",
+      "name": "env_scope_none",
+      "options": {
+        "sessionId": "s1"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_SCOPE": "prefix"
+      },
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "env_scope_prefix",
+      "options": {
+        "sessionId": "s1"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_SCOPE": "none"
+      },
+      "key": "02733410-c9ef-45c6-9a6f-f3f3178d70f3",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "session",
+      "model": "grok-4.5",
+      "name": "option_scope_beats_env",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "session"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_SCOPE": "none"
+      },
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "shared_role_beats_env",
+      "options": {
+        "promptCacheScope": "shared",
+        "sessionId": "s1"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "3"
+      },
+      "key": "9d23888f-f1d6-4ff3-ab67-3e5232111b60",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_3_s1",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "3"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_3_s2",
+      "options": {
+        "sessionId": "s2",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "3"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_3_s3",
+      "options": {
+        "sessionId": "s3",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "3"
+      },
+      "key": "8b3066f6-595a-4350-88de-add078a69c59",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_3_s4",
+      "options": {
+        "sessionId": "s4",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "1"
+      },
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_1_is_no_lane",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "2.9"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_float_floors",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_GROK_CACHE_LANE_SHARDS": "4"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_alias_env_grok",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_CACHE_LANE_SHARDS": "2"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_fallback_env_xai",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_OPENAI_CACHE_LANE_SHARDS": "2"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_fallback_env_openai",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_CACHE_LANE_SHARDS": "4",
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": ""
+      },
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_blank_env_wins_over_fallback",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_CACHE_MAX_PARALLEL": "4"
+      },
+      "key": "2e98201d-c5c4-4d86-93ad-306b9be02a26",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_shards_max_parallel_alias_ignored",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "abc"
+      },
+      "key": "f341a0c1-110f-4b1d-9bd4-10921466bf4c",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_a1",
+      "options": {
+        "promptCacheKey": "ns-auto",
+        "sessionId": "a",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "abc"
+      },
+      "key": "8715ff74-90db-4969-a8f5-78cc1f24b7e3",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_b1",
+      "options": {
+        "promptCacheKey": "ns-auto",
+        "sessionId": "b",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "abc"
+      },
+      "key": "f341a0c1-110f-4b1d-9bd4-10921466bf4c",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_a2",
+      "options": {
+        "promptCacheKey": "ns-auto",
+        "sessionId": "a",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "0"
+      },
+      "key": "67e0e00b-13c9-48dd-a5aa-41471a437f03",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_zero",
+      "options": {
+        "promptCacheKey": "ns-zero",
+        "sessionId": "a",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_GROK_OAUTH_CACHE_LANE_AUTO": " Auto "
+      },
+      "key": "1b35f1bb-c6ca-4c8f-8ea5-5dabd10ae9e8",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_flag_a",
+      "options": {
+        "promptCacheKey": "ns-flag",
+        "sessionId": "a",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_GROK_OAUTH_CACHE_LANE_AUTO": " Auto "
+      },
+      "key": "a2b401f9-3d4f-4fac-83d1-179b7c3ab08a",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_flag_b",
+      "options": {
+        "promptCacheKey": "ns-flag",
+        "sessionId": "b",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_AUTO": "yes",
+        "MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS": "2"
+      },
+      "key": "96983665-3cd3-4380-9a29-746f41fbdd48",
+      "messages": [
+        {
+          "content": "You are terse.",
+          "role": "system"
+        },
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "mode": "prefix",
+      "model": "grok-4.5",
+      "name": "lane_auto_flag_off_value_is_not_auto",
+      "options": {
+        "sessionId": "s1",
+        "xaiResponsesCacheScope": "prefix"
+      },
+      "tools": [
+        {
+          "description": "read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "ls"
+        }
+      ]
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-xai-cache-routing.mjs"
+}

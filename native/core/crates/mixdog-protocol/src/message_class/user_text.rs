@@ -37,6 +37,22 @@ pub trait Blobs {
     fn text_within(&self, hex: &str, max_bytes: u64) -> Result<Option<String>, ReadError>;
 }
 
+/// `attachmentTextForPart` (attachments/store.mjs): the model-facing text of a stored text
+/// attachment whose body is `stored`. A file (`textKind: "file"`) is wrapped with its name
+/// (`<`, `>` and quotes in it replaced by `_`); anything else is the body itself. A provider
+/// request has no text reference, so whatever builds one from stored messages calls this for each
+/// `{type: "text", attachmentRef}` part after reading the blob.
+pub fn attachment_text(stored: &str, text_kind: Option<&str>, filename: Option<&str>) -> String {
+    if text_kind != Some("file") {
+        return stored.to_owned();
+    }
+    let name: String = match filename {
+        Some(n) if !n.is_empty() => n.chars().map(|c| if matches!(c, '<' | '>' | '"' | '\'') { '_' } else { c }).collect(),
+        _ => "attachment".to_owned(),
+    };
+    format!("<file name=\"{name}\">\n{stored}\n</file>")
+}
+
 const FEEDBACK_OPEN: &str = "<visualize_feedback>";
 const FEEDBACK_MAX_BYTES: u64 = 128 * 1024;
 const PASTED_TEXT_MAX_BYTES: u64 = 1024 * 1024;
@@ -491,6 +507,21 @@ impl<'a> UserText<'a> {
             Some(Value::Array(parts)) => with_visualize_feedback_display(self.parts(parts).join("\n")),
             Some(Value::String(text)) => with_visualize_feedback_display(text.clone()),
             other => with_visualize_feedback_display(tool_result_text(other)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod attachment_text_tests {
+    use super::attachment_text;
+
+    /// The wrapped and plain texts Node's `attachmentTextForPart` produced for stored text parts.
+    #[test]
+    fn matches_node() {
+        let twin: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
+        for case in twin["textCases"].as_array().unwrap() {
+            let got = attachment_text(case["text"].as_str().unwrap(), case["textKind"].as_str(), case["filename"].as_str());
+            assert_eq!(got, case["value"].as_str().unwrap(), "{case}");
         }
     }
 }

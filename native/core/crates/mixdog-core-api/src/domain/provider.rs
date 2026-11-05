@@ -229,6 +229,13 @@ pub struct RequestOptions {
     pub request_kind: Option<String>,
     pub iteration: u32,
     pub prompt_cache_key: Option<String>,
+    /// Node `promptCacheScope`: `"shared"` keys the prompt cache on the
+    /// request's prefix instead of its session (one-shot maintenance roles,
+    /// session-less explorers). `None` keeps the session scope.
+    pub prompt_cache_scope: Option<String>,
+    /// Node `xaiResponsesCacheScope`: an explicit xAI cache routing scope
+    /// (`session`, `prefix`, `none`, `off`, `omit`); `None` takes the default.
+    pub xai_responses_cache_scope: Option<String>,
     pub model_parameters: Option<JsonValue>,
     /// The thread, context window and turn the request serves; `None` for a
     /// request outside any thread.
@@ -663,11 +670,6 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
-    /// The session's provider state as this failed attempt left it (e.g. a
-    /// Gemini cache dropped after a 401). `Some` replaces the run's pending
-    /// state, as [`StreamEvent::ProviderState`] does; `None` leaves it
-    /// unchanged. Boxed to keep `Result<_, ProviderError>` small.
-    pub provider_state: Option<Box<ProviderState>>,
 }
 
 impl ProviderError {
@@ -691,7 +693,6 @@ impl ProviderError {
             account_blocked: false,
             unsafe_to_retry: false,
             quota_limit: None,
-            provider_state: None,
         }
     }
 
@@ -765,12 +766,83 @@ pub trait ProviderAdapter: Send + Sync {
     }
 }
 
+/// One value of a picker parameter; a context option carries the window it selects.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParameterValue {
+    pub value: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+}
+
+/// A selectable non-effort, non-fast model parameter (`modelParameterOptions`).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParameterOption {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub options: Vec<ParameterValue>,
+}
+
+/// A service tier the provider's catalog offers (`serviceTiers`).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceTier {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+/// A declared effort ladder (`reasoningOptions`: `{ type: 'effort', values }`).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningOption {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub values: Vec<String>,
+}
+
+/// A custom provider's reasoning wire contract (`customReasoning`).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomReasoning {
+    pub wire_format: String,
+    /// Effort level → the value sent on the wire.
+    pub wire_values: std::collections::BTreeMap<String, String>,
+    pub replay: bool,
+}
+
+/// What the model picker shows beyond limits and capabilities. The adapter
+/// fills it from its own listing, as the Node adapters do; the metadata
+/// catalog never does. A custom provider's display name override is
+/// `ModelRecord::display_name`, and "out of the picker" is `ModelRecord::hidden`.
+#[derive(Clone, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PickerFields {
+    /// `YYYY-MM-DD`, from a dated id or the source.
+    pub release_date: Option<String>,
+    /// `None` when the catalog does not say, which is not an empty list.
+    pub access_programs: Option<Vec<String>>,
+    pub model_parameter_options: Vec<ParameterOption>,
+    /// Each variant's route parameters, keyed by route name.
+    pub parameter_variants: Vec<std::collections::BTreeMap<String, String>>,
+    pub fast_efforts: Vec<String>,
+    pub service_tiers: Vec<ServiceTier>,
+    pub additional_speed_tiers: Vec<String>,
+    pub reasoning_options: Vec<ReasoningOption>,
+    pub custom_reasoning: Option<CustomReasoning>,
+}
+
 /// One model as the provider lists it, before catalog enrichment (pricing
 /// and capability metadata from LiteLLM/models.dev are merged by the
 /// catalog, PW §9). Capabilities the provider does not state are `None`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub struct ModelRecord {
+    /// The picker's row fields.
+    pub picker: PickerFields,
     pub id: String,
     pub display_name: Option<String>,
     pub context_window: Option<u64>,
@@ -783,6 +855,15 @@ pub struct ModelRecord {
     pub supports_images: Option<bool>,
     /// Listed by the provider but not offered in pickers (Codex `visibility: hide`).
     pub hidden: bool,
+    /// The kind of model the listing states (`chat`, `embedding`, …); the
+    /// sanitizer drops non-chat modes. `None` when the listing says nothing.
+    pub mode: Option<String>,
+    /// When the provider created the model (epoch seconds, as listed); picks
+    /// the newest of several dated snapshots of one model.
+    pub created: Option<i64>,
+    /// The model a routing alias resolves to (OpenRouter `~vendor/model`),
+    /// used to look up capabilities.
+    pub alias_target: Option<String>,
     /// The provider's record verbatim (service tiers, upgrade notes, …).
     pub raw: Option<JsonValue>,
 }
@@ -790,6 +871,7 @@ pub struct ModelRecord {
 impl ModelRecord {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
+            picker: PickerFields::default(),
             id: id.into(),
             display_name: None,
             context_window: None,
@@ -799,6 +881,9 @@ impl ModelRecord {
             default_reasoning_level: None,
             supports_images: None,
             hidden: false,
+            mode: None,
+            created: None,
+            alias_target: None,
             raw: None,
         }
     }

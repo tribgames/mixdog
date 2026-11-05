@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 struct Sink {
     events: Vec<StreamEvent>,
     discards: u32,
-    abandoned: Vec<(u64, u64, String)>,
+    abandoned: Vec<(u64, u64, Option<String>)>,
 }
 
 impl AttemptSink for Sink {
@@ -44,8 +44,8 @@ impl AttemptSink for Sink {
         self.discards += 1;
         self.events.clear();
     }
-    fn abandoned(&mut self, usage: &Usage, model: &str) {
-        self.abandoned.push((usage.input_tokens, usage.output_tokens, model.to_owned()));
+    fn abandoned(&mut self, usage: &Usage, model: Option<&str>) {
+        self.abandoned.push((usage.input_tokens, usage.output_tokens, model.map(str::to_owned)));
     }
 }
 
@@ -110,7 +110,7 @@ async fn a_retried_attempt_that_reported_usage_is_handed_to_the_sink_once() {
     let mut sink = Sink::default();
     let attempts = broker.send(&provider, send, &mut sink, &CancellationToken::new()).await.unwrap();
     assert_eq!(attempts, 2);
-    assert_eq!(sink.abandoned, vec![(10, 5, "m".to_owned())]);
+    assert_eq!(sink.abandoned, vec![(10, 5, None)]);
 }
 
 #[tokio::test(start_paused = true)]

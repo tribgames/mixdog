@@ -25,7 +25,6 @@ async fn the_connector_permissions_match_node_in_every_recorded_layout() {
     let tokens = mixdog_rt::testing::tokens();
     let golden = golden();
     let tools = strings(&golden["tools"]);
-    let agents = strings(&golden["agents"]);
     let configs: Vec<McpServerConfig> = golden["servers"]
         .as_object()
         .unwrap()

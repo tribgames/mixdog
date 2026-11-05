@@ -95,6 +95,7 @@ fn read(dir: &Path, account: &str) -> Result<Option<String>, SecretError> {
     Ok(Some(value.to_owned()))
 }
 
+#[allow(clippy::disallowed_types, reason = "runs inside a durability-lane job")]
 fn write(dir: &Path, account: &str, value: &str) -> Result<(), SecretError> {
     let io = |e: std::io::Error| SecretError::new(e.to_string());
     std::fs::create_dir_all(dir).map_err(io)?;

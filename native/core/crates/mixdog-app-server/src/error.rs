@@ -138,10 +138,12 @@ pub fn error_data(error: &CoreError) -> ErrorData {
         CoreError::DomainError {
             domain,
             code,
+            message,
             detail,
         } => ErrorData::DomainError {
             domain: domain.to_string(),
             code: code.as_deref().map(str::to_owned),
+            message: message.as_deref().map(str::to_owned),
             detail: detail.clone(),
         },
         // A server request's id is the durable approval id, always a string (P §8.2).

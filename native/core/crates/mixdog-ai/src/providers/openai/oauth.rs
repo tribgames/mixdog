@@ -41,7 +41,7 @@ pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 /// A token this close to its expiry is refreshed before use.
 pub const REFRESH_SKEW_MS: u64 = 5 * 60_000;
-const AUTH_CLAIM: &str = "https://api.openai.com/auth";
+pub(super) const AUTH_CLAIM: &str = "https://api.openai.com/auth";
 
 #[derive(Deserialize, Clone, Debug)]
 struct Stored {
@@ -69,11 +69,20 @@ fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// The claims object of a JWT (any base64 alphabet, padded or not), if it has one.
+pub(super) fn claims_of(token: &str) -> Option<Value> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let payload = parts[1].trim_end_matches('=').replace('+', "-").replace('/', "_");
+    let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
+    claims.is_object().then_some(claims)
+}
+
 /// The ChatGPT account id an access token's claims name.
-fn account_of(token: &str) -> Option<String> {
-    let payload = URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?;
-    let claims: Value = serde_json::from_slice(&payload).ok()?;
-    Some(claims.get(AUTH_CLAIM)?.get("chatgpt_account_id")?.as_str()?.to_owned())
+pub(super) fn account_of(token: &str) -> Option<String> {
+    Some(claims_of(token)?.get(AUTH_CLAIM)?.get("chatgpt_account_id")?.as_str()?.to_owned())
 }
 
 fn login_required(message: &str) -> ProviderError {

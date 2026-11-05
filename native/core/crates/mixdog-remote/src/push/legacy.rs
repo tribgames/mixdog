@@ -286,7 +286,7 @@ impl LegacyPushStore {
             .into_iter()
             .filter(|row| {
                 row.get("endpoint").and_then(Value::as_str) != Some(endpoint.as_str())
-                    && !(!client_id.is_empty() && row.get("clientId").and_then(Value::as_str) == Some(client_id.as_str()))
+                    && (client_id.is_empty() || row.get("clientId").and_then(Value::as_str) != Some(client_id.as_str()))
             })
             .collect();
         rows.push(entry.clone());

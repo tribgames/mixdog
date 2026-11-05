@@ -155,9 +155,9 @@ pub(super) fn collect_trusted_roots(filesystem_root: &Path, env: &Env<'_>) -> Ve
             continue;
         }
         let key = canonical_graph_path(&candidate);
-        if !found.contains_key(&key) {
-            order.push(key.clone());
-            found.insert(key, candidate);
+        if let std::collections::hash_map::Entry::Vacant(slot) = found.entry(key.clone()) {
+            order.push(key);
+            slot.insert(candidate);
         }
     }
     let mut roots: Vec<PathBuf> = order.into_iter().filter_map(|key| found.remove(&key)).collect();

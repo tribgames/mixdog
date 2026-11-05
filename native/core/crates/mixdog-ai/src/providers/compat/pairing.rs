@@ -4,85 +4,29 @@
 //! hold a call whose result never committed (cancel, abort); the endpoint
 //! hard-rejects it, and every retry would resend the same unpaired call.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use mixdog_core_api::domain::provider::{Message, Role};
 use mixdog_protocol::JsonValue;
+use mixdog_protocol::tool_call_ids::{OPENAI_CHAT_IDS, wire_id_map};
 use serde_json::json;
-use sha2::{Digest, Sha256};
-
-/// Chat Completions accepts `[A-Za-z0-9_.:-]` up to 40 characters.
-const CHAT_ID_MAX: usize = 40;
-const HASH_CHARS: usize = 10;
 
 /// Body of a result synthesized for a call that never completed.
 pub const PAIRING_STUB: &str = "Cancelled";
 
-fn is_valid(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= CHAT_ID_MAX
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
-}
-
-fn stand_in(id: &str, salt: u32) -> String {
-    let digest = Sha256::digest(format!("{salt}\u{0}{id}").as_bytes());
-    let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    let hash = &hash[..HASH_CHARS];
-    let mut stem = String::new();
-    let mut in_run = false;
-    for c in id.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-            stem.push(c);
-            in_run = false;
-        } else if !in_run {
-            stem.push('_');
-            in_run = true;
-        }
-    }
-    let stem = stem.trim_matches('_');
-    let stem = &stem[..stem.len().min(CHAT_ID_MAX - HASH_CHARS - 1)];
-    if stem.is_empty() {
-        let mut id = format!("call_{hash}");
-        id.truncate(CHAT_ID_MAX);
-        id
-    } else {
-        format!("{stem}_{hash}")
-    }
-}
-
-/// id → wire id for every tool call and result in `messages`: a valid id
-/// passes unchanged, an invalid one becomes a deterministic collision-free
+/// id → wire id for every tool call and result in `messages` that Chat
+/// Completions would refuse (`[A-Za-z0-9_.:-]`, up to 40 characters): a valid
+/// id passes unchanged, an invalid one becomes a deterministic collision-free
 /// stand-in, and a call and its result always map alike.
-pub fn wire_tool_call_ids(messages: &[Message]) -> Vec<(String, String)> {
-    let mut ids: Vec<String> = Vec::new();
-    let mut seen = HashSet::new();
-    let mut note = |id: &str| {
-        if seen.insert(id.to_owned()) {
-            ids.push(id.to_owned());
-        }
-    };
-    for message in messages {
+pub fn wire_tool_call_ids(messages: &[Message]) -> HashMap<String, String> {
+    let ids = messages.iter().flat_map(|message| -> Vec<&str> {
         match message.role {
-            Role::Assistant => message.tool_calls.iter().for_each(|c| note(&c.id)),
-            Role::Tool => message.tool_call_id.iter().for_each(|id| note(id)),
-            _ => {}
+            Role::Assistant => message.tool_calls.iter().map(|call| call.id.as_str()).collect(),
+            Role::Tool => message.tool_call_id.as_deref().into_iter().collect(),
+            _ => Vec::new(),
         }
-    }
-    let mut taken: HashSet<String> = ids.iter().filter(|id| is_valid(id)).cloned().collect();
-    let mut map = Vec::new();
-    for id in ids.iter().filter(|id| !is_valid(id)) {
-        let mut salt = 0;
-        let mut wire = stand_in(id, salt);
-        while taken.contains(&wire) {
-            salt += 1;
-            wire = stand_in(id, salt);
-        }
-        taken.insert(wire.clone());
-        map.push((id.clone(), wire));
-    }
-    map
+    });
+    wire_id_map(ids, OPENAI_CHAT_IDS)
 }
 
 /// Every assistant `tool_calls` entry is answered by a tool message in the
@@ -178,12 +122,13 @@ mod tests {
             assistant(&["call_1", "toolu/bad id", &long]),
             result("toolu/bad id"),
         ]);
-        let (from, to) = &map[0];
-        assert_eq!(from, "toolu/bad id");
-        assert!(is_valid(to) && to.starts_with("toolu_bad_id_"), "{to}");
+        let to = &map["toolu/bad id"];
+        assert!(OPENAI_CHAT_IDS.is_valid(to) && to.starts_with("toolu_bad_id_"), "{to}");
         assert_eq!(map.len(), 2);
-        assert!(map.iter().all(|(_, wire)| is_valid(wire)));
-        assert_ne!(map[0].1, map[1].1);
+        assert!(map.values().all(|wire| OPENAI_CHAT_IDS.is_valid(wire)));
+        assert_ne!(map["toolu/bad id"], map[&long]);
+        // Node skips a falsy id (`if (call?.id)`), so an empty one stays empty.
+        assert!(wire_tool_call_ids(&[assistant(&[""]), result("")]).is_empty());
     }
 
     #[test]

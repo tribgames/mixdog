@@ -15,6 +15,7 @@ members = [
     "crates/mixdog-core-api",
     "crates/mixdog-rt",
     "crates/mixdog-js",
+    "crates/mixdog-statefile",
     "crates/mixdog-store",
     "crates/mixdog-ledger",
     "crates/mixdog-migrate",
@@ -71,6 +72,7 @@ mixdog-app-protocol = { path = "crates/mixdog-app-protocol" }
 mixdog-core-api = { path = "crates/mixdog-core-api" }
 mixdog-rt = { path = "crates/mixdog-rt" }
 mixdog-js = { path = "crates/mixdog-js" }
+mixdog-statefile = { path = "crates/mixdog-statefile" }
 mixdog-store = { path = "crates/mixdog-store" }
 mixdog-ledger = { path = "crates/mixdog-ledger" }
 mixdog-migrate = { path = "crates/mixdog-migrate" }
@@ -109,10 +111,9 @@ iana-time-zone = "0.1.65" # the OS zone for mixdog_js::time (JS Date local time)
 clap = "4"
 crossbeam-channel = "0.5.15"
 dirs = "6"
-keyring = { version = "3.6", default-features = false } # not in Codex's pins; OS keychain for MCP OAuth sign-ins (platform backends are chosen per target by the user crate)
 secret-service = "4" # not in Codex's pins; the pure-Rust (zbus) Secret Service client behind the Linux keychain (mixdog-secrets)
 security-framework = "3" # not in Codex's pins; the macOS keychain items `security add-generic-password` reads and writes (mixdog-secrets)
-zbus = { version = "4.4", default-features = false } # not in Codex's pins; D-Bus error types behind the Linux keychain
+zbus = { version = "4.4", default-features = false } # not in Codex's pins; D-Bus error types behind the Linux keychain (mixdog-secrets)
 dom_query = "0.29" # not in Codex (web extraction)
 dom_smoothie = "0.19" # not in Codex (web extraction)
 encoding_rs = "0.8" # not in Codex (web charset decoding)
@@ -144,9 +145,10 @@ regex = "1.12.3"
 ring = "0.17.14" # RS256 signing of the Vertex AI service-account JWT (already in the rustls graph)
 trash = "5.2" # not in Codex: OS recycle bin for projectFs/trash (WP-WS), as Node's shell.trashItem
 regress = "0.10" # not in Codex: ECMAScript-syntax regex engine for user-facing text search (WP-WS)
-reqwest = { version = "0.12", features = ["cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "cookies", "http2", "macos-system-configuration", "rustls-tls-native-roots"] }
 rusqlite = { version = "0.41.1", features = ["bundled"] } # not in Codex (it uses sqlx)
 rustls = { version = "0.23.46", default-features = false }
+rustls-native-certs = "0.8"
 schemars = "0.8.22"
 semver = "1.0"
 serde = { version = "1", features = ["rc", "derive"] }
@@ -168,7 +170,7 @@ tempfile = "3.23.0"
 thiserror = "2.0.17"
 time = "0.3.47"
 tokio = "1"
-tokio-rustls = "0.26.4"
+tokio-rustls = { version = "0.26.4", default-features = false }
 tokio-stream = "0.1.18"
 tokio-test = "0.4"
 # Codex pins openai-oss-forks git revisions of tokio-tungstenite/tungstenite, which add a

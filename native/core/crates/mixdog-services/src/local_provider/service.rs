@@ -28,7 +28,7 @@ pub struct LocalProviderService {
 }
 
 fn domain(code: &str) -> CoreError {
-    CoreError::DomainError { domain: "localProvider".into(), code: Some(code.into()), detail: None }
+    CoreError::DomainError { domain: "localProvider".into(), code: Some(code.into()), message: None, detail: None }
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {

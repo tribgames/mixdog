@@ -203,6 +203,11 @@ impl PluginAdmin {
         Self { data_dir, git, announce }
     }
 
+    /// The plugin data directory (`getPluginData()`): the registry and the managed installs sit under it.
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     fn base_dir(&self) -> PathBuf {
         self.data_dir.join("plugins")
     }

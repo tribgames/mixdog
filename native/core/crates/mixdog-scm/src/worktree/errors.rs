@@ -68,6 +68,17 @@ pub fn busy(reason: RefusalReason) -> ScmFailure {
     ScmFailure::coded(WORKTREE_BUSY_JOBS, none_busy(reason.wire()))
 }
 
+/// `workspace-admission-unreadable`; `outcome: "unknown"` when the request was posted and may
+/// have landed, `admission` naming why the admission thread could not answer.
+pub fn admission_unreadable(outcome: Option<&str>, admission: Option<&str>) -> ScmFailure {
+    let mut detail = none_busy(RefusalReason::WorkspaceAdmissionUnreadable.wire());
+    if let DomainErrorDetail::WorktreeBusyJobs { outcome: o, admission: a, .. } = &mut detail {
+        *o = outcome.map(str::to_owned);
+        *a = admission.map(str::to_owned);
+    }
+    ScmFailure::coded(WORKTREE_BUSY_JOBS, detail)
+}
+
 /// `WORKTREE_BUSY_JOBS` (`workspace-retained`) naming the sessions that retain the folder.
 pub fn retained_by(sessions: Vec<String>) -> ScmFailure {
     let mut detail = none_busy(RefusalReason::WorkspaceRetained.wire());
@@ -394,7 +405,7 @@ mod tests {
     fn a_refusal_reaches_the_seam_with_its_typed_detail() {
         let error: CoreError = target_mismatch(None, None, Some("main".into()), Some("dev".into())).into();
         match error {
-            CoreError::DomainError { domain, code, detail } => {
+            CoreError::DomainError { domain, code, detail, .. } => {
                 assert_eq!(&*domain, "worktree");
                 assert_eq!(code.as_deref(), Some(WORKTREE_TARGET_MISMATCH));
                 assert_eq!(

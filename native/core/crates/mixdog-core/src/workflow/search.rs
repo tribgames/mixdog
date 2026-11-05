@@ -1,6 +1,7 @@
 //! `setWebSearchRoute`: validate a native web-search route against the live catalog and answer
 //! the route to store (`model-route/web-search-route.mjs`).
 
+use mixdog_ai::effort::coerce_effort_for;
 use mixdog_ai::service::admin_route::ensure_provider_enabled;
 use mixdog_ai::service::admin_route::selection_fast_capable;
 use mixdog_ai::service::routes::WEB_SEARCH_DEFAULT_MODEL;
@@ -47,7 +48,8 @@ async fn resolve_explicit(agent: &Doc, entry: &Value, host: &dyn WorkflowHost) -
     // The route keeps its own effort and fast: the shared `modelSettings` bucket belongs to the
     // Main route alone.
     let requested = entry.get("effort").filter(|effort| truthy(Some(*effort)));
-    let effort = requested.and_then(|effort| host.coerce_effort(&provider, meta.as_ref(), &clean(Some(effort))));
+    let effort = requested
+        .and_then(|effort| coerce_effort_for(&provider, meta.as_ref().unwrap_or(&Value::Null), &clean(Some(effort)), None));
     let fast_capable = selection_fast_capable(meta.as_ref(), || {
         host.fast_capable(&provider, meta.as_ref(), effort.as_deref(), entry.get("modelParameters"))
     });

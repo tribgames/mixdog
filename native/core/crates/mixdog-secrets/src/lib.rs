@@ -86,7 +86,11 @@ pub fn default_store(io: DurabilityIo, plugin_data: &Path) -> Arc<dyn SecretStor
     #[cfg(windows)]
     return Arc::new(windows::DpapiStore::new(io, plugin_data));
     #[cfg(target_os = "macos")]
-    return Arc::new(macos::KeychainStore::new(io));
+    {
+        // The macOS keychain is not under the plugin data dir.
+        let _ = plugin_data;
+        return Arc::new(macos::KeychainStore::new(io));
+    }
     #[cfg(target_os = "linux")]
     return Arc::new(fallback::FallbackStore::new(Arc::new(linux::SecretServiceStore::new()), plugin_data, io));
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]

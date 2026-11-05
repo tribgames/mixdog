@@ -7,7 +7,7 @@
 //! knobs the neutral builder does not carry (forced `tool_choice`, an
 //! explicit `parallel_tool_calls: false`, the accepted tool list).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_core_api::domain::keepalive::TransportKind;
@@ -26,7 +26,8 @@ use crate::providers::openai::profile::{
     build_body,
 };
 
-use super::chat::CompatConfig;
+use super::chat::{CompatConfig, system_texts};
+use super::xai_cache::{LaneBook, Routing};
 use super::error;
 use super::models::{CompatModelInfo, fold_declared_effort};
 use super::profile::{CompatProfile, EffortDialect, ResponsesShape, ToolChoiceSupport};
@@ -56,32 +57,6 @@ fn normalize_cache_key(value: &str) -> String {
     format!("pc_{}", &hex[..32])
 }
 
-/// xAI's `prompt_cache_key` for the default `session` scope
-/// (`xaiResponsesCacheRouting` → `xaiCacheRouting`): a UUID derived from the
-/// model, the cache namespace and the session, so every turn of a conversation
-/// reaches the server holding its prefix. A request with no session id sends
-/// none (the service caches the prefix on its own).
-pub(crate) fn xai_cache_key(request: &ModelRequest) -> Option<String> {
-    let options = &request.options;
-    let session = mixdog_js::js_trim(options.session_id.as_deref().unwrap_or_default());
-    if session.is_empty() {
-        return None;
-    }
-    // `providerCacheKey || promptCacheKey || 'mixdog-xai'`: an empty key falls through.
-    let namespace = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()).unwrap_or("mixdog-xai");
-    let string = |s: &str| mixdog_js::json_stringify(&json!(s));
-    let model = if request.model.is_empty() { "null".to_owned() } else { string(&request.model) };
-    // `stableTraceStringify`: keys in order.
-    let seed = format!(
-        "{{\"model\":{model},\"providerKey\":{},\"scope\":\"xai-chat-session-v1\",\"sessionId\":{}}}",
-        string(namespace),
-        string(session)
-    );
-    let hex: String = Sha256::digest(seed.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-    let variant = (u8::from_str_radix(&hex[16..17], 16).unwrap_or(0) & 0x3) | 0x8;
-    Some(format!("{}-{}-4{}-{variant:x}{}-{}", &hex[0..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32]))
-}
-
 /// Values the neutral decoder reads from its context; a compat provider has
 /// no per-request identity beyond the credential the adapter adds.
 struct ClockOnly;
@@ -107,6 +82,8 @@ pub struct CompatResponsesCodec {
     config: CompatConfig,
     transport: TransportKind,
     schemas: Arc<SchemaMemo>,
+    /// The unbounded cache lane's slots; shared by clones of this codec.
+    lanes: Arc<Mutex<LaneBook>>,
 }
 
 impl CompatResponsesCodec {
@@ -119,6 +96,7 @@ impl CompatResponsesCodec {
         Self {
             owner: ProviderId::from(owner),
             schemas: Arc::new(SchemaMemo::default()),
+            lanes: Arc::default(),
             profile,
             config,
             transport,
@@ -356,8 +334,16 @@ impl WireCodec for CompatResponsesCodec {
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let routed;
         let request = if self.profile.responses == ResponsesShape::Xai {
+            // The key xAI routes by is derived (scope, session, prefix, lane),
+            // not the caller's cache key, which only names the namespace.
+            let system = system_texts(&self.profile.chat, &request.messages)?;
+            let routing = Routing {
+                environment: self.config.environment.as_ref().map(|env| &*env.0),
+                lanes: &self.lanes,
+                system: &system,
+            };
             let mut with_key = request.clone();
-            with_key.options.prompt_cache_key = xai_cache_key(request);
+            with_key.options.prompt_cache_key = routing.key(request);
             routed = with_key;
             &routed
         } else {

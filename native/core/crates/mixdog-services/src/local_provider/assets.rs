@@ -3,6 +3,7 @@
 //! SHA-256 matches. Paused or failed installs leave the partial file as durable evidence; it
 //! never proves validity, the digest does.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::catalog::{Catalog, ensure_disk_space, exact_file, file_has_data, partial_asset_bytes};
 use super::installations::Progress;
+use crate::tidy::process::{Processes, RunOptions};
 
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
 
@@ -439,30 +441,32 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
 
 /// Windows builds ship as zips (PowerShell's `Expand-Archive`); the macOS build is a gzipped
 /// tarball the system `tar` unpacks.
-async fn extract_archive(archive: &Path, destination: &Path, cancel: &CancellationToken) -> Result<(), AssetError> {
-    let mut cmd = if archive.extension().is_some_and(|e| e == "zip") {
-        let mut c = tokio::process::Command::new("powershell");
-        c.args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:MIXDOG_LOCAL_ARCHIVE -DestinationPath $env:MIXDOG_LOCAL_DESTINATION -Force"])
-            .env("MIXDOG_LOCAL_ARCHIVE", archive)
-            .env("MIXDOG_LOCAL_DESTINATION", destination);
-        c
+async fn extract_archive(processes: &Processes, archive: &Path, destination: &Path, cancel: &CancellationToken) -> Result<(), AssetError> {
+    // The manager starts a child with exactly the environment it is given.
+    let mut env: HashMap<String, String> = std::env::vars().collect();
+    let (program, args) = if archive.extension().is_some_and(|e| e == "zip") {
+        env.insert("MIXDOG_LOCAL_ARCHIVE".into(), archive.to_string_lossy().into_owned());
+        env.insert("MIXDOG_LOCAL_DESTINATION".into(), destination.to_string_lossy().into_owned());
+        ("powershell", ["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:MIXDOG_LOCAL_ARCHIVE -DestinationPath $env:MIXDOG_LOCAL_DESTINATION -Force"].map(str::to_owned).to_vec())
     } else {
-        let mut c = tokio::process::Command::new("tar");
-        c.arg("-xzf").arg(archive).arg("-C").arg(destination);
-        c
+        ("tar", vec!["-xzf".to_owned(), archive.to_string_lossy().into_owned(), "-C".to_owned(), destination.to_string_lossy().into_owned()])
     };
-    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
-    #[cfg(windows)]
-    cmd.creation_flags(0x0800_0000);
-    let output = tokio::select! {
-        o = cmd.output() => o?,
-        _ = cancel.cancelled() => return Err(AssetError::Aborted),
-    };
-    if output.status.success() {
+    let mut options = RunOptions::new(destination);
+    options.env = Some(&env);
+    options.cancel = Some(cancel);
+    options.timeout = Duration::ZERO;
+    let output = processes.run(program, &args, options).await;
+    if cancel.is_cancelled() {
+        return Err(AssetError::Aborted);
+    }
+    if output.code == 0 {
         return Ok(());
     }
-    let mut log = String::from_utf8_lossy(&output.stdout).into_owned();
-    log.push_str(&String::from_utf8_lossy(&output.stderr));
+    if output.code == -1 && !output.error.is_empty() {
+        return Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", output.error)));
+    }
+    let mut log = output.stdout.clone();
+    log.push_str(&output.stderr);
     // `log.slice(-16384)`: the last 16384 UTF-16 units; a pair cut in half is dropped whole.
     let (mut units, mut from) = (0, log.len());
     for (at, c) in log.char_indices().rev() {
@@ -473,11 +477,12 @@ async fn extract_archive(archive: &Path, destination: &Path, cancel: &Cancellati
         from = at;
     }
     let tail = &log[from..];
-    Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", if tail.is_empty() { format!("status {}", output.status) } else { tail.to_owned() })))
+    Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() })))
 }
 
 /// Installs the runtime build for this host; no-op when its executable is already there.
-pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, durability: DurabilityIo, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
+pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, processes: &Processes, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
+    let durability = processes.durability();
     let hardware = catalog.hardware.detect(true).await;
     if cancel.is_cancelled() {
         return Err(AssetError::Aborted);
@@ -522,7 +527,7 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, dura
                 ("receivedBytes".into(), json!(after)), ("totalBytes".into(), json!(total_bytes)),
                 ("percent".into(), json!((after as f64 / total_bytes as f64 * 100.0).round().min(99.0))),
             ]));
-            extract_archive(&archive, &staging, &cancel).await?;
+            extract_archive(processes, &archive, &staging, &cancel).await?;
             completed = after;
         }
         let extracted = staging.join(executable);

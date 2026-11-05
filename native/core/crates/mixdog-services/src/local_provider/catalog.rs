@@ -277,7 +277,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn catalog(dir: &Path) -> Arc<Catalog> {
-        Arc::new(Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None), Arc::new(ModelState::default()), mixdog_rt::testing::tokens().durability_io))
+        Arc::new(Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None, crate::tidy::process::Processes::for_tests()), Arc::new(ModelState::default()), mixdog_rt::testing::tokens().durability_io))
     }
 
     #[test]

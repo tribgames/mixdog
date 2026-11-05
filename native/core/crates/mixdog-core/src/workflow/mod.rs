@@ -30,7 +30,6 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
-use mixdog_protocol::DomainErrorDetail;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneTokens;
@@ -53,6 +52,7 @@ use crate::domains::support::failed;
 use crate::domains::support::invalid;
 use crate::domains::support::on_lane;
 use crate::domains::support::wrong_method;
+use crate::tool_modules::with_grandfathered_builtins;
 
 const DOMAIN: &str = "config";
 
@@ -110,9 +110,6 @@ pub trait WorkflowHost: Send + Sync {
     /// `webSearchCapableFor(provider, meta)`.
     fn web_search_capable(&self, provider: &str, meta: Option<&Value>) -> bool;
 
-    /// `coerceEffortFor(provider, meta, effort)` for a non-empty effort.
-    fn coerce_effort(&self, provider: &str, meta: Option<&Value>, effort: &str) -> Option<String>;
-
     /// `fastCapableFor(provider, meta, effort, modelParameters)` of a resolved row.
     fn fast_capable(&self, provider: &str, meta: Option<&Value>, effort: Option<&str>, model_parameters: Option<&Value>) -> bool;
 
@@ -142,7 +139,8 @@ fn config_failure(error: ConfigError) -> CoreError {
         other => CoreError::DomainError {
             domain: DOMAIN.into(),
             code: Some("configFailed".into()),
-            detail: Some(Box::new(DomainErrorDetail::CommandFailed { message: other.to_string() })),
+            message: Some(other.to_string().into()),
+            detail: None,
         },
     }
 }
@@ -203,7 +201,21 @@ impl WorkflowConfig {
     }
 
     /// Writes `after` against `before` (what the caller started from).
+    /// `saveConfigAndAdopt`: the runtime holds the grandfathered config, so both sides of the
+    /// diff carry `builtins` and the first write seeds it.
     async fn save(&self, before: &Doc, after: &Doc) -> Result<(), CoreError> {
+        // `after` descends from the adopted config, so it keeps the section `before` was stamped
+        // with: a Lead route it adds must not turn a fresh profile into a grandfathered one.
+        let before = with_grandfathered_builtins(before);
+        let mut after = after.clone();
+        if !after.contains_key("builtins") {
+            after.insert("builtins".into(), before.get("builtins").cloned().unwrap_or(Value::Null));
+        }
+        self.save_plain(&before, &after).await
+    }
+
+    /// `cfgMod.saveConfig(next, { baseConfig })`: the diff of the documents as given.
+    async fn save_plain(&self, before: &Doc, after: &Doc) -> Result<(), CoreError> {
         self.config.save_agent_config(before, after, false).await.map(|_| ()).map_err(config_failure)
     }
 
@@ -334,7 +346,7 @@ impl WorkflowConfig {
                 || async {
                     let before = self.config.agent();
                     let prefs = prefs::prepare(&before, &provider, &changes, &*self.host).map_err(thrown)?;
-                    self.save(&before, &prefs.after).await?;
+                    self.save_plain(&before, &prefs.after).await?;
                     if prefs.custom_catalog_changed {
                         self.host.after_credential_change().await;
                     } else {

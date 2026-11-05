@@ -1,6 +1,6 @@
 //! The one failure type of the SCM engine and its single conversion to the seam's
 //! `CoreError` (P §10). Codes are stable data; the English text of a failure that has no
-//! structured fields travels in `DomainErrorDetail::Display` and is never parsed.
+//! structured fields travels as the error's `message` and is never parsed.
 
 use std::sync::Arc;
 
@@ -150,16 +150,13 @@ impl From<std::io::Error> for ScmFailure {
     }
 }
 
-fn display(text: String) -> Option<Box<DomainErrorDetail>> {
-    Some(Box::new(DomainErrorDetail::Display { name: text }))
-}
-
 impl From<ScmFailure> for CoreError {
     fn from(failure: ScmFailure) -> Self {
         match failure {
             ScmFailure::NotARepository => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some("NOT_A_REPOSITORY".into()),
+                message: None,
                 detail: None,
             },
             ScmFailure::Invalid { path, expected } => CoreError::InvalidParams {
@@ -169,7 +166,8 @@ impl From<ScmFailure> for CoreError {
             ScmFailure::Command { domain, text } => CoreError::DomainError {
                 domain: domain.into(),
                 code: Some(CODE_COMMAND_FAILED.into()),
-                detail: display(text),
+                message: Some(text.into()),
+                detail: None,
             },
             ScmFailure::Unavailable { capability } => CoreError::CapabilityUnavailable {
                 capability: capability.into(),
@@ -178,12 +176,14 @@ impl From<ScmFailure> for CoreError {
             ScmFailure::TimedOut => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(CODE_TIMED_OUT.into()),
+                message: None,
                 detail: None,
             },
             ScmFailure::OutputTooLarge { limit } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(CODE_OUTPUT_TOO_LARGE.into()),
-                detail: display(limit.to_string()),
+                message: Some(limit.to_string().into()),
+                detail: None,
             },
             ScmFailure::Cancelled => CoreError::Cancelled { by: "caller".into() },
             ScmFailure::QueueFull { queue } => CoreError::QueueFull {
@@ -196,11 +196,9 @@ impl From<ScmFailure> for CoreError {
             } => CoreError::DomainError {
                 domain: domain.into(),
                 code: Some(code.into()),
-                detail: display(message),
+                message: Some(message.into()),
+                detail: None,
             },
-            // Node sends `error.message` with the code to every client, and a code with
-            // several messages (`WORKTREE_BUSY_JOBS` transition) needs it: an explicit message
-            // travels as `ExternalFailure`, like the other services' failure text.
             ScmFailure::Coded {
                 domain,
                 code,
@@ -209,20 +207,23 @@ impl From<ScmFailure> for CoreError {
             } => CoreError::DomainError {
                 domain: domain.into(),
                 code: Some(code.into()),
-                detail: match message {
-                    Some(message) => Some(Box::new(DomainErrorDetail::ExternalFailure { message: message.into_string() })),
-                    None => detail,
+                message: match message {
+                    Some(text) => Some(text.into()),
+                    None => crate::worktree::texts::contract_message(code, detail.as_deref()).map(Into::into),
                 },
+                detail,
             },
             ScmFailure::Io { message, .. } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(CODE_IO.into()),
-                detail: display(message),
+                message: Some(message.into()),
+                detail: None,
             },
             ScmFailure::ObjectMissing(id) => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some("OBJECT_MISSING".into()),
-                detail: display(id.0),
+                message: Some(id.0.into()),
+                detail: None,
             },
         }
     }
@@ -330,22 +331,28 @@ mod tests {
     }
 
     #[test]
+    fn a_coded_failure_reaches_the_seam_with_its_message_and_its_typed_detail() {
+        let error: CoreError = crate::worktree::errors::busy(crate::worktree::errors::RefusalReason::FolderInUse).into();
+        let CoreError::DomainError { code, message, detail, .. } = error else { panic!("{error:?}") };
+        assert_eq!(code.as_deref(), Some("WORKTREE_BUSY_JOBS"));
+        assert_eq!(message.as_deref(), Some("Sessions or workers still use an affected folder. Finish or move them before continuing."));
+        assert!(matches!(detail.as_deref(), Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) if reason == "folder-in-use"));
+    }
+
+    #[test]
     fn failure_codes_reach_the_seam_error() {
         let error: CoreError = ScmFailure::git("fatal: x").into();
         match error {
             CoreError::DomainError {
                 domain,
                 code,
+                message,
                 detail,
             } => {
                 assert_eq!(&*domain, "git");
                 assert_eq!(code.as_deref(), Some(CODE_COMMAND_FAILED));
-                assert_eq!(
-                    detail.as_deref(),
-                    Some(&DomainErrorDetail::Display {
-                        name: "fatal: x".into()
-                    })
-                );
+                assert_eq!(message.as_deref(), Some("fatal: x"));
+                assert_eq!(detail, None);
             }
             other => panic!("{other:?}"),
         }

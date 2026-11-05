@@ -16,6 +16,7 @@ use mixdog_core_api::domain::provider::{
 use mixdog_protocol::ProviderId;
 
 pub use decode::{ChatDecoder, usage_from};
+pub(crate) use encode::system_texts;
 pub use super::profile::CostField;
 
 use super::error;
@@ -49,11 +50,25 @@ pub struct CompatConfig {
     /// Headers added to the profile's own, after them.
     pub extra_headers: Vec<(String, String)>,
     pub models: Arc<ModelTable>,
+    /// The process environment the cache-routing knobs
+    /// (`MIXDOG_XAI_RESPONSES_CACHE_*`) are read from; none reads nothing.
+    pub environment: Option<EnvSource>,
+}
+
+/// The injectable process environment (`registry::keys::Environment`).
+#[derive(Clone)]
+pub struct EnvSource(pub Arc<dyn crate::registry::keys::Environment>);
+
+impl std::fmt::Debug for EnvSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EnvSource")
+    }
 }
 
 impl Default for CompatConfig {
     fn default() -> Self {
         Self {
+            environment: None,
             on_tool_excluded: None,
             server_tool_search: false,
             base_url: None,

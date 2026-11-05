@@ -1,0 +1,1248 @@
+{
+  "apiKey": "gemini-listing-key",
+  "gemini": {
+    "pages": [
+      {
+        "models": [
+          {
+            "name": "models/gemini-3.8-flash",
+            "displayName": "Gemini 3.8 Flash",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "Fast and versatile."
+          },
+          {
+            "name": "models/gemini-3.5-flash",
+            "displayName": "Gemini 3.5 Flash",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-3.5-flash model."
+          },
+          {
+            "name": "models/gemini-3.5-flash-lite",
+            "displayName": "Gemini 3.5 Flash Lite",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 32768,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-3.5-flash-lite model."
+          },
+          {
+            "name": "models/gemini-3.1-flash-lite",
+            "displayName": "Gemini 3.1 Flash Lite",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-3.1-flash-lite model."
+          },
+          {
+            "name": "models/gemini-3.1-pro-preview",
+            "displayName": "Gemini 3.1 Pro Preview",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65535,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-3.1-pro-preview model."
+          },
+          {
+            "name": "models/text-embedding-004",
+            "displayName": "text-embedding-004",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The text-embedding-004 model."
+          },
+          {
+            "name": "models/gemini-embedding-001",
+            "displayName": "gemini-embedding-001",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "embedContent"
+            ],
+            "description": "The gemini-embedding-001 model."
+          },
+          {
+            "name": "models/gemini-aqa",
+            "displayName": "gemini-aqa",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-aqa model."
+          },
+          {
+            "name": "models/gemini-3.8-flash-tts-vocoder-embedding",
+            "displayName": "gemini-3.8-flash-tts-vocoder-embedding",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-3.8-flash-tts-vocoder-embedding model."
+          }
+        ],
+        "nextPageToken": "tok/2+x y"
+      },
+      {
+        "models": [
+          {
+            "name": "models/gemini-2.5-pro",
+            "displayName": "Gemini 2.5 Pro",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-2.5-pro model."
+          },
+          {
+            "name": "models/gemini-2.5-flash",
+            "displayName": "Gemini 2.5 Flash",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-2.5-flash model."
+          },
+          {
+            "name": "models/gemini-4-argon",
+            "displayName": "Gemini 4 Argon",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "description": "The gemini-4-argon model."
+          },
+          {
+            "name": "models/gemini-3-bare"
+          },
+          {
+            "name": "models/gemini-robotics-er-1.5-preview",
+            "displayName": "gemini-robotics-er-1.5-preview",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-robotics-er-1.5-preview model."
+          },
+          {
+            "name": "models/gemini-2.5-computer-use-preview-10-2025",
+            "displayName": "gemini-2.5-computer-use-preview-10-2025",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-2.5-computer-use-preview-10-2025 model."
+          },
+          {
+            "name": "models/imagen-3.0-generate-002",
+            "displayName": "imagen-3.0-generate-002",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The imagen-3.0-generate-002 model."
+          },
+          {
+            "name": "models/gemini-3.5-flash-002",
+            "displayName": "Gemini 3.5 Flash 002",
+            "inputTokenLimit": 0,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "description": "The gemini-3.5-flash-002 model."
+          }
+        ]
+      }
+    ],
+    "listed": {
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "method": "GET",
+          "headers": {
+            "x-goog-api-key": "gemini-listing-key"
+          },
+          "body": null
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&pageToken=tok%2F2%2Bx+y",
+          "method": "GET",
+          "headers": {
+            "x-goog-api-key": "gemini-listing-key"
+          },
+          "body": null
+        }
+      ],
+      "rows": [
+        {
+          "id": "gemini-3.8-flash",
+          "display": "Gemini 3.8 Flash",
+          "family": "gemini-flash",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": true,
+          "description": "Fast and versatile."
+        },
+        {
+          "id": "gemini-3.5-flash",
+          "display": "Gemini 3.5 Flash",
+          "family": "gemini-flash",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": false,
+          "description": "The gemini-3.5-flash model."
+        },
+        {
+          "id": "gemini-3.5-flash-lite",
+          "display": "Gemini 3.5 Flash Lite",
+          "family": "gemini-flash-lite",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 32768,
+          "tier": "version",
+          "latest": true,
+          "description": "The gemini-3.5-flash-lite model."
+        },
+        {
+          "id": "gemini-3.1-flash-lite",
+          "display": "Gemini 3.1 Flash Lite",
+          "family": "gemini-flash-lite",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": false,
+          "description": "The gemini-3.1-flash-lite model."
+        },
+        {
+          "id": "gemini-3.1-pro-preview",
+          "display": "Gemini 3.1 Pro Preview",
+          "family": "gemini-pro",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65535,
+          "tier": "version",
+          "latest": true,
+          "description": "The gemini-3.1-pro-preview model."
+        },
+        {
+          "id": "gemini-2.5-pro",
+          "display": "Gemini 2.5 Pro",
+          "family": "gemini-pro",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": false,
+          "description": "The gemini-2.5-pro model."
+        },
+        {
+          "id": "gemini-2.5-flash",
+          "display": "Gemini 2.5 Flash",
+          "family": "gemini-flash",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": false,
+          "description": "The gemini-2.5-flash model."
+        },
+        {
+          "id": "gemini-4-argon",
+          "display": "Gemini 4 Argon",
+          "family": "gemini",
+          "provider": "gemini",
+          "contextWindow": 1048576,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": true,
+          "description": "The gemini-4-argon model."
+        },
+        {
+          "id": "gemini-3-bare",
+          "display": "gemini-3-bare",
+          "family": "gemini",
+          "provider": "gemini",
+          "contextWindow": null,
+          "outputTokens": null,
+          "tier": "version",
+          "latest": false,
+          "description": ""
+        },
+        {
+          "id": "gemini-3.5-flash-002",
+          "display": "Gemini 3.5 Flash 002",
+          "family": "gemini-flash",
+          "provider": "gemini",
+          "contextWindow": null,
+          "outputTokens": 65536,
+          "tier": "version",
+          "latest": false,
+          "description": "The gemini-3.5-flash-002 model."
+        }
+      ],
+      "error": null
+    },
+    "rejected": {
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "method": "GET",
+          "headers": {
+            "x-goog-api-key": "gemini-listing-key"
+          },
+          "body": null
+        }
+      ],
+      "rows": null,
+      "error": "gemini list_models 403"
+    },
+    "static": [
+      {
+        "id": "gemini-3.8-flash",
+        "name": "Gemini 3.8 Flash",
+        "provider": "gemini",
+        "contextWindow": 1048576
+      },
+      {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "provider": "gemini",
+        "contextWindow": 1048576
+      },
+      {
+        "id": "gemini-3.5-flash-lite",
+        "name": "Gemini 3.5 Flash Lite",
+        "provider": "gemini",
+        "contextWindow": 1048576
+      }
+    ]
+  },
+  "vertex": {
+    "listed": [
+      {
+        "id": "gemini-4-argon",
+        "name": "Gemini 4 Argon",
+        "contextWindow": 1048576,
+        "provider": "vertex-ai",
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-4-argon-cyber-permissive",
+        "name": "Gemini 4 Argon Cyber Permissive",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.8-flash",
+        "name": "Gemini 3.8 Flash",
+        "contextWindow": 1048576,
+        "provider": "vertex-ai",
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.8-flash-cyber",
+        "name": "Gemini 3.8 Flash Cyber",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.7-flash",
+        "name": "Gemini 3.7 Flash",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.6-flash",
+        "name": "Gemini 3.6 Flash",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.5-flash-lite",
+        "name": "Gemini 3.5 Flash Lite",
+        "contextWindow": 1048576,
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.1-flash-lite",
+        "name": "Gemini 3.1 Flash Lite",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "contextWindow": 1048576,
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "gemini-3-flash-preview",
+        "name": "Gemini 3 Flash Preview",
+        "provider": "vertex-ai",
+        "modelParameterOptions": [
+          {
+            "id": "serviceTier",
+            "label": "Service tier",
+            "kind": "enum",
+            "options": [
+              {
+                "value": "standard",
+                "label": "Standard"
+              },
+              {
+                "value": "flex",
+                "label": "Flex (50% off, slower)"
+              },
+              {
+                "value": "priority",
+                "label": "Priority (faster, higher price)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "claude-opus-5-5",
+        "name": "Claude Opus 5.5",
+        "family": "opus",
+        "contextWindow": 1000000,
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-fable-5-1",
+        "name": "Claude Fable 5.1",
+        "family": "fable",
+        "contextWindow": 1000000,
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5",
+        "family": "sonnet",
+        "contextWindow": 1000000,
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-haiku-5-5",
+        "name": "Claude Haiku 5.5",
+        "family": "haiku",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-opus-5",
+        "name": "Claude Opus 5",
+        "family": "opus",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "family": "fable",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "family": "sonnet",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "family": "opus",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-opus-4-6",
+        "name": "Claude Opus 4.6",
+        "family": "opus",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-opus-4-5",
+        "name": "Claude Opus 4.5",
+        "family": "opus",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-sonnet-4-5",
+        "name": "Claude Sonnet 4.5",
+        "family": "sonnet",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-haiku-4-5",
+        "name": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-3-7-sonnet",
+        "name": "Claude 3.7 Sonnet",
+        "family": "sonnet",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-3-5-sonnet-v2",
+        "name": "Claude 3.5 Sonnet v2",
+        "family": "sonnet",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-3-5-sonnet",
+        "name": "Claude 3.5 Sonnet",
+        "family": "sonnet",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "claude-3-5-haiku",
+        "name": "Claude 3.5 Haiku",
+        "family": "haiku",
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "deepseek-ai/deepseek-v4.1-flash-maas",
+        "name": "DeepSeek V4.1 Flash",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "deepseek-ai/deepseek-v3.2-maas",
+        "name": "DeepSeek V3.2",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "deepseek-ai/deepseek-v3.1-maas",
+        "name": "DeepSeek V3.1",
+        "locations": [
+          "us-central1"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "deepseek-ai/deepseek-r1-0528-maas",
+        "name": "DeepSeek R1 (0528)",
+        "locations": [
+          "us-central1"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "qwen/qwen3-coder-480b-a35b-instruct-maas",
+        "name": "Qwen3 Coder",
+        "locations": [
+          "global",
+          "us-south1"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "qwen/qwen3-next-80b-a3b-instruct-maas",
+        "name": "Qwen3-Next 80B Instruct",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "qwen/qwen3-next-80b-a3b-thinking-maas",
+        "name": "Qwen3-Next 80B Thinking",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "zai-org/glm-5.2-maas",
+        "name": "GLM 5.2",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "zai-org/glm-5-maas",
+        "name": "GLM 5",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "zai-org/glm-4.7-maas",
+        "name": "GLM 4.7",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "moonshotai/kimi-k2-thinking-maas",
+        "name": "Kimi K2 Thinking",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "minimaxai/minimax-m2-maas",
+        "name": "MiniMax M2",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "openai/gpt-oss-120b-maas",
+        "name": "gpt-oss 120B",
+        "locations": [
+          "global",
+          "us-central1"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "openai/gpt-oss-20b-maas",
+        "name": "gpt-oss 20B",
+        "locations": [
+          "us-central1"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "meta/llama-4-maverick-17b-128e-instruct-maas",
+        "name": "Llama 4 Maverick 17B-128E",
+        "locations": [
+          "us-east5"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "meta/llama-4-scout-17b-16e-instruct-maas",
+        "name": "Llama 4 Scout 17B-16E",
+        "locations": [
+          "us-east5"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "google/gemma-4-26b-a4b-it-maas",
+        "name": "Gemma 4 26B A4B IT",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "xai/grok-4.7",
+        "name": "Grok 4.7",
+        "locations": [
+          "global",
+          "us"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "xai/grok-4.6",
+        "name": "Grok 4.6",
+        "locations": [
+          "global",
+          "us"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "xai/grok-4.3",
+        "name": "Grok 4.3",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "xai/grok-4.20-reasoning",
+        "name": "Grok 4.20 (Reasoning)",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      },
+      {
+        "id": "xai/grok-4.20-non-reasoning",
+        "name": "Grok 4.20 (Non-reasoning)",
+        "locations": [
+          "global"
+        ],
+        "provider": "vertex-ai"
+      }
+    ]
+  },
+  "antigravity": {
+    "raw": {
+      "gemini-3.8-flash-high": {
+        "displayName": "Gemini 3.8 Flash (High)",
+        "maxTokens": 1048576,
+        "maxOutputTokens": 65535,
+        "supportsThinking": true,
+        "supportsImages": true
+      },
+      "gemini-3.8-flash-medium": {
+        "displayName": "Gemini 3.8 Flash (Medium)",
+        "maxTokens": 1000000,
+        "maxOutputTokens": 65536,
+        "supportsThinking": true
+      },
+      "gemini-3.8-flash-low": {
+        "displayName": "Gemini 3.8 Flash (Low)",
+        "maxTokens": 1048576,
+        "maxOutputTokens": 40000,
+        "supportsThinking": true
+      },
+      "gemini-3.5-flash-lite": {
+        "displayName": "Gemini 3.5 Flash Lite",
+        "maxTokens": 1048576,
+        "supportsImages": true
+      },
+      "gemini-3.5-flash-lite-low": {
+        "displayName": "Gemini 3.5 Flash Lite",
+        "maxTokens": 1048576
+      },
+      "gemini-3.5-flash-lite-preview": {
+        "displayName": "Gemini 3.5 Flash Lite",
+        "maxTokens": 1048576
+      },
+      "gemini-lite-3.5": {
+        "displayName": "Gemini 3.5 Flash Lite",
+        "maxTokens": 1048576
+      },
+      "gemini-3.1-pro-high": {
+        "displayName": "Gemini 3.1 Pro (High)",
+        "maxTokens": 1048576,
+        "supportsThinking": true
+      },
+      "gemini-3.1-pro-low": {
+        "displayName": "Gemini 3.1 Pro (Low)",
+        "maxTokens": 1048576,
+        "supportsThinking": true
+      },
+      "gemini-4-lite-xlow": {
+        "displayName": "Gemini 4 Lite (Extra Low)",
+        "maxTokens": 500000,
+        "supportsThinking": true
+      },
+      "gemini-4-lite-high": {
+        "displayName": "Gemini 4 Lite (High)",
+        "maxTokens": 500000,
+        "supportsThinking": true
+      },
+      "gemini-3-flash": {
+        "displayName": "Gemini 3 Flash",
+        "maxTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "supportsThinking": true
+      },
+      "gemini-3-flash-agent": {
+        "displayName": "Gemini 3 Flash Agent",
+        "maxTokens": 1048576,
+        "supportsThinking": false
+      },
+      "claude-opus-4-6-thinking": {
+        "displayName": "Claude Opus 4.6 (Thinking)",
+        "maxTokens": 200000,
+        "maxOutputTokens": 128000,
+        "supportsThinking": true,
+        "supportsImages": true
+      },
+      "claude-sonnet-4-6": {
+        "displayName": "Claude Sonnet 4.6",
+        "maxTokens": 200000,
+        "maxOutputTokens": "64000",
+        "supportsThinking": false
+      },
+      "gpt-oss-120b-medium": {
+        "displayName": "GPT-OSS 120B (Medium)",
+        "maxTokens": 131072,
+        "supportsThinking": true
+      },
+      "chat_20706": {
+        "displayName": "Internal chat",
+        "maxTokens": 1000
+      },
+      "tab_flash_lite_preview": {
+        "displayName": "Tab",
+        "maxTokens": 1000
+      },
+      "no-display-name": {
+        "maxTokens": 1000
+      },
+      "no-window": {
+        "displayName": "No Window",
+        "maxTokens": 0
+      },
+      "null-entry": null
+    },
+    "requests": [
+      {
+        "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ya29.test",
+          "Content-Type": "application/json",
+          "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+        },
+        "body": "{\"project\":\"proj-1\"}",
+        "redirect": "error"
+      },
+      {
+        "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ya29.test",
+          "Content-Type": "application/json",
+          "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+        },
+        "body": "{}",
+        "redirect": "error"
+      },
+      {
+        "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ya29.test",
+          "Content-Type": "application/json",
+          "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+        },
+        "body": "{\"project\":\"p\"}",
+        "redirect": "error"
+      }
+    ],
+    "noProjectFetched": {},
+    "notAnObject": "[antigravity-oauth] fetchAvailableModels returned no models",
+    "listed": [
+      {
+        "id": "claude-opus-4-6-thinking",
+        "name": "Claude Opus 4.6 (Thinking)",
+        "display": "Claude Opus 4.6 (Thinking)",
+        "provider": "antigravity-oauth",
+        "contextWindow": 200000,
+        "maxOutputTokens": 128000,
+        "supportsVision": true,
+        "supportsReasoning": true,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "claude-opus-4-6-thinking"
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "display": "Claude Sonnet 4.6",
+        "provider": "antigravity-oauth",
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000,
+        "supportsVision": false,
+        "supportsReasoning": false,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [],
+        "wire": "claude-sonnet-4-6"
+      },
+      {
+        "id": "gemini-3-flash",
+        "name": "Gemini 3 Flash",
+        "display": "Gemini 3 Flash",
+        "provider": "antigravity-oauth",
+        "family": "gemini-flash",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "supportsVision": false,
+        "supportsReasoning": true,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini-3-flash"
+      },
+      {
+        "id": "gemini-3-flash-agent",
+        "name": "Gemini 3 Flash Agent",
+        "display": "Gemini 3 Flash Agent",
+        "provider": "antigravity-oauth",
+        "family": "gemini-flash",
+        "contextWindow": 1048576,
+        "supportsVision": false,
+        "supportsReasoning": false,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [],
+        "wire": "gemini-3-flash-agent"
+      },
+      {
+        "id": "gemini-3.1-pro",
+        "name": "Gemini 3.1 Pro",
+        "display": "Gemini 3.1 Pro",
+        "provider": "antigravity-oauth",
+        "family": "gemini-pro",
+        "contextWindow": 1048576,
+        "supportsVision": false,
+        "supportsReasoning": true,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "wire": {
+          "low": "gemini-3.1-pro-low",
+          "high": "gemini-3.1-pro-high"
+        }
+      },
+      {
+        "id": "gemini-lite-3.5",
+        "name": "Gemini 3.5 Flash Lite",
+        "display": "Gemini 3.5 Flash Lite",
+        "provider": "antigravity-oauth",
+        "family": "gemini-flash",
+        "contextWindow": 1048576,
+        "supportsVision": true,
+        "supportsReasoning": false,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [],
+        "wire": "gemini-lite-3.5"
+      },
+      {
+        "id": "gemini-3.8-flash",
+        "name": "Gemini 3.8 Flash",
+        "display": "Gemini 3.8 Flash",
+        "provider": "antigravity-oauth",
+        "family": "gemini-flash",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 40000,
+        "supportsVision": true,
+        "supportsReasoning": true,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": {
+          "low": "gemini-3.8-flash-low",
+          "medium": "gemini-3.8-flash-medium",
+          "high": "gemini-3.8-flash-high"
+        }
+      },
+      {
+        "id": "gemini-4-lite",
+        "name": "Gemini 4 Lite",
+        "display": "Gemini 4 Lite",
+        "provider": "antigravity-oauth",
+        "family": "gemini-pro",
+        "contextWindow": 500000,
+        "supportsVision": false,
+        "supportsReasoning": true,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [
+          "minimal",
+          "high"
+        ],
+        "wire": {
+          "minimal": "gemini-4-lite-xlow",
+          "high": "gemini-4-lite-high"
+        }
+      },
+      {
+        "id": "gpt-oss-120b-medium",
+        "name": "GPT-OSS 120B (Medium)",
+        "display": "GPT-OSS 120B (Medium)",
+        "provider": "antigravity-oauth",
+        "family": "gpt-oss",
+        "contextWindow": 131072,
+        "supportsVision": false,
+        "supportsReasoning": true,
+        "supportsFunctionCalling": true,
+        "reasoningLevels": [],
+        "wire": "gpt-oss-120b-medium"
+      }
+    ],
+    "curated": null
+  }
+}

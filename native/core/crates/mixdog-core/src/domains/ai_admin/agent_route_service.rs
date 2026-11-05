@@ -20,9 +20,6 @@ pub trait AgentRoutePublisher: Send + Sync {
     async fn publish(&self, agent_id: &str, route: &Value);
 }
 
-/// The internal agents of `defaults/agents.json` (`isHiddenAgent`): they have no route.
-pub const HIDDEN_AGENTS: [&str; 3] = ["explore-agent", "cycle1-agent", "title-agent"];
-
 /// `normalizeAgentId`: the fixed roles (`maintainer`, `explore`) and their aliases.
 fn normalize_agent_id(value: &str) -> &'static str {
     match slug(value).as_str() {
@@ -68,6 +65,7 @@ pub struct AgentRouteSetter {
     pub config: Config,
     pub context: Arc<dyn RouteContext>,
     pub publisher: Arc<dyn AgentRoutePublisher>,
+    /// The internal agents ([`super::hidden_agents::hidden_agents`]).
     pub hidden: HashSet<String>,
 }
 

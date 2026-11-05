@@ -94,6 +94,51 @@
    ]
   },
   {
+   "name": "completed with one-hour cache writes",
+   "provider": "anthropic",
+   "model": "zz-claude",
+   "inputExcludesCache": true,
+   "end": {
+    "kind": "completed",
+    "usage": {
+     "inputTokens": 50,
+     "outputTokens": 10,
+     "cacheWriteTokens": 9,
+     "cacheWrite1hTokens": 4
+    }
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "anthropic",
+     "model": "zz-claude",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 50,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 9,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-claude\",\"pricingModel\":\"zz-claude\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"cacheWrite1hTokens\":4,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 1500,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
    "name": "completed without usage",
    "provider": "openai",
    "model": "zz-test-model",

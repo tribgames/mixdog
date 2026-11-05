@@ -13,8 +13,11 @@ import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './
 
 const tree = resolveTree(parseArgs());
 const { runnerFor } = await importFrom(tree, 'src/runtime/tidy/runners/index.mjs');
+const { runProcess } = await importFrom(tree, 'src/runtime/tidy/process.mjs');
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'fake-engine.mjs');
 
+// Long enough that the fake binary (a Node start-up) always logs its call before the runner kills it.
+const TIMEOUT_MS = 2500;
 const scenarios = [];
 const add = (runner, mode, name, responses, extra = {}) => scenarios.push({ runner, mode, name, responses, files: ['a.x'], args: [], ...extra });
 const both = (runner, name, responses, extra) => ['check', 'fix'].forEach((mode) => add(runner, mode, name, responses, extra));
@@ -29,9 +32,9 @@ for (const id of ['air', 'clang-format', 'dprint', 'eslint', 'gofmt', 'gofumpt',
   both(id, 'long stderr tail', [{ stderr: long, code: 1 }]);
   both(id, 'no files', [{}], { files: [] });
   both(id, 'extra args and chunks', [{ call: 0, stderr: 'one\n' }, { call: 1, stderr: 'two\n' }, { call: 2, stderr: 'three\n' }], { files: files5, args: ['--cfg', 'x y'], filesPerSpawn: 2 });
-  both(id, 'timeout', [{ stdout: 'partial\n', sleepMs: 8000 }], { timeoutMs: 500 });
+  both(id, 'timeout', [{ stdout: 'partial\n', sleepMs: 8000 }], { timeoutMs: TIMEOUT_MS });
 }
-both('gofmt', 'timeout default', [{ sleepMs: 8000 }], { timeoutMs: 500 });
+both('gofmt', 'timeout default', [{ sleepMs: 8000 }], { timeoutMs: TIMEOUT_MS });
 
 // Path-list formatters.
 for (const id of ['shfmt', 'gofmt', 'gofumpt', 'prettier']) {
@@ -59,8 +62,8 @@ add('mago', 'check', 'lint malformed', [{ when: 'format' }, { when: 'lint', stdo
 add('mago', 'check', 'lint non-object', [{ when: 'format' }, { when: 'lint', stdout: '"text"' }]);
 add('mago', 'check', 'lint empty issues object', [{ when: 'format' }, { when: 'lint', stdout: '{"issues":{}}' }]);
 add('mago', 'fix', 'fix runs lint then format', [{ when: 'lint', stderr: 'fixed 2\n' }, { when: 'format', stderr: 'formatted\n' }]);
-add('mago', 'fix', 'lint failure stops', [{ when: 'lint', sleepMs: 8000 }], { timeoutMs: 500 });
-add('mago', 'check', 'format failure stops', [{ when: 'format', sleepMs: 8000 }], { timeoutMs: 500 });
+add('mago', 'fix', 'lint failure stops', [{ when: 'lint', sleepMs: 8000 }], { timeoutMs: TIMEOUT_MS });
+add('mago', 'check', 'format failure stops', [{ when: 'format', sleepMs: 8000 }], { timeoutMs: TIMEOUT_MS });
 
 // clang-format
 add('clang-format', 'check', 'violations', [{ stderr: [
@@ -97,9 +100,9 @@ add('ruff', 'check', 'rows and reformat', [
 ]);
 add('ruff', 'check', 'malformed and object', [{ when: 'check', stdout: '{"a":1}' }, { when: 'format', stdout: '  Would reformat:   x.py  \r\n' }]);
 add('ruff', 'check', 'malformed lint', [{ when: 'check', stdout: '[1,' }]);
-add('ruff', 'check', 'format step failing', [{ when: 'check', stdout: '[]' }, { when: 'format', sleepMs: 8000 }], { timeoutMs: 500 });
+add('ruff', 'check', 'format step failing', [{ when: 'check', stdout: '[]' }, { when: 'format', sleepMs: 8000 }], { timeoutMs: TIMEOUT_MS });
 add('ruff', 'fix', 'two writes', [{ when: 'check', stderr: 'Found 2 errors (2 fixed)\n' }, { when: 'format', stderr: '1 file reformatted\n' }]);
-add('ruff', 'fix', 'lint failure stops', [{ when: 'check', sleepMs: 8000 }], { timeoutMs: 500 });
+add('ruff', 'fix', 'lint failure stops', [{ when: 'check', sleepMs: 8000 }], { timeoutMs: TIMEOUT_MS });
 
 // biome
 const bdiag = (category, extra = {}) => ({ category, severity: 'error', description: 'Some  thing\n happened', location: { path: { file: 'a.js' }, span: [4, 9], sourceCode: 'ab\ncdefgh\n' }, ...extra });
@@ -143,7 +146,7 @@ add('dotnet-format', 'check', 'clean', [{ code: 0, stderr: 'ok\n' }], { files: [
 add('dotnet-format', 'check', 'malformed report', [{ report: '{oops', code: 0 }], { files: ['a/B.cs'] });
 add('dotnet-format', 'check', 'missing sdk', [{ code: 1, stderr: 'Could not execute because the specified command or file was not found.' }], { files: ['a/B.cs'] });
 add('dotnet-format', 'check', 'old sdk', [{ code: 1, stdout: 'Unrecognized command or argument whitespace' }], { files: ['a/B.cs'] });
-add('dotnet-format', 'check', 'timeout', [{ sleepMs: 8000 }], { files: ['a/B.cs'], timeoutMs: 500 });
+add('dotnet-format', 'check', 'timeout', [{ sleepMs: 8000 }], { files: ['a/B.cs'], timeoutMs: TIMEOUT_MS });
 add('dotnet-format', 'check', 'folders and chunks', [{ call: 0, report: dn([{ FilePath: 'a/1.cs' }]), code: 2 }, { call: 1, report: dn([{ FilePath: 'a/3.cs' }]), code: 2 }, { call: 2, report: dn([{ FilePath: 'b/4.cs' }]), code: 2 }, { call: 3, code: 0 }], { files: ['a/1.cs', 'a/2.cs', 'a/3.cs', 'b/4.cs', 'top.cs'], filesPerSpawn: 2, args: ['--x'] });
 add('dotnet-format', 'fix', 'writes without report', [{ code: 0, stderr: 'formatted\n' }], { files: ['a/B.cs', 'C.cs'] });
 add('dotnet-format', 'fix', 'unsupported', [{ code: 1, stderr: 'dotnet-format does not exist' }], { files: ['a/B.cs'] });
@@ -160,7 +163,7 @@ both('psscriptanalyzer', 'chunks of four', [{ call: 0, stdout: pss([{ file: 'a.p
 both('psscriptanalyzer', 'malformed and not diagnostics', [{ stdout: 'x' }, { stdout: '{"diagnostics":5}' }], { files: ['a.ps1'] });
 both('psscriptanalyzer', 'blank', [{ stdout: ' ' }], { files: ['a.ps1'] });
 both('psscriptanalyzer', 'no files', [{}], { files: [] });
-both('psscriptanalyzer', 'timeout', [{ sleepMs: 8000 }], { files: ['a.ps1'], timeoutMs: 500 });
+both('psscriptanalyzer', 'timeout', [{ sleepMs: 8000 }], { files: ['a.ps1'], timeoutMs: TIMEOUT_MS });
 
 // Run everything.
 const work = mkdtempSync(join(tmpdir(), 'tidy-runners-'));
@@ -174,7 +177,10 @@ for (const [at, s] of scenarios.entries()) {
   const scenarioPath = join(work, `scenario-${at}.json`);
   writeFileSync(scenarioPath, JSON.stringify({ log, responses: sub(s.responses) }));
   const runner = runnerFor(s.runner);
+  // Biome's `explain` spawns carry no runner args, so they would run `node explain <rule>`; they go to the fake too.
+  const run = (bin, args, options) => runProcess(bin, args[0] === 'explain' ? [FAKE, scenarioPath, ...args] : args, options);
   const result = await runner[s.mode]({
+    run,
     files: s.files, cwd, bin: process.execPath, args: [FAKE, scenarioPath, ...s.args],
     timeoutMs: s.timeoutMs ?? 30_000, ...(s.filesPerSpawn ? { filesPerSpawn: s.filesPerSpawn } : {}), ...(s.modulePath ? { modulePath: s.modulePath } : {}),
   });
@@ -185,6 +191,7 @@ for (const [at, s] of scenarios.entries()) {
     /* never spawned */
   }
   // The cwd differs between machines: it may only appear in the recorded text as the placeholder.
+  if (s.timeoutMs && calls.length === 0) throw new Error(`${s.runner} ${s.mode} ${s.name}: the engine was killed before it logged a call; raise TIMEOUT_MS`);
   const back = (value) => JSON.parse(JSON.stringify(value).replaceAll(cwd.replaceAll('\\', '\\\\'), '{CWD}'));
   cases.push({ ...s, calls: back(calls), result: back(plain(result)) });
 }

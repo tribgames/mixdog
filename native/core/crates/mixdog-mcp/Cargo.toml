@@ -24,6 +24,7 @@ mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-tools = { workspace = true }
+mixdog-secrets = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
@@ -46,20 +47,10 @@ uuid = { workspace = true, features = ["v4"] }
 which = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-keyring = { workspace = true, features = ["windows-native"] }
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-keyring = { workspace = true, features = ["apple-native"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-# Pure Rust (zbus): no system libdbus, so the core starts on a minimal server.
-keyring = { workspace = true, features = ["async-secret-service", "crypto-rust", "async-io"] }
-secret-service = { workspace = true }
-zbus = { workspace = true }
 
 [build-dependencies]
 serde_json = { workspace = true }

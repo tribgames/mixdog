@@ -80,6 +80,21 @@ export async function recordXaiResponsesContinuation(tree, outFile) {
       continuationResetReason: null,
       cacheLane: {},
     });
+    // A socket turn that resumes an imported `previous_response_id` and whose response
+    // carries no id keeps the resumed id as the slot's `responseId`.
+    const wsResumed = normalizeXaiResponsesWebSocket({
+      messages: m2,
+      useModel: 'grok-4.5',
+      tools: TOOLS,
+      opts: { sessionId: 's1', providerState: imported },
+      result: { responseId: null, content: '', toolCalls: [], model: 'grok-4.5-build', stopReason: 'stop', usage: null, providerReplay: { items: [] } },
+      params: { model: 'grok-4.5', input: [] },
+      cacheRouting: {},
+      previousResponseId: 'resp_old',
+      startIndex: 2,
+      continuationResetReason: null,
+      cacheLane: {},
+    });
     writeJson(outFile, {
       _doc: 'Recorded from src/runtime/agent/orchestrator/providers/openai-compat-xai-send.mjs (sendXaiResponses, real send path with a fake client) and normalizeXaiResponsesWebSocket; Date.now fixed to 1700000000000.',
       recorder: 'benchmarks/rust-core/recorders/record-xai-responses-continuation.mjs',
@@ -87,6 +102,7 @@ export async function recordXaiResponsesContinuation(tree, outFile) {
       turn2: { messages: m2, priorState: prior2, request: bodies[1], providerState: r2.providerState },
       imported: { messages: m2, priorState: imported, request: bodies[2], providerState: r3.providerState },
       websocket: { messages: m1, priorState: wsPrior, providerState: ws.providerState },
+      websocketResumed: { messages: m2, priorState: imported, providerState: wsResumed.providerState },
     });
   } finally {
     Date.now = realNow;

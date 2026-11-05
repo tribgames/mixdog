@@ -16,5 +16,6 @@ pub use projection::project_litellm;
 pub use rates::Obj;
 pub use rates::RATE_KEYS;
 pub use projection::project_models_dev;
+pub use registry::models_dev_provider_id;
 pub use resolve::Lookup;
 pub use resolve::enrich_model;

@@ -53,6 +53,13 @@ crate::server_request_definitions! {
         result: HostSystemProxyResolveResponse,
         requires: Some("host.systemProxy"),
     },
+    /// This PC's notification support and system idle time, which decides whether paired
+    /// devices hold their pushes (Node's host method `notificationStatus`).
+    HostNotificationStatus => "host/notification/status" {
+        params: HostNotificationStatusParams,
+        result: HostNotificationStatus,
+        requires: Some("host.notifications"),
+    },
     HostUpdateCommand => "host/update/command" {
         params: HostUpdateCommandParams,
         result: JsonValue,

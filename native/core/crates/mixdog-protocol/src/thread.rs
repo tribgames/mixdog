@@ -390,16 +390,11 @@ pub enum Origin {
 /// Structured detail of a coded domain failure, one variant per code that
 /// carries details today (worktree, merge, room and schedule refusals). Fields
 /// and their optionality are the union over every producer of that code.
-/// Shared by core-api and the wire.
+/// Shared by core-api and the wire. The error's text is never here: it is the error's own
+/// `message`, as Node's `error.message`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DomainErrorDetail {
-    /// An external tool's or host's failure message, for codes whose Node-visible text
-    /// includes it. The codes: `INSTALL_FAILED` and `FAILED` (document worker: package manager
-    /// and conversion engine), `HOST_COMMAND_FAILED` (a command the desktop host answered with
-    /// a JSON-RPC error). With `code: None` it carries the text of a plain Node `Error` (one
-    /// that has no `code`), so the message reaches the user unchanged.
-    ExternalFailure { message: String },
     /// `WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.
     #[serde(rename_all = "camelCase")]
     WorktreeBusyJobs {
@@ -716,14 +711,6 @@ pub enum DomainErrorDetail {
     /// is the new name). `SCHEDULE_RENAME_UNCERTAIN` carries no detail.
     #[serde(rename_all = "camelCase")]
     ScheduleRenameReloadFailed { name: String },
-    /// A failure whose only structured part is a text shown as is; the SCM engine puts the
-    /// git or gh text of a code that has no fields of its own here, in `name`.
-    #[serde(rename_all = "camelCase")]
-    Display { name: String },
-    /// A command failure whose text is shown to the user verbatim (git or
-    /// gh stderr, a refusal sentence); never parsed or reworded.
-    #[serde(rename_all = "camelCase")]
-    CommandFailed { message: String },
     /// `MERGE_CONFLICT`: the conflicted files, as git listed them.
     #[serde(rename_all = "camelCase")]
     MergeConflict { files: Vec<String> },

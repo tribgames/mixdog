@@ -24,8 +24,6 @@ const WEB_SEARCH_PROVIDER_FAMILIES: [(&str, &str); 8] = [
     ("anthropic-oauth", "anthropic"),
 ];
 
-const ALL_EFFORT_LEVELS: [&str; 8] = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-
 /// JS `String(value)`: arrays join their elements with `,` (null as empty),
 /// objects are `[object Object]`.
 fn js_string(v: &Value) -> String {
@@ -194,8 +192,7 @@ pub fn is_default_web_search_route(route: &Value) -> bool {
 
 /// `normalizeEffortInput` without the throw: `None` for blank/`auto`/invalid.
 fn effort_of(v: Option<&Value>) -> Option<String> {
-    let e = clean(v).to_lowercase();
-    (!e.is_empty() && e != "auto" && ALL_EFFORT_LEVELS.contains(&e.as_str())).then_some(e)
+    crate::effort::normalize_saved_effort(v)
 }
 
 fn pick<'a>(route: &'a Value, fallback: &'a Value, key: &str) -> Option<&'a Value> {

@@ -6,7 +6,6 @@ use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
 use mixdog_core_api::ids::Method;
-use mixdog_protocol::DomainErrorDetail;
 use serde_json::Value;
 
 /// The code of a command the host answered with a JSON-RPC error.
@@ -27,7 +26,8 @@ pub(crate) async fn forward(
         Err(HostError::Rpc { message, .. }) => Err(CoreError::DomainError {
             domain: domain.into(),
             code: Some(HOST_COMMAND_FAILED.into()),
-            detail: Some(Box::new(DomainErrorDetail::ExternalFailure { message })),
+            message: Some(message.into()),
+            detail: None,
         }),
     }
 }

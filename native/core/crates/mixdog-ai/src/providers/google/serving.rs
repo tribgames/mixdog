@@ -50,7 +50,7 @@ const LOCATION_ENV: [&str; 5] = [
 ];
 
 /// Flex PayGo: global endpoint only.
-const FLEX_MODELS: [&str; 12] = [
+pub(super) const FLEX_MODELS: [&str; 12] = [
     "gemini-3.8-flash-cyber",
     "gemini-3.8-flash",
     "gemini-3.7-flash",
@@ -66,7 +66,7 @@ const FLEX_MODELS: [&str; 12] = [
 ];
 
 /// Priority PayGo: global, us and eu endpoints.
-const PRIORITY_MODELS: [&str; 15] = [
+pub(super) const PRIORITY_MODELS: [&str; 15] = [
     "gemini-4-argon",
     "gemini-4-argon-cyber-permissive",
     "gemini-3.8-flash-cyber",
@@ -112,7 +112,7 @@ const LISTED_LOCATIONS: [(&str, &[&str]); 22] = [
     ("xai/grok-4.20-non-reasoning", &["global"]),
 ];
 
-fn listed_locations(key: &str) -> Option<&'static [&'static str]> {
+pub(super) fn listed_locations(key: &str) -> Option<&'static [&'static str]> {
     LISTED_LOCATIONS.iter().find(|(k, _)| *k == key).map(|(_, l)| *l)
 }
 

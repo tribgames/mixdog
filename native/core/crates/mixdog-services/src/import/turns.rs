@@ -390,6 +390,15 @@ mod tests {
     }
 
     #[test]
+    fn title_cap_counts_code_points_not_utf16_units() {
+        // 101 emoji are 101 code points (202 UTF-16 units): Node keeps exactly 100 of them.
+        let title = title_from_text(&"😀".repeat(101)).unwrap();
+        assert_eq!(title.chars().count(), 100);
+        assert_eq!(title, "😀".repeat(100));
+        assert_eq!(title_from_text(&"😀".repeat(100)).unwrap(), "😀".repeat(100));
+    }
+
+    #[test]
     fn run_line_is_bounded() {
         let tools: Vec<ToolCount> = (0..80).map(|i| ToolCount { name: format!("tool-number-{i}"), count: 1 }).collect();
         let line = tool_run_line(&tools);

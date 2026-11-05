@@ -541,6 +541,7 @@ pub(crate) struct Rig {
     pub prewarms: Arc<Prewarms>,
     pub ingests: Arc<Ingests>,
     pub closes: Arc<Closes>,
+    pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
 }
 
 /// The close-time memory ingests, in order; each waits `delay` before it records.
@@ -599,6 +600,7 @@ impl Rig {
             prewarms: Arc::default(),
             ingests: Arc::default(),
             closes: Arc::default(),
+            sensitive: Arc::default(),
         }
     }
 
@@ -624,6 +626,7 @@ impl Rig {
             effort: self.prewarms.clone(),
             search: self.ingests.clone(),
             memory: self.closes.clone(),
+            sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path()),
             attachments: Arc::new(super::user_facts::DataBlobs(self._data.path().to_path_buf())),
             feeds: self.feeds.clone(),

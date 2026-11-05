@@ -404,11 +404,23 @@
         "stderrTail": ""
       },
       "runner": "air",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "format",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -436,7 +448,7 @@
         "stderrTail": ""
       },
       "runner": "air",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -801,7 +813,20 @@
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "--dry-run",
+            "-Werror",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -829,7 +854,7 @@
         "stderrTail": ""
       },
       "runner": "clang-format",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -873,7 +898,7 @@
         "stderrTail": ""
       },
       "runner": "clang-format",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -1273,7 +1298,7 @@
         "stderrTail": ""
       },
       "runner": "dprint",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -1317,7 +1342,7 @@
         "stderrTail": ""
       },
       "runner": "dprint",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -1733,7 +1758,7 @@
         "stderrTail": ""
       },
       "runner": "eslint",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -1779,7 +1804,7 @@
         "stderrTail": ""
       },
       "runner": "eslint",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -2179,7 +2204,7 @@
         "stderrTail": ""
       },
       "runner": "gofmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -2223,7 +2248,7 @@
         "stderrTail": ""
       },
       "runner": "gofmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -2583,7 +2608,19 @@
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "-l",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -2611,11 +2648,23 @@
         "stderrTail": ""
       },
       "runner": "gofumpt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "-w",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -2643,7 +2692,7 @@
         "stderrTail": ""
       },
       "runner": "gofumpt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -3214,7 +3263,7 @@
         "stderrTail": ""
       },
       "runner": "mago",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -3263,7 +3312,7 @@
         "stderrTail": ""
       },
       "runner": "mago",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -3663,11 +3712,23 @@
         "stderrTail": ""
       },
       "runner": "prettier",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "--write",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -3695,7 +3756,7 @@
         "stderrTail": ""
       },
       "runner": "prettier",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -4243,7 +4304,7 @@
         "stderrTail": ""
       },
       "runner": "ruff",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -4288,7 +4349,7 @@
         "stderrTail": ""
       },
       "runner": "ruff",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -4705,7 +4766,7 @@
         "stderrTail": ""
       },
       "runner": "rustfmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -4750,7 +4811,7 @@
         "stderrTail": ""
       },
       "runner": "rustfmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -5161,7 +5222,7 @@
         "stderrTail": ""
       },
       "runner": "shellcheck",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -5206,7 +5267,7 @@
         "stderrTail": ""
       },
       "runner": "shellcheck",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -5606,7 +5667,7 @@
         "stderrTail": ""
       },
       "runner": "shfmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -5650,7 +5711,7 @@
         "stderrTail": ""
       },
       "runner": "shfmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -6044,7 +6105,7 @@
         "stderrTail": ""
       },
       "runner": "stylua",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -6087,7 +6148,7 @@
         "stderrTail": ""
       },
       "runner": "stylua",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -6622,7 +6683,7 @@
         "stderrTail": ""
       },
       "runner": "biome",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -6668,7 +6729,7 @@
         "stderrTail": ""
       },
       "runner": "biome",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -6711,7 +6772,7 @@
         "stderrTail": ""
       },
       "runner": "gofmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -6754,7 +6815,7 @@
         "stderrTail": ""
       },
       "runner": "gofmt",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -8349,11 +8410,24 @@
         "stderrTail": ""
       },
       "runner": "mago",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "format",
+            "--dry-run",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -8381,7 +8455,7 @@
         "stderrTail": ""
       },
       "runner": "mago",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -9412,7 +9486,7 @@
         "stderrTail": ""
       },
       "runner": "ruff",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -9465,7 +9539,20 @@
     },
     {
       "args": [],
-      "calls": [],
+      "calls": [
+        {
+          "argv": [
+            "check",
+            "--fix",
+            "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        }
+      ],
       "files": [
         "a.x"
       ],
@@ -9493,7 +9580,7 @@
         "stderrTail": ""
       },
       "runner": "ruff",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -9571,6 +9658,39 @@
             "write": null
           },
           "stdin": ""
+        },
+        {
+          "argv": [
+            "explain",
+            "r1"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        },
+        {
+          "argv": [
+            "explain",
+            "r2"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        },
+        {
+          "argv": [
+            "explain",
+            "r3"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
         }
       ],
       "files": [
@@ -9603,11 +9723,11 @@
         "changedFiles": [],
         "counts": {
           "byFixability": {
-            "fixable": 0,
-            "manual": 3,
-            "safe": 0,
-            "unfixable": 3,
-            "unsafe": 0
+            "fixable": 1,
+            "manual": 1,
+            "safe": 1,
+            "unfixable": 2,
+            "unsafe": 1
           },
           "byRule": {
             "lint/a/r1": 1,
@@ -9627,7 +9747,7 @@
             "code": "lint/a/r1",
             "col": 2,
             "file": "a.js",
-            "fixKind": "manual",
+            "fixKind": "unsafe",
             "fixable": false,
             "line": 2,
             "message": "Some thing happened",
@@ -9647,8 +9767,8 @@
             "code": "lint/a/r3",
             "col": 2,
             "file": "a.js",
-            "fixKind": "manual",
-            "fixable": false,
+            "fixKind": "safe",
+            "fixable": true,
             "line": 2,
             "message": "Some thing happened",
             "severity": "error"
@@ -9668,6 +9788,17 @@
             "--reporter=json",
             "--max-diagnostics=none",
             "a.x"
+          ],
+          "env": {
+            "module": null,
+            "write": null
+          },
+          "stdin": ""
+        },
+        {
+          "argv": [
+            "explain",
+            "q"
           ],
           "env": {
             "module": null,
@@ -10633,7 +10764,7 @@
         "stderrTail": ""
       },
       "runner": "dotnet-format",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [
@@ -11352,7 +11483,7 @@
         "stderrTail": ""
       },
       "runner": "psscriptanalyzer",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     },
     {
       "args": [],
@@ -11397,7 +11528,7 @@
         "stderrTail": ""
       },
       "runner": "psscriptanalyzer",
-      "timeoutMs": 500
+      "timeoutMs": 2500
     }
   ],
   "domain": "tidy-runners-twin",

@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 mixdog-rt = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
+mixdog-app-protocol = { workspace = true }
 # WP-WEBRTC (src/webrtc/**)
 mixdog-core-api = { workspace = true }
 async-trait = { workspace = true }
@@ -48,5 +49,7 @@ uuid = { workspace = true, features = ["v4"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
 tempfile = { workspace = true }
-mixdog-app-protocol = { workspace = true }
+# LR §9 tests: a phone through the in-process relay connection into the real server over the mock core.
+mixdog-app-server = { workspace = true }
+mixdog-core-api = { workspace = true, features = ["mock"] }
 

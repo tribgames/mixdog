@@ -560,6 +560,24 @@ fn domain_error_without_a_code_has_no_code_key() {
     assert_eq!(serde_json::to_value(serde_json::from_value::<ErrorData>(coded.clone()).unwrap()).unwrap(), coded);
 }
 
+/// Node's error carries `code`, `message` and `details` together: a coded error with a typed
+/// detail keeps its message, and a plain `Error` is the message alone.
+#[test]
+fn domain_error_carries_code_message_and_detail_together() {
+    let both = json!({"reason": "domainError", "domain": "worktree", "code": "WORKTREE_BUSY_JOBS",
+                      "message": "Worktree has running jobs",
+                      "detail": {"type": "worktreeBusyJobs", "reason": "workspace-retained"}});
+    let data: ErrorData = serde_json::from_value(both.clone()).unwrap();
+    let ErrorData::DomainError { message, detail, .. } = &data else { panic!("a domain error") };
+    assert_eq!(message.as_deref(), Some("Worktree has running jobs"));
+    assert!(detail.is_some());
+    assert_eq!(serde_json::to_value(&data).unwrap(), both);
+    let plain = json!({"reason": "domainError", "domain": "config", "message": "Updater is busy"});
+    let data: ErrorData = serde_json::from_value(plain.clone()).unwrap();
+    assert!(matches!(&data, ErrorData::DomainError { code: None, detail: None, .. }));
+    assert_eq!(serde_json::to_value(&data).unwrap(), plain);
+}
+
 /// `core/drain`, `ui/openRequested` per kind and `ui/newTab/created`, as they travel.
 #[test]
 fn drain_open_requested_and_new_tab_on_the_wire() {

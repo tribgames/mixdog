@@ -9,10 +9,12 @@ workspace = true
 
 [dependencies]
 # The loop talks to providers and tools only through the domain traits in
-# `mixdog-core-api` (injected as `Arc<dyn …>`), so it needs no `mixdog-ai`. The one
+# `mixdog-core-api` (injected as `Arc<dyn …>`). `mixdog-ai` is named only for the
+# shared effort projection (`mixdog_ai::effort::EffortProjection`). The one
 # `mixdog-tools` item it names is the tool policy, for the policy-backed `ToolGate`
 # (`env::PolicyGate`).
 mixdog-core-api = { workspace = true }
+mixdog-ai = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }

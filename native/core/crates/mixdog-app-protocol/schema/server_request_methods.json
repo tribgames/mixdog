@@ -229,6 +229,32 @@
       ],
       "type": "object"
     },
+    "HostNotificationStatus": {
+      "description": "Result of `host/notification/status` (Node's host method `notificationStatus`).",
+      "properties": {
+        "idleSeconds": {
+          "description": "The OS's system idle time in seconds (`powerMonitor.getSystemIdleTime()`: input anywhere on the PC counts); `null` when the host cannot tell, which the caller treats as not active. The caller judges it against its own window (Node: 180 s).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "supported": {
+          "description": "Whether this PC can show OS notifications (`Notification.isSupported()`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "supported"
+      ],
+      "type": "object"
+    },
+    "HostNotificationStatusParams": {
+      "additionalProperties": false,
+      "description": "Params of `host/notification/status` (core → host): none.",
+      "type": "object"
+    },
     "HostSystemProxyResolveParams": {
       "properties": {
         "url": {
@@ -314,7 +340,9 @@
     "ModelProxyExecuteParams": {
       "description": "Server core → a connection with `capabilities.modelProxy`: run one model call with this machine's accounts. Completion is the response; losing the connection resolves the call `cancelled`.",
       "properties": {
-        "call": true
+        "call": {
+          "$ref": "#/definitions/ProxyCall"
+        }
       },
       "required": [
         "call"
@@ -322,8 +350,11 @@
       "type": "object"
     },
     "ModelProxyResult": {
+      "description": "A failed call answers with a JSON-RPC error whose data is a [`crate::v2::model_proxy::ProxyFailure`].",
       "properties": {
-        "result": true
+        "result": {
+          "$ref": "#/definitions/ProxyAnswer"
+        }
       },
       "required": [
         "result"
@@ -395,6 +426,1180 @@
         "requestedAt",
         "scopes",
         "threadId"
+      ],
+      "type": "object"
+    },
+    "ProxyAnswer": {
+      "description": "The answer to a [`ProxyCall`].",
+      "oneOf": [
+        {
+          "description": "`Send` finished; its events came ahead of it.",
+          "properties": {
+            "attempts": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "result": {
+              "enum": [
+                "sent"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "attempts",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "models": {
+              "items": {
+                "$ref": "#/definitions/ProxyModel"
+              },
+              "type": "array"
+            },
+            "result": {
+              "enum": [
+                "models"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "models",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "result": {
+              "enum": [
+                "usable"
+              ],
+              "type": "string"
+            },
+            "usable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "result",
+            "usable"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`None` for a single-wire adapter or a model no offered wire serves.",
+          "properties": {
+            "result": {
+              "enum": [
+                "route"
+              ],
+              "type": "string"
+            },
+            "route": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyWireRoute"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "providers": {
+              "additionalProperties": {
+                "$ref": "#/definitions/ProxyProviderInfo"
+              },
+              "type": "object"
+            },
+            "ready": {
+              "type": "boolean"
+            },
+            "result": {
+              "enum": [
+                "providerConfig"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "providers",
+            "ready",
+            "result"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyBinary": {
+      "description": "A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it is never carried: the sender inlines the bytes (under its byte budget), and a reference that stays travels as `unavailable`.",
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "base64"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyBudget": {
+      "properties": {
+        "semanticMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "transportMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "semanticMs",
+        "transportMs"
+      ],
+      "type": "object"
+    },
+    "ProxyCacheTier": {
+      "enum": [
+        "tier3",
+        "env"
+      ],
+      "type": "string"
+    },
+    "ProxyCall": {
+      "description": "What the remote runtime asks of the PC's providers (`ModelProxyProvider`, `quota-reading.mjs:93`, `loadModelProxyProviderConfig`).",
+      "oneOf": [
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "send"
+              ],
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/definitions/ProxyRequest"
+            }
+          },
+          "required": [
+            "method",
+            "provider",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`listModels`; `refresh` re-reads the provider first (`_refreshModelCache`).",
+          "properties": {
+            "method": {
+              "enum": [
+                "listModels"
+              ],
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "refresh": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "method",
+            "provider",
+            "refresh"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "quotaUsable"
+              ],
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "model",
+            "provider"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "context": {
+              "$ref": "#/definitions/ProxyRouteContext"
+            },
+            "method": {
+              "enum": [
+                "resolveWireRoute"
+              ],
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "context",
+            "method",
+            "model",
+            "provider"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "providerConfig"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyContent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/ProxyPart"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "ProxyDocument": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "base64"
+              ],
+              "type": "string"
+            },
+            "media_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "kind",
+            "media_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "text"
+              ],
+              "type": "string"
+            },
+            "media_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "data",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "content": true,
+            "kind": {
+              "enum": [
+                "content"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyEffortProjection": {
+      "properties": {
+        "initialEffort": {
+          "type": "string"
+        },
+        "updates": {
+          "description": "`(message index, effort)` pairs; a JSON object would key them by text.",
+          "items": {
+            "items": [
+              {
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "initialEffort",
+        "updates"
+      ],
+      "type": "object"
+    },
+    "ProxyHostedTool": {
+      "oneOf": [
+        {
+          "properties": {
+            "allowed_domains": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "context_size": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "include_sources": {
+              "type": "boolean"
+            },
+            "kind": {
+              "enum": [
+                "webSearch"
+              ],
+              "type": "string"
+            },
+            "max_uses": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tool_type": {
+              "type": "string"
+            },
+            "user_location": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyLocation"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "allowed_domains",
+            "include_sources",
+            "kind",
+            "tool_type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyImage": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "base64"
+              ],
+              "type": "string"
+            },
+            "mime_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "kind",
+            "mime_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "url"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "fileId"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyLocation": {
+      "properties": {
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "country": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ProxyMessage": {
+      "properties": {
+        "assistantBlocks": true,
+        "cacheTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyCacheTier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "content": {
+          "$ref": "#/definitions/ProxyContent"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "nativeToolSearch": true,
+        "phase": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyPhase"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "providerReplay": {
+          "items": {
+            "$ref": "#/definitions/ProxyReplay"
+          },
+          "type": "array"
+        },
+        "role": {
+          "$ref": "#/definitions/ProxyRole"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyMessageSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thinkingBlocks": true,
+        "toolCallId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toolCalls": {
+          "items": {
+            "$ref": "#/definitions/ProxyToolCall"
+          },
+          "type": "array"
+        },
+        "turnReminder": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "content",
+        "isError",
+        "providerReplay",
+        "role",
+        "toolCalls"
+      ],
+      "type": "object"
+    },
+    "ProxyMessageSource": {
+      "enum": [
+        "steering",
+        "streamCutRecovery",
+        "tailReminder"
+      ],
+      "type": "string"
+    },
+    "ProxyModel": {
+      "description": "A model the PC's provider lists, with the first-response budget of its catalog entry.",
+      "properties": {
+        "contextWindow": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "defaultReasoningLevel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "displayName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firstResponseBudget": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyBudget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "maxOutputTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "raw": true,
+        "reasoningLevels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "supportsImages": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supportsReasoning": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hidden",
+        "id",
+        "reasoningLevels"
+      ],
+      "type": "object"
+    },
+    "ProxyOptions": {
+      "description": "`RequestOptions` field for field. The connection scope and the model's output ceiling are the PC's to derive, so they are not carried.",
+      "properties": {
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effortProjection": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyEffortProjection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fast": {
+          "type": "boolean"
+        },
+        "hostedTools": {
+          "items": {
+            "$ref": "#/definitions/ProxyHostedTool"
+          },
+          "type": "array"
+        },
+        "iteration": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxOutputTokensOverride": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "modelParameters": true,
+        "parallelToolCalls": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "parentSessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "promptCacheKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "providerState": true,
+        "requestKind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sharedCachePrefixCount": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "temperature": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "thread": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyThread"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "toolChoice": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verbosity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "fast",
+        "hostedTools",
+        "iteration"
+      ],
+      "type": "object"
+    },
+    "ProxyPart": {
+      "oneOf": [
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "text"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "source": {
+              "$ref": "#/definitions/ProxyImage"
+            },
+            "type": {
+              "enum": [
+                "image"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "filename": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mime_type": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/definitions/ProxyBinary"
+            },
+            "type": {
+              "enum": [
+                "file"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "mime_type",
+            "source",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "source": {
+              "$ref": "#/definitions/ProxyDocument"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "document"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyPhase": {
+      "enum": [
+        "commentary",
+        "finalAnswer"
+      ],
+      "type": "string"
+    },
+    "ProxyProviderInfo": {
+      "description": "What a server learns of one PC provider: usable or not, and its traits.",
+      "properties": {
+        "authState": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "hiddenModels": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "modelProxy": {
+          "$ref": "#/definitions/ProxyTraits"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "modelProxy"
+      ],
+      "type": "object"
+    },
+    "ProxyReplay": {
+      "properties": {
+        "items": true,
+        "owner": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items",
+        "owner"
+      ],
+      "type": "object"
+    },
+    "ProxyRequest": {
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/definitions/ProxyMessage"
+          },
+          "type": "array"
+        },
+        "model": {
+          "type": "string"
+        },
+        "options": {
+          "$ref": "#/definitions/ProxyOptions"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/ProxyTool"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "messages",
+        "model",
+        "options",
+        "tools"
+      ],
+      "type": "object"
+    },
+    "ProxyRole": {
+      "enum": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "developer"
+      ],
+      "type": "string"
+    },
+    "ProxyRouteContext": {
+      "properties": {
+        "agent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "type": "object"
+    },
+    "ProxyRouteSource": {
+      "enum": [
+        "pinned",
+        "override",
+        "catalog",
+        "endpoints",
+        "agent",
+        "default",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "ProxyThread": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "turn": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "window": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "window"
+      ],
+      "type": "object"
+    },
+    "ProxyTool": {
+      "properties": {
+        "deferLoading": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputSchema": true,
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deferLoading",
+        "description",
+        "inputSchema",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ProxyToolCall": {
+      "properties": {
+        "arguments": true,
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nativeType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "arguments",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ProxyTraits": {
+      "description": "The adapter traits of a PC provider its stand-in needs.",
+      "properties": {
+        "consumesReadWindows": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "firstResponseBudget": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyBudget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputExcludesCache": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "nativePdf": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "takesImages": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ProxyWire": {
+      "enum": [
+        "chat",
+        "responses",
+        "messages",
+        "gemini"
+      ],
+      "type": "string"
+    },
+    "ProxyWireRoute": {
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/ProxyRouteSource"
+        },
+        "wire": {
+          "$ref": "#/definitions/ProxyWire"
+        }
+      },
+      "required": [
+        "source",
+        "wire"
       ],
       "type": "object"
     },
@@ -701,6 +1906,14 @@
       },
       "result": {
         "type": "string"
+      }
+    },
+    "host/notification/status": {
+      "params": {
+        "$ref": "#/definitions/HostNotificationStatusParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostNotificationStatus"
       }
     },
     "host/systemProxy/resolve": {

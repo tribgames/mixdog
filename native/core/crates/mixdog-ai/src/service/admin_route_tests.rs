@@ -153,3 +153,21 @@ fn text_checks_match_node() {
         assert_eq!(got, recorded(case), "text case {i}: {case}");
     }
 }
+
+/// `refreshRouteEffort`: the effort ladders come from `crate::effort` (not from the recording), Fast
+/// from the recorded `fastCapableFor`; everything around them is `refresh_route_fields`.
+#[test]
+fn refresh_route_effort_matches_node() {
+    for (i, case) in twin()["refreshCases"].as_array().unwrap().iter().enumerate() {
+        // A refresh superseded by another route, or whose lease ended, leaves the route alone.
+        if case["value"].is_null() {
+            continue;
+        }
+        let route = obj(&case["route"]);
+        let meta = (!case["meta"].is_null()).then(|| &case["meta"]);
+        let live = route.get("provider").and_then(Value::as_str).unwrap_or("");
+        let fast = |_: &str, _: &Value, _: Option<&str>, _: &Value| case["ladder"]["fast"].as_bool().unwrap();
+        let got = refresh_route_fields(&obj(&case["config"]), &route, meta, live, &fast);
+        assert_eq!(json!(got), case["after"], "refresh case {i}");
+    }
+}

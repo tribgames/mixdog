@@ -69,7 +69,8 @@ fn match_models(rows: &[ModelRow], query: &str) -> Vec<ModelRow> {
     if words.is_empty() {
         return Vec::new();
     }
-    let tiers: [Box<dyn Fn(&ModelRow) -> bool>; 4] = [
+    type Tier<'a> = Box<dyn Fn(&ModelRow) -> bool + 'a>;
+    let tiers: [Tier; 4] = [
         // A literal id wins over its normalized look-alikes (`foo-bar` vs `foo_bar`).
         Box::new(|r| r.id == query),
         Box::new(|r| norm(&r.id) == wanted),

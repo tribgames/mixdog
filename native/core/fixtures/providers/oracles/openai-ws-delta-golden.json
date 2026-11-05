@@ -1,0 +1,1406 @@
+{
+ "source": "openai-ws-delta.mjs _anchorResponseChain + _computeDelta (default auto policy)",
+ "cases": [
+  {
+   "name": "no anchor",
+   "previous": null,
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "no_anchor",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": null
+  },
+  {
+   "name": "exact extension",
+   "previous": {
+    "responseId": "resp_1",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"a\":1,\"b\":2}",
+      "status": "completed"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_x",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"b\":2,\"a\":1}",
+      "status": "completed"
+     },
+     {
+      "type": "function_call_output",
+      "call_id": "call_1",
+      "output": "ok"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 2,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"previous_response_id\":\"resp_1\",\"input\":[{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"ok\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "tools changed",
+   "previous": {
+    "responseId": "resp_1",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"a\":1,\"b\":2}",
+      "status": "completed"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{}",
+      "status": "completed"
+     },
+     {
+      "type": "function_call_output",
+      "call_id": "call_1",
+      "output": "ok"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "grep"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "request_properties_changed",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]},{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"E1\",\"summary\":[]},{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":\"{}\",\"status\":\"completed\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"ok\"}],\"tools\":[{\"type\":\"function\",\"name\":\"grep\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "prefix changed",
+   "previous": {
+    "responseId": "resp_1",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"a\":1,\"b\":2}",
+      "status": "completed"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "HI"
+       }
+      ]
+     },
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{}",
+      "status": "completed"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "input_prefix_mismatch",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"HI\"}]},{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"E1\",\"summary\":[]},{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":\"{}\",\"status\":\"completed\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "response reasoning missing",
+   "previous": {
+    "responseId": "resp_1",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"a\":1,\"b\":2}",
+      "status": "completed"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{}",
+      "status": "completed"
+     },
+     {
+      "type": "function_call_output",
+      "call_id": "call_1",
+      "output": "ok"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "response_output_mismatch:reasoning",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]},{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":\"{}\",\"status\":\"completed\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"ok\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "call name differs",
+   "previous": {
+    "responseId": "resp_1",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"a\":1,\"b\":2}",
+      "status": "completed"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "grep",
+      "arguments": "{}",
+      "status": "completed"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "response_output_mismatch:function_call",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]},{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"E1\",\"summary\":[]},{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"grep\",\"arguments\":\"{}\",\"status\":\"completed\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "input shorter than before",
+   "previous": {
+    "responseId": "resp_1",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_1",
+      "encrypted_content": "E1",
+      "summary": []
+     },
+     {
+      "type": "function_call",
+      "id": "fc_1",
+      "call_id": "call_1",
+      "name": "read",
+      "arguments": "{\"a\":1,\"b\":2}",
+      "status": "completed"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "input_prefix_mismatch",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "nothing new",
+   "previous": {
+    "responseId": "resp_2",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": []
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"previous_response_id\":\"resp_2\",\"input\":[],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "empty instructions on a delta",
+   "previous": {
+    "responseId": "resp_2",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": []
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "more"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"previous_response_id\":\"resp_2\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"more\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "generate and background",
+   "previous": {
+    "responseId": "resp_3",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k",
+     "generate": false,
+     "background": true
+    },
+    "items": []
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "more"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k",
+    "generate": false,
+    "background": true
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"previous_response_id\":\"resp_3\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"more\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\",\"generate\":false}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"background\":true,\"generate\":false,\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "assistant message echoed with input_text parts",
+   "previous": {
+    "responseId": "resp_4",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "message",
+      "id": "m1",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "yo",
+        "annotations": []
+       }
+      ]
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "yo"
+       }
+      ]
+     },
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "next"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 1,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"previous_response_id\":\"resp_4\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"next\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "custom and search calls",
+   "previous": {
+    "responseId": "resp_5",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "custom_tool_call",
+      "id": "c1",
+      "call_id": "cu1",
+      "name": "apply_patch",
+      "input": "P"
+     },
+     {
+      "type": "tool_search_call",
+      "id": "t1",
+      "call_id": "ts1",
+      "execution": "client",
+      "arguments": {
+       "names": [
+        "x"
+       ]
+      }
+     },
+     {
+      "type": "web_search_call",
+      "id": "w1",
+      "action": {
+       "type": "search",
+       "query": "q"
+      }
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "custom_tool_call",
+      "call_id": "cu1",
+      "name": "apply_patch",
+      "input": "P"
+     },
+     {
+      "type": "tool_search_call",
+      "call_id": "ts1",
+      "execution": "client",
+      "arguments": {
+       "names": [
+        "x"
+       ]
+      }
+     },
+     {
+      "type": "web_search_call",
+      "id": "w1",
+      "action": {
+       "type": "search",
+       "query": "q"
+      }
+     },
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "n"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 3,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"previous_response_id\":\"resp_5\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"n\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "custom call input differs",
+   "previous": {
+    "responseId": "resp_6",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "custom_tool_call",
+      "call_id": "",
+      "name": "apply_patch",
+      "input": "P"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "custom_tool_call",
+      "call_id": "",
+      "name": "apply_patch",
+      "input": "Q"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "response_output_mismatch:custom_tool_call",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]},{\"type\":\"custom_tool_call\",\"call_id\":\"\",\"name\":\"apply_patch\",\"input\":\"Q\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "unknown item type",
+   "previous": {
+    "responseId": "resp_7",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "image_generation_call",
+      "id": "g1",
+      "status": "completed",
+      "result": "AAA"
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "image_generation_call",
+      "id": "other",
+      "status": "x",
+      "result": "AAA"
+     },
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "n"
+       }
+      ]
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "delta",
+    "reason": null,
+    "stripped": 1,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"previous_response_id\":\"resp_7\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"n\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  },
+  {
+   "name": "reasoning id differs",
+   "previous": {
+    "responseId": "resp_8",
+    "body": {
+     "model": "gpt-5.5",
+     "instructions": "be brief",
+     "input": [
+      {
+       "type": "message",
+       "role": "user",
+       "content": [
+        {
+         "type": "input_text",
+         "text": "hi"
+        }
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "type": "function",
+       "name": "read"
+      }
+     ],
+     "tool_choice": "auto",
+     "store": false,
+     "stream": true,
+     "include": [
+      "reasoning.encrypted_content"
+     ],
+     "prompt_cache_key": "k"
+    },
+    "items": [
+     {
+      "type": "reasoning",
+      "id": "rs_9",
+      "encrypted_content": "E9",
+      "summary": []
+     }
+    ]
+   },
+   "body": {
+    "model": "gpt-5.5",
+    "instructions": "be brief",
+    "input": [
+     {
+      "type": "message",
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     },
+     {
+      "type": "reasoning",
+      "id": "rs_other",
+      "encrypted_content": "E9",
+      "summary": []
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "name": "read"
+     }
+    ],
+    "tool_choice": "auto",
+    "store": false,
+    "stream": true,
+    "include": [
+     "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "k"
+   },
+   "expected": {
+    "mode": "full",
+    "reason": "response_output_mismatch:reasoning",
+    "stripped": 0,
+    "frame": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"be brief\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]},{\"type\":\"reasoning\",\"id\":\"rs_other\",\"encrypted_content\":\"E9\",\"summary\":[]}],\"tools\":[{\"type\":\"function\",\"name\":\"read\"}],\"tool_choice\":\"auto\",\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\"}"
+   },
+   "anchor": {
+    "lastRequestSansInput": "{\"include\":[\"reasoning.encrypted_content\"],\"instructions\":\"be brief\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"k\",\"store\":false,\"stream\":true,\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"name\":\"read\"}]}"
+   }
+  }
+ ]
+}

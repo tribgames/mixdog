@@ -72,9 +72,9 @@ impl<F: FnMut(Attempted) + Send> AttemptSink for RecordingSink<F> {
         (self.forward)(Attempted::Event(event));
     }
 
-    fn abandoned(&mut self, usage: &mixdog_core_api::domain::provider::Usage, model: &str) {
+    fn abandoned(&mut self, usage: &mixdog_core_api::domain::provider::Usage, model: Option<&str>) {
         if let Some(accounting) = &mut self.accounting {
-            accounting.note_abandoned(usage, Some(model.to_owned()));
+            accounting.note_abandoned(usage, model.map(str::to_owned));
         }
     }
 

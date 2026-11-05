@@ -397,5 +397,56 @@
         "updatedAt": 1700000000000
       }
     }
+  },
+  "websocketResumed": {
+    "messages": [
+      {
+        "content": "sys",
+        "role": "system"
+      },
+      {
+        "content": "read a",
+        "role": "user"
+      },
+      {
+        "content": "",
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "arguments": {
+              "path": "a"
+            },
+            "id": "call_1",
+            "name": "read"
+          }
+        ]
+      },
+      {
+        "content": "contents",
+        "role": "tool",
+        "toolCallId": "call_1"
+      }
+    ],
+    "priorState": {
+      "xaiResponses": {
+        "model": "grok-4.5",
+        "previousResponseId": "resp_old",
+        "seenMessageCount": 2,
+        "store": true
+      }
+    },
+    "providerState": {
+      "xaiResponses": {
+        "encryptedReasoningHistory": [],
+        "encryptedReasoningItems": [],
+        "model": "grok-4.5",
+        "previousResponseId": null,
+        "responseId": "resp_old",
+        "seenMessageCount": 4,
+        "store": false,
+        "transport": "websocket",
+        "updatedAt": 1700000000000
+      }
+    }
   }
 }

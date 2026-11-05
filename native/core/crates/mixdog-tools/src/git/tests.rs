@@ -327,6 +327,7 @@ async fn every_recorded_case_replays_to_nodes_text() {
         let session = case.get("host").map_or("worker", |h| h["sessionId"].as_str().unwrap());
         let call = case.get("host").map_or("", |h| h["toolCallId"].as_str().unwrap());
         let mut last_diff_id: Option<String> = None;
+        let diff_id = Regex::new(r"diff_[0-9a-f]{20}").unwrap();
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
         for (index, step) in case["steps"].as_array().unwrap().iter().enumerate() {
             if let Some(write) = step.get("write") {
@@ -345,7 +346,7 @@ async fn every_recorded_case_replays_to_nodes_text() {
             let before = script.as_ref().map_or(0, |s| s.requests.lock().unwrap().len());
             let got = text_of(tool.call(&context(&cwd, session, call), input.clone()).await);
             replayed += 1;
-            if let Some(m) = Regex::new(r"diff_[0-9a-f]{20}").unwrap().find(&got) {
+            if let Some(m) = diff_id.find(&got) {
                 last_diff_id = Some(m.as_str().to_owned());
             }
             let want = step["text"].as_str().unwrap();

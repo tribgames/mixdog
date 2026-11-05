@@ -5,6 +5,7 @@ pub mod config;
 pub mod domain;
 pub mod feed;
 pub mod host;
+pub mod model_proxy;
 pub mod op;
 pub mod params;
 pub mod thread;

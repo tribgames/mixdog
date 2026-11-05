@@ -290,8 +290,9 @@ pub(super) fn read_file(path: &std::path::Path) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use crate::catalog::CatalogSnapshot;
-    use crate::catalog::ModelRecord;
     use crate::catalog::ModelSource;
+    use mixdog_core_api::domain::provider::ModelListing;
+    use mixdog_core_api::domain::provider::ModelRecord as ListedRecord;
     use crate::catalog::ModelTraits;
     use crate::catalog::CatalogTraits;
     use crate::catalog::ProviderCatalog;
@@ -339,17 +340,14 @@ mod tests {
 
     struct Gateway;
     #[async_trait]
-    impl ModelSource for Gateway {
-        fn provider(&self) -> &mixdog_protocol::ProviderId {
-            static ID: std::sync::LazyLock<mixdog_protocol::ProviderId> =
-                std::sync::LazyLock::new(|| "gateway".into());
-            &ID
+    impl ModelListing for Gateway {
+        async fn list_models(&self) -> Result<Vec<ListedRecord>, ProviderError> {
+            Ok(["claude-x", "tts-x"].map(ListedRecord::new).to_vec())
         }
-        async fn list(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-            Ok(["claude-x", "tts-x"]
-                .map(|id| ModelRecord::new("gateway".into(), id))
-                .to_vec())
-        }
+    }
+
+    fn gateway() -> ModelSource {
+        ModelSource::new("gateway".into(), Arc::new(Gateway))
     }
 
     fn fixture(body: Option<&'static str>) -> (tempfile::TempDir, Arc<Fake>, Arc<ModelsDevSource>) {
@@ -385,7 +383,7 @@ mod tests {
         source.warm_from_disk().await;
         let layer = source.current().expect("warmed from disk");
         let catalog = ProviderCatalog::new(CatalogSnapshot::default());
-        catalog.refresh(&[Arc::new(Gateway)]).await;
+        catalog.refresh(&[gateway()]).await;
         let before = catalog.snapshot();
         let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new((*before).clone())), "gateway".into());
         assert_eq!(traits.catalog_wire("claude-x"), None, "no layer applied yet");
@@ -408,7 +406,7 @@ mod tests {
         let (dir, fake, source) = fixture(Some(API));
         let catalog = ProviderCatalog::new(CatalogSnapshot::default());
         let held = catalog.snapshot();
-        let sources: Vec<Arc<dyn ModelSource>> = vec![Arc::new(Gateway)];
+        let sources = vec![gateway()];
         catalog.refresh_with_metadata(&sources, &source).await;
         let fresh = catalog.snapshot();
         // A reader that held the old snapshot is unaffected.
@@ -437,7 +435,7 @@ mod tests {
             format!("{{\"fetchedAt\":1,\"data\":{API}}}\n"),
         )
         .unwrap();
-        let sources: Vec<Arc<dyn ModelSource>> = vec![Arc::new(Gateway)];
+        let sources = vec![gateway()];
         let service =
             super::super::CatalogService::cold_start(CatalogSnapshot::default(), sources, source).await;
         assert_eq!(fake.calls.load(Ordering::SeqCst), 0, "cold start never touches the network");

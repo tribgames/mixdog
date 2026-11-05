@@ -12,4 +12,5 @@ mixdog-js = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 ts-rs = { workspace = true, features = ["serde-json-impl", "no-serde-warnings"] }

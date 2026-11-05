@@ -14,6 +14,7 @@
 //!
 //! Every file operation here runs inside a maintenance-lane job.
 #![allow(
+    clippy::disallowed_types,
     clippy::disallowed_methods,
     reason = "every std::fs call here is the body of a maintenance-lane job (GraphCache::flush/load run on lanes)"
 )]

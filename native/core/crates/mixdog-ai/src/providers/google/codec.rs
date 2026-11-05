@@ -79,6 +79,11 @@ fn path_segment(id: &str) -> String {
     out
 }
 
+/// The hub client identity Cloud Code Assist expects.
+pub(super) fn antigravity_user_agent(client_version: &str) -> String {
+    format!("antigravity/hub/{client_version} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)")
+}
+
 fn uuid_v4() -> String {
     let mut b: [u8; 16] = rand::random();
     b[6] = (b[6] & 0x0f) | 0x40;
@@ -151,6 +156,10 @@ impl GoogleCodec {
 
     pub fn provider(&self) -> &ProviderId {
         &self.provider
+    }
+
+    pub fn traits(&self) -> &dyn ModelTraits {
+        self.traits.as_ref()
     }
 
     fn dialect(&self) -> Dialect {
@@ -287,12 +296,7 @@ impl GoogleCodec {
             }
             Target::Antigravity { origin, project, client_version } => {
                 headers.push(("accept".into(), "text/event-stream".into()));
-                headers.push((
-                    "user-agent".into(),
-                    format!(
-                        "antigravity/hub/{client_version} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
-                    ),
-                ));
+                headers.push(("user-agent".into(), antigravity_user_agent(client_version)));
                 let contents = inner["contents"].as_array().cloned().unwrap_or_default();
                 inner["sessionId"] = json!(session_id(&contents));
                 (
