@@ -29,7 +29,7 @@ const { createProcessTreeTracker, PROCESS_TABLE_READ_BOUND_MS } = await import('
 const { forceReleaseTerminationHold } = await import('../builtin/lib/shell-job-records.mjs');
 const { registerForegroundOwnedTree, treeKillForceSettle } = await import('./shell-run-state.mjs');
 const { cancelOwnedShellTrees } = await import('./owned-shell-trees.mjs');
-const { noteShellOwnerSessionClosed } = await import('../builtin/lib/shell-job-records.mjs');
+const { noteShellOwnerSessionClosed, shellOwnerEpoch } = await import('../builtin/lib/shell-job-records.mjs');
 
 after(cleanupTempDirs);
 
@@ -779,6 +779,7 @@ test(
     run.killed = false;
     run.foregroundRecordId = 'job_closed_blind';
     run.foregroundRecordInput.ownerSessionId = 'closing-blind';
+    run.foregroundRecordInput.ownerEpoch = shellOwnerEpoch('closing-blind');
     registerForegroundOwnedTree(run, 'closing-blind');
     tree.state.next = () => new Promise(() => {});
     const cancel = cancelOwnedShellTrees('closing-blind');
@@ -819,6 +820,7 @@ test(
     run.killed = false;
     run.foregroundRecordId = 'job_closed_linked';
     run.foregroundRecordInput.ownerSessionId = 'closing-linked';
+    run.foregroundRecordInput.ownerEpoch = shellOwnerEpoch('closing-linked');
     registerForegroundOwnedTree(run, 'closing-linked');
     tree.state.next = () => new Promise(() => {});
     const cancel = cancelOwnedShellTrees('closing-linked');

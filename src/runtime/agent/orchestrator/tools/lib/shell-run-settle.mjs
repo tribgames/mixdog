@@ -78,6 +78,7 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true, sw
     ownerSessionId: run.foregroundRecordInput?.ownerSessionId || null,
     cwd: run.foregroundRecordInput?.cwd || null,
     release,
+    ownerEpoch: run.foregroundRecordInput?.ownerEpoch ?? null,
   });
   runTreeTracker(run);
   // After a force-release the watch only waits for a confirmed exit. An

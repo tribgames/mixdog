@@ -19,6 +19,7 @@ import type {
   DesktopTranscriptHistoryPage,
   DesktopTranscriptHistoryRequest,
   DesktopSubmitOptions,
+  DesktopShellStopResult,
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
@@ -81,7 +82,7 @@ export interface DesktopService {
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean>;
   scheduleQuotaResume(sessionId: string): Promise<boolean>;
   cancelQuotaResume(sessionId: string): Promise<boolean>;
-  stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }>;
+  stopShellJob(sessionId: string, taskId: string): Promise<DesktopShellStopResult>;
   releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }>;
   getQuotaAutoResume(): Promise<boolean>;
   /** The exact path of the app's "no project" working folder. */

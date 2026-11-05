@@ -305,10 +305,22 @@ async function cancelShellTask(task, taskId, options) {
   return (await cancelShellTaskOutcome(task, taskId, options)).text;
 }
 
+// The stop of a job the registry does not hold: only its record can say more,
+// and only to the session that owns it. Nothing can control a process after a
+// restart, so a record still reading running is not stoppable here.
+async function stopJobKnownByRecord(id, options) {
+  const recovered = await readShellJobRecord(id);
+  if (!recovered || !recoveredTaskMatches(recovered, options)) return { stopped: false, error: `task not found: ${id}` };
+  if (recovered.terminal) return { stopped: false, finished: true, error: `task already ${recovered.status}: ${id}` };
+  return { stopped: false, error: `task process control is unavailable after restart: ${id}` };
+}
+
 /**
  * Stop one BACKGROUND shell job of the caller's session (desktop stop button).
  * The same cancel the `task` tool runs, with a structured answer: `stopped` is
- * true only when the job was actually cancelled. Only promoted/async jobs hold
+ * true only when the job was actually cancelled. A job that had already ended
+ * is not a failed stop: it answers `finished: true` with its terminal status
+ * in `error`, so a surface shows how it ended. Only promoted/async jobs hold
  * a background task, so a foreground command can never match; the session
  * scope is the caller's, so another session's job reads as unknown.
  */
@@ -316,7 +328,10 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
   const id = typeof taskId === 'string' ? taskId.trim() : '';
   if (!id) return { stopped: false, error: 'task_id is required' };
   const task = getBackgroundTask(id, { context: options });
-  if (task?.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
+  // No registry entry (the runtime restarted, or the entry aged out while its
+  // row is still listed): the job's record says whether it ended.
+  if (!task) return await stopJobKnownByRecord(id, options);
+  if (task.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
   const job = peekShellJob(id);
   const status = job ? job.status : task.status;
   // A root that exited while tracked descendants run is still stoppable, and
@@ -325,7 +340,7 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
   // whether anything still runs.
   const survivors = task.detached === true && task.status === 'running';
   if (status !== 'running' && !isShellJobRunning(id) && !survivors)
-    return { stopped: false, error: `task already ${status}: ${id}` };
+    return { stopped: false, finished: true, error: `task already ${status}: ${id}` };
   try {
     const { outcome, text } = await cancelShellTaskOutcome(task, id, options);
     if (outcome === 'cancelled') return { stopped: true };

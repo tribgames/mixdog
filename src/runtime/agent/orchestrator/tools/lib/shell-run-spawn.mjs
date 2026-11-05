@@ -20,7 +20,7 @@ import { STANDBY_ARGS, takeWarmShellStandby } from './shell-warm-standby.mjs';
 import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
 import { admitWorkspaceActivity, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { worktreeError } from '../../../../shared/worktrees/contract.mjs';
-import { bothReleased } from '../builtin/lib/shell-job-records.mjs';
+import { bothReleased, shellOwnerEpoch } from '../builtin/lib/shell-job-records.mjs';
 import { capturePreKill, registerForegroundOwnedTree, treeKillForceSettle } from './shell-run-state.mjs';
 import { releaseAdmissionOnConfirmedTermination } from './shell-run-settle.mjs';
 import { killAfterSnapshot } from './shell-descendants.mjs';
@@ -178,7 +178,8 @@ async function spawnAdmittedShellChild({
   const { useDirectArgv, spawnCommand, argv } = shapeArgv({ directArgv, shellArg, shellArgs, command, execScript });
   // Set before any child exists: a startup that fails after the child is
   // created still publishes a visible record and an owned termination hold.
-  run.foregroundRecordInput = { command, cwd, ownerSessionId, clientHostPid };
+  // The owner incarnation the command starts in travels with every later record and hold.
+  run.foregroundRecordInput = { command, cwd, ownerSessionId, clientHostPid, ownerEpoch: shellOwnerEpoch(ownerSessionId) };
   const onChildError = (err) => {
     run.spawnError = run.spawnError || err;
     run.failurePhase = 'tool';

@@ -11,7 +11,11 @@ import {
   _shellJobRecordWritesSettledForTest,
   completeShellJobRecord,
   listShellJobRecords,
+  forceReleaseTerminationHold,
+  noteShellOwnerSessionClosed,
   publishShellJobRecord,
+  registerTerminationHold,
+  shellOwnerEpoch,
   readShellJobRecord,
   recordShellJobHop,
   retireShellJobRecord,
@@ -397,4 +401,66 @@ test('three concurrent promotions are all visible to shellJobsStatus', async () 
       for (const jobId of jobIds) retireShellJobRecord(jobId);
     }
   });
+});
+
+test('a session closed and loaded again owns its new jobs as an open owner; only earlier incarnations read closed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-records-reload-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  const jobs = ['job_prior_running', 'job_prior_late', 'job_reloaded'];
+  try {
+    const owner = 'sess-closed-then-reloaded';
+    const published = { ownerSessionId: owner, clientHostPid: process.pid };
+    const job = (jobId) => ({ jobId, pid: process.pid, command: 'python -m http.server', cwd: root });
+    publishShellJobRecord(job('job_prior_running'), published);
+    await _shellJobRecordWritesSettledForTest('job_prior_running');
+    // The incarnation a late-publishing command started in, read before the close.
+    const priorEpoch = shellOwnerEpoch(owner);
+
+    noteShellOwnerSessionClosed(owner);
+    // The same session id, loaded again, starts a job.
+    publishShellJobRecord(job('job_reloaded'), published);
+    // A command of the closed incarnation publishes its record late.
+    publishShellJobRecord(job('job_prior_late'), { ...published, ownerEpoch: priorEpoch });
+    for (const jobId of jobs) await _shellJobRecordWritesSettledForTest(jobId);
+
+    assert.equal((await readShellJobRecord('job_prior_running')).ownerSessionClosed, true);
+    assert.equal((await readShellJobRecord('job_prior_late')).ownerSessionClosed, true);
+    assert.equal((await readShellJobRecord('job_reloaded')).ownerSessionClosed, undefined);
+  } finally {
+    for (const jobId of jobs) {
+      retireShellJobRecord(jobId);
+      await _shellJobRecordWritesSettledForTest(jobId);
+    }
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a hold the reloaded owner registers cannot be released by another session; a closed incarnation\'s can', async () => {
+  const owner = 'sess-hold-owner';
+  const folder = process.cwd();
+  const released = [];
+  const hold = (jobId, extra = {}) =>
+    registerTerminationHold(jobId, {
+      ownerSessionId: owner,
+      cwd: folder,
+      release: () => released.push(jobId),
+      ...extra,
+    });
+  const asViewer = (jobId) => forceReleaseTerminationHold(jobId, { callerSessionId: 'sess-viewer', callerCwd: folder });
+
+  const priorEpoch = shellOwnerEpoch(owner);
+  noteShellOwnerSessionClosed(owner);
+  // Held by the incarnation that closed: nothing is left to release it.
+  hold('job_hold_closed_incarnation', { ownerEpoch: priorEpoch });
+  // Held by the owner loaded again: it is live and decides.
+  hold('job_hold_reloaded');
+
+  assert.equal((await asViewer('job_hold_reloaded')).released, false);
+  assert.equal((await asViewer('job_hold_closed_incarnation')).released, true);
+  assert.deepEqual(released, ['job_hold_closed_incarnation']);
+  const owned = await forceReleaseTerminationHold('job_hold_reloaded', { callerSessionId: owner, callerCwd: folder });
+  assert.equal(owned.released, true, 'its own owner still releases it');
 });

@@ -18,6 +18,7 @@ import {
   expiredShellRows,
   shellFinishedLabel,
   shellRowAction,
+  shellStopOutcome,
 } from './background-jobs-model.ts';
 import {
   dismissedShellJobs,
@@ -180,4 +181,12 @@ test('a running shell that leaves the running list is kept until its finished re
     step({ shellJobs: { count: 0, jobs: [], finished: [] } }, 20_100 + SHELL_FINISH_GRACE_MS).rows.length,
     0
   );
+});
+
+test('a Stop of a job that had already ended is not a failed stop', () => {
+  assert.equal(shellStopOutcome({ stopped: true }), 'done');
+  assert.equal(shellStopOutcome({ stopped: false, finished: true, error: 'task already cancelled: job_1' }), 'done');
+  assert.equal(shellStopOutcome({ stopped: false, unconfirmed: true, error: 'cancellation not confirmed' }), 'unconfirmed');
+  assert.equal(shellStopOutcome({ stopped: false, error: 'task not found: job_1' }), 'failed');
+  assert.equal(shellStopOutcome(undefined), 'failed');
 });

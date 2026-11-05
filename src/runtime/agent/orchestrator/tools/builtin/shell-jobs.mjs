@@ -35,6 +35,7 @@ import {
   recordShellJobHop,
   registerTerminationHold,
   retireShellJobRecord,
+  shellOwnerEpoch,
   takeReleaseRequest,
 } from './lib/shell-job-records.mjs';
 import {
@@ -139,7 +140,9 @@ function demoteBackgroundShellPriority(pid) {
 async function trackShellJobRecord(task, options) {
   const jobId = String(task?.jobId || '').trim();
   if (!jobId) return;
-  const published = publishShellJobRecord(task, options);
+  // The owner incarnation this job starts in: its record and hold answer for it.
+  const ownerEpoch = options?.ownerEpoch ?? shellOwnerEpoch(options?.ownerSessionId);
+  const published = publishShellJobRecord(task, { ...options, ownerEpoch });
   if (task?.cwd) {
     // The record's own reader is filed under the job's root pid, which the
     // gate drops the moment that pid dies. Survivors must keep the folder
@@ -247,6 +250,7 @@ async function trackShellJobRecord(task, options) {
           ownerSessionId: options?.ownerSessionId || null,
           cwd: task.cwd,
           release: releaseHold,
+          ownerEpoch,
         });
       },
     });
@@ -613,6 +617,7 @@ export async function promoteForegroundShellJob({
   startedAtMs = 0,
   stdoutPath = null,
   stderrPath = null,
+  ownerEpoch = null,
 }) {
   const native = await promoteNativeTask({
     jobId,
@@ -643,7 +648,9 @@ export async function promoteForegroundShellJob({
   }
   // Added before tracking: the record's settlement removes it again.
   promotedJobIds.add(native.jobId);
-  await trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started, timeoutMs });
+  // The incarnation the command was spawned in, not the one promoting it: the
+  // owner may have closed while the promotion awaited.
+  await trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started, timeoutMs, ownerEpoch });
   return native;
 }
 
@@ -676,6 +683,7 @@ export function publishForegroundShellRecord({
   ownerSessionId = null,
   clientHostPid = null,
   terminationUnconfirmed = false,
+  ownerEpoch = null,
 }) {
   if (!jobId || !Number.isFinite(Number(pid)) || Number(pid) <= 0) return Promise.resolve();
   return publishShellJobRecord(
@@ -686,6 +694,7 @@ export function publishForegroundShellRecord({
       startedAtMs,
       foreground: true,
       terminationUnconfirmed,
+      ownerEpoch,
     }
   );
 }
