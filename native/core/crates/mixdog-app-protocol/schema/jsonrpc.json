@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/JsonRpcRequest"
+    },
+    {
+      "$ref": "#/definitions/JsonRpcNotification"
+    },
+    {
+      "$ref": "#/definitions/JsonRpcResponse"
+    },
+    {
+      "$ref": "#/definitions/JsonRpcError"
+    }
+  ],
+  "definitions": {
+    "FeedStamp": {
+      "description": "Position of a notification in its feed (P §6.1, X1).",
+      "properties": {
+        "epoch": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch",
+        "id",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "JsonRpcError": {
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/JsonRpcErrorBody"
+        },
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        }
+      },
+      "required": [
+        "error",
+        "id"
+      ],
+      "type": "object"
+    },
+    "JsonRpcErrorBody": {
+      "description": "`data` is always `{\"reason\": \"<camelCase>\", …typed fields}` (`ErrorData`); clients branch on `code` + `data.reason` only and never parse `message`.",
+      "properties": {
+        "code": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "data": true,
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "JsonRpcNotification": {
+      "properties": {
+        "emittedAtMs": {
+          "description": "Emission time of a server notification (a flattened field).",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "feed": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FeedStamp"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Present on every notification that belongs to a feed; absent on connection-scoped notifications and client notifications."
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "method"
+      ],
+      "type": "object"
+    },
+    "JsonRpcRequest": {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": true,
+        "trace": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/W3cTraceContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "JsonRpcResponse": {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "result": true
+      },
+      "required": [
+        "id",
+        "result"
+      ],
+      "type": "object"
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "format": "int64",
+          "type": "integer"
+        }
+      ]
+    },
+    "W3cTraceContext": {
+      "description": "W3C trace context carried on requests.",
+      "properties": {
+        "traceparent": {
+          "type": "string"
+        },
+        "tracestate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "traceparent"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Any message that can be decoded off the wire or encoded onto it.",
+  "title": "JsonRpcMessage"
+}

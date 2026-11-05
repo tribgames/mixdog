@@ -1,0 +1,329 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ClientActivityParams": {
+      "description": "`client/activity`: sent on user input, at most once per 60 s (client-side rate).",
+      "properties": {
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "type": "object"
+    },
+    "ClientPerfLogParams": {
+      "properties": {
+        "line": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "line"
+      ],
+      "type": "object"
+    },
+    "HostNotificationClickedParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "HostPowerParams": {
+      "properties": {
+        "event": {
+          "$ref": "#/definitions/PowerEvent"
+        }
+      },
+      "required": [
+        "event"
+      ],
+      "type": "object"
+    },
+    "HostUpdateReportParams": {
+      "description": "Today's `DesktopUpdaterState`.",
+      "properties": {
+        "state": true
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "ModelProxyEventParams": {
+      "description": "Electron → server core: one streamed event of a `model/proxy/execute` request.",
+      "properties": {
+        "event": true,
+        "requestId": {
+          "$ref": "#/definitions/RequestId"
+        }
+      },
+      "required": [
+        "event",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "PowerEvent": {
+      "enum": [
+        "suspend",
+        "resume"
+      ],
+      "type": "string"
+    },
+    "ProcessInputParams": {
+      "properties": {
+        "bytesB64": {
+          "type": "string"
+        },
+        "processHandle": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bytesB64",
+        "processHandle"
+      ],
+      "type": "object"
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "format": "int64",
+          "type": "integer"
+        }
+      ]
+    },
+    "TerminalInputParams": {
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "tabId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    "TerminalResizeParams": {
+      "properties": {
+        "cols": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rows": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "tabId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cols",
+        "rows",
+        "tabId"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Client notifications (X11): they take no in-flight slot.",
+  "oneOf": [
+    {
+      "description": "No params; changes no state.",
+      "properties": {
+        "method": {
+          "enum": [
+            "initialized"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "terminal/input"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TerminalInputParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Ignored unless the sender owns the PTY size.",
+      "properties": {
+        "method": {
+          "enum": [
+            "terminal/resize"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TerminalResizeParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "process/input"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProcessInputParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "client/activity"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ClientActivityParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "client/perfLog"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ClientPerfLogParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "host/power"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostPowerParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "host/update/report"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostUpdateReportParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "host/notification/clicked"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostNotificationClickedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One streamed event of a `model/proxy/execute` request.",
+      "properties": {
+        "method": {
+          "enum": [
+            "model/proxy/event"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelProxyEventParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "ClientNotification"
+}

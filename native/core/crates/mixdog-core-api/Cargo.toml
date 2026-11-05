@@ -7,5 +7,20 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Mock core, mock transport, mock feed and the feed conformance scenarios (`mixdog_core_api::mock`).
+mock = ["mixdog-rt/test-support"]
+
 [dependencies]
 mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+mixdog-core-api = { workspace = true, features = ["mock"] }
+tokio = { workspace = true, features = ["rt", "macros"] }

@@ -1,0 +1,812 @@
+//! Thread, turn and item methods and thread-feed notifications (P §5, §6.3).
+
+use mixdog_protocol::ItemId;
+use mixdog_protocol::JsonValue;
+use mixdog_protocol::ModelSelection;
+use mixdog_protocol::OpId;
+use mixdog_protocol::OrchestrationMode;
+use mixdog_protocol::PromptContent;
+use mixdog_protocol::QueuedId;
+use mixdog_protocol::QuotaResume;
+use mixdog_protocol::SubmitOptions;
+use mixdog_protocol::ThreadId;
+use mixdog_protocol::ThreadItem;
+use mixdog_protocol::ThreadStatus;
+use mixdog_protocol::ThreadSummary;
+use mixdog_protocol::ToolApprovalResult;
+use mixdog_protocol::Turn;
+use mixdog_protocol::TurnId;
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde::Serialize;
+use ts_rs::TS;
+
+use super::feed::ResumeWindow;
+use super::feed::Subscription;
+use super::feed::ThreadResumePosition;
+
+macro_rules! has_op_id {
+    ($($ty:ty),* $(,)?) => {$(
+        impl crate::common::HasOpId for $ty {
+            fn op_id(&self) -> &OpId {
+                &self.op_id
+            }
+        }
+    )*};
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ThreadStartKind {
+    /// Today's `startProject`: the project's own chat.
+    Project,
+    /// Today's `startProjectTask`.
+    ProjectTask,
+    /// Today's `startTask` / `submitNewTask` / `session.create`.
+    Task,
+}
+
+/// Today's `DesktopNewTaskDraft`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct NewTaskDraft {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<ModelSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestration_mode: Option<OrchestrationMode>,
+    /// Today's `DesktopNewTaskWorktree`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct TurnInput {
+    pub prompt: PromptContent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<SubmitOptions>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadStartParams {
+    pub op_id: OpId,
+    pub kind: ThreadStartKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<NewTaskDraft>,
+    /// Starts the first turn in the same request (today's `submitNewTask`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_input: Option<TurnInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadStartResponse {
+    pub thread: ThreadSummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<TurnStartResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadResumeParams {
+    pub thread_id: ThreadId,
+    pub window: ResumeWindow,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_from: Option<ThreadResumePosition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct ThreadResumeResponse {
+    pub thread: ThreadSummary,
+    pub subscription: Subscription,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadIdParams {
+    pub thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadOpParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_direction: Option<SortDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_term: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadListResponse {
+    pub data: Vec<ThreadSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backwards_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadReadParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<ResumeWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_turns: Option<bool>,
+}
+
+/// The runtime projection of one thread (today's `DesktopSessionState` fields,
+/// grouped as the thread-feed notifications of P §5.1 carry them).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<ThreadRuntime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<ThreadRoute>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<ThreadContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<Vec<JsonValue>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_resume: Option<QuotaResume>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agents: Option<ThreadAgents>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell_jobs: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<ThreadWorkflow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approvals: Option<ThreadApprovals>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_restore: Option<PromptRestore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_change: Option<ProviderAccountChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadReadResponse {
+    pub thread: ThreadSummary,
+    pub state: ThreadState,
+    pub items: Vec<ThreadItem>,
+    pub has_older: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turns: Option<Vec<Turn>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadTurnsListParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_direction: Option<SortDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items_view: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadTurnsListResponse {
+    pub data: Vec<Turn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// Opaque cursor, or an item anchor (today's `before`/`after` row reads).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(untagged)]
+pub enum ItemsCursor {
+    Opaque(String),
+    #[serde(rename_all = "camelCase")]
+    Item {
+        /// Always `item`.
+        #[serde(rename = "type")]
+        kind: String,
+        item_id: ItemId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadItemsListParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ItemsCursor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_direction: Option<SortDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number")]
+    pub byte_budget: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadItemsListResponse {
+    pub data: Vec<ThreadItem>,
+    pub has_older: bool,
+    pub has_newer: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backwards_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadItemsReadParams {
+    pub thread_id: ThreadId,
+    pub item_ids: Vec<ItemId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct ThreadItemsReadResponse {
+    pub items: Vec<ThreadItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadPageParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadModelMessagesListParams {
+    pub thread_id: ThreadId,
+    #[ts(type = "number")]
+    pub start: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadFinalAnswerReadParams {
+    pub thread_id: ThreadId,
+    #[ts(type = "number")]
+    pub started_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct ThreadReadStateUpdateParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    #[ts(type = "number")]
+    pub message_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consumed_unread: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct ThreadSearchParams {
+    pub query: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadNameSetParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct ThreadMetadataUpdateParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorite: Option<bool>,
+    /// Today's `setSessionProject`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadDeleteParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    /// Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadForkParams {
+    /// The source thread; it is never changed.
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    /// Inherit into this existing empty thread (today's `inheritFrom`); absent creates a new thread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub into_thread_id: Option<ThreadId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<ModelSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadContinueInModelParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub route: ModelSelection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadRewindParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub item_id: ItemId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_files: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadCompactStartParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadQueueDeleteParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_id: Option<QueuedId>,
+    /// Today's `restoreQueued` submission identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submission_id: Option<String>,
+    /// Hand the entry back to the composer.
+    pub restore: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadGoalSetParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub goal: JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadGoalControlParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    /// Today's `goalControl` action other than set/clear.
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadBackgroundTerminalParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnStartParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub input: TurnInput,
+}
+
+/// `turn/start` answers once the input is a turn or a queued entry (X9).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TurnStartResponse {
+    #[serde(rename_all = "camelCase")]
+    Started { turn_id: TurnId },
+    #[serde(rename_all = "camelCase")]
+    Queued { queued_id: QueuedId },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct TurnInterruptParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    /// Rewind a submitted prompt only when the composer was empty at cancel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_prompt: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submission_id: Option<String>,
+}
+
+/// Fixed C0 reply (R12).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct TurnInterruptResponse {
+    /// Always `true`.
+    pub cancel_requested: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnSteerParams {
+    pub thread_id: ThreadId,
+    pub expected_turn_id: TurnId,
+    pub queued_id: QueuedId,
+}
+
+/// Fixed C0 reply (R12).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnSteerResponse {
+    /// Always `true`.
+    pub accepted: bool,
+    pub queued_id: QueuedId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnRetryFailedParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub turn_key: String,
+}
+
+has_op_id!(
+    ThreadStartParams,
+    ThreadOpParams,
+    ThreadReadStateUpdateParams,
+    ThreadNameSetParams,
+    ThreadMetadataUpdateParams,
+    ThreadDeleteParams,
+    ThreadForkParams,
+    ThreadContinueInModelParams,
+    ThreadRewindParams,
+    ThreadCompactStartParams,
+    ThreadQueueDeleteParams,
+    ThreadGoalSetParams,
+    ThreadGoalControlParams,
+    ThreadBackgroundTerminalParams,
+    TurnStartParams,
+    TurnRetryFailedParams,
+);
+
+// ---- thread-feed notification params (P §5.1) ----
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadSnapshotParams {
+    pub thread: ThreadSummary,
+    pub state: ThreadState,
+    pub items: Vec<ThreadItem>,
+    pub has_older: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadStartedParams {
+    pub thread: ThreadSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadStatusChangedParams {
+    pub thread_id: ThreadId,
+    pub status: ThreadStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadNameUpdatedParams {
+    pub thread_id: ThreadId,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadValueParams {
+    pub thread_id: ThreadId,
+    pub value: JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadQueueChangedParams {
+    pub thread_id: ThreadId,
+    pub queued: Vec<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnNotificationParams {
+    pub thread_id: ThreadId,
+    pub turn: Turn,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemNotificationParams {
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub item: ThreadItem,
+}
+
+/// Deltas are hints; `item/completed` is authoritative.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ItemDeltaParams {
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub item_id: ItemId,
+    pub delta: String,
+    /// Reasoning summary part index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemProgressParams {
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub item_id: ItemId,
+    pub progress: JsonValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryResetReason {
+    Rewind,
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadHistoryResetParams {
+    pub thread_id: ThreadId,
+    pub reason: HistoryResetReason,
+    /// Items after this one are discarded; absent for `clear`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_item_id: Option<ItemId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum StorageState {
+    Ok,
+    /// Durability waits under slow storage (R12).
+    DurabilityPending,
+    /// Outcome of a barrier unknown; the thread is read-only.
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadRuntime {
+    #[serde(default)]
+    pub busy: bool,
+    #[serde(default)]
+    pub command_busy: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spinner: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_status: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_hint: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_tools: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<StorageState>,
+    /// Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number")]
+    pub waiting_on_provider_since: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadRoute {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_capable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_effort: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_parameters: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number")]
+    pub selected_context_window: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number")]
+    pub context_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_default_percent: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadAgents {
+    #[serde(default)]
+    pub agent_workers: Vec<JsonValue>,
+    #[serde(default)]
+    pub agent_jobs: Vec<JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadWorkflow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestration_mode: Option<OrchestrationMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_workflow_switch: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_orchestration_mode_switch: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadApprovals {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_approval_result: Option<ToolApprovalResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_questions: Option<Vec<JsonValue>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptRestore {
+    pub id: String,
+    pub ids: Vec<String>,
+    pub text: String,
+    pub device: String,
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAccountChange {
+    pub provider: String,
+    pub account_id: String,
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+/// Params of the `thread/<section>/updated` notifications: one typed section of the projection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSectionParams<T> {
+    pub thread_id: ThreadId,
+    pub value: T,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSummaryUpdatedParams {
+    pub thread: ThreadSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsageUpdatedParams {
+    pub thread_id: ThreadId,
+    pub usage: JsonValue,
+}

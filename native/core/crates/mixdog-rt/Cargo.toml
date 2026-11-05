@@ -7,4 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Inline executors for packages that test against mocks (`mixdog_rt::testing`).
+test-support = []
+
 [dependencies]
+tokio = { workspace = true, features = ["rt", "sync"] }
+tokio-util = { workspace = true }

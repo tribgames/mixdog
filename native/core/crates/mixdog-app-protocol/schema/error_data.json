@@ -1,0 +1,1844 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "DirtyFiles": {
+      "anyOf": [
+        {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "`files` of `WORKTREE_DIRTY`: a path preview, or a count (carry `too-large`)."
+    },
+    "DomainErrorDetail": {
+      "description": "Structured detail of a coded domain failure, one variant per code that carries details today (worktree, merge, room and schedule refusals). Fields and their optionality are the union over every producer of that code. Shared by core-api and the wire.",
+      "oneOf": [
+        {
+          "description": "`WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.",
+          "properties": {
+            "admission": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "entryId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "jobs": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "kept": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "outcome": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sessions": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "shellJobs": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "starting": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeBusyJobs"
+              ],
+              "type": "string"
+            },
+            "workers": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_DIRTY`: project-dirty, worktree removal and carry refusals; `reason` picks the refusal text.",
+          "properties": {
+            "baseCommit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cause": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "count": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "entryId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "files": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DirtyFiles"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "head": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ignored": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "maxBytes": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "maxFiles": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "operation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recoveryRef": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "restoreError": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "restored": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeDirty"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_DIRTY_CHOICE`: the pending changes to carry or leave.",
+          "properties": {
+            "count": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "worktreeDirtyChoice"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "count",
+            "paths",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_TARGET_MISMATCH`.",
+          "properties": {
+            "actual": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "current": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expected": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeTargetMismatch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_UNMERGED`.",
+          "properties": {
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "commit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "commits": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "entryId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mergeTarget": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeUnmerged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_PROJECT_UNKNOWN`.",
+          "properties": {
+            "projectPath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeProjectUnknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_UNSUPPORTED_REPO`.",
+          "properties": {
+            "baseBranch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "file": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "projectPath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rel": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeUnsupportedRepo"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_PATH_UNSAFE`.",
+          "properties": {
+            "count": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "entryId": {
+              "type": "string"
+            },
+            "links": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreePathUnsafe"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "entryId",
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_REVISION_CONFLICT`.",
+          "properties": {
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "entryId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expectedRevision": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "remaining": {
+              "items": {
+                "$ref": "#/definitions/RemovalRemnant"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "txId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeRevisionConflict"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_BRANCH_OCCUPIED`; `path` names the holder in the refusal text.",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "`session` or `external` (today's `kind`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sessionId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeBranchOccupied"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_MISSING`.",
+          "properties": {
+            "entryId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeMissing"
+              ],
+              "type": "string"
+            },
+            "worktreeId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_FILE_RECOVERY`.",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "recoveryRoot": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "worktreeFileRecovery"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "entryId",
+            "path",
+            "recoveryRoot",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_DEFAULT_BRANCH`.",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "worktreeDefaultBranch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_DISK_INSUFFICIENT`; the byte counts fill the refusal text.",
+          "properties": {
+            "freeBytes": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "requiredBytes": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "worktreeDiskInsufficient"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "requiredBytes",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_LARGE_REPO_CONFIRM`; `estimateBytes` fills the prompt.",
+          "properties": {
+            "estimateBytes": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "thresholdBytes": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "worktreeLargeRepoConfirm"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimateBytes",
+            "thresholdBytes",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_PROJECT_MISMATCH`.",
+          "properties": {
+            "projectPath": {
+              "type": "string"
+            },
+            "repoCommonDir": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeProjectMismatch"
+              ],
+              "type": "string"
+            },
+            "worktreeId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "worktreeProject": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "projectPath",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`WORKTREE_REMOVAL_INCOMPLETE`.",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "remaining": {
+              "items": {
+                "$ref": "#/definitions/RemovalRemnant"
+              },
+              "type": "array"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "worktreeRemovalIncomplete"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "entryId",
+            "path",
+            "remaining",
+            "retryable",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`MERGE_FAILED`.",
+          "properties": {
+            "aborted": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "mergeFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`MERGE_TARGET_DIRTY`.",
+          "properties": {
+            "count": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "files": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mergeTargetDirty"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "files",
+            "operation",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Room and schedule refusals: the public display param.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "display"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DrainReason": {
+      "description": "Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.",
+      "enum": [
+        "update",
+        "quit",
+        "restart",
+        "noClients"
+      ],
+      "type": "string"
+    },
+    "Origin": {
+      "description": "Who issued a call: the connection origin (P §4.1, DS §4.2). Shared by core-api (`PermissionDenied.origin`) and the method table.",
+      "oneOf": [
+        {
+          "description": "Loopback WebSocket (desktop, TUI, CLI on this machine).",
+          "enum": [
+            "local"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The same WebSocket through an SSH port forward.",
+          "enum": [
+            "ssh"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A paired phone through the E2E relay.",
+          "enum": [
+            "relay"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RemovalRemnant": {
+      "description": "One thing a worktree removal left behind.",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "`link`, `registry`, `cleanup` or `error`.",
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "RequestClass": {
+      "description": "Request class (RL §4.1, SPEC §4.3): static per method, never derived at runtime.",
+      "oneOf": [
+        {
+          "description": "Control: RT-C only, no serialization key.",
+          "enum": [
+            "C0"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Interactive read.",
+          "enum": [
+            "C1"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Interactive mutation.",
+          "enum": [
+            "C2"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Background request (job registry, deduplicated by key).",
+          "enum": [
+            "C3"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "format": "int64",
+          "type": "integer"
+        }
+      ]
+    }
+  },
+  "description": "`{\"reason\": …, …typed fields}`.",
+  "oneOf": [
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "notInitialized"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "alreadyInitialized"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "clientVersion": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "clientOutdated"
+          ],
+          "type": "string"
+        },
+        "serverVersion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "clientVersion",
+        "reason",
+        "serverVersion"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "clientVersion": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "serverOutdated"
+          ],
+          "type": "string"
+        },
+        "serverVersion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "clientVersion",
+        "reason",
+        "serverVersion"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "drainReason": {
+          "$ref": "#/definitions/DrainReason"
+        },
+        "reason": {
+          "enum": [
+            "serverShuttingDown"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "drainReason",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "done": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "coreMigrating"
+          ],
+          "type": "string"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "kind",
+        "reason",
+        "total"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "done": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "catalogRebuilding"
+          ],
+          "type": "string"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "reason",
+        "total"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "threadNotFound"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "threadClosing"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "turnNotActive"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "itemNotFound"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemId",
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "queuedId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "queuedEntryNotFound"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "queuedId",
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "actual": true,
+        "expected": true,
+        "reason": {
+          "enum": [
+            "preconditionFailed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "actual",
+        "expected",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/definitions/Origin"
+        },
+        "reason": {
+          "enum": [
+            "permissionDenied"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "origin",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "capabilityUnavailable"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability",
+        "detail",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "opFenced"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Internal only: a request racing its own connection's close.",
+      "properties": {
+        "reason": {
+          "enum": [
+            "connectionClosed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "fileNo": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "offset": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "storeDamaged"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "fileNo",
+        "offset",
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The blob is permanently unavailable (never stored, or collected): the client fails that one read; it is not a protocol violation.",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "blobNotFound"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "limit": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "itemTooLarge"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A coded failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`); `code` is the domain's stable code, never message text.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DomainErrorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domain": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "domainError"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "methodNotFound"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "invalidParams"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected",
+        "path",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "opIdConflict"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "opIdExpired"
+          ],
+          "type": "string"
+        },
+        "watermark": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "reason",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "opIdRequired"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "historyRev": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "cursorInvalidated"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "historyRev",
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "limit": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "inputTooLarge"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "incidentId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "internal"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "incidentId",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "ioKind": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "barrierFailed"
+          ],
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ioKind",
+        "reason",
+        "scope"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "enum": [
+            "storageIndeterminate"
+          ],
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "scope"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Boot probe failure; never a request error.",
+      "properties": {
+        "op": {
+          "type": "string"
+        },
+        "osError": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "storageUnsupported"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "osError",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "effect": {
+          "type": "string"
+        },
+        "opId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "externalOutcomeUnknown"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "effect",
+        "opId",
+        "reason",
+        "target"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "providerError"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "provider",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "by": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "by",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "blobCorrupt"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "class": {
+          "$ref": "#/definitions/RequestClass"
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "inflightLimit"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "class",
+        "limit",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Durability window full; retry after the thread's next feed event.",
+      "properties": {
+        "reason": {
+          "enum": [
+            "windowFull"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A bounded queue is full; retry after an own response.",
+      "properties": {
+        "queue": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "queueFull"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "queue",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "invalidServerRequestResponse"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "$ref": "#/definitions/RequestId"
+        }
+      },
+      "required": [
+        "detail",
+        "reason",
+        "requestId"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "ErrorData"
+}

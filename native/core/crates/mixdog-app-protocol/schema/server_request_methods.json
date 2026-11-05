@@ -1,0 +1,664 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ApprovalRemember": {
+      "enum": [
+        "once",
+        "session",
+        "agent",
+        "always"
+      ],
+      "type": "string"
+    },
+    "BrowserApprovalRequestParams": {
+      "description": "Fields every approval request carries.",
+      "properties": {
+        "action": {
+          "description": "Form submit / Enter, send/post click, upload, … (policy is the core's).",
+          "type": "string"
+        },
+        "chain": {
+          "description": "Delegation chain from the surface thread to the asking thread.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "itemId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "description": "Per-surface presentation order; the lowest is the active card (P §8.5).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "request": true,
+        "requestedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "surfaceThreadId": {
+          "description": "Top-level chat that shows a sub-agent's request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "order",
+        "request",
+        "requestedAt",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ComputerApprovalRequestParams": {
+      "description": "Fields every approval request carries.",
+      "properties": {
+        "chain": {
+          "description": "Delegation chain from the surface thread to the asking thread.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "itemId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "description": "Per-surface presentation order; the lowest is the active card (P §8.5).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "request": true,
+        "requestedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "surfaceThreadId": {
+          "description": "Top-level chat that shows a sub-agent's request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "order",
+        "request",
+        "requestedAt",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "HostCommandParams": {
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "input": true,
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "HostFileParams": {
+      "properties": {
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rel",
+        "root"
+      ],
+      "type": "object"
+    },
+    "HostSystemProxyResolveParams": {
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "HostSystemProxyResolveResponse": {
+      "properties": {
+        "rules": {
+          "description": "Chromium proxy rules for the URL (`DIRECT`, `PROXY host:port`, …).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rules"
+      ],
+      "type": "object"
+    },
+    "HostUpdateCommandParams": {
+      "description": "Params of `host/update/command` (core → host).",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/UpdaterAction"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "HumanGateResponse": {
+      "enum": [
+        "approve",
+        "deny",
+        "edit-and-approve",
+        "provide-secret",
+        "skip",
+        "done"
+      ],
+      "type": "string"
+    },
+    "ModelProxyExecuteParams": {
+      "description": "Server core → a connection with `capabilities.modelProxy`: run one model call with this machine's accounts. Completion is the response; losing the connection resolves the call `cancelled`.",
+      "properties": {
+        "call": true
+      },
+      "required": [
+        "call"
+      ],
+      "type": "object"
+    },
+    "ModelProxyResult": {
+      "properties": {
+        "result": true
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    },
+    "PermissionsRequestParams": {
+      "description": "Fields every approval request carries.",
+      "properties": {
+        "chain": {
+          "description": "Delegation chain from the surface thread to the asking thread.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "itemId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "description": "Per-surface presentation order; the lowest is the active card (P §8.5).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "request": true,
+        "requestedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "scopes": {
+          "description": "Offered permission scopes.",
+          "items": true,
+          "type": "array"
+        },
+        "surfaceThreadId": {
+          "description": "Top-level chat that shows a sub-agent's request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "order",
+        "request",
+        "requestedAt",
+        "scopes",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "QuestionAnswer": {
+      "description": "One `ask_user` answer, aligned by index with the questions.",
+      "properties": {
+        "selected": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "selected"
+      ],
+      "type": "object"
+    },
+    "ToolApprovalDecision": {
+      "description": "Mixdog's `ToolApprovalDecision` without `device`: the core stamps the device from the answering connection (P §8.1). The result type of every approval server request.",
+      "properties": {
+        "answers": {
+          "description": "`ask_user` answers aligned with the questions; `null` = unanswered.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/QuestionAnswer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "editedArgs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "edit-and-approve: the edited text of the request's editable fields.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remember": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalRemember"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reply": {
+          "description": "`ask_user`: the composer message that answered the question.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HumanGateResponse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Human-in-the-loop response; a secret value never travels here (`approval/provideSecret`)."
+        },
+        "scope": {
+          "description": "Permission requests: the chosen scope id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "approved"
+      ],
+      "type": "object"
+    },
+    "ToolApprovalKind": {
+      "oneOf": [
+        {
+          "enum": [
+            "shell",
+            "patch",
+            "mcp",
+            "builtin",
+            "outbound"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Human-in-the-loop gate (R41): response values of `ToolApprovalDecision.response`.",
+          "enum": [
+            "humanGate"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ToolApprovalRequestParams": {
+      "description": "Fields every approval request carries.",
+      "properties": {
+        "chain": {
+          "description": "Delegation chain from the surface thread to the asking thread.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "itemId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/ToolApprovalKind"
+        },
+        "order": {
+          "description": "Per-surface presentation order; the lowest is the active card (P §8.5).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "request": {
+          "description": "The card content (tool input, editable fields, reason)."
+        },
+        "requestedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "surfaceThreadId": {
+          "description": "Top-level chat that shows a sub-agent's request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "order",
+        "request",
+        "requestedAt",
+        "threadId",
+        "tool"
+      ],
+      "type": "object"
+    },
+    "UpdaterAction": {
+      "enum": [
+        "check",
+        "install"
+      ],
+      "type": "string"
+    },
+    "UserInputRequestParams": {
+      "description": "Fields every approval request carries.",
+      "properties": {
+        "chain": {
+          "description": "Delegation chain from the surface thread to the asking thread.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expiresAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "itemId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "description": "Per-surface presentation order; the lowest is the active card (P §8.5).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "questions": {
+          "description": "`ask_user` questions (including room hand-off questions).",
+          "items": true,
+          "type": "array"
+        },
+        "requestedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "surfaceThreadId": {
+          "description": "Top-level chat that shows a sub-agent's request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "order",
+        "questions",
+        "requestedAt",
+        "threadId"
+      ],
+      "type": "object"
+    }
+  },
+  "methods": {
+    "host/browser/command": {
+      "params": {
+        "$ref": "#/definitions/HostCommandParams"
+      },
+      "result": true
+    },
+    "host/capture/fileSnapshot": {
+      "params": {
+        "$ref": "#/definitions/HostFileParams"
+      },
+      "result": true
+    },
+    "host/localPage/url": {
+      "params": {
+        "$ref": "#/definitions/HostFileParams"
+      },
+      "result": true
+    },
+    "host/systemProxy/resolve": {
+      "params": {
+        "$ref": "#/definitions/HostSystemProxyResolveParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostSystemProxyResolveResponse"
+      }
+    },
+    "host/update/command": {
+      "params": {
+        "$ref": "#/definitions/HostUpdateCommandParams"
+      },
+      "result": true
+    },
+    "host/visualize/command": {
+      "params": {
+        "$ref": "#/definitions/HostCommandParams"
+      },
+      "result": true
+    },
+    "item/browser/requestApproval": {
+      "params": {
+        "$ref": "#/definitions/BrowserApprovalRequestParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ToolApprovalDecision"
+      }
+    },
+    "item/computer/requestApproval": {
+      "params": {
+        "$ref": "#/definitions/ComputerApprovalRequestParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ToolApprovalDecision"
+      }
+    },
+    "item/permissions/requestApproval": {
+      "params": {
+        "$ref": "#/definitions/PermissionsRequestParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ToolApprovalDecision"
+      }
+    },
+    "item/tool/requestApproval": {
+      "params": {
+        "$ref": "#/definitions/ToolApprovalRequestParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ToolApprovalDecision"
+      }
+    },
+    "item/tool/requestUserInput": {
+      "params": {
+        "$ref": "#/definitions/UserInputRequestParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ToolApprovalDecision"
+      }
+    },
+    "model/proxy/execute": {
+      "params": {
+        "$ref": "#/definitions/ModelProxyExecuteParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ModelProxyResult"
+      }
+    }
+  }
+}

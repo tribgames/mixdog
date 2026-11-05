@@ -9,3 +9,10 @@ workspace = true
 
 [dependencies]
 mixdog-protocol = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ts-rs = { workspace = true, features = ["serde-json-impl", "no-serde-warnings"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

@@ -1,0 +1,390 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "CapabilityState": {
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "enum": [
+                "available"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ClassLimits": {
+      "properties": {
+        "c0": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "c1": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "c2": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "c3": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "c0",
+        "c1",
+        "c2",
+        "c3"
+      ],
+      "type": "object"
+    },
+    "ConnectionInfo": {
+      "description": "What the core knows about this connection.",
+      "properties": {
+        "device": {
+          "description": "Host-stamped device name used on submits, aborts and decisions (today's `viewerDevice`).",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/definitions/Origin"
+        }
+      },
+      "required": [
+        "device",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "CoreState": {
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "enum": [
+                "serving"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "done": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "migrating"
+              ],
+              "type": "string"
+            },
+            "total": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "done",
+            "kind",
+            "state",
+            "total"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "reason": {
+              "$ref": "#/definitions/DrainReason"
+            },
+            "state": {
+              "enum": [
+                "draining"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DrainReason": {
+      "description": "Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.",
+      "enum": [
+        "update",
+        "quit",
+        "restart",
+        "noClients"
+      ],
+      "type": "string"
+    },
+    "Limits": {
+      "properties": {
+        "appRingBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "controlReserveBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "eventBudgetBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "heartbeatTickMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "inflight": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ClassLimits"
+            }
+          ],
+          "description": "Per-connection in-flight cap per request class."
+        },
+        "maxBlobPageBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxBlobPutChunkBytes": {
+          "description": "Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxConnections": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxFrameBytes": {
+          "description": "Outbound non-snapshot frame bound.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxInboundFrameBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItemFieldBytes": {
+          "description": "`INLINE_MAX`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxMediaFrameBytes": {
+          "description": "Host role only (X17): raw BGRA bound of the pinned live-view size.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxProcesses": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxSnapshotBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "queueBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ringBytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "terminalInputBufferBytes": {
+          "description": "Per-terminal input buffer before socket reads pause (P §7.3).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "terminalRingChars": {
+          "description": "Terminal feed replay ring, in characters (`REPLAY_BUFFER_LIMIT`).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "appRingBytes",
+        "controlReserveBytes",
+        "eventBudgetBytes",
+        "heartbeatTickMs",
+        "inflight",
+        "maxBlobPageBytes",
+        "maxBlobPutChunkBytes",
+        "maxConnections",
+        "maxFrameBytes",
+        "maxInboundFrameBytes",
+        "maxItemFieldBytes",
+        "maxMediaFrameBytes",
+        "maxProcesses",
+        "maxSnapshotBytes",
+        "queueBytes",
+        "ringBytes",
+        "terminalInputBufferBytes",
+        "terminalRingChars"
+      ],
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Who issued a call: the connection origin (P §4.1, DS §4.2). Shared by core-api (`PermissionDenied.origin`) and the method table.",
+      "oneOf": [
+        {
+          "description": "Loopback WebSocket (desktop, TUI, CLI on this machine).",
+          "enum": [
+            "local"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The same WebSocket through an SSH port forward.",
+          "enum": [
+            "ssh"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A paired phone through the E2E relay.",
+          "enum": [
+            "relay"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ServerCapabilities": {
+      "description": "Core capabilities (D6: office and JS skills are unavailable without Node).",
+      "properties": {
+        "browser": {
+          "$ref": "#/definitions/CapabilityState"
+        },
+        "computer": {
+          "$ref": "#/definitions/CapabilityState"
+        },
+        "jsSkills": {
+          "$ref": "#/definitions/CapabilityState"
+        },
+        "office": {
+          "$ref": "#/definitions/CapabilityState"
+        },
+        "voice": {
+          "$ref": "#/definitions/CapabilityState"
+        }
+      },
+      "required": [
+        "browser",
+        "computer",
+        "jsSkills",
+        "office",
+        "voice"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "capabilities": {
+      "$ref": "#/definitions/ServerCapabilities"
+    },
+    "connection": {
+      "$ref": "#/definitions/ConnectionInfo"
+    },
+    "coreState": {
+      "$ref": "#/definitions/CoreState"
+    },
+    "limits": {
+      "$ref": "#/definitions/Limits"
+    },
+    "platformFamily": {
+      "type": "string"
+    },
+    "platformOs": {
+      "type": "string"
+    },
+    "serverBuild": {
+      "type": "string"
+    },
+    "serverInstanceId": {
+      "description": "Changes on every core start; a different value means every held epoch is stale.",
+      "type": "string"
+    },
+    "serverVersion": {
+      "type": "string"
+    },
+    "userAgent": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "capabilities",
+    "connection",
+    "coreState",
+    "limits",
+    "platformFamily",
+    "platformOs",
+    "serverBuild",
+    "serverInstanceId",
+    "serverVersion",
+    "userAgent"
+  ],
+  "title": "InitializeResponse",
+  "type": "object"
+}
