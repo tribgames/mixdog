@@ -1,0 +1,90 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs#exchangeRefreshToken",
+      "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs#scheduleHedge",
+      "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#<anonymous>",
+      "src/runtime/shared/file-permissions.mjs#<anonymous>"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "openai-oauth-responses-ws/error-http-handshake-401",
+      "seed": 1577616181,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "frames": [],
+      "handshakeRejectedWith": 401,
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "Upgrade",
+        "host": "chatgpt.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "originator": "codex_cli_rs",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "session-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "thread-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee",
+        "upgrade": "websocket",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:uuid>",
+        "x-codex-beta-features": "remote_compaction_v2",
+        "x-codex-routing-hint": "model=gpt-fixture",
+        "x-codex-turn-metadata": "{\"installation_id\":\"b3bd341f-5e20-49cf-ae9b-ddf71b42fcee\",\"session_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"thread_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+        "x-codex-window-id": "8d02c4c3-0169-79ba-bdd8-154cf4e4fbee:0"
+      },
+      "origin": "wss://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "transport": "ws"
+    },
+    {
+      "bodyText": "grant_type=refresh_token&refresh_token=fixture-refresh-token&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "content-length": "99",
+        "content-type": "application/x-www-form-urlencoded",
+        "host": "auth.openai.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://auth.openai.com",
+      "path": "/oauth/token",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "no script",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "ws",
+    "http"
+  ]
+}

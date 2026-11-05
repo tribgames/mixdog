@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-lifecycle.mjs --tree <tree with node_modules>",
+  "fileCount": 6,
+  "files": [
+    {
+      "bytes": 837,
+      "path": "barrier-unit.json",
+      "sha256": "69c6d6d2851c47b7a128ae3c018c2402dd4431a0a9a5096651883dc0c265cb1c"
+    },
+    {
+      "bytes": 90,
+      "path": "barrier/daemon-owner.json",
+      "sha256": "9c85c3d139449ca336cc4a6cc0ad3c330cf5146eb9ecc20e100b1412a52d0c52"
+    },
+    {
+      "bytes": 48,
+      "path": "barrier/daemon-owner.json.claim.lock",
+      "sha256": "2442acdfc89ea224629a569a9607125767c1800529cbc0fe9bd7170ca503862d"
+    },
+    {
+      "bytes": 358,
+      "path": "daemon-start-against-barrier.json",
+      "sha256": "b500fd1009cc147b3fb9d0696b16624a0839ed9d2609cda7b8571947cb8a6e53"
+    },
+    {
+      "bytes": 702,
+      "path": "migration-corpus-ref.json",
+      "sha256": "53118bccb0ecfda5636d8d2912327c9300ce89085ad4b394b630fffb2fd33468"
+    },
+    {
+      "bytes": 1517,
+      "path": "tag.json",
+      "sha256": "ff32e883da9f9b47633b35ab8dc36825d8c6311bd4c23da0d4acef66aa53fcb9"
+    }
+  ],
+  "product": {
+    "appsSha256": "da3eecde1f4d3d2cc8c68ade127b95b653f110c5a3b655a94487dc9824205e19",
+    "commit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "comparedAgainst": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "files": 8951,
+    "refComparison": {
+      "closestCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "4043ea0e9f5e2f1a05d840b2f6b056251ab060287a2345bda5b69a60da8e7660",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-lifecycle.mjs",
+  "set": "lifecycle-1.4.5",
+  "tag": "v1.4.5",
+  "tagCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+  "totalBytes": 3552
+}

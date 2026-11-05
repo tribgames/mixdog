@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Gemini REST streamGenerateContent truncated: no finishReason",
+    "name": "TruncatedStreamError",
+    "status": null
+  }
+}

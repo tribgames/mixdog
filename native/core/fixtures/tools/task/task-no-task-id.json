@@ -1,0 +1,8 @@
+{
+  "input": {
+    "action": "read"
+  },
+  "isError": true,
+  "text": "Error: task_id is required",
+  "tool": "task"
+}

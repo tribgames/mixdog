@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Anthropic OAuth SSE stream truncated: message_start without message_stop",
+    "name": "TruncatedStreamError",
+    "status": null
+  }
+}

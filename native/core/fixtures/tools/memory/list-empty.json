@@ -1,0 +1,8 @@
+{
+  "input": {
+    "op": "list"
+  },
+  "isError": false,
+  "text": "{\"text\":\"memory: empty\",\"entries\":[],\"nextOffset\":null,\"content\":[{\"type\":\"text\",\"text\":\"memory: empty\"}],\"isError\":false}",
+  "tool": "memory"
+}

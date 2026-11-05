@@ -1,0 +1,62 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null
+    },
+    {
+      "role": "user",
+      "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+      "source": "max-output-recovery",
+      "attempt": 1,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null
+    }
+  ],
+  "result": {
+    "content": "x",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": null,
+    "iterations": 2,
+    "toolCallsTotal": 0,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "user",
+          "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+          "toolCallId": null
+        }
+      ]
+    }
+  ]
+}

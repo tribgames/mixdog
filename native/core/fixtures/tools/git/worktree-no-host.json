@@ -1,0 +1,161 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "list"
+      },
+      "text": "{\"ok\":true,\"worktree_action\":\"list\",\"worktrees\":[{\"path\":\"<ROOT>\",\"branch\":\"main\",\"main\":true}]}"
+    },
+    {
+      "input": {
+        "command": "git worktree list"
+      },
+      "text": "{\"ok\":true,\"mapped\":\"git worktree list\",\"worktrees\":[{\"path\":\"<ROOT>\",\"branch\":\"main\",\"main\":true}]}"
+    },
+    {
+      "input": {
+        "command": "git worktree list --porcelain"
+      },
+      "text": "worktree <ROOT>\nHEAD <SHA>\nbranch refs/heads/main\n\n"
+    },
+    {
+      "input": {
+        "command": "git worktree list -x"
+      },
+      "text": "error: git worktree list: option -x is not supported"
+    },
+    {
+      "input": {
+        "command": "git worktree list extra"
+      },
+      "text": "error: git worktree list: unexpected argument extra"
+    },
+    {
+      "input": {
+        "command": "git worktree add ../wt"
+      },
+      "text": "error: git worktree add belongs to the Lead session; a delegated worker may only make a read-only snapshot: git worktree add --detach <path> [<commit>]"
+    },
+    {
+      "input": {
+        "command": "git worktree remove ../wt"
+      },
+      "text": "error: git worktree remove belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
+    },
+    {
+      "input": {
+        "command": "git worktree prune"
+      },
+      "text": "error: git worktree prune belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
+    },
+    {
+      "input": {
+        "command": "git worktree prune -n"
+      },
+      "text": "error: git worktree prune belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
+    },
+    {
+      "input": {
+        "command": "git worktree move a b"
+      },
+      "text": "error: git worktree move is refused: Mixdog-managed worktrees stay at their fixed, locked locations. Use git worktree list/remove/prune or action:\"worktree\""
+    },
+    {
+      "input": {
+        "command": "git worktree lock a"
+      },
+      "text": "error: git worktree lock is refused: Mixdog-managed worktrees stay at their fixed, locked locations. Use git worktree list/remove/prune or action:\"worktree\""
+    },
+    {
+      "input": {
+        "command": "git worktree"
+      },
+      "text": "error: git worktree (no subcommand) is not supported; use add, remove, list, prune or action:\"worktree\""
+    },
+    {
+      "input": {
+        "command": "git worktree frob"
+      },
+      "text": "error: git worktree frob is not supported; use add, remove, list, prune or action:\"worktree\""
+    },
+    {
+      "input": {
+        "command": "git worktree add --help"
+      },
+      "text": "error: git manual help can open an external viewer; use the subcommand -h form for terminal usage"
+    },
+    {
+      "input": {
+        "command": "git worktree remove -h"
+      },
+      "text": "{\"ok\":true,\"mapped\":\"git worktree remove -h\",\"help\":\"git worktree remove [-f] <path>: the managed removal of that worktree.\"}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "feat",
+        "worktree_action": "enter"
+      },
+      "text": "error: git worktree_action enter belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "merge"
+      },
+      "text": "error: git worktree_action merge belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "prune"
+      },
+      "text": "error: git worktree_action prune belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
+    }
+  ],
+  "tool": "git"
+}

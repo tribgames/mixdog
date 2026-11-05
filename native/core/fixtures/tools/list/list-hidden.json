@@ -1,0 +1,9 @@
+{
+  "input": {
+    "hidden": true,
+    "path": "."
+  },
+  "isError": false,
+  "text": ".hidden\tfile\ndata\tdir\ndocs\tdir\nlines.txt\tfile\nREADME.md\tfile\nsrc\tdir",
+  "tool": "list"
+}

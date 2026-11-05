@@ -1,0 +1,740 @@
+{
+  "sessionId": "sess_golden",
+  "scenarios": [
+    {
+      "name": "fresh_conversation",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello there"
+        },
+        {
+          "role": "assistant",
+          "content": "hi, how can I help?"
+        },
+        {
+          "role": "user",
+          "content": "refactor the parser"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "content": "hello there"
+        },
+        {
+          "role": "assistant",
+          "content": "hi, how can I help?"
+        },
+        {
+          "role": "user",
+          "content": "refactor the parser"
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_groups_fit",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "read the config"
+        },
+        {
+          "role": "assistant",
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "file body",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "assistant",
+          "content": "now editing",
+          "toolCalls": [
+            {
+              "id": "c2",
+              "name": "edit",
+              "arguments": {
+                "path": "a.txt",
+                "old": "x",
+                "new": "y"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "ok",
+          "toolCallId": "c2"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "content": "read the config"
+        },
+        {
+          "role": "assistant",
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "file body",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "assistant",
+          "content": "now editing",
+          "toolCalls": [
+            {
+              "id": "c2",
+              "name": "edit",
+              "arguments": {
+                "path": "a.txt",
+                "old": "x",
+                "new": "y"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "ok",
+          "toolCallId": "c2"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n<active-turn-continuation>\nThe latest real user request or task notification was already in progress when Compact ran.\nThe handoff and retained execution records above describe progress so far. A plan is not evidence that a tool succeeded; use the recorded outcomes.\nContinue from that state without repeating progress messages or completed tool calls.\nUse tools only for incomplete or failed work, or to recover missing evidence from an execution archive.\n</active-turn-continuation>\n</system-reminder>",
+          "meta": {
+            "source": "compact-active-turn-continuation",
+            "synthetic": true
+          }
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_groups_archive",
+      "budget": 30000,
+      "options": {
+        "contextWindow": 20000,
+        "maxBudgetTokens": 30000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "investigate the build"
+        },
+        {
+          "role": "assistant",
+          "content": "step one",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "bash",
+              "arguments": {
+                "command": "make"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "build output one\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet ",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "assistant",
+          "content": "step two",
+          "toolCalls": [
+            {
+              "id": "c2",
+              "name": "bash",
+              "arguments": {
+                "command": "make test"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "build output two\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet ",
+          "toolCallId": "c2"
+        },
+        {
+          "role": "assistant",
+          "content": "step three",
+          "toolCalls": [
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "path": "log.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "short result",
+          "toolCallId": "c3"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "meta": {
+            "source": "compact-execution-recovery",
+            "synthetic": true
+          },
+          "content": "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at <DATA>/tool-results/sess_golden/9559596bbbbb5b7e95eeb4291350f18b66a018d3a702451cb53226fbfaa635ef.txt (sha256:9559596bbbbb5b7e95eeb4291350f18b66a018d3a702451cb53226fbfaa635ef). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "investigate the build"
+        },
+        {
+          "role": "assistant",
+          "content": "step one",
+          "meta": {
+            "source": "compact-execution-text"
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "step two",
+          "meta": {
+            "source": "compact-execution-text"
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "step three",
+          "toolCalls": [
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "path": "log.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "short result",
+          "toolCallId": "c3"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n<active-turn-continuation>\nThe latest real user request or task notification was already in progress when Compact ran.\nThe handoff and retained execution records above describe progress so far. A plan is not evidence that a tool succeeded; use the recorded outcomes.\nContinue from that state without repeating progress messages or completed tool calls.\nUse tools only for incomplete or failed work, or to recover missing evidence from an execution archive.\n</active-turn-continuation>\n</system-reminder>",
+          "meta": {
+            "source": "compact-active-turn-continuation",
+            "synthetic": true
+          }
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_browser_supersede",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "check the page"
+        },
+        {
+          "role": "assistant",
+          "content": "open",
+          "toolCalls": [
+            {
+              "id": "b1",
+              "name": "browser",
+              "arguments": {
+                "action": "snapshot"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Navigated.\n\nSnapshot: p1-s1\n- button \"Go\" [ref=e1]\n- link \"More\" [ref=e2]",
+          "toolCallId": "b1"
+        },
+        {
+          "role": "assistant",
+          "content": "again",
+          "toolCalls": [
+            {
+              "id": "b2",
+              "name": "browser",
+              "arguments": {
+                "action": "snapshot"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Snapshot: p1-s2\n- button \"Go\" [ref=e1]",
+          "toolCallId": "b2"
+        },
+        {
+          "role": "assistant",
+          "content": "and again",
+          "toolCalls": [
+            {
+              "id": "b3",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "x",
+          "toolCallId": "b3"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "meta": {
+            "source": "compact-execution-recovery",
+            "synthetic": true
+          },
+          "content": "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at <DATA>/tool-results/sess_golden/4301a266832dd1d381bf03158dad9bfebf095a696a483c8863a441c4586c07bf.txt (sha256:4301a266832dd1d381bf03158dad9bfebf095a696a483c8863a441c4586c07bf). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "check the page"
+        },
+        {
+          "role": "assistant",
+          "content": "open",
+          "toolCalls": [
+            {
+              "id": "b1",
+              "name": "browser",
+              "arguments": {
+                "action": "snapshot"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Navigated.\n\n[Snapshot p1-s1 superseded: a newer snapshot of this page follows. The original is archived at <DATA>/tool-results/sess_golden/4301a266832dd1d381bf03158dad9bfebf095a696a483c8863a441c4586c07bf.txt (message index 2).]",
+          "toolCallId": "b1"
+        },
+        {
+          "role": "assistant",
+          "content": "again",
+          "toolCalls": [
+            {
+              "id": "b2",
+              "name": "browser",
+              "arguments": {
+                "action": "snapshot"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Snapshot: p1-s2\n- button \"Go\" [ref=e1]",
+          "toolCallId": "b2"
+        },
+        {
+          "role": "assistant",
+          "content": "and again",
+          "toolCalls": [
+            {
+              "id": "b3",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "x",
+          "toolCallId": "b3"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n<active-turn-continuation>\nThe latest real user request or task notification was already in progress when Compact ran.\nThe handoff and retained execution records above describe progress so far. A plan is not evidence that a tool succeeded; use the recorded outcomes.\nContinue from that state without repeating progress messages or completed tool calls.\nUse tools only for incomplete or failed work, or to recover missing evidence from an execution archive.\n</active-turn-continuation>\n</system-reminder>",
+          "meta": {
+            "source": "compact-active-turn-continuation",
+            "synthetic": true
+          }
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_handoff",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true,
+        "handoffText": "## Goal\n- fix the parser\n\n## Progress\n- (none)"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "start the work"
+        },
+        {
+          "role": "assistant",
+          "content": "on it",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "p.rs"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "fn main() {}",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "user",
+          "content": "continue please"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.\nmessages=4 sha256=77b61441def8979b roles=user:2, assistant:1, tool:1\n\n## Goal\n- fix the parser\n\n## Progress\n- (none)",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "assistant",
+          "content": ".",
+          "meta": {
+            "source": "context-ack"
+          }
+        },
+        {
+          "role": "user",
+          "content": "start the work"
+        },
+        {
+          "role": "assistant",
+          "content": "on it",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "p.rs"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "fn main() {}",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "user",
+          "content": "continue please"
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_protected_prefix",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an agent."
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\nclock: now\n</system-reminder>"
+        },
+        {
+          "role": "assistant",
+          "content": "."
+        },
+        {
+          "role": "user",
+          "content": "Reference files:\n### src/a.rs\nfn a(){}\n### src/b.rs\nfn b(){}\n### src/a.rs\nagain"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi"
+        },
+        {
+          "role": "user",
+          "content": "go on"
+        }
+      ],
+      "result": [
+        {
+          "role": "system",
+          "content": "You are an agent."
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\nclock: now\n</system-reminder>"
+        },
+        {
+          "role": "assistant",
+          "content": "."
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n# Reference files\nThese files were attached when the session started. Re-read a path when its current contents are needed; the original bodies are not re-injected after Compact.\n- src/a.rs\n- src/b.rs\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi"
+        },
+        {
+          "role": "user",
+          "content": "go on"
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_secrets",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "call the api"
+        },
+        {
+          "role": "assistant",
+          "content": "calling",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "bash",
+              "arguments": {
+                "command": "curl -H \"authorization: Bearer abc.def\" x",
+                "apiKey": "k-123",
+                "nested": {
+                  "password": "p",
+                  "note": "token=abc rest"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "done",
+          "toolCallId": "c1"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "content": "call the api"
+        },
+        {
+          "role": "assistant",
+          "content": "calling",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "bash",
+              "arguments": {
+                "command": "curl -H \"authorization: [redacted]",
+                "apiKey": "[redacted]",
+                "nested": {
+                  "password": "[redacted]",
+                  "note": "token=[redacted] rest"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "done",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n<active-turn-continuation>\nThe latest real user request or task notification was already in progress when Compact ran.\nThe handoff and retained execution records above describe progress so far. A plan is not evidence that a tool succeeded; use the recorded outcomes.\nContinue from that state without repeating progress messages or completed tool calls.\nUse tools only for incomplete or failed work, or to recover missing evidence from an execution archive.\n</active-turn-continuation>\n</system-reminder>",
+          "meta": {
+            "source": "compact-active-turn-continuation",
+            "synthetic": true
+          }
+        }
+      ],
+      "freshContext": true
+    },
+    {
+      "name": "fresh_previous_summary",
+      "budget": 200000,
+      "options": {
+        "contextWindow": 200000,
+        "maxBudgetTokens": 200000,
+        "activeTurn": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=abcdabcdabcdabcd roles=user:3\n\n## Goal\n- x",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "assistant",
+          "content": ".",
+          "meta": {
+            "source": "context-ack"
+          }
+        },
+        {
+          "role": "user",
+          "content": "next task"
+        },
+        {
+          "role": "assistant",
+          "content": "working",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "q"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "qq",
+          "toolCallId": "c1"
+        }
+      ],
+      "result": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=abcdabcdabcdabcd roles=user:3\n\n## Goal\n- x",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "assistant",
+          "content": ".",
+          "meta": {
+            "source": "context-ack"
+          }
+        },
+        {
+          "role": "user",
+          "content": "next task"
+        },
+        {
+          "role": "assistant",
+          "content": "working",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "q"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "qq",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n<active-turn-continuation>\nThe latest real user request or task notification was already in progress when Compact ran.\nThe handoff and retained execution records above describe progress so far. A plan is not evidence that a tool succeeded; use the recorded outcomes.\nContinue from that state without repeating progress messages or completed tool calls.\nUse tools only for incomplete or failed work, or to recover missing evidence from an execution archive.\n</active-turn-continuation>\n</system-reminder>",
+          "meta": {
+            "source": "compact-active-turn-continuation",
+            "synthetic": true
+          }
+        }
+      ],
+      "freshContext": true
+    }
+  ]
+}

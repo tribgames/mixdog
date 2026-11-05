@@ -1,0 +1,116 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "4cbc8a20a89a980b9f444014941ea0e1",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/devin-wire-request.mjs#buildDevinChatRequest"
+        },
+        {
+          "bytes": 16,
+          "hex": "afdc7fedebeee4ebd10c95e5633facb2",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/devin.mjs#DevinOAuthProvider.send"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "devin-oauth/error-http-401",
+      "seed": 1500615333,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyBase64": "CmUKBmNoaXNlbBIJMC4wLjAtZGV2GihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMC4wLjAtZGV2YgZjaGlzZWzyAQUDBAYHCA==",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "103",
+        "content-type": "application/proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+      "served": {
+        "bodyBase64": "CkQKDURldmluIEZpeHR1cmWQAcCaDLIBDWRldmluLWZpeHR1cmW6AR0gwJoMMgRgAXgBigENZGV2aW4tZml4dHVyZbABCA==",
+        "contentType": "application/proto",
+        "status": 200
+      },
+      "transport": "http"
+    },
+    {
+      "bodyBase64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw=",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "107",
+        "content-type": "application/proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.auth_pb.AuthService/GetUserJwt",
+      "served": {
+        "bodyBase64": "ChBmaXh0dXJlLXVzZXItand0",
+        "contentType": "application/proto",
+        "status": 200
+      },
+      "transport": "http"
+    },
+    {
+      "bodyBase64": "AQAAAZAfiwgAAAAAAAAKRZHNbhMxFIXj/oR21EpR2KAIJMvKokV15Ml4mplIqIItrLpqhZC4tu9QJ9F4sD0NVYmEeAIegXWXPBIPgFjwAIgmFXdzpXO+exbnJp+TfYPXtuZ6Yfv7mRBilKajbHC0VgOGYF3No5tjPazsp9h65KA1hrAW2RbWzx8tbW3cMkz/J6iuvrIBF3ek93DWBvR8tow/ycbrP710LQWPFOgGohCCDRHqOBq8SIa5MRlM0owDGsVPJwVymRvNcyHzYlIWuRmLHhk8fuPcnLYNjVdIoQ5L9KNi99WzPdL78mf7ybft4879/D4rjl52Op33VfXr7Fwn3YVz87bpH5wjGAr0GhYtDl7fsnjTIJsyp2aoIzthjXcN+mgxsOktm+PNv7WBQvS2/sBWqxPm8WNrPRo2fXsPvVtdENVNdqCNbra1R76SIVRGTyo0HBUilxIVL1OheZljfpplFWg1/k7IHTlcf2DTyw8ylFrpAsaCQ1ECl4VQvKyk5FKkspQpgsD0L6eD/2/QAQAA",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "identity",
+        "accept-language": "*",
+        "connect-accept-encoding": "gzip",
+        "connect-content-encoding": "gzip",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "405",
+        "content-type": "application/connect+proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "connect-go/1.18.1 (go1.26.3)"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+      "served": {
+        "bodyBase64": "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ==",
+        "contentType": "application/json",
+        "status": 401
+      },
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

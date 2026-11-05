@@ -1,0 +1,95 @@
+{
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nB\nc\nd\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\nY\n"
+      ]
+    },
+    {
+      "write": [
+        "u.txt",
+        "new\n"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "command": "git diff",
+        "include_stage_ids": true
+      },
+      "text": "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,4 @@\n a\n-b\n+B\n c\n+d\ndiff --git a/g.txt b/g.txt\n--- a/g.txt\n+++ b/g.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff --git a/u.txt b/u.txt\nnew file mode 100644\n--- /dev/null\n+++ b/u.txt\n@@ -0,0 +1 @@\n+new\ndiff_id: <DIFF_ID> (ids number the +/- runs in diff order; [whole file] ids stage the entire file)\nf.txt: c1-c2\ng.txt: c3\nu.txt: c4 [whole file]"
+    },
+    {
+      "input": {
+        "action": "stage",
+        "change_ids": [
+          "c1"
+        ],
+        "diff_id": "<DIFF_ID>"
+      },
+      "text": "{\"ok\":true,\"staged\":true,\"changes\":1,\"additions\":1,\"deletions\":1,\"files\":[\"f.txt: 1 change +1 -1\"]}"
+    },
+    {
+      "input": {
+        "command": "git diff --cached"
+      },
+      "text": "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+    },
+    {
+      "input": {
+        "command": "git status --short"
+      },
+      "text": "## main\nMM f.txt\n M g.txt\n?? u.txt\n"
+    }
+  ],
+  "tool": "git"
+}

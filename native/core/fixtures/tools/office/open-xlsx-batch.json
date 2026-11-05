@@ -1,0 +1,10 @@
+{
+  "input": {
+    "action": "open",
+    "mode": "portable",
+    "path": "a.xlsx"
+  },
+  "isError": false,
+  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"session\\\":\\\"office_<ID>\\\",\\\"mode\\\":\\\"portable\\\",\\\"backend\\\":\\\"mixdog-ooxml\\\",\\\"fileKind\\\":\\\"xlsx\\\",\\\"source\\\":\\\"<ROOT>\\\\\\\\a.xlsx\\\",\\\"output\\\":\\\"<ROOT>\\\\\\\\a.mixdog-edit.xlsx\\\",\\\"ownership\\\":\\\"owned\\\",\\\"document\\\":{\\\"format\\\":\\\"xlsx\\\",\\\"sheetCount\\\":1,\\\"sheetNames\\\":[\\\"Sheet1\\\"],\\\"sheets\\\":[{\\\"path\\\":\\\"/sheet[Sheet1]\\\",\\\"name\\\":\\\"Sheet1\\\",\\\"cellCount\\\":0,\\\"truncated\\\":false}],\\\"defaultStyle\\\":{\\\"fontName\\\":\\\"Calibri\\\",\\\"fontSize\\\":11,\\\"color\\\":\\\"000000\\\"},\\\"formulaCount\\\":0,\\\"formulaCacheMissing\\\":0,\\\"needsRecalculation\\\":true,\\\"calculation\\\":{\\\"mode\\\":\\\"\\\",\\\"fullCalcOnLoad\\\":true,\\\"forceFullCalc\\\":false},\\\"pagination\\\":{\\\"unit\\\":\\\"populated-cell\\\",\\\"scope\\\":\\\"Sheet1\\\",\\\"offset\\\":0,\\\"limit\\\":2000,\\\"returned\\\":0,\\\"total\\\":0,\\\"cursor\\\":null,\\\"nextCursor\\\":null,\\\"hasMore\\\":false},\\\"conventions\\\":{\\\"defaultFont\\\":\\\"Calibri\\\",\\\"fonts\\\":[],\\\"numberFormats\\\":[],\\\"inputMarkers\\\":{\\\"fontColors\\\":[],\\\"fills\\\":[]},\\\"cells\\\":{\\\"styled\\\":0,\\\"formulas\\\":0,\\\"hardcodes\\\":0,\\\"markedInputs\\\":0},\\\"sampleInputs\\\":[]}},\\\"trust\\\":{\\\"risk\\\":\\\"none\\\",\\\"policy\\\":\\\"untrusted-data\\\"},\\\"opened\\\":true,\\\"metrics\\\":{\\\"durationMs\\\":139.96}}\"}]}",
+  "tool": "office"
+}

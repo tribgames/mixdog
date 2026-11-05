@@ -1,0 +1,11 @@
+{
+  "input": {
+    "mode": "symbol_search",
+    "symbols": [
+      "gree"
+    ]
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\n# search keyword=gree matches=2 shown=2\ngreet\tsrc/app.py:1-2:1\texport function\tdef greet(name)\nGreeter\tsrc/app.py:5-7:1\texport class\tclass Greeter",
+  "tool": "code_graph"
+}

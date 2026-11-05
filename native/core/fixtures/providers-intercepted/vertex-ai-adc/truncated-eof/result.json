@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Unexpected end of JSON input",
+    "name": "SyntaxError",
+    "status": null
+  }
+}

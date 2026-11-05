@@ -1,0 +1,282 @@
+{
+  "counts": {
+    "indexes": 7,
+    "tables": 13,
+    "triggers": 16,
+    "views": 1
+  },
+  "ddl": [
+    "CREATE INDEX usage_events_route_time ON usage_events(route, ts)",
+    "CREATE INDEX usage_events_session ON usage_events(session)",
+    "CREATE INDEX usage_events_time ON usage_events(ts)",
+    "CREATE INDEX usage_events_time_usage ON usage_events(\n        ts,route,day,session,input,output,cache_read,cache_write,cost_usd,duration_ms)",
+    "CREATE INDEX usage_requests_status_time ON usage_requests(status, ts) WHERE status<>'completed'",
+    "CREATE INDEX usage_routes_model ON usage_routes(json_extract(signature,'$[1]'))",
+    "CREATE INDEX usage_session_owners_owner ON usage_session_owners(owner)",
+    "CREATE TABLE daily (\n                day TEXT NOT NULL, rank INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,\n                kind TEXT NOT NULL, cost_source TEXT NOT NULL, conversation INTEGER NOT NULL,\n                turns INTEGER NOT NULL, input REAL NOT NULL, output REAL NOT NULL,\n                cache_read REAL NOT NULL, cache_write REAL NOT NULL, cost_usd REAL NOT NULL,\n                duration_ms REAL NOT NULL, imported INTEGER NOT NULL,\n                PRIMARY KEY(day,rank,provider,model,kind,cost_source,conversation)\n            )",
+    "CREATE TABLE day_revisions (day TEXT PRIMARY KEY, rev INTEGER NOT NULL) WITHOUT ROWID",
+    "CREATE TABLE day_sessions (\n                day TEXT NOT NULL, rank INTEGER NOT NULL, session_id TEXT NOT NULL, tokens REAL NOT NULL,\n                PRIMARY KEY(day,rank,session_id)\n            )",
+    "CREATE TABLE legacy_days (day TEXT PRIMARY KEY, document TEXT NOT NULL)",
+    "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    "CREATE TABLE quota_samples (\n        provider TEXT NOT NULL, account TEXT NOT NULL, label TEXT NOT NULL,\n        ts INTEGER NOT NULL, seen_until INTEGER NOT NULL,\n        used_pct REAL NOT NULL, reset_at INTEGER,\n        PRIMARY KEY(provider,account,label,ts)\n    ) WITHOUT ROWID",
+    "CREATE TABLE usage_events (\n        id BLOB PRIMARY KEY, ts INTEGER NOT NULL, day INTEGER NOT NULL,\n        route INTEGER NOT NULL REFERENCES usage_routes(id),\n        session INTEGER NOT NULL REFERENCES usage_sessions(id),\n        input REAL NOT NULL, output REAL NOT NULL, cache_read REAL NOT NULL, cache_write REAL NOT NULL,\n        cost_usd REAL, duration_ms REAL NOT NULL\n    ) WITHOUT ROWID",
+    "CREATE TABLE usage_request_first_output (\n        id BLOB PRIMARY KEY, ttft_ms REAL NOT NULL\n    ) WITHOUT ROWID",
+    "CREATE TABLE usage_request_requested_provider (\n        id BLOB PRIMARY KEY, provider TEXT NOT NULL\n    ) WITHOUT ROWID",
+    "CREATE TABLE usage_requests (\n        id BLOB PRIMARY KEY, ts INTEGER NOT NULL, requested_model TEXT, status TEXT NOT NULL,\n        attempts INTEGER NOT NULL, ttft_ms REAL, elapsed_ms REAL\n    ) WITHOUT ROWID",
+    "CREATE TABLE usage_routes (\n        id INTEGER PRIMARY KEY, signature TEXT NOT NULL UNIQUE\n    )",
+    "CREATE TABLE usage_session_owners (\n        session INTEGER PRIMARY KEY REFERENCES usage_sessions(id),\n        owner INTEGER NOT NULL REFERENCES usage_sessions(id)\n    )",
+    "CREATE TABLE usage_sessions (\n        id INTEGER PRIMARY KEY, value TEXT NOT NULL UNIQUE\n    )",
+    "CREATE TRIGGER day_rev_daily_delete AFTER DELETE ON daily\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(OLD.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_daily_insert AFTER INSERT ON daily\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(NEW.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_daily_update AFTER UPDATE ON daily\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(OLD.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; INSERT INTO day_revisions(day,rev) VALUES(NEW.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_events_delete AFTER DELETE ON usage_events\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(printf('%04d-%02d-%02d',OLD.day/10000,(OLD.day/100)%100,OLD.day%100),1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_events_insert AFTER INSERT ON usage_events\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(printf('%04d-%02d-%02d',NEW.day/10000,(NEW.day/100)%100,NEW.day%100),1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_events_update AFTER UPDATE ON usage_events\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(printf('%04d-%02d-%02d',OLD.day/10000,(OLD.day/100)%100,OLD.day%100),1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; INSERT INTO day_revisions(day,rev) VALUES(printf('%04d-%02d-%02d',NEW.day/10000,(NEW.day/100)%100,NEW.day%100),1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_legacy_delete AFTER DELETE ON legacy_days\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(OLD.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_legacy_insert AFTER INSERT ON legacy_days\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(NEW.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_legacy_update AFTER UPDATE ON legacy_days\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(OLD.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; INSERT INTO day_revisions(day,rev) VALUES(NEW.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_routes_delete AFTER DELETE ON usage_routes BEGIN INSERT INTO day_revisions(day,rev) VALUES('',1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_routes_update AFTER UPDATE ON usage_routes BEGIN INSERT INTO day_revisions(day,rev) VALUES('',1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_session_names_delete AFTER DELETE ON usage_sessions BEGIN INSERT INTO day_revisions(day,rev) VALUES('',1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_session_names_update AFTER UPDATE ON usage_sessions BEGIN INSERT INTO day_revisions(day,rev) VALUES('',1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_sessions_delete AFTER DELETE ON day_sessions\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(OLD.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_sessions_insert AFTER INSERT ON day_sessions\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(NEW.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE TRIGGER day_rev_sessions_update AFTER UPDATE ON day_sessions\n        BEGIN INSERT INTO day_revisions(day,rev) VALUES(OLD.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; INSERT INTO day_revisions(day,rev) VALUES(NEW.day,1) ON CONFLICT(day) DO UPDATE SET rev=rev+1; END",
+    "CREATE VIEW events AS \n    SELECT CASE WHEN substr(e.id,1,1)=X'00'\n        THEN lower(hex(substr(e.id,2))) ELSE CAST(substr(e.id,2) AS TEXT) END AS id,\n        e.ts, printf('%04d-%02d-%02d',e.day/10000,(e.day/100)%100,e.day%100) AS day,\n        json_extract(r.signature,'$[0]') AS provider,\n        json_extract(r.signature,'$[1]') AS model,\n        json_extract(r.signature,'$[2]') AS kind,\n        s.value AS session_id,\n        json_extract(r.signature,'$[3]') AS source_type,\n        e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,\n        json_extract(r.signature,'$[4]') AS cost_source,\n        json_extract(r.signature,'$[5]') AS rates,\n        json_extract(r.signature,'$[6]') AS origin,\n        json_extract(r.signature,'$[7]') AS rank,\n        e.duration_ms\n    FROM usage_events e\n    JOIN usage_routes r ON r.id=e.route\n    JOIN usage_sessions s ON s.id=e.session"
+  ],
+  "expectedByP0Store": {
+    "indexes": 7,
+    "tables": 13,
+    "triggers": 16,
+    "views": 1
+  },
+  "objects": [
+    {
+      "name": "usage_events_route_time",
+      "sqlSha256": "54d5fd46be9e75de91199e182a3aa2b59917b80ba285abab4dd42753d06e834b",
+      "table": "usage_events",
+      "type": "index"
+    },
+    {
+      "name": "usage_events_session",
+      "sqlSha256": "ec3e5176e3e15b50a2715056c5c9493ebcb249965a2af0d3b1428de4f1bd01a1",
+      "table": "usage_events",
+      "type": "index"
+    },
+    {
+      "name": "usage_events_time",
+      "sqlSha256": "ec6dd1ee8885221f0c8ced48cf5dceddec7086dbe7abbb9c9466f10f496d0c52",
+      "table": "usage_events",
+      "type": "index"
+    },
+    {
+      "name": "usage_events_time_usage",
+      "sqlSha256": "73511de33c2d412695e44cc11ac0ef7895411929d5137821fe805ca1b105c548",
+      "table": "usage_events",
+      "type": "index"
+    },
+    {
+      "name": "usage_requests_status_time",
+      "sqlSha256": "0411e320d9777ac0c248b0a3c12ff6871e15dd8a37a6e9ca646c030a33183f8a",
+      "table": "usage_requests",
+      "type": "index"
+    },
+    {
+      "name": "usage_routes_model",
+      "sqlSha256": "b615ee6b5a7611f1e6c62d40a6ef322aecda7c73ab0c0573eb4f5d77a96c8574",
+      "table": "usage_routes",
+      "type": "index"
+    },
+    {
+      "name": "usage_session_owners_owner",
+      "sqlSha256": "96e88a3d338c5277354935ce8a300d695ad81b6248d7bff3a77f2d370f9d53cc",
+      "table": "usage_session_owners",
+      "type": "index"
+    },
+    {
+      "name": "daily",
+      "sqlSha256": "b79c4c33334363be434f45607bf7760373a0bdf18f203870cf053415fb98090a",
+      "table": "daily",
+      "type": "table"
+    },
+    {
+      "name": "day_revisions",
+      "sqlSha256": "84d4317ad818c18aed40193461fd676354ed4cb16cee5a7b9f30acf330e52a59",
+      "table": "day_revisions",
+      "type": "table"
+    },
+    {
+      "name": "day_sessions",
+      "sqlSha256": "48ae1adecab3fa68b49c860f9c38652f402a119f7ee64518510abd9827ba8323",
+      "table": "day_sessions",
+      "type": "table"
+    },
+    {
+      "name": "legacy_days",
+      "sqlSha256": "d0da55ef4a46cf52a449d6f4d78ee7f48d20fa9572d66751de709ec7ef449ee7",
+      "table": "legacy_days",
+      "type": "table"
+    },
+    {
+      "name": "metadata",
+      "sqlSha256": "bb5fa2bab787bf0015da30a5b400bfea6a2beb49e47f1ef765b4d3bb4de7d66a",
+      "table": "metadata",
+      "type": "table"
+    },
+    {
+      "name": "quota_samples",
+      "sqlSha256": "785dbf34d0a794bf796bb2d53d67fe86cb0ff4915c847fd63f62f9cbbf019963",
+      "table": "quota_samples",
+      "type": "table"
+    },
+    {
+      "name": "usage_events",
+      "sqlSha256": "03774009a58152021256309992362af6581f0f280965bd93a833455fd9ca33c3",
+      "table": "usage_events",
+      "type": "table"
+    },
+    {
+      "name": "usage_request_first_output",
+      "sqlSha256": "51f78f90252b69f35743125cc88c038faa60737eef45b2d99bbd11330110c9e8",
+      "table": "usage_request_first_output",
+      "type": "table"
+    },
+    {
+      "name": "usage_request_requested_provider",
+      "sqlSha256": "aafbaae5fa4675a3858ea7c0fc2d031735d9e9c1c5d7523c13013a9115908f8e",
+      "table": "usage_request_requested_provider",
+      "type": "table"
+    },
+    {
+      "name": "usage_requests",
+      "sqlSha256": "4b08a068090edee35e9e4a7874449bb78ef605ad5ad1f942530ee6ec93c0e687",
+      "table": "usage_requests",
+      "type": "table"
+    },
+    {
+      "name": "usage_routes",
+      "sqlSha256": "a5e6f0eaf667416148186e88c273eba26f425774afa2d31b7be2157359c6e97b",
+      "table": "usage_routes",
+      "type": "table"
+    },
+    {
+      "name": "usage_session_owners",
+      "sqlSha256": "86dae42d2adb936895b7da356ec5c12b733f4112d8b13fd02a63584a9ee5cc94",
+      "table": "usage_session_owners",
+      "type": "table"
+    },
+    {
+      "name": "usage_sessions",
+      "sqlSha256": "a2579811667b811d1ceb4ce369f7e4ec51c96de1cec0503196d2454d54debe42",
+      "table": "usage_sessions",
+      "type": "table"
+    },
+    {
+      "name": "day_rev_daily_delete",
+      "sqlSha256": "6fe5310664643fd73201d91d556cd4e32d7126b71794f8329622975d0339bf8c",
+      "table": "daily",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_daily_insert",
+      "sqlSha256": "efdc5d9bbacabfd6a9b4d806adf8cdb1581c321479ac942be48b2f556ed1c58d",
+      "table": "daily",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_daily_update",
+      "sqlSha256": "50af76cae7ec12f0c3e46f006d0aa5fa958f8f7cbc1950628583c1bc07143a45",
+      "table": "daily",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_events_delete",
+      "sqlSha256": "8de5c6722cda6aa471f303b2133f8e478a1eb16802ca6b4bef632b664834e5b2",
+      "table": "usage_events",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_events_insert",
+      "sqlSha256": "6039757a012ab9748284d2a002f9e606d43e1f6bfb3b573f2abc25a04f87b962",
+      "table": "usage_events",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_events_update",
+      "sqlSha256": "ec8b94af6beacf7a42f76ef3303455fe0fc8767923fa1afa3c6d4a958723e5c7",
+      "table": "usage_events",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_legacy_delete",
+      "sqlSha256": "d5558ace1c2964f18674ad32fee00722d4b4ca05eaa5de9c26f7e26ff176f0dd",
+      "table": "legacy_days",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_legacy_insert",
+      "sqlSha256": "fd80319af5e45fcaeb17243c7c308e49d40bb00ac73bef7ea95f8324beacbba5",
+      "table": "legacy_days",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_legacy_update",
+      "sqlSha256": "ac8d1692c64d7374ac68711c076e55f0a65c1ae6a525f1332751b0577e0c9032",
+      "table": "legacy_days",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_routes_delete",
+      "sqlSha256": "92df565028815a7064d070e78219bcb9adf462bffdd9bdcc8f8f788237b8c2a4",
+      "table": "usage_routes",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_routes_update",
+      "sqlSha256": "125391e24ae68bf995c425ed54253aa59a4c247ba12dfd3617af2d2470fa6e79",
+      "table": "usage_routes",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_session_names_delete",
+      "sqlSha256": "6206a948cb75f973d1b5e940ca38f11f295eaa4dc50618fbe6317932a6d39165",
+      "table": "usage_sessions",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_session_names_update",
+      "sqlSha256": "deaa55c2e9e787095b21dd9213559a0689ad3ca46ae51538bafbb983e65209b9",
+      "table": "usage_sessions",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_sessions_delete",
+      "sqlSha256": "89c93e4b165eaba6122df0f54ac8b7c487db3ecc98c2792d8738607dead3805a",
+      "table": "day_sessions",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_sessions_insert",
+      "sqlSha256": "5342dff04931a3c1cf1ee438de48f85de5f983a91349d6fa740062cc213bfe7e",
+      "table": "day_sessions",
+      "type": "trigger"
+    },
+    {
+      "name": "day_rev_sessions_update",
+      "sqlSha256": "d8e72e6b7dcee74ede9c9037884e68b41e7c4285d3402155c5b11fdcd8a8d6b4",
+      "table": "day_sessions",
+      "type": "trigger"
+    },
+    {
+      "name": "events",
+      "sqlSha256": "ac6b1c343780958631594cd4db0614304d377de67b08049b6d7fb16cf5d5f53c",
+      "table": "events",
+      "type": "view"
+    }
+  ],
+  "pragmas": {
+    "applicationId": 0,
+    "journalMode": "wal",
+    "userVersion": 2
+  }
+}

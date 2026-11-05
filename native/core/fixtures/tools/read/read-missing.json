@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "nope.txt"
+  },
+  "isError": false,
+  "text": "[path absent] ENOENT: no such file or directory, stat 'nope.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)",
+  "tool": "read"
+}

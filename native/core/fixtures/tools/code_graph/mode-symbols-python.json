@@ -1,0 +1,11 @@
+{
+  "input": {
+    "files": [
+      "src/app.py"
+    ],
+    "mode": "symbols"
+  },
+  "isError": false,
+  "text": "export function greet (L1-2)  def greet(name)\nexport class Greeter (L5-7)\n  function run (L6-7)  def run(self)",
+  "tool": "code_graph"
+}

@@ -1,0 +1,285 @@
+{
+  "domain": "settings",
+  "entries": [
+    {
+      "args": [],
+      "op": "readSettings",
+      "result": {
+        "autoClear": true,
+        "autoCompact": true,
+        "browserAutoSignIn": true,
+        "browserControl": false,
+        "browserHidDevices": false,
+        "browserInstalled": false,
+        "browserPermissions": {
+          "defaults": {
+            "clipboard-read": "ask",
+            "clipboard-write": "allow",
+            "fileSystem": "ask",
+            "geolocation": "block",
+            "idle-detection": "ask",
+            "media:audio": "ask",
+            "media:video": "ask",
+            "midi": "ask",
+            "midiSysex": "ask",
+            "notifications": "block",
+            "speaker-selection": "ask",
+            "top-level-storage-access": "ask",
+            "window-management": "ask"
+          },
+          "sites": []
+        },
+        "computerControl": false,
+        "computerInstalled": false,
+        "computerObserveOnly": false,
+        "keepAwake": true,
+        "notificationVolume": 100,
+        "runInBackground": true,
+        "saveChatLogins": true,
+        "sessionAutoArchiveDays": 7,
+        "sessionAutoDeleteDays": 90,
+        "usageAccountsExpanded": false,
+        "usagePinned": true,
+        "usageRailShortLong": false,
+        "usageRailSlotsAll": false,
+        "usageRailSlotsThree": false
+      }
+    },
+    {
+      "args": [],
+      "op": "readZoom",
+      "result": 1
+    },
+    {
+      "args": [
+        1.25
+      ],
+      "error": {
+        "message": "Desktop zoom is fixed at 100%.",
+        "name": "TypeError"
+      },
+      "op": "updateZoom"
+    },
+    {
+      "args": [
+        "bad"
+      ],
+      "error": {
+        "message": "Desktop zoom is fixed at 100%.",
+        "name": "TypeError"
+      },
+      "op": "updateZoom"
+    },
+    {
+      "args": [],
+      "op": "readZoom",
+      "result": 1
+    },
+    {
+      "args": [
+        0.5
+      ],
+      "error": {
+        "message": "notification volume is invalid.",
+        "name": "TypeError"
+      },
+      "op": "updateNotificationVolume"
+    },
+    {
+      "args": [
+        7
+      ],
+      "op": "updateNotificationVolume",
+      "result": {
+        "autoClear": true,
+        "autoCompact": true,
+        "browserAutoSignIn": true,
+        "browserControl": false,
+        "browserHidDevices": false,
+        "browserInstalled": false,
+        "browserPermissions": {
+          "defaults": {
+            "clipboard-read": "ask",
+            "clipboard-write": "allow",
+            "fileSystem": "ask",
+            "geolocation": "block",
+            "idle-detection": "ask",
+            "media:audio": "ask",
+            "media:video": "ask",
+            "midi": "ask",
+            "midiSysex": "ask",
+            "notifications": "block",
+            "speaker-selection": "ask",
+            "top-level-storage-access": "ask",
+            "window-management": "ask"
+          },
+          "sites": []
+        },
+        "computerControl": false,
+        "computerInstalled": false,
+        "computerObserveOnly": false,
+        "keepAwake": true,
+        "notificationVolume": 7,
+        "runInBackground": true,
+        "saveChatLogins": true,
+        "sessionAutoArchiveDays": 7,
+        "sessionAutoDeleteDays": 90,
+        "usageAccountsExpanded": false,
+        "usagePinned": true,
+        "usageRailShortLong": false,
+        "usageRailSlotsAll": false,
+        "usageRailSlotsThree": false
+      }
+    },
+    {
+      "args": [
+        "trace",
+        14
+      ],
+      "error": {
+        "message": "session retention setting is invalid.",
+        "name": "TypeError"
+      },
+      "op": "updateSessionRetention"
+    },
+    {
+      "args": [
+        "nonsense",
+        1
+      ],
+      "error": {
+        "message": "session retention setting is invalid.",
+        "name": "TypeError"
+      },
+      "op": "updateSessionRetention"
+    },
+    {
+      "args": [],
+      "op": "readActivityRailPins",
+      "result": null
+    },
+    {
+      "args": [
+        [
+          "files",
+          "git"
+        ],
+        true
+      ],
+      "error": {
+        "message": "Activity rail pins must be an array of supported destinations.",
+        "name": "TypeError"
+      },
+      "op": "updateActivityRailPins"
+    },
+    {
+      "args": [],
+      "op": "readActivityRailPins",
+      "result": null
+    },
+    {
+      "args": [
+        "nonexistentFlag",
+        true
+      ],
+      "op": "updateSetting",
+      "result": {
+        "autoClear": true,
+        "autoCompact": true,
+        "browserAutoSignIn": true,
+        "browserControl": false,
+        "browserHidDevices": false,
+        "browserInstalled": false,
+        "browserPermissions": {
+          "defaults": {
+            "clipboard-read": "ask",
+            "clipboard-write": "allow",
+            "fileSystem": "ask",
+            "geolocation": "block",
+            "idle-detection": "ask",
+            "media:audio": "ask",
+            "media:video": "ask",
+            "midi": "ask",
+            "midiSysex": "ask",
+            "notifications": "block",
+            "speaker-selection": "ask",
+            "top-level-storage-access": "ask",
+            "window-management": "ask"
+          },
+          "sites": []
+        },
+        "computerControl": false,
+        "computerInstalled": false,
+        "computerObserveOnly": false,
+        "keepAwake": true,
+        "notificationVolume": 7,
+        "runInBackground": true,
+        "saveChatLogins": true,
+        "sessionAutoArchiveDays": 7,
+        "sessionAutoDeleteDays": 90,
+        "usageAccountsExpanded": false,
+        "usagePinned": true,
+        "usageRailShortLong": false,
+        "usageRailSlotsAll": false,
+        "usageRailSlotsThree": false
+      }
+    },
+    {
+      "args": [],
+      "op": "readSettings",
+      "result": {
+        "autoClear": true,
+        "autoCompact": true,
+        "browserAutoSignIn": true,
+        "browserControl": false,
+        "browserHidDevices": false,
+        "browserInstalled": false,
+        "browserPermissions": {
+          "defaults": {
+            "clipboard-read": "ask",
+            "clipboard-write": "allow",
+            "fileSystem": "ask",
+            "geolocation": "block",
+            "idle-detection": "ask",
+            "media:audio": "ask",
+            "media:video": "ask",
+            "midi": "ask",
+            "midiSysex": "ask",
+            "notifications": "block",
+            "speaker-selection": "ask",
+            "top-level-storage-access": "ask",
+            "window-management": "ask"
+          },
+          "sites": []
+        },
+        "computerControl": false,
+        "computerInstalled": false,
+        "computerObserveOnly": false,
+        "keepAwake": true,
+        "notificationVolume": 7,
+        "runInBackground": true,
+        "saveChatLogins": true,
+        "sessionAutoArchiveDays": 7,
+        "sessionAutoDeleteDays": 90,
+        "usageAccountsExpanded": false,
+        "usagePinned": true,
+        "usageRailShortLong": false,
+        "usageRailSlotsAll": false,
+        "usageRailSlotsThree": false
+      }
+    },
+    {
+      "args": [],
+      "error": {
+        "message": "Mixdog desktop service operation is unavailable.",
+        "name": "TypeError"
+      },
+      "op": "unknownOperation"
+    },
+    {
+      "events": [],
+      "op": "<emitted events>"
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

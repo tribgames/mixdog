@@ -1,0 +1,96 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "c0db0839599c26a69927517f031a97fc",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs#proxyHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.3375387620180845
+        }
+      ],
+      "scenarioId": "grok-oauth/error-400",
+      "seed": 2871351224,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "c0db0839-599c-46a6-9927-517f031a97fc",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"400\"}}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

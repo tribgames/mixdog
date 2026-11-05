@@ -1,0 +1,10 @@
+{
+  "input": {
+    "head_limit": 2,
+    "offset": 1,
+    "path": "."
+  },
+  "isError": false,
+  "text": "docs\tdir\nlines.txt\tfile\n[entries 2-3 of 5; offset:3 for more]",
+  "tool": "list"
+}

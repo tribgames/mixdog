@@ -1,0 +1,14 @@
+{
+  "input": {
+    "files": [
+      "src/lib/math.mjs"
+    ],
+    "mode": "symbols",
+    "symbols": [
+      "sub"
+    ]
+  },
+  "isError": false,
+  "text": "export function sub (L5-7)  function sub(a, b)",
+  "tool": "code_graph"
+}

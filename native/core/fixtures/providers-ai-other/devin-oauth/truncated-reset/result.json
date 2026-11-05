@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "unavailable",
+    "connectCode": null,
+    "cursorCode": null,
+    "liveTextEmitted": true,
+    "message": "Devin connection failed: terminated",
+    "name": "DevinWireError",
+    "providerRecoveryExhausted": null,
+    "reauthRequired": null,
+    "retryAfterMs": null,
+    "retryable": true,
+    "status": 0,
+    "truncatedStream": null,
+    "unsafeToRetry": true
+  }
+}

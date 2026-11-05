@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Devin connection failed: terminated",
+    "name": "DevinWireError",
+    "status": 0
+  }
+}

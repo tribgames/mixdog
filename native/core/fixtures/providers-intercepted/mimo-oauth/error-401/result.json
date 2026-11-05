@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: fixture upstream error",
+    "name": "Error",
+    "status": 401
+  }
+}

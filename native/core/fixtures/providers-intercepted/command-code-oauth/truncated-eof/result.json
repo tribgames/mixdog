@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "command-code-oauth SSE stream truncated: no finish_reason",
+    "name": "TruncatedStreamError",
+    "status": null
+  }
+}

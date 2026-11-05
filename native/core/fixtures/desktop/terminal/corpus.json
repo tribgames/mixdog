@@ -1,0 +1,153 @@
+{
+  "domain": "terminal",
+  "entries": [
+    {
+      "args": [],
+      "op": "termProfiles",
+      "result": [
+        {
+          "default": true,
+          "id": "pwsh",
+          "label": "PowerShell (pwsh)",
+          "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+        },
+        {
+          "id": "windows-powershell",
+          "label": "Windows PowerShell",
+          "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        },
+        {
+          "id": "cmd",
+          "label": "Command Prompt",
+          "path": "C:\\WINDOWS\\System32\\cmd.exe"
+        },
+        {
+          "id": "git-bash",
+          "label": "Git Bash",
+          "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+        }
+      ]
+    },
+    {
+      "args": [
+        null,
+        "<project>",
+        null
+      ],
+      "op": "termEnsure",
+      "result": {
+        "id": "<id>",
+        "replayType": "string",
+        "sizeOwner": null
+      }
+    },
+    {
+      "args": [],
+      "op": "termActivity",
+      "result": []
+    },
+    {
+      "args": [
+        "<id>",
+        "echo MIXDOG_FIXTURE_MARKER\\r"
+      ],
+      "op": "termWrite",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termSnapshot",
+      "result": {
+        "containsMarker": true,
+        "cursorType": "number",
+        "keys": [
+          "cursor",
+          "reset",
+          "text"
+        ]
+      }
+    },
+    {
+      "args": [
+        "<id>",
+        100,
+        30,
+        "client-a"
+      ],
+      "op": "termResize",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>",
+        "client-a",
+        true
+      ],
+      "op": "termFocus",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termPause",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termResume",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termAttach",
+      "result": {
+        "hasReplay": true,
+        "id": "<id>"
+      }
+    },
+    {
+      "args": [
+        "session-x"
+      ],
+      "op": "termSessionTabs",
+      "result": []
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termDispose",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termAttach(after dispose)",
+      "result": null
+    },
+    {
+      "args": [
+        "no-such-terminal",
+        "x"
+      ],
+      "op": "termWrite",
+      "result": null
+    },
+    {
+      "count": 7,
+      "kinds": [
+        "unknown"
+      ],
+      "op": "<emitted event kinds>"
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

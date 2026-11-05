@@ -1,0 +1,253 @@
+{
+  "corpora": {
+    "c100": {
+      "coldStartMsInclSeed": 2438,
+      "firstList": {
+        "loopDelayMs": {
+          "max": 535.3,
+          "p50": 10.03,
+          "p99": 535.3
+        },
+        "ms": 1720,
+        "rows": 103
+      },
+      "getUsageDashboard": {
+        "loopDelayMs": {
+          "max": 11.74,
+          "p50": 10.66,
+          "p99": 11.74
+        },
+        "ms": {
+          "max": 43.06,
+          "min": 0.8,
+          "n": 20,
+          "p50": 1.82,
+          "p95": 3.96,
+          "p99": 43.06
+        }
+      },
+      "getUsageRequests": {
+        "loopDelayMs": {
+          "max": 12.24,
+          "p50": 10.96,
+          "p99": 12.24
+        },
+        "ms": {
+          "max": 4.21,
+          "min": 2.5,
+          "n": 20,
+          "p50": 3.04,
+          "p95": 4.04,
+          "p99": 4.21
+        }
+      },
+      "getUsageStats": {
+        "loopDelayMs": {
+          "max": 48.59,
+          "p50": 12.81,
+          "p99": 48.59
+        },
+        "ms": {
+          "max": 254.99,
+          "min": 12,
+          "n": 20,
+          "p50": 14.77,
+          "p95": 57.03,
+          "p99": 254.99
+        }
+      },
+      "list": {
+        "loopDelayMs": {
+          "max": 10.57,
+          "p50": 10.53,
+          "p99": 10.57
+        },
+        "ms": {
+          "max": 3.57,
+          "min": 1.52,
+          "n": 20,
+          "p50": 2.04,
+          "p95": 3.02,
+          "p99": 3.57
+        }
+      },
+      "listProviderModels": {
+        "loopDelayMs": {
+          "max": 15.1,
+          "p50": 10.9,
+          "p99": 15.1
+        },
+        "ms": {
+          "max": 15.55,
+          "min": 0.72,
+          "n": 20,
+          "p50": 3.07,
+          "p95": 12.9,
+          "p99": 15.55
+        }
+      },
+      "open": {
+        "coldSmall": {
+          "loopDelayMs": {
+            "max": 13.79,
+            "p50": 12.27,
+            "p99": 13.79
+          },
+          "ms": {
+            "max": 57.63,
+            "min": 3.79,
+            "n": 20,
+            "p50": 4.64,
+            "p95": 9.11,
+            "p99": 57.63
+          }
+        },
+        "sess_big_19mb": {
+          "loopDelayMs": {
+            "max": 20.91,
+            "p50": 15.3,
+            "p99": 19.94
+          },
+          "ms": 1245
+        },
+        "sess_big_200x1mib": {
+          "loopDelayMs": {
+            "max": 396.62,
+            "p50": 15.19,
+            "p99": 19.12
+          },
+          "ms": 4106
+        },
+        "sess_big_toolout_50mib": {
+          "loopDelayMs": {
+            "max": 138.41,
+            "p50": 15.2,
+            "p99": 20.63
+          },
+          "ms": 2032
+        }
+      },
+      "sessions": 103
+    },
+    "c10000": {
+      "coldStartMsInclSeed": 9362,
+      "firstList": {
+        "loopDelayMs": {
+          "max": 339.21,
+          "p50": 10.01,
+          "p99": 14.44
+        },
+        "ms": 11516,
+        "rows": 10000
+      },
+      "getUsageDashboard": {
+        "loopDelayMs": {
+          "max": 11.45,
+          "p50": 10.09,
+          "p99": 11.45
+        },
+        "ms": {
+          "max": 7.12,
+          "min": 0.94,
+          "n": 20,
+          "p50": 2.43,
+          "p95": 6.98,
+          "p99": 7.12
+        }
+      },
+      "getUsageRequests": {
+        "loopDelayMs": {
+          "max": 14.69,
+          "p50": 10.53,
+          "p99": 14.69
+        },
+        "ms": {
+          "max": 9.56,
+          "min": 3.73,
+          "n": 20,
+          "p50": 6.44,
+          "p95": 9.47,
+          "p99": 9.56
+        }
+      },
+      "getUsageStats": {
+        "loopDelayMs": {
+          "max": 46.3,
+          "p50": 11.4,
+          "p99": 21.59
+        },
+        "ms": {
+          "max": 239.87,
+          "min": 15.1,
+          "n": 20,
+          "p50": 24.13,
+          "p95": 61.66,
+          "p99": 239.87
+        }
+      },
+      "list": {
+        "loopDelayMs": {
+          "max": 55.15,
+          "p50": 10.25,
+          "p99": 55.12
+        },
+        "ms": {
+          "max": 162.94,
+          "min": 90.28,
+          "n": 20,
+          "p50": 110.29,
+          "p95": 160.42,
+          "p99": 162.94
+        }
+      },
+      "listProviderModels": {
+        "loopDelayMs": {
+          "max": 14.91,
+          "p50": 10.58,
+          "p99": 14.91
+        },
+        "ms": {
+          "max": 17.59,
+          "min": 0.96,
+          "n": 20,
+          "p50": 3.82,
+          "p95": 13.47,
+          "p99": 17.59
+        }
+      },
+      "open": {
+        "coldSmall": {
+          "loopDelayMs": {
+            "max": 13.71,
+            "p50": 10.59,
+            "p99": 13.71
+          },
+          "ms": {
+            "max": 65.46,
+            "min": 3.78,
+            "n": 20,
+            "p50": 4.99,
+            "p95": 7.21,
+            "p99": 65.46
+          }
+        }
+      },
+      "sessions": 10000
+    }
+  },
+  "iterations": 20,
+  "machine": {
+    "cpu": "Intel(R) Core(TM) Ultra 7 265KF",
+    "logical": 20,
+    "memGiB": 32,
+    "node": "v22.20.0",
+    "platform": "win32 x64"
+  },
+  "product": {
+    "appsTree": "a6553550cf1651b478e7da633055786e88af21fd",
+    "commit": "b82ff13a7b637300fc0088b1c6e6d4ce08466bd5",
+    "srcTree": "d1cc6bcfb3f16044ea0e1d651ff4e8facddc0795",
+    "version": "1.4.5"
+  },
+  "recordedAt": "2026-11-05T14:24:23.457Z"
+}

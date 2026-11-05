@@ -1,0 +1,11 @@
+{
+  "input": {
+    "mode": "search",
+    "symbols": [
+      "twice"
+    ]
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\n# search keyword=twice matches=1 shown=1\ntwice\tsrc/lib/util.mjs:3-3:14\texport variable\ttwice = (x) =>",
+  "tool": "code_graph"
+}

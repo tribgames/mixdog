@@ -1,0 +1,123 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "3c3d3045c7ec29541256ebf2e6fa4c5c",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs#proxyHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+          "value": 0.10929433163255453
+        }
+      ],
+      "scenarioId": "grok-oauth/text",
+      "seed": 4274718998,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "host": "registry.npmjs.org",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "GET",
+      "origin": "https://registry.npmjs.org",
+      "path": "/@xai-official/grok/latest",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding"
+      ],
+      "served": "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-fixture\",\"object\":\"model\"},{\"id\":\"claude-sonnet-4-6\",\"object\":\"model\"},{\"id\":\"gemini-2.5-pro\",\"object\":\"model\"},{\"id\":\"grok-4\",\"object\":\"model\"},{\"id\":\"muse-fixture\",\"object\":\"model\"},{\"id\":\"cc-fixture\",\"object\":\"model\"},{\"id\":\"mimo-fixture\",\"object\":\"model\"},{\"id\":\"go-fixture\",\"object\":\"model\"},{\"id\":\"cursor-fixture\",\"object\":\"model\"},{\"id\":\"devin-fixture\",\"object\":\"model\"},{\"id\":\"gemini-3-pro\",\"object\":\"model\"}],\"models\":[{\"name\":\"gpt-fixture\",\"id\":\"gpt-fixture\"},{\"name\":\"claude-sonnet-4-6\",\"id\":\"claude-sonnet-4-6\"},{\"name\":\"gemini-2.5-pro\",\"id\":\"gemini-2.5-pro\"},{\"name\":\"grok-4\",\"id\":\"grok-4\"},{\"name\":\"muse-fixture\",\"id\":\"muse-fixture\"},{\"name\":\"cc-fixture\",\"id\":\"cc-fixture\"},{\"name\":\"mimo-fixture\",\"id\":\"mimo-fixture\"},{\"name\":\"go-fixture\",\"id\":\"go-fixture\"},{\"name\":\"cursor-fixture\",\"id\":\"cursor-fixture\"},{\"name\":\"devin-fixture\",\"id\":\"devin-fixture\"},{\"name\":\"gemini-3-pro\",\"id\":\"gemini-3-pro\"}]}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "headers": {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "473",
+        "content-type": "application/json",
+        "host": "cli-chat-proxy.grok.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-model-override": "grok-4",
+        "x-grok-req-id": "3c3d3045-c7ec-4954-9256-ebf2e6fa4c5c",
+        "x-stainless-arch": "x64",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "Windows",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0"
+      },
+      "method": "POST",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The result is 42.\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8,\"total_tokens\":28},\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The result is 42.\"}]}]}}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

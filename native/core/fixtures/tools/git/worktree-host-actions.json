@@ -1,0 +1,243 @@
+{
+  "host": {
+    "script": {
+      "enter": {
+        "extra": 1,
+        "revision": 7,
+        "workspace": {
+          "branch": "feat",
+          "cwd": "<ROOT>/wt",
+          "mergeTarget": "main",
+          "revision": 7,
+          "worktreeId": "wt1"
+        }
+      },
+      "list": [
+        {
+          "branch": "feat",
+          "id": "wt1",
+          "kind": "worktree",
+          "mergeTarget": "main",
+          "ownerLive": true,
+          "ownerSessionId": "lead",
+          "path": "<ROOT>/.mixdog-wt/feat",
+          "removable": false,
+          "repoCommonDir": "<ROOT>/.git",
+          "state": "ready"
+        },
+        {
+          "baseCommit": "abc",
+          "branch": null,
+          "holderSessionId": "lead",
+          "id": "snap1",
+          "kind": "snapshot",
+          "path": "<ROOT>/.mixdog-wt/snap",
+          "removable": true,
+          "repoCommonDir": "<ROOT>/.git",
+          "state": "ready"
+        }
+      ],
+      "merge": {
+        "merged": true,
+        "workspace": {
+          "branch": "feat",
+          "cwd": "<ROOT>",
+          "mergeTarget": "main",
+          "revision": 7,
+          "worktreeId": "wt1"
+        }
+      },
+      "prune": {
+        "removed": [
+          "wt9"
+        ],
+        "skipped": []
+      },
+      "remove": {
+        "removed": true
+      },
+      "return": {
+        "unchanged": false,
+        "workspace": {
+          "branch": "feat",
+          "cwd": "<ROOT>",
+          "mergeTarget": "main",
+          "revision": 7,
+          "worktreeId": null
+        }
+      }
+    },
+    "sessionId": "lead",
+    "toolCallId": "call1"
+  },
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "action": "worktree",
+        "carry": "carry",
+        "confirm_large": true,
+        "name": "my-feature",
+        "worktree_action": "enter"
+      },
+      "requests": [
+        {
+          "branch": null,
+          "carry": "carry",
+          "confirmLarge": true,
+          "create": false,
+          "name": "my-feature",
+          "op": "enter",
+          "txId": "call1:enter"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"enter\",\"extra\":1,\"workspace\":{\"cwd\":\"<ROOT>/wt\",\"branch\":\"feat\",\"mergeTarget\":\"main\",\"revision\":7,\"worktreeId\":\"wt1\"}}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "feat",
+        "create": true,
+        "worktree_action": "enter"
+      },
+      "requests": [
+        {
+          "branch": "feat",
+          "confirmLarge": false,
+          "create": true,
+          "op": "enter",
+          "txId": "call1:enter"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"enter\",\"extra\":1,\"workspace\":{\"cwd\":\"<ROOT>/wt\",\"branch\":\"feat\",\"mergeTarget\":\"main\",\"revision\":7,\"worktreeId\":\"wt1\"}}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "session_id": "other",
+        "worktree_action": "return"
+      },
+      "requests": [
+        {
+          "op": "return",
+          "sessionId": "other",
+          "txId": "call1:return"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"return\",\"sessionId\":\"other\",\"unchanged\":false,\"workspace\":{\"cwd\":\"<ROOT>\",\"branch\":\"feat\",\"mergeTarget\":\"main\",\"revision\":7,\"worktreeId\":null}}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "merge"
+      },
+      "requests": [
+        {
+          "op": "merge",
+          "txId": "call1:merge"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"merge\",\"merged\":true,\"workspace\":{\"cwd\":\"<ROOT>\",\"branch\":\"feat\",\"mergeTarget\":\"main\",\"revision\":7,\"worktreeId\":\"wt1\"}}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "force": true,
+        "worktree_action": "remove"
+      },
+      "requests": [
+        {
+          "force": true,
+          "op": "remove",
+          "txId": "call1:remove"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"remove\",\"removed\":true}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "branch": "feat",
+        "worktree_action": "remove"
+      },
+      "requests": [
+        {
+          "branch": "feat",
+          "force": false,
+          "op": "remove",
+          "txId": "call1:remove"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"remove\",\"removed\":true}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "prune"
+      },
+      "requests": [
+        {
+          "op": "prune",
+          "repoCommonDir": "<ROOT>/.git",
+          "txId": "call1:prune"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"prune\",\"removed\":[\"wt9\"],\"skipped\":[]}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "list"
+      },
+      "requests": [
+        {
+          "op": "list"
+        }
+      ],
+      "text": "{\"ok\":true,\"worktree_action\":\"list\",\"worktrees\":[{\"path\":\"<ROOT>\",\"branch\":\"main\",\"main\":true},{\"id\":\"wt1\",\"path\":\"<ROOT>/.mixdog-wt/feat\",\"branch\":\"feat\",\"ownerSessionId\":\"lead\",\"mergeTarget\":\"main\",\"state\":\"ready\",\"ownerLive\":true,\"removable\":false},{\"id\":\"snap1\",\"path\":\"<ROOT>/.mixdog-wt/snap\",\"branch\":null,\"snapshot\":true,\"commit\":\"abc\",\"holderSessionId\":\"lead\",\"state\":\"ready\",\"removable\":true}]}"
+    }
+  ],
+  "tool": "git"
+}

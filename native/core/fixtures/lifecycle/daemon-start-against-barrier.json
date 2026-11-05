@@ -1,0 +1,14 @@
+{
+  "barrierAfterStartByteIdentical": true,
+  "dataDirEntries": [
+    "daemon-owner.json",
+    "daemon-owner.json.claim.lock"
+  ],
+  "exitCode": 0,
+  "recordAfterStartByteIdentical": true,
+  "relevantOutputLines": [
+    "[daemon] live peer holds owner lock (pid=Update Mixdog to continue) — exiting for attach"
+  ],
+  "signal": null,
+  "timedOut": false
+}

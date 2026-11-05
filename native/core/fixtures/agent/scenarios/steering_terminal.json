@@ -1,0 +1,26 @@
+{
+  "name": "steering_terminal",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "steer": {
+    "terminal": [
+      "one more thing"
+    ]
+  },
+  "script": [
+    {
+      "content": "first",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    },
+    {
+      "content": "second",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

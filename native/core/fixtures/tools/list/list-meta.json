@@ -1,0 +1,10 @@
+{
+  "input": {
+    "head_limit": 0,
+    "meta": true,
+    "path": "src"
+  },
+  "isError": false,
+  "text": "lib\tdir\t0\t2026-01-02T03:04:05Z\t777\nmain.mjs\tfile\t86\t2026-01-02T03:04:05Z\t666\t5",
+  "tool": "list"
+}

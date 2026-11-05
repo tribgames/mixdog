@@ -1,0 +1,62 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null
+    },
+    {
+      "role": "user",
+      "content": "[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.",
+      "source": "refusal-recovery",
+      "attempt": 1,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null
+    }
+  ],
+  "result": {
+    "content": "",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": "refusal",
+    "iterations": 2,
+    "toolCallsTotal": 0,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "user",
+          "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.\n</mixdog-runtime>",
+          "toolCallId": null
+        }
+      ]
+    }
+  ]
+}

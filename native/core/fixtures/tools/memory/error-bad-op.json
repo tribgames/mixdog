@@ -1,0 +1,8 @@
+{
+  "input": {
+    "op": "nope"
+  },
+  "isError": false,
+  "text": "{\"text\":\"core requires op: add | edit | delete | list\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"core requires op: add | edit | delete | list\"}]}",
+  "tool": "memory"
+}

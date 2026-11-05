@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "fixture upstream error",
+    "name": "Error",
+    "status": 400
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "input": {
+    "files": [
+      "src/lib/math.mjs"
+    ],
+    "mode": "impact"
+  },
+  "isError": false,
+  "text": "file\tsrc/lib/math.mjs\nlanguage\tjavascript\nimports\t0\ndependents\t2\nrelated\t2\nscanned_symbols\t2\nexternal_references\t7\nexternal_callers\t2\n\n# structural\nsrc/lib/util.mjs\nsrc/main.mjs\n\n# top symbol impact\nadd\trefs=5\tcallers=2 -> src/lib/util.mjs, src/main.mjs\nsub\trefs=2\tcallers=1 -> src/main.mjs\n\n# external callers\nsrc/lib/util.mjs\nsrc/main.mjs",
+  "tool": "code_graph"
+}

@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "401 fixture unauthorized",
+    "name": "Error",
+    "status": 401
+  }
+}

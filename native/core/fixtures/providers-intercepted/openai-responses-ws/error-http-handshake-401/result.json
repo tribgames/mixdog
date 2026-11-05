@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "OpenAI WS handshake 401: fixture handshake rejection",
+    "name": "Error",
+    "status": 401
+  }
+}

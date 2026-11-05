@@ -1,0 +1,1012 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-providers-intercepted.mjs --tree <tree>",
+  "fileCount": 179,
+  "files": [
+    {
+      "bytes": 3049,
+      "path": "anthropic-oauth/error-400/exchange.json",
+      "sha256": "8486bbe47a4132a06fc6af85e71c98e81c7209e702c5767388cf40105e536260"
+    },
+    {
+      "bytes": 229,
+      "path": "anthropic-oauth/error-400/result.json",
+      "sha256": "876c138051e298ecad24668ae72fda3bc91d51ccf5a8d1c580036b6b785dd159"
+    },
+    {
+      "bytes": 6388,
+      "path": "anthropic-oauth/error-401/exchange.json",
+      "sha256": "29ee0505fc94b30b630814fa65e9df04d60ea87d684d8cef2fcf91fdb65ca5de"
+    },
+    {
+      "bytes": 229,
+      "path": "anthropic-oauth/error-401/result.json",
+      "sha256": "63631519970f2ad1b5f3a98c991e12248e6f1f39afe896c9664f0f7242b8ce39"
+    },
+    {
+      "bytes": 8024,
+      "path": "anthropic-oauth/text/exchange.json",
+      "sha256": "b4c9aafa0cbc3f6f8831a90c92fe45d37ae87b4ffd159675c11749f95fcf8aca"
+    },
+    {
+      "bytes": 204,
+      "path": "anthropic-oauth/text/result.json",
+      "sha256": "eac11e32346b5ab8d577c6abd26bf2cbb6026f4c855a347714c37890d2801d34"
+    },
+    {
+      "bytes": 4022,
+      "path": "anthropic-oauth/tool-call/exchange.json",
+      "sha256": "87da54418d21694c08906fee78f8ca364b86d1a9e1c366fb864c49d1ce3a818e"
+    },
+    {
+      "bytes": 438,
+      "path": "anthropic-oauth/tool-call/result.json",
+      "sha256": "6ffddc5ab96f26e537de39690960eca92d73fea2a5a2bb93f2a5c41e090c12a0"
+    },
+    {
+      "bytes": 13434,
+      "path": "anthropic-oauth/truncated-eof/exchange.json",
+      "sha256": "f4783fde6bf654bb7243527436ac0a125becd130627c1c9cd45ff6d61c5252a1"
+    },
+    {
+      "bytes": 196,
+      "path": "anthropic-oauth/truncated-eof/result.json",
+      "sha256": "01730a87dc56aa81879c67f0d7c73e3a7443192d976603be7a1e84e93651e875"
+    },
+    {
+      "bytes": 13437,
+      "path": "anthropic-oauth/truncated-reset/exchange.json",
+      "sha256": "1aad4247ff06c85212f8d5281e480bace1289f8eccfccf1c2980247dbe6463c0"
+    },
+    {
+      "bytes": 123,
+      "path": "anthropic-oauth/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 3166,
+      "path": "antigravity-oauth/error-400/exchange.json",
+      "sha256": "5bc2fca90e452d4d92c013c8799429cd634e58172f81f42640243ff01d939c90"
+    },
+    {
+      "bytes": 191,
+      "path": "antigravity-oauth/error-400/result.json",
+      "sha256": "58b4ef254ae8b7a7bd29c4968c87bdda18b17e32ffeecadd37e0752499af8ccc"
+    },
+    {
+      "bytes": 6168,
+      "path": "antigravity-oauth/error-401/exchange.json",
+      "sha256": "957d75d9d2dbf4096d84c243f81ad7deeda5f2fa9e6cc5df9e6313e9638fb634"
+    },
+    {
+      "bytes": 191,
+      "path": "antigravity-oauth/error-401/result.json",
+      "sha256": "341a00f6c193b731581896fd6430b003d5e667ab7d425b329a12a78f81cd8efc"
+    },
+    {
+      "bytes": 5597,
+      "path": "antigravity-oauth/text/exchange.json",
+      "sha256": "2575f5fd15b93220e66761119185c87b63eba3a278d9ced3c8f615d8d244b9ec"
+    },
+    {
+      "bytes": 198,
+      "path": "antigravity-oauth/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 3574,
+      "path": "antigravity-oauth/tool-call/exchange.json",
+      "sha256": "75cf08fb1d83548c5fda32f2aef53b2491c3a45e0aa1754881ebecb3122cb2d1"
+    },
+    {
+      "bytes": 459,
+      "path": "antigravity-oauth/tool-call/result.json",
+      "sha256": "28710a556f6921348c079ecb706230617d7da747351e387dd6c0aa3b752fb52a"
+    },
+    {
+      "bytes": 11226,
+      "path": "antigravity-oauth/truncated-eof/exchange.json",
+      "sha256": "0e15097100a4e8d274cfd289d395e2181ea63e960eeef6b311038285219d0c43"
+    },
+    {
+      "bytes": 184,
+      "path": "antigravity-oauth/truncated-eof/result.json",
+      "sha256": "de7fd7eeb27726530ca85cbd639f7821b9fe37a33a8377c7afd241352e17568d"
+    },
+    {
+      "bytes": 11228,
+      "path": "antigravity-oauth/truncated-reset/exchange.json",
+      "sha256": "c0d289b742fb3c1e4617a74e179eab05d42f23f3ec4eb24fdc7440347e082a46"
+    },
+    {
+      "bytes": 123,
+      "path": "antigravity-oauth/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 5159,
+      "path": "command-code-oauth/error-400/exchange.json",
+      "sha256": "3e32c80ed92f9824864e8a53b3bf22bc2925e067994d1f64ad3476945146458c"
+    },
+    {
+      "bytes": 134,
+      "path": "command-code-oauth/error-400/result.json",
+      "sha256": "aec7976540a93c17ae2f8bebf784ae3bd44bdfa8e1475974c941faae7486d551"
+    },
+    {
+      "bytes": 5160,
+      "path": "command-code-oauth/error-401/exchange.json",
+      "sha256": "453db3d82b7c332a7e7dd164bee1403e56e67d552c6c5247c087b5ce38972bc2"
+    },
+    {
+      "bytes": 226,
+      "path": "command-code-oauth/error-401/result.json",
+      "sha256": "6c72d23070abcec4f361aec0fea0eb8a81e7a72c997d00f832ecc58647f37d9a"
+    },
+    {
+      "bytes": 5893,
+      "path": "command-code-oauth/text/exchange.json",
+      "sha256": "0129e4525e9a37546f43fdd7c7f4026f2af1306d753d6d514fceada96bd5693a"
+    },
+    {
+      "bytes": 200,
+      "path": "command-code-oauth/text/result.json",
+      "sha256": "a2136759761202b119634253e1e6c485c7f413a30554edb20b0fb8f7eb5a9b72"
+    },
+    {
+      "bytes": 6072,
+      "path": "command-code-oauth/tool-call/exchange.json",
+      "sha256": "467383843a789e5d7414eacbcdb9a5cda5c63427f19c85c7d4f7ee13db60bc44"
+    },
+    {
+      "bytes": 437,
+      "path": "command-code-oauth/tool-call/result.json",
+      "sha256": "741a8bc10075c4663b72f109e0aa1ec338418bc3e65b2daf815e85999e84b048"
+    },
+    {
+      "bytes": 11823,
+      "path": "command-code-oauth/truncated-eof/exchange.json",
+      "sha256": "f6546390ef853b3d9d4412dee247036a1485452052e000e72429fccb173568e8"
+    },
+    {
+      "bytes": 181,
+      "path": "command-code-oauth/truncated-eof/result.json",
+      "sha256": "0e872b23a6cdd67b568b003efcc1375d3a1988e88a50c44d5959b0270ee0a044"
+    },
+    {
+      "bytes": 11826,
+      "path": "command-code-oauth/truncated-reset/exchange.json",
+      "sha256": "b45fec620fe55ec1f3969ba69c41ca63c9f7a0549169a66237137a7f83fb24d2"
+    },
+    {
+      "bytes": 123,
+      "path": "command-code-oauth/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 16274,
+      "path": "cursor-api/error-http-401/exchange.json",
+      "sha256": "4e92bd5fe66fd87c4c4fdd0d1d632513bf48584fc1545568e245831c13192776"
+    },
+    {
+      "bytes": 169,
+      "path": "cursor-api/error-http-401/result.json",
+      "sha256": "9a30e060af0e9102ceefaf5f9555ea0845b9f0d556b4fe275835c91a07c069a2"
+    },
+    {
+      "bytes": 14051,
+      "path": "cursor-api/truncated/exchange.json",
+      "sha256": "8d19483507be81fc71caa7d4e8855b36a0a9a7f5251d9b279003dbdcba3c1cf5"
+    },
+    {
+      "bytes": 169,
+      "path": "cursor-api/truncated/result.json",
+      "sha256": "9a30e060af0e9102ceefaf5f9555ea0845b9f0d556b4fe275835c91a07c069a2"
+    },
+    {
+      "bytes": 3218,
+      "path": "devin-oauth/error-400/exchange.json",
+      "sha256": "54ca22370b7ccfa557bad9e672ce9783bbb7a7fce8b4170af2c5f15a787beb95"
+    },
+    {
+      "bytes": 193,
+      "path": "devin-oauth/error-400/result.json",
+      "sha256": "fccf50b8968be337d06e0057ed95a41128f75e0249823c391b8cf75909fab2af"
+    },
+    {
+      "bytes": 3218,
+      "path": "devin-oauth/error-401/exchange.json",
+      "sha256": "becdb23b1c092d951ad08b2eab9fd9ec9eba1d2c9d93fe4088563c422bd4214e"
+    },
+    {
+      "bytes": 192,
+      "path": "devin-oauth/error-401/result.json",
+      "sha256": "a1b42f3d7735ed59f7a33460a6c1af28bd8dbab3aa99787763ac600816864de7"
+    },
+    {
+      "bytes": 3097,
+      "path": "devin-oauth/truncated-reset/exchange.json",
+      "sha256": "52d0da584f981839258403de4981f6fc926cded82c14d35db589fa7590416506"
+    },
+    {
+      "bytes": 150,
+      "path": "devin-oauth/truncated-reset/result.json",
+      "sha256": "fbf574f1082bdf2d1957fa3b332f0e7a10cdf80b5d51f1233191a053db747ae0"
+    },
+    {
+      "bytes": 2522,
+      "path": "gemini/error-400/exchange.json",
+      "sha256": "23130e33fc189eedbf7990435ed51c21c39ad9c8cb36e27eefc3a6b80bf3e030"
+    },
+    {
+      "bytes": 243,
+      "path": "gemini/error-400/result.json",
+      "sha256": "fde78d612fdd86c10a983b9d3330ad68b4ef918ca87c67086363c24ac7d74554"
+    },
+    {
+      "bytes": 3982,
+      "path": "gemini/error-401/exchange.json",
+      "sha256": "5e179866a3848e87934f343f5de1655178f17f5347c10bcb8585fb2a29a96573"
+    },
+    {
+      "bytes": 243,
+      "path": "gemini/error-401/result.json",
+      "sha256": "c33179a9321bad94c5d0fd30aec2a8db75a5f57839d88fd454039f9deb207164"
+    },
+    {
+      "bytes": 3007,
+      "path": "gemini/text/exchange.json",
+      "sha256": "73c5bdd4ebf375de112a780d4b9a39e0c8fd47a11bd37ce1309db3c9f36aae37"
+    },
+    {
+      "bytes": 198,
+      "path": "gemini/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 2930,
+      "path": "gemini/tool-call/exchange.json",
+      "sha256": "fbfd3ed13c4389b1e708f768d69ff8ad3b795df65850811196e68a02fc537da8"
+    },
+    {
+      "bytes": 459,
+      "path": "gemini/tool-call/result.json",
+      "sha256": "28710a556f6921348c079ecb706230617d7da747351e387dd6c0aa3b752fb52a"
+    },
+    {
+      "bytes": 10432,
+      "path": "gemini/truncated-eof/exchange.json",
+      "sha256": "0c471b44f13b852b293460c46e60cdc866434d84d26a82d4e05e829ad0004042"
+    },
+    {
+      "bytes": 184,
+      "path": "gemini/truncated-eof/result.json",
+      "sha256": "e5a0f999ae11228ee2448f04ca2f3a928474b00f9c9c88a660d19ec97e808266"
+    },
+    {
+      "bytes": 10434,
+      "path": "gemini/truncated-reset/exchange.json",
+      "sha256": "b6e7775aa300a6434ede33ac3d84a7b93f5768504afd2245b40ee98b3ff1dd0a"
+    },
+    {
+      "bytes": 123,
+      "path": "gemini/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 3932,
+      "path": "grok-oauth/error-400/exchange.json",
+      "sha256": "fb523168b69a03b6b0ff5e1e3691fcb93efc2c17489b31a83ab1d8f793c9de54"
+    },
+    {
+      "bytes": 134,
+      "path": "grok-oauth/error-400/result.json",
+      "sha256": "aec7976540a93c17ae2f8bebf784ae3bd44bdfa8e1475974c941faae7486d551"
+    },
+    {
+      "bytes": 8335,
+      "path": "grok-oauth/error-401/exchange.json",
+      "sha256": "67266fc34ee90f9ea2f85c2b5d041a7a41789472bb9b7c954c792ec742f90789"
+    },
+    {
+      "bytes": 134,
+      "path": "grok-oauth/error-401/result.json",
+      "sha256": "9da1708862aea189eb0b11d90baf1a115784035c0972e5e3bcee8e77dde32e64"
+    },
+    {
+      "bytes": 6921,
+      "path": "grok-oauth/text/exchange.json",
+      "sha256": "c170c2b07b947254b022397986a6316adedea88bbfdb3dcef1f9a9b4b965fd09"
+    },
+    {
+      "bytes": 198,
+      "path": "grok-oauth/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 5275,
+      "path": "grok-oauth/tool-call/exchange.json",
+      "sha256": "28919058ea853be48bdfb0b068e59fd6a2641fec7c1fe376ac03b8102a539b1d"
+    },
+    {
+      "bytes": 430,
+      "path": "grok-oauth/tool-call/result.json",
+      "sha256": "946d590bbb6a5bbdb5ee0a378c1207590e96767e6147575cb5041b723a0cde97"
+    },
+    {
+      "bytes": 20381,
+      "path": "grok-oauth/truncated-eof/exchange.json",
+      "sha256": "6031165b61e1f4d10f512fa7ba1097ee9b1ee5b0c8acc011abf0e9f74ba6a306"
+    },
+    {
+      "bytes": 169,
+      "path": "grok-oauth/truncated-eof/result.json",
+      "sha256": "9a30e060af0e9102ceefaf5f9555ea0845b9f0d556b4fe275835c91a07c069a2"
+    },
+    {
+      "bytes": 20388,
+      "path": "grok-oauth/truncated-reset/exchange.json",
+      "sha256": "95fa9955193bdaaa40cbbe121b4832b9eded59a23f5a386a990dcb203d22dfa6"
+    },
+    {
+      "bytes": 169,
+      "path": "grok-oauth/truncated-reset/result.json",
+      "sha256": "9a30e060af0e9102ceefaf5f9555ea0845b9f0d556b4fe275835c91a07c069a2"
+    },
+    {
+      "bytes": 3385,
+      "path": "mimo-oauth/error-400/exchange.json",
+      "sha256": "a0dab8b343017934cdd99a1e30424de8cc7017789189e2f0bc18b0982ad50859"
+    },
+    {
+      "bytes": 130,
+      "path": "mimo-oauth/error-400/result.json",
+      "sha256": "5342b4fb3b614a36a3a0913958c3efd525918d703777afc4fef7cac65414ee47"
+    },
+    {
+      "bytes": 3385,
+      "path": "mimo-oauth/error-401/exchange.json",
+      "sha256": "c8240db23aa64f744cd069326051d06b365cfb6e33a068f7644c7c6e6ee98db3"
+    },
+    {
+      "bytes": 214,
+      "path": "mimo-oauth/error-401/result.json",
+      "sha256": "681e8c65f85addc35a12ebb903324e8d4bb406c70f00c9ce382e6b69df3ad48d"
+    },
+    {
+      "bytes": 4117,
+      "path": "mimo-oauth/text/exchange.json",
+      "sha256": "1b2cdef054b887f54529a04ecdddd8c11a87dbe72bc9ebe38839b6eaea9d08ba"
+    },
+    {
+      "bytes": 200,
+      "path": "mimo-oauth/text/result.json",
+      "sha256": "a2136759761202b119634253e1e6c485c7f413a30554edb20b0fb8f7eb5a9b72"
+    },
+    {
+      "bytes": 4297,
+      "path": "mimo-oauth/tool-call/exchange.json",
+      "sha256": "2a43b88be24360d2c067611869593aea980bfeb16a0417febd3e2b663ecf096d"
+    },
+    {
+      "bytes": 437,
+      "path": "mimo-oauth/tool-call/result.json",
+      "sha256": "741a8bc10075c4663b72f109e0aa1ec338418bc3e65b2daf815e85999e84b048"
+    },
+    {
+      "bytes": 17464,
+      "path": "mimo-oauth/truncated-eof/exchange.json",
+      "sha256": "da5e371ff91e10b84ec1977d34fff457ab822f40bf529811c448a5f7efa0de6a"
+    },
+    {
+      "bytes": 169,
+      "path": "mimo-oauth/truncated-eof/result.json",
+      "sha256": "9a30e060af0e9102ceefaf5f9555ea0845b9f0d556b4fe275835c91a07c069a2"
+    },
+    {
+      "bytes": 17465,
+      "path": "mimo-oauth/truncated-reset/exchange.json",
+      "sha256": "1f25158387f5135088868a40b011ede013583625128ce5772217b564224874f3"
+    },
+    {
+      "bytes": 169,
+      "path": "mimo-oauth/truncated-reset/result.json",
+      "sha256": "9a30e060af0e9102ceefaf5f9555ea0845b9f0d556b4fe275835c91a07c069a2"
+    },
+    {
+      "bytes": 3355,
+      "path": "muse-code-oauth/error-400/exchange.json",
+      "sha256": "840b1b6051b11369a80ffc3990019ef2954d2ee44e5b1abe8261cffc8c124b3a"
+    },
+    {
+      "bytes": 134,
+      "path": "muse-code-oauth/error-400/result.json",
+      "sha256": "aec7976540a93c17ae2f8bebf784ae3bd44bdfa8e1475974c941faae7486d551"
+    },
+    {
+      "bytes": 3355,
+      "path": "muse-code-oauth/error-401/exchange.json",
+      "sha256": "2f7cc5f08bdfd2f8c14986088cbfe2ac39d50f749e6dadd45fe3610895ff6dae"
+    },
+    {
+      "bytes": 224,
+      "path": "muse-code-oauth/error-401/result.json",
+      "sha256": "4d720e3e04ec78333fbface8b52cf7b90e41261cbc254eb2689276272fd64b5b"
+    },
+    {
+      "bytes": 21049,
+      "path": "muse-code-oauth/text/exchange.json",
+      "sha256": "efa16beb48a93be8597dc432d830923ca583ab7d224d7d35298cf712647ea613"
+    },
+    {
+      "bytes": 193,
+      "path": "muse-code-oauth/text/result.json",
+      "sha256": "0ee96717ea7c0b27b974bb20d30dc420192b353b5c80e6727cc645ae50c7ec7c"
+    },
+    {
+      "bytes": 22108,
+      "path": "muse-code-oauth/tool-call/exchange.json",
+      "sha256": "cf40d06d48ebcedaf8a1b5907adc6982a65d93213851feedfbf3051b3bae8fe2"
+    },
+    {
+      "bytes": 193,
+      "path": "muse-code-oauth/tool-call/result.json",
+      "sha256": "0ee96717ea7c0b27b974bb20d30dc420192b353b5c80e6727cc645ae50c7ec7c"
+    },
+    {
+      "bytes": 18896,
+      "path": "muse-code-oauth/truncated-eof/exchange.json",
+      "sha256": "ce5a3142bae65f8df2fa3b2e8a86e0de4e758bf5d9ddea7407e27cc8019b34ea"
+    },
+    {
+      "bytes": 193,
+      "path": "muse-code-oauth/truncated-eof/result.json",
+      "sha256": "0ee96717ea7c0b27b974bb20d30dc420192b353b5c80e6727cc645ae50c7ec7c"
+    },
+    {
+      "bytes": 18897,
+      "path": "muse-code-oauth/truncated-reset/exchange.json",
+      "sha256": "d331a5e00e99846af04bcb78816d051c46496b31d10919cdff94f03eaba3fca7"
+    },
+    {
+      "bytes": 123,
+      "path": "muse-code-oauth/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 3669,
+      "path": "openai-oauth-responses-sse/error-400/exchange.json",
+      "sha256": "abdc16811082be8abe9d1b3307922c095ccd4915217714bfe7811e642cbefb94"
+    },
+    {
+      "bytes": 162,
+      "path": "openai-oauth-responses-sse/error-400/result.json",
+      "sha256": "fcd23aacb49042d65af8684ab34bd609593cfd083a5ca62c6e22277b73970aba"
+    },
+    {
+      "bytes": 7402,
+      "path": "openai-oauth-responses-sse/error-401/exchange.json",
+      "sha256": "a7cad940a951607ad9c7b602cc13392a327ab20487d7e81d61fa75abc096a9f5"
+    },
+    {
+      "bytes": 162,
+      "path": "openai-oauth-responses-sse/error-401/result.json",
+      "sha256": "197962c3f9d948ba4180d20eac8acf6460c152ed094a8ec700565ebc471944d4"
+    },
+    {
+      "bytes": 10941,
+      "path": "openai-oauth-responses-sse/text/exchange.json",
+      "sha256": "dfc14574bcf820883a9ac1826dcec79bc3acbc38f300c65f8a51063a1e9e9159"
+    },
+    {
+      "bytes": 198,
+      "path": "openai-oauth-responses-sse/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 7284,
+      "path": "openai-oauth-responses-sse/tool-call/exchange.json",
+      "sha256": "b8c4154a50f11907baddfda712fccc71a04d8a79809ad23e7dc802736cab6e2e"
+    },
+    {
+      "bytes": 430,
+      "path": "openai-oauth-responses-sse/tool-call/result.json",
+      "sha256": "946d590bbb6a5bbdb5ee0a378c1207590e96767e6147575cb5041b723a0cde97"
+    },
+    {
+      "bytes": 4474,
+      "path": "openai-oauth-responses-sse/truncated-eof/exchange.json",
+      "sha256": "61506e07552d8dda8f4276cdee6891572f2895a36a60d7e9d5a14ce06085e134"
+    },
+    {
+      "bytes": 196,
+      "path": "openai-oauth-responses-sse/truncated-eof/result.json",
+      "sha256": "dda91532bb8c87c383fb4010e706e25ca74c3e01ccea8ac9ef636fae39ce2b5d"
+    },
+    {
+      "bytes": 4476,
+      "path": "openai-oauth-responses-sse/truncated-reset/exchange.json",
+      "sha256": "5c8a54d9a8bd7f26cad9d761eafa572b9b20f120c12cd9962126d4a5081e48f3"
+    },
+    {
+      "bytes": 123,
+      "path": "openai-oauth-responses-sse/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 5622,
+      "path": "openai-oauth-responses-ws/error-error-frame/exchange.json",
+      "sha256": "39fa93bdc80d77b0d032ae26c3d965e01684198ee92e536196d9e0019e3c53b7"
+    },
+    {
+      "bytes": 127,
+      "path": "openai-oauth-responses-ws/error-error-frame/result.json",
+      "sha256": "f355bd8ad5f45cc005ad3e623d5e78ebd3c0a1bafea2bd17a33ec371adb57484"
+    },
+    {
+      "bytes": 29176,
+      "path": "openai-oauth-responses-ws/error-failed-frame/exchange.json",
+      "sha256": "23ecdc1281f9e9f2e7561778035558282325296013492f7723869653ed7fff7a"
+    },
+    {
+      "bytes": 166,
+      "path": "openai-oauth-responses-ws/error-failed-frame/result.json",
+      "sha256": "27c4b5442c65d29aae8964417f4dfa5e19b00fd3103a28be4ad60b5cc7698547"
+    },
+    {
+      "bytes": 3969,
+      "path": "openai-oauth-responses-ws/error-http-handshake-401/exchange.json",
+      "sha256": "2c68db786d82f334fb14f2725c0b5e55ff6459eb9d7c93bf2a02b223243321da"
+    },
+    {
+      "bytes": 203,
+      "path": "openai-oauth-responses-ws/error-http-handshake-401/result.json",
+      "sha256": "06ba9e2e1d69e461fba011f952e238cc74fcf93ccfb6b67102cc14ab3701c96c"
+    },
+    {
+      "bytes": 8617,
+      "path": "openai-oauth-responses-ws/text/exchange.json",
+      "sha256": "980e5b4ab18ec3b2c57764cdb527860a888d83add0ab78fba64c1bb54c79c430"
+    },
+    {
+      "bytes": 198,
+      "path": "openai-oauth-responses-ws/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 7756,
+      "path": "openai-oauth-responses-ws/tool-call/exchange.json",
+      "sha256": "2647ad266ae73d82eef5c1a0eac413b4f5835f1639786e0a7139bf52814c237c"
+    },
+    {
+      "bytes": 430,
+      "path": "openai-oauth-responses-ws/tool-call/result.json",
+      "sha256": "946d590bbb6a5bbdb5ee0a378c1207590e96767e6147575cb5041b723a0cde97"
+    },
+    {
+      "bytes": 30079,
+      "path": "openai-oauth-responses-ws/truncated/exchange.json",
+      "sha256": "d002f7547f65499b95742ecbf129d4e20bdf9bdd1ed32729af01aa988c260fc2"
+    },
+    {
+      "bytes": 169,
+      "path": "openai-oauth-responses-ws/truncated/result.json",
+      "sha256": "8527cde88b65ee54d96ebc38df9c3278525d330eae7e8ab0116e975e714cd308"
+    },
+    {
+      "bytes": 2914,
+      "path": "openai-responses-sse-direct/error-400/exchange.json",
+      "sha256": "e33d5e3b5ce5e844405330bb3581472ee1999ccc7e1fd99a6a6f1d5192c529f1"
+    },
+    {
+      "bytes": 156,
+      "path": "openai-responses-sse-direct/error-400/result.json",
+      "sha256": "a94af2ab60ab0c5fbf264a93429ba701cb3921c2a3c217e751f8227308ecdaff"
+    },
+    {
+      "bytes": 4739,
+      "path": "openai-responses-sse-direct/error-401/exchange.json",
+      "sha256": "57f7c2ea2c932ceeb27da8b998baece93159bb61cb2518ea0a205c10ca585f22"
+    },
+    {
+      "bytes": 156,
+      "path": "openai-responses-sse-direct/error-401/result.json",
+      "sha256": "335e6d44efb56304964f645f210ec0e000e565dcb7a74ab21d7a1ac8c255eef3"
+    },
+    {
+      "bytes": 4320,
+      "path": "openai-responses-sse-direct/text/exchange.json",
+      "sha256": "3a3815166da27888a44b0c97965a69eb3e382e472e42ae28ebda5d9ad30c1640"
+    },
+    {
+      "bytes": 198,
+      "path": "openai-responses-sse-direct/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 4459,
+      "path": "openai-responses-sse-direct/tool-call/exchange.json",
+      "sha256": "b34ecaaaa2a384e7e826c5842605ac76349af7614477674704f0578757bd0d3a"
+    },
+    {
+      "bytes": 430,
+      "path": "openai-responses-sse-direct/tool-call/result.json",
+      "sha256": "946d590bbb6a5bbdb5ee0a378c1207590e96767e6147575cb5041b723a0cde97"
+    },
+    {
+      "bytes": 3719,
+      "path": "openai-responses-sse-direct/truncated-eof/exchange.json",
+      "sha256": "44c41cd9e8f10f5c43593d99ebbd98dc18ff39fa3f2abf1646caba1f888125cc"
+    },
+    {
+      "bytes": 190,
+      "path": "openai-responses-sse-direct/truncated-eof/result.json",
+      "sha256": "c77daff59ba782ee1e7c51f2b0e39a58542612cd4809eacfaaa57314b1f60066"
+    },
+    {
+      "bytes": 3721,
+      "path": "openai-responses-sse-direct/truncated-reset/exchange.json",
+      "sha256": "cd75ef7522e1c774b35f85fabf7397687d37bcba7e417aa74ca401a9e5536cff"
+    },
+    {
+      "bytes": 123,
+      "path": "openai-responses-sse-direct/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 3466,
+      "path": "openai-responses-ws/error-error-frame/exchange.json",
+      "sha256": "ef0559caa05ed4db7797e8b06c9fe7aa90fe13768fe471c2e5309b2dc5d6be89"
+    },
+    {
+      "bytes": 127,
+      "path": "openai-responses-ws/error-error-frame/result.json",
+      "sha256": "f355bd8ad5f45cc005ad3e623d5e78ebd3c0a1bafea2bd17a33ec371adb57484"
+    },
+    {
+      "bytes": 16237,
+      "path": "openai-responses-ws/error-failed-frame/exchange.json",
+      "sha256": "ff35775b7d0f7579c755580c9d627b6917a4a7406e4da6d41c7e229835892e86"
+    },
+    {
+      "bytes": 160,
+      "path": "openai-responses-ws/error-failed-frame/result.json",
+      "sha256": "8325f64cf38ea1c029cd625d4c3a230551d27f77c611b30da8e7a3f9080a4a17"
+    },
+    {
+      "bytes": 2997,
+      "path": "openai-responses-ws/error-http-handshake-401/exchange.json",
+      "sha256": "a726f1fc06b3ba3dbd2bb1a0851a62daf3ea46255907bdaa6ce2579d48819934"
+    },
+    {
+      "bytes": 160,
+      "path": "openai-responses-ws/error-http-handshake-401/result.json",
+      "sha256": "f159a1e6483debc62629b68203fb82d725f390864bf5536527c1ef12f8996166"
+    },
+    {
+      "bytes": 4897,
+      "path": "openai-responses-ws/text/exchange.json",
+      "sha256": "0eecc1b5ee7408f14e22cfa21f0ead293b0f5e56c4148d8800e9d8600893eb36"
+    },
+    {
+      "bytes": 198,
+      "path": "openai-responses-ws/text/result.json",
+      "sha256": "9afcbd9f9916fc379b0d26b5d20f14c27effc30862e7db941fe8095b0fe8c322"
+    },
+    {
+      "bytes": 4640,
+      "path": "openai-responses-ws/tool-call/exchange.json",
+      "sha256": "2277c6d8541a381de978106935d2b71e346d9740f7f909e510d408475ee57653"
+    },
+    {
+      "bytes": 430,
+      "path": "openai-responses-ws/tool-call/result.json",
+      "sha256": "946d590bbb6a5bbdb5ee0a378c1207590e96767e6147575cb5041b723a0cde97"
+    },
+    {
+      "bytes": 17143,
+      "path": "openai-responses-ws/truncated/exchange.json",
+      "sha256": "1305a60c4c1fdea1858ff06032134b7706f8c64019c6209b6809b8770e4d01f1"
+    },
+    {
+      "bytes": 169,
+      "path": "openai-responses-ws/truncated/result.json",
+      "sha256": "8527cde88b65ee54d96ebc38df9c3278525d330eae7e8ab0116e975e714cd308"
+    },
+    {
+      "bytes": 4522,
+      "path": "opencode-go-oauth/error-400/exchange.json",
+      "sha256": "ceed2463a8c2483ffeeface80e32a0e3d6a8178f2231855155e87b5102335785"
+    },
+    {
+      "bytes": 134,
+      "path": "opencode-go-oauth/error-400/result.json",
+      "sha256": "aec7976540a93c17ae2f8bebf784ae3bd44bdfa8e1475974c941faae7486d551"
+    },
+    {
+      "bytes": 13312,
+      "path": "opencode-go-oauth/error-401/exchange.json",
+      "sha256": "be5075abed6b9f127849eb7020e315aab2290d09ad524027379c6071f9c8600a"
+    },
+    {
+      "bytes": 230,
+      "path": "opencode-go-oauth/error-401/result.json",
+      "sha256": "36b3ca44253388ef85a992026653d2f326a67484e18924a7fef01bece56dbd15"
+    },
+    {
+      "bytes": 5254,
+      "path": "opencode-go-oauth/text/exchange.json",
+      "sha256": "3185e70a6e64d2c41392846950372dabccccaee8e0c3b7698554479711521c0f"
+    },
+    {
+      "bytes": 200,
+      "path": "opencode-go-oauth/text/result.json",
+      "sha256": "a2136759761202b119634253e1e6c485c7f413a30554edb20b0fb8f7eb5a9b72"
+    },
+    {
+      "bytes": 5434,
+      "path": "opencode-go-oauth/tool-call/exchange.json",
+      "sha256": "74205ca44df04ec6b13185041c90b962e75bb6973938c17fe0bb2ff0b2b140e3"
+    },
+    {
+      "bytes": 437,
+      "path": "opencode-go-oauth/tool-call/result.json",
+      "sha256": "741a8bc10075c4663b72f109e0aa1ec338418bc3e65b2daf815e85999e84b048"
+    },
+    {
+      "bytes": 20126,
+      "path": "opencode-go-oauth/truncated-eof/exchange.json",
+      "sha256": "964ffe50134fdcc955b0b8f5a5c51ffb7270335debfe1e58cbd0512f9b7fce0e"
+    },
+    {
+      "bytes": 174,
+      "path": "opencode-go-oauth/truncated-eof/result.json",
+      "sha256": "4ea19825f4a10ce9764f9e363b8410580818c4fc3bf4ab926cd139d7213e58de"
+    },
+    {
+      "bytes": 20133,
+      "path": "opencode-go-oauth/truncated-reset/exchange.json",
+      "sha256": "41971b93c12ce1f6902c6873c952cba8ce7e0df3a1ef3a2223036fb8c959cf02"
+    },
+    {
+      "bytes": 123,
+      "path": "opencode-go-oauth/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 97,
+      "path": "unrecorded.json",
+      "sha256": "a9ed23997ad79e306d63fcc462dd5b65a613112b29dc6454fa8ba165d83abe92"
+    },
+    {
+      "bytes": 3531,
+      "path": "vertex-ai-adc/error-400/exchange.json",
+      "sha256": "982a582b7e9c118a8587ee6ae5954a76ed9df086a5ccaa2e5d680ebbe829fb55"
+    },
+    {
+      "bytes": 248,
+      "path": "vertex-ai-adc/error-400/result.json",
+      "sha256": "e45c93a47f7fad1db9503a3d0f9cc2953c351aaa29dd7d74bd8d16548379611f"
+    },
+    {
+      "bytes": 6075,
+      "path": "vertex-ai-adc/error-401/exchange.json",
+      "sha256": "80ea2ed99a065540a74c8e1fee8002352a93b95eeb35d3b96a491cba17bce2e1"
+    },
+    {
+      "bytes": 248,
+      "path": "vertex-ai-adc/error-401/result.json",
+      "sha256": "9cbc51b3b6e51f46dbb548b83635b3615cba0fe7178705f5602a3bde61df4e8f"
+    },
+    {
+      "bytes": 12798,
+      "path": "vertex-ai-adc/text/exchange.json",
+      "sha256": "1c93616777d335b6dfe25a31e95e1347a852c21336fba96ddb6fee12a443a817"
+    },
+    {
+      "bytes": 129,
+      "path": "vertex-ai-adc/text/result.json",
+      "sha256": "e3237494bf7091ab543a2b704a706ec851bf6b11f39cc0e3de630e748cc05d35"
+    },
+    {
+      "bytes": 12438,
+      "path": "vertex-ai-adc/tool-call/exchange.json",
+      "sha256": "d76cc44494dfd10fb465676736aac238d581a2ce3fab6c7a2b5760137e2c5950"
+    },
+    {
+      "bytes": 129,
+      "path": "vertex-ai-adc/tool-call/result.json",
+      "sha256": "e3237494bf7091ab543a2b704a706ec851bf6b11f39cc0e3de630e748cc05d35"
+    },
+    {
+      "bytes": 11622,
+      "path": "vertex-ai-adc/truncated-eof/exchange.json",
+      "sha256": "1df35e2767c4bb6857c144ccc01d388c4db71686cb52fa777aeee4aae2f8150f"
+    },
+    {
+      "bytes": 143,
+      "path": "vertex-ai-adc/truncated-eof/result.json",
+      "sha256": "9ad20ef2ccd8d099cc8b248fcb3ba9546e636e12a4cdd72c67b91210dfefde16"
+    },
+    {
+      "bytes": 11624,
+      "path": "vertex-ai-adc/truncated-reset/exchange.json",
+      "sha256": "69a825c7e93642b15e6e48b372ded68057219913e5acd7b4d59a274f6e764ed6"
+    },
+    {
+      "bytes": 123,
+      "path": "vertex-ai-adc/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    },
+    {
+      "bytes": 2430,
+      "path": "vertex-ai-api-key/error-400/exchange.json",
+      "sha256": "af0859313037642be728298c7629695e2c998ccab2db8d1eb16a09bbe78b09d7"
+    },
+    {
+      "bytes": 248,
+      "path": "vertex-ai-api-key/error-400/result.json",
+      "sha256": "e45c93a47f7fad1db9503a3d0f9cc2953c351aaa29dd7d74bd8d16548379611f"
+    },
+    {
+      "bytes": 2430,
+      "path": "vertex-ai-api-key/error-401/exchange.json",
+      "sha256": "b65ceb738055bd5dd65d797e73090da5763aacb39e52e5a1e78db83f1f7305ae"
+    },
+    {
+      "bytes": 248,
+      "path": "vertex-ai-api-key/error-401/result.json",
+      "sha256": "9cbc51b3b6e51f46dbb548b83635b3615cba0fe7178705f5602a3bde61df4e8f"
+    },
+    {
+      "bytes": 11391,
+      "path": "vertex-ai-api-key/text/exchange.json",
+      "sha256": "7c48a76aea98ede5e22f62b4a4719e65058187d0e4af37038a3f9eac86e401e1"
+    },
+    {
+      "bytes": 129,
+      "path": "vertex-ai-api-key/text/result.json",
+      "sha256": "e3237494bf7091ab543a2b704a706ec851bf6b11f39cc0e3de630e748cc05d35"
+    },
+    {
+      "bytes": 11031,
+      "path": "vertex-ai-api-key/tool-call/exchange.json",
+      "sha256": "8fa7cbb883932652587b5e3c718089d76b439d378f9914b302ca33873424ddd0"
+    },
+    {
+      "bytes": 129,
+      "path": "vertex-ai-api-key/tool-call/result.json",
+      "sha256": "e3237494bf7091ab543a2b704a706ec851bf6b11f39cc0e3de630e748cc05d35"
+    },
+    {
+      "bytes": 10215,
+      "path": "vertex-ai-api-key/truncated-eof/exchange.json",
+      "sha256": "91c0029783bf980692e740bb38d11368b5dcc6ca978f090489f070427d1ef3df"
+    },
+    {
+      "bytes": 143,
+      "path": "vertex-ai-api-key/truncated-eof/result.json",
+      "sha256": "9ad20ef2ccd8d099cc8b248fcb3ba9546e636e12a4cdd72c67b91210dfefde16"
+    },
+    {
+      "bytes": 10217,
+      "path": "vertex-ai-api-key/truncated-reset/exchange.json",
+      "sha256": "14de6d359ecfd092033b4d41dc46e991335539ecd7a8825edfb3cc45a6669057"
+    },
+    {
+      "bytes": 123,
+      "path": "vertex-ai-api-key/truncated-reset/result.json",
+      "sha256": "977c1562fafaee89e1ec341baa927f16672dbfa11c0ae676779ce2893ec7395c"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-providers-intercepted.mjs",
+  "scenarios": [
+    "anthropic-oauth/error-400",
+    "anthropic-oauth/error-401",
+    "anthropic-oauth/text",
+    "anthropic-oauth/tool-call",
+    "anthropic-oauth/truncated-eof",
+    "anthropic-oauth/truncated-reset",
+    "antigravity-oauth/error-400",
+    "antigravity-oauth/error-401",
+    "antigravity-oauth/text",
+    "antigravity-oauth/tool-call",
+    "antigravity-oauth/truncated-eof",
+    "antigravity-oauth/truncated-reset",
+    "command-code-oauth/error-400",
+    "command-code-oauth/error-401",
+    "command-code-oauth/text",
+    "command-code-oauth/tool-call",
+    "command-code-oauth/truncated-eof",
+    "command-code-oauth/truncated-reset",
+    "cursor-api/error-http-401",
+    "cursor-api/truncated",
+    "devin-oauth/error-400",
+    "devin-oauth/error-401",
+    "devin-oauth/truncated-reset",
+    "gemini/error-400",
+    "gemini/error-401",
+    "gemini/text",
+    "gemini/tool-call",
+    "gemini/truncated-eof",
+    "gemini/truncated-reset",
+    "grok-oauth/error-400",
+    "grok-oauth/error-401",
+    "grok-oauth/text",
+    "grok-oauth/tool-call",
+    "grok-oauth/truncated-eof",
+    "grok-oauth/truncated-reset",
+    "mimo-oauth/error-400",
+    "mimo-oauth/error-401",
+    "mimo-oauth/text",
+    "mimo-oauth/tool-call",
+    "mimo-oauth/truncated-eof",
+    "mimo-oauth/truncated-reset",
+    "muse-code-oauth/error-400",
+    "muse-code-oauth/error-401",
+    "muse-code-oauth/text",
+    "muse-code-oauth/tool-call",
+    "muse-code-oauth/truncated-eof",
+    "muse-code-oauth/truncated-reset",
+    "openai-oauth-responses-sse/error-400",
+    "openai-oauth-responses-sse/error-401",
+    "openai-oauth-responses-sse/text",
+    "openai-oauth-responses-sse/tool-call",
+    "openai-oauth-responses-sse/truncated-eof",
+    "openai-oauth-responses-sse/truncated-reset",
+    "openai-oauth-responses-ws/error-error-frame",
+    "openai-oauth-responses-ws/error-failed-frame",
+    "openai-oauth-responses-ws/error-http-handshake-401",
+    "openai-oauth-responses-ws/text",
+    "openai-oauth-responses-ws/tool-call",
+    "openai-oauth-responses-ws/truncated",
+    "openai-responses-sse-direct/error-400",
+    "openai-responses-sse-direct/error-401",
+    "openai-responses-sse-direct/text",
+    "openai-responses-sse-direct/tool-call",
+    "openai-responses-sse-direct/truncated-eof",
+    "openai-responses-sse-direct/truncated-reset",
+    "openai-responses-ws/error-error-frame",
+    "openai-responses-ws/error-failed-frame",
+    "openai-responses-ws/error-http-handshake-401",
+    "openai-responses-ws/text",
+    "openai-responses-ws/tool-call",
+    "openai-responses-ws/truncated",
+    "opencode-go-oauth/error-400",
+    "opencode-go-oauth/error-401",
+    "opencode-go-oauth/text",
+    "opencode-go-oauth/tool-call",
+    "opencode-go-oauth/truncated-eof",
+    "opencode-go-oauth/truncated-reset",
+    "vertex-ai-adc/error-400",
+    "vertex-ai-adc/error-401",
+    "vertex-ai-adc/text",
+    "vertex-ai-adc/tool-call",
+    "vertex-ai-adc/truncated-eof",
+    "vertex-ai-adc/truncated-reset",
+    "vertex-ai-api-key/error-400",
+    "vertex-ai-api-key/error-401",
+    "vertex-ai-api-key/text",
+    "vertex-ai-api-key/tool-call",
+    "vertex-ai-api-key/truncated-eof",
+    "vertex-ai-api-key/truncated-reset"
+  ],
+  "set": "providers-intercepted",
+  "totalBytes": 801214,
+  "unrecordedCount": 0
+}

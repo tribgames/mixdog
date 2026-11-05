@@ -1,0 +1,88 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "824570fb737fc42a94cd2f94a2858dd9",
+          "kind": "randomBytes",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs#_buildOpenAIHttpFallbackHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/lib/first-output-window.mjs#Object.arm",
+      "src/runtime/agent/orchestrator/providers/openai-http-sse-watchdogs.mjs#Object.armFirstServerEvent",
+      "src/runtime/agent/orchestrator/providers/openai-http-sse-watchdogs.mjs#armSemanticIdle",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "openai-oauth-responses-sse/truncated-reset",
+      "seed": 2415937763,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\"},\"store\":false,\"stream\":true,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "chatgpt-account-id": "acct-fixture",
+        "connection": "keep-alive",
+        "content-length": "613",
+        "content-type": "application/json",
+        "host": "chatgpt.com",
+        "openai-beta": "responses=experimental",
+        "originator": "codex_cli_rs",
+        "sec-fetch-mode": "cors",
+        "session-id": "mixdog-codex",
+        "session_id": "mixdog-codex",
+        "thread-id": "mixdog-codex",
+        "user-agent": "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown",
+        "version": "0.166.0",
+        "x-client-request-id": "<random:hex32>",
+        "x-codex-beta-features": "remote_compaction_v2"
+      },
+      "method": "POST",
+      "origin": "https://chatgpt.com",
+      "path": "/backend-api/codex/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "openai-beta",
+        "originator",
+        "chatgpt-account-id",
+        "x-client-request-id",
+        "user-agent",
+        "version",
+        "x-codex-beta-features",
+        "session_id",
+        "session-id",
+        "thread-id",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\n",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

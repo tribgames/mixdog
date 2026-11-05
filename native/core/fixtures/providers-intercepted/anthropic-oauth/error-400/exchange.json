@@ -1,0 +1,67 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "anthropic-oauth/error-400",
+      "seed": 1136220229,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"eager_input_streaming\":true}]}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "anthropic-version": "2023-06-01",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "562",
+        "content-type": "application/json",
+        "host": "api.anthropic.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "claude-cli/2.1.317 (external, sdk-cli)",
+        "x-app": "cli"
+      },
+      "method": "POST",
+      "origin": "https://api.anthropic.com",
+      "path": "/v1/messages",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "anthropic-version",
+        "anthropic-beta",
+        "anthropic-dangerous-direct-browser-access",
+        "user-agent",
+        "x-app",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"400\"}}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

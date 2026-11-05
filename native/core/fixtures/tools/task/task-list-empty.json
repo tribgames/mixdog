@@ -1,0 +1,8 @@
+{
+  "input": {
+    "action": "list"
+  },
+  "isError": false,
+  "text": "background tasks: 0",
+  "tool": "task"
+}

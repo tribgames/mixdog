@@ -1,0 +1,11 @@
+{
+  "input": {
+    "mode": "callers",
+    "symbols": [
+      "add"
+    ]
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\n# call sites\nsrc/lib/util.mjs:3:29\tcall\tcaller=twice\texport const twice = (x) => add(x, x);\nsrc/main.mjs:4:10\tcall\tcaller=main\treturn add(1, 2) + sub(5, 3);\nsrc/main.mjs:8:10\tcall\tcaller=other\treturn add(3, 4);",
+  "tool": "code_graph"
+}

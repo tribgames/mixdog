@@ -1,0 +1,10 @@
+{
+  "input": {
+    "content": "x",
+    "id": 999999,
+    "op": "edit"
+  },
+  "isError": false,
+  "text": "{\"text\":\"core edit failed: index_revision required; list memories before editing or deleting\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"core edit failed: index_revision required; list memories before editing or deleting\"}]}",
+  "tool": "memory"
+}

@@ -1,0 +1,36 @@
+{
+  "name": "intra_turn_dedup",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {
+            "p": "x"
+          }
+        },
+        {
+          "id": "c2",
+          "name": "echo",
+          "arguments": {
+            "p": "x"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "k",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

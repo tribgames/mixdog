@@ -1,0 +1,73 @@
+{
+  "host": {
+    "script": {
+      "merge": {
+        "error": {
+          "code": "GIT_FAILED",
+          "message": "git merge failed (exit 1): nope"
+        }
+      }
+    },
+    "sessionId": "lead",
+    "toolCallId": "call1"
+  },
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "merge"
+      },
+      "requests": [
+        {
+          "op": "merge",
+          "txId": "call1:merge"
+        }
+      ],
+      "text": "error: git merge failed (exit 1): nope"
+    }
+  ],
+  "tool": "git"
+}

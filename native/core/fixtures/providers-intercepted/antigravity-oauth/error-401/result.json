@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Antigravity 401 (https://daily-cloudcode-pa.googleapis.com): fixture upstream error",
+    "name": "Error",
+    "status": 401
+  }
+}

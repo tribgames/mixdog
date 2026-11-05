@@ -1,0 +1,117 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "0de35f4763a1c8f5716b0dfd264090f4",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/devin-wire-request.mjs#buildDevinChatRequest"
+        },
+        {
+          "bytes": 16,
+          "hex": "1bd5916c04b3a701095433c485280204",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/devin.mjs#DevinOAuthProvider.send"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "devin-oauth/tool-call",
+      "seed": 3202294899,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyBase64": "CmUKBmNoaXNlbBIJMC4wLjAtZGV2GihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMC4wLjAtZGV2YgZjaGlzZWzyAQUDBAYHCA==",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "103",
+        "content-type": "application/proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+      "served": {
+        "bodyBase64": "CkQKDURldmluIEZpeHR1cmWQAcCaDLIBDWRldmluLWZpeHR1cmW6AR0gwJoMMgRgAXgBigENZGV2aW4tZml4dHVyZbABCA==",
+        "contentType": "application/proto",
+        "status": 200
+      },
+      "transport": "http"
+    },
+    {
+      "bodyBase64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw=",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "107",
+        "content-type": "application/proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.auth_pb.AuthService/GetUserJwt",
+      "served": {
+        "bodyBase64": "ChBmaXh0dXJlLXVzZXItand0",
+        "contentType": "application/proto",
+        "status": 200
+      },
+      "transport": "http"
+    },
+    {
+      "bodyBase64": "AQAAAZEfiwgAAAAAAAAKRZHBbhMxFEXjFkI7AikKGxSBZFlZFFRHntgz9URCVdnCqisQQsIeP1Mn0XiwPQ1ViYT4Aj6BdZd8Uj+g6oIPQDRBvM2T7j3vLu7Lvmb7Bs5dQ+ulG+5zxtgkzyd8dLBRI8TofEOTX0Aztu5L6gJQVdcQ40YkO9C8eLByjfGrOPufoPv1mYuwvEKDf2ddhEDnq3SNtt7w6TvfYRUAK7yFsIrRxaSaNBm9zMa6UobbqqRGs4KyqZRUVbKgyoLmIEvNDRug0eM33i9w1+J0Blg1cQVhIu+/eraHBt9+7z75sfu8dze3x/LgpNfrfbT25vi0zvpL7xddO3x4Cspghc/VsoPR60uSLlogM+L1HOpEDkkbfAshOYhkdkkWcPF3baGYgms+kfX6kAT43LkAhsze30Ef1m+R7mf3VJf8fGcPfUfjXJuiysuaMqE5FUcsp7IqBOW8FrKYSjZl4idCV+jR5gPbXn6hMTPACyuOaMlVToW0BdV5qSkz1kxLwSpmxR83UM2d0AEAAA==",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "identity",
+        "accept-language": "*",
+        "connect-accept-encoding": "gzip",
+        "connect-content-encoding": "gzip",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "406",
+        "content-type": "application/connect+proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "connect-go/1.18.1 (go1.26.3)"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+      "served": {
+        "bodyBase64": "AQAAADkfiwgAAAAAAAAK42LLLU6PT6swkubiSE7MyYlPqzAUYsvJz88uLZBir1bKTq1UsgIAXCVJrCUAAAABAAAAKx+LCAAAAAAAAAozEuXiSE7MyYlPqzCU4lRKzCsuTy1SqgUA5BLWlBcAAAABAAAAIB+LCAAAAAAAAArT4LLiEBCR4FBg0mABACbQF4oMAAAAAgAAAAJ7fQ==",
+        "contentType": "application/connect+proto",
+        "status": 200
+      },
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

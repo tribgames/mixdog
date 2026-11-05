@@ -1,0 +1,11 @@
+{
+  "input": {
+    "mode": "callees",
+    "symbols": [
+      "main"
+    ]
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\n# callees\nadd\tcallsite src/main.mjs:4:10\tdecl src/lib/math.mjs:1\t(in main)\tkind=call\nsub\tcallsite src/main.mjs:4:22\tdecl src/lib/math.mjs:5\t(in main)\tkind=call",
+  "tool": "code_graph"
+}

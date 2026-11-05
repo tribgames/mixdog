@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "fixture bad request",
+    "name": "Error",
+    "status": 400
+  }
+}

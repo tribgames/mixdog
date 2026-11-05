@@ -1,0 +1,30 @@
+{
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-remote-e2ee-session.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 35687,
+      "path": "session.json",
+      "sha256": "049463486469f7f41b876730b2d869b7eae4ee46a0ed4f8fc901f783a35121d5"
+    }
+  ],
+  "product": {
+    "appsSha256": "58cc104d88aab1ffdf91a5d8b137f4e0b3a4d1e7d4b1da74e4c97899514b8d62",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43480,
+    "refComparison": {
+      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34396
+    },
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-remote-e2ee-session.mjs",
+  "set": "remote-e2ee",
+  "totalBytes": 35687
+}

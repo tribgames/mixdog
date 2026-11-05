@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "open",
+    "path": "missing.docx"
+  },
+  "isError": false,
+  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"Error: Office document not found: <ROOT>\\\\missing.docx\"}],\"isError\":true}",
+  "tool": "office"
+}

@@ -1,0 +1,69 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "5ef8bb82467b03271d0911903f81e15d",
+          "kind": "randomBytes",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs#_buildOpenAIHttpFallbackHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "openai-responses-sse-direct/error-400",
+      "seed": 2631758788,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"stream\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}",
+      "headers": {
+        "accept": "text/event-stream",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "466",
+        "content-type": "application/json",
+        "host": "api.openai.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "method": "POST",
+      "origin": "https://api.openai.com",
+      "path": "/v1/responses",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "x-client-request-id",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"400\"}}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

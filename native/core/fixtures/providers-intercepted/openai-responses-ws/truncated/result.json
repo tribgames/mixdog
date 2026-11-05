@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
+    "name": "Error",
+    "status": null
+  }
+}

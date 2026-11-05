@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "Gemini REST streamGenerateContent 401: {\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"401\"}}",
+    "name": "Error",
+    "status": 401
+  }
+}

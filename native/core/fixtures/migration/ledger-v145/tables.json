@@ -1,0 +1,160 @@
+{
+  "source": {
+    "file": "migration-corpus/v145/gateway-usage.local.jsonl",
+    "lines": 5781,
+    "sha256": "d0230fdef8fa3e7f723174837e6b463d5761e306215b3acf02a87d0f083f8b05"
+  },
+  "tables": {
+    "daily": {
+      "columns": [
+        "day",
+        "rank",
+        "provider",
+        "model",
+        "kind",
+        "cost_source",
+        "conversation",
+        "turns",
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "cost_usd",
+        "duration_ms",
+        "imported"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "82fb4dbaad17936561be7778fa454405aaacdfed3bc460c67fa827ca48a51900",
+      "rows": 31
+    },
+    "day_revisions": {
+      "columns": [
+        "day",
+        "rev"
+      ],
+      "orderedBy": "\"day\",\"rev\"",
+      "orderedRowsSha256": "c7d983e6b44f6036ca56f4ae4f2790832a42adb6bba10a00194de02f9f8a78fc",
+      "rows": 5
+    },
+    "day_sessions": {
+      "columns": [
+        "day",
+        "rank",
+        "session_id",
+        "tokens"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "0c987b3ea990fba061bbcd5a218eee395d42d43f4da6ae44d5e55f9e90c80acc",
+      "rows": 1080
+    },
+    "legacy_days": {
+      "columns": [
+        "day",
+        "document"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rows": 0
+    },
+    "metadata": {
+      "columns": [
+        "key",
+        "value"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "3875e7f0261e5df2c98c03583414654b7b0b2f037a58c4b9856c988b5000d971",
+      "rows": 1
+    },
+    "quota_samples": {
+      "columns": [
+        "provider",
+        "account",
+        "label",
+        "ts",
+        "seen_until",
+        "used_pct",
+        "reset_at"
+      ],
+      "orderedBy": "\"provider\",\"account\",\"label\",\"ts\",\"seen_until\",\"used_pct\",\"reset_at\"",
+      "orderedRowsSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rows": 0
+    },
+    "usage_events": {
+      "columns": [
+        "id",
+        "ts",
+        "day",
+        "route",
+        "session",
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "cost_usd",
+        "duration_ms"
+      ],
+      "orderedBy": "\"id\",\"ts\",\"day\",\"route\",\"session\",\"input\",\"output\",\"cache_read\",\"cache_write\",\"cost_usd\",\"duration_ms\"",
+      "orderedRowsSha256": "36aa4d2e2ba35ad159504f67edc33f5193ad1035cb2eded9ebbcab851e1bc51e",
+      "rows": 5781
+    },
+    "usage_request_first_output": {
+      "columns": [
+        "id",
+        "ttft_ms"
+      ],
+      "orderedBy": "\"id\",\"ttft_ms\"",
+      "orderedRowsSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rows": 0
+    },
+    "usage_request_requested_provider": {
+      "columns": [
+        "id",
+        "provider"
+      ],
+      "orderedBy": "\"id\",\"provider\"",
+      "orderedRowsSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rows": 0
+    },
+    "usage_requests": {
+      "columns": [
+        "id",
+        "ts",
+        "requested_model",
+        "status",
+        "attempts",
+        "ttft_ms",
+        "elapsed_ms"
+      ],
+      "orderedBy": "\"id\",\"ts\",\"requested_model\",\"status\",\"attempts\",\"ttft_ms\",\"elapsed_ms\"",
+      "orderedRowsSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rows": 0
+    },
+    "usage_routes": {
+      "columns": [
+        "id",
+        "signature"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "dc5bff73ce6301ae9ac2df6192fb29554d493c4b6aea2ca7fa1c3dfa1a253c1b",
+      "rows": 14
+    },
+    "usage_session_owners": {
+      "columns": [
+        "session",
+        "owner"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rows": 0
+    },
+    "usage_sessions": {
+      "columns": [
+        "id",
+        "value"
+      ],
+      "orderedBy": "rowid",
+      "orderedRowsSha256": "c8a8507acd3779acc30e665e4c06cdcc0b4b0cab0b489184c9a5d4d3b3993205",
+      "rows": 1408
+    }
+  }
+}

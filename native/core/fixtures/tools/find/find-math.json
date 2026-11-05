@@ -1,0 +1,8 @@
+{
+  "input": {
+    "query": "math"
+  },
+  "isError": false,
+  "text": "src/lib/math.mjs",
+  "tool": "find"
+}

@@ -1,0 +1,9 @@
+{
+  "input": {
+    "output_mode": "files_with_matches",
+    "pattern": "TODO"
+  },
+  "isError": false,
+  "text": "./src/lib/notes.txt",
+  "tool": "grep"
+}

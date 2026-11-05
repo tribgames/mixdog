@@ -1,0 +1,429 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "947c6ffed5325b3586e373c89b018145",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "fe6327b85dc5d4dc7f7f16e2058407eb",
+          "kind": "randomUUID",
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "36c72b19a37626a4238bbe4d95c842f2",
+          "kind": "randomUUID",
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "42700b4d13a252d44809ff372d53d451",
+          "kind": "randomUUID",
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "1640efc8488eb8bcfad59c233bbc7fd2",
+          "kind": "randomUUID",
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "bb7dc1c921d2c62e451413e3381a917f",
+          "kind": "randomUUID",
+          "n": 6,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "86a2a5e29ceaf5bf2cee71fcf20399fa",
+          "kind": "randomUUID",
+          "n": 7,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "50c7b86b57c2437e91be12375441dc7b",
+          "kind": "randomUUID",
+          "n": 8,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "fc6c5136fafd414e3b1f32c1dd4fe720",
+          "kind": "randomUUID",
+          "n": 9,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "64903f48d9ca71efc837516fc21ac5ab",
+          "kind": "randomUUID",
+          "n": 10,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "3bcf215364ce0e4ed8bc2f8fbdcd1e1d",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire.mjs#newCompletionId"
+        },
+        {
+          "bytes": 16,
+          "hex": "1d24d9ca9bc7c230fabcabdfc270869f",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire.mjs#runAction"
+        },
+        {
+          "bytes": 16,
+          "hex": "e8b550d9a42d1b3879a641493d74fc5c",
+          "kind": "randomUUID",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/cursor.mjs#CursorApiProvider.send"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/cursor-wire-guards.mjs#arm",
+      "src/runtime/agent/orchestrator/providers/cursor-wire-models.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#openCursorStream",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
+          "value": 0.37341704219579697
+        }
+      ],
+      "scenarioId": "cursor-api/error-http-401",
+      "seed": 2599769188,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "{}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "2",
+        "content-type": "application/json",
+        "host": "api2.cursor.sh",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/auth/exchange_user_api_key",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"accessToken\":\"fixture-access-token\",\"refreshToken\":\"fixture-refresh-token\"}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connection": "keep-alive",
+        "host": "cursor.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "GET",
+      "origin": "https://cursor.com",
+      "path": "/install",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding"
+      ],
+      "served": "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-fixture\",\"object\":\"model\"},{\"id\":\"claude-sonnet-4-6\",\"object\":\"model\"},{\"id\":\"gemini-2.5-pro\",\"object\":\"model\"},{\"id\":\"grok-4\",\"object\":\"model\"},{\"id\":\"muse-fixture\",\"object\":\"model\"},{\"id\":\"cc-fixture\",\"object\":\"model\"},{\"id\":\"mimo-fixture\",\"object\":\"model\"},{\"id\":\"go-fixture\",\"object\":\"model\"},{\"id\":\"cursor-fixture\",\"object\":\"model\"},{\"id\":\"devin-fixture\",\"object\":\"model\"},{\"id\":\"gemini-3-pro\",\"object\":\"model\"}],\"models\":[{\"name\":\"gpt-fixture\",\"id\":\"gpt-fixture\"},{\"name\":\"claude-sonnet-4-6\",\"id\":\"claude-sonnet-4-6\"},{\"name\":\"gemini-2.5-pro\",\"id\":\"gemini-2.5-pro\"},{\"name\":\"grok-4\",\"id\":\"grok-4\"},{\"name\":\"muse-fixture\",\"id\":\"muse-fixture\"},{\"name\":\"cc-fixture\",\"id\":\"cc-fixture\"},{\"name\":\"mimo-fixture\",\"id\":\"mimo-fixture\"},{\"name\":\"go-fixture\",\"id\":\"go-fixture\"},{\"name\":\"cursor-fixture\",\"id\":\"cursor-fixture\"},{\"name\":\"devin-fixture\",\"id\":\"devin-fixture\"},{\"name\":\"gemini-3-pro\",\"id\":\"gemini-3-pro\"}]}",
+      "transport": "http"
+    },
+    {
+      "bodyBase64": "EAEoATAAOABAAA==",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/aiserver.v1.AiService/AvailableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/aiserver.v1.AiService/AvailableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/GetUsableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/agent.v1.AgentService/GetUsableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "EAEoATAAOABAAA==",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/aiserver.v1.AiService/AvailableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/aiserver.v1.AiService/AvailableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/GetUsableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/agent.v1.AgentService/GetUsableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "EAEoATAAOABAAA==",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/aiserver.v1.AiService/AvailableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/aiserver.v1.AiService/AvailableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/GetUsableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/agent.v1.AgentService/GetUsableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "EAEoATAAOABAAA==",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/aiserver.v1.AiService/AvailableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/aiserver.v1.AiService/AvailableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/GetUsableModels",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/agent.v1.AgentService/GetUsableModels",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyBase64": "AAAAAn8K/AQKABK9BAq6BAo9ChNMb29rIHVwIHRoZSBhbnN3ZXIuEiQxZDI0ZDljYS05YmM3LTQyMzAtYmFiYy1hYmRmYzI3MDg2OWYaABL4AzrPAQoGbG9va3VwEgxSZWFkIGEgdmFsdWUaWipYChAKBHR5cGUSCBoGb2JqZWN0Ci0KCnByb3BlcnRpZXMSHyodChsKA2tleRIUKhIKEAoEdHlwZRIIGgZzdHJpbmcKFQoIcmVxdWlyZWQSCTIHCgUaA2tleSIGbWl4ZG9nKgZsb29rdXAyS3sidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsia2V5Ijp7InR5cGUiOiJzdHJpbmcifX0sInJlcXVpcmVkIjpbImtleSJdfXKEAgoGbWl4ZG9nEvkBRG8gbm90IHVzZSBDdXJzb3IgbmF0aXZlIHRvb2xzOyB1c2Ugb25seSB0aGUgdG9vbHMgcHJvdmlkZWQgYnkgdGhlIG1peGRvZyBNQ1Agc2VydmVyLCBmb2xsb3dpbmcgdGhlaXIgZGVzY3JpcHRpb25zIGFuZCBkZWNsYXJlZCBpbnB1dCBzY2hlbWFzLiBJZiBhIG5lZWRlZCB0b29sIGlzIG5vdCBhdmFpbGFibGUsIHVzZSB0aGUgcHJvdmlkZWQgdG9vbCBkaXNjb3ZlcnkgbWVjaGFuaXNtIHJhdGhlciB0aGFuIGludmVudGluZyBhIHRvb2wuggEcWW91IGFyZSBhIGZpeHR1cmUgYXNzaXN0YW50LiokZmVmOWI0ZGUtMzNjYS00YmQ2LWIzOTgtM2FhNDk4MDYzMTY3ShIKDmN1cnNvci1maXh0dXJlEAAAAAAAAjoAAAAAAAI6AAAAAAACOgAAAAAAAjoAAAAAAAI6AA==",
+      "headers": {
+        ":authority": "api2.cursor.sh",
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/Run",
+        ":scheme": "http",
+        "authorization": "Bearer <redacted>",
+        "connect-protocol-version": "1",
+        "content-type": "application/connect+proto",
+        "te": "trailers",
+        "x-cursor-client-type": "cli",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-ghost-mode": "true",
+        "x-request-id": "<random:uuid>"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/agent.v1.AgentService/Run",
+      "served": [
+        "eyJjb2RlIjoidW5hdXRoZW50aWNhdGVkIiwibWVzc2FnZSI6ImZpeHR1cmUifQ=="
+      ],
+      "transport": "h2"
+    },
+    {
+      "bodyText": "{}",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "authorization": "Bearer <redacted>",
+        "connection": "keep-alive",
+        "content-length": "2",
+        "content-type": "application/json",
+        "host": "api2.cursor.sh",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://api2.cursor.sh",
+      "path": "/auth/exchange_user_api_key",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"accessToken\":\"fixture-access-token\",\"refreshToken\":\"fixture-refresh-token\"}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http",
+    "h2"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "input": {
+    "file": "src/lib/math.mjs",
+    "mode": "symbols"
+  },
+  "isError": false,
+  "text": "export function add (L1-3)  function add(a, b)\nexport function sub (L5-7)  function sub(a, b)",
+  "tool": "code_graph"
+}

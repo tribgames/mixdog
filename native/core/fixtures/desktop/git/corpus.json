@@ -1,0 +1,379 @@
+{
+  "cases": [
+    {
+      "args": [],
+      "op": "gitStatus",
+      "result": {
+        "ahead": 0,
+        "behind": 0,
+        "branch": "main",
+        "detached": false,
+        "files": [
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 0,
+            "index": " ",
+            "path": "a.txt",
+            "stagedAdditions": 0,
+            "stagedDeletions": 0,
+            "unstagedAdditions": 1,
+            "unstagedDeletions": 0,
+            "untracked": false,
+            "worktree": "M"
+          },
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 1,
+            "index": "M",
+            "path": "src/b.mjs",
+            "stagedAdditions": 1,
+            "stagedDeletions": 1,
+            "unstagedAdditions": 0,
+            "unstagedDeletions": 0,
+            "untracked": false,
+            "worktree": " "
+          },
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 0,
+            "index": "?",
+            "path": "new.txt",
+            "stagedAdditions": 0,
+            "stagedDeletions": 0,
+            "unstagedAdditions": 1,
+            "unstagedDeletions": 0,
+            "untracked": true,
+            "worktree": "?"
+          }
+        ],
+        "operation": "",
+        "remote": false,
+        "remoteUrl": "",
+        "repository": true,
+        "root": "<ROOT>",
+        "unborn": false,
+        "untrackedOmitted": 0,
+        "upstream": false,
+        "upstreamName": ""
+      }
+    },
+    {
+      "args": [],
+      "op": "gitBranches",
+      "result": [
+        {
+          "ahead": 0,
+          "behind": 0,
+          "current": true,
+          "lastCommitAt": "2026-01-02T03:04:05Z",
+          "lastCommitRelative": "10 months ago",
+          "name": "main",
+          "remote": false,
+          "upstream": ""
+        },
+        {
+          "ahead": 0,
+          "behind": 0,
+          "current": false,
+          "lastCommitAt": "2026-01-02T03:04:05Z",
+          "lastCommitRelative": "10 months ago",
+          "name": "feature",
+          "remote": false,
+          "upstream": ""
+        }
+      ]
+    },
+    {
+      "args": [
+        "",
+        0,
+        40
+      ],
+      "op": "gitLog",
+      "result": [
+        {
+          "author": "Fixture",
+          "authoredAt": "2026-01-02T03:04:05Z",
+          "branches": [
+            "main",
+            "feature"
+          ],
+          "hash": "<H40>",
+          "parents": [
+            "<H40>"
+          ],
+          "pushed": false,
+          "refs": [
+            "main",
+            "feature"
+          ],
+          "remotes": [],
+          "shortHash": "<H>",
+          "subject": "second: edit a",
+          "tags": [],
+          "when": "10 months ago"
+        },
+        {
+          "author": "Fixture",
+          "authoredAt": "2026-01-02T03:04:05Z",
+          "branches": [],
+          "hash": "<H40>",
+          "parents": [],
+          "pushed": false,
+          "refs": [],
+          "remotes": [],
+          "shortHash": "0061956",
+          "subject": "first",
+          "tags": [],
+          "when": "10 months ago"
+        }
+      ]
+    },
+    {
+      "args": [
+        "second",
+        0,
+        40
+      ],
+      "op": "gitLog",
+      "result": [
+        {
+          "author": "Fixture",
+          "authoredAt": "2026-01-02T03:04:05Z",
+          "branches": [
+            "main",
+            "feature"
+          ],
+          "hash": "<H40>",
+          "parents": [
+            "<H40>"
+          ],
+          "pushed": false,
+          "refs": [
+            "main",
+            "feature"
+          ],
+          "remotes": [],
+          "shortHash": "<H>",
+          "subject": "second: edit a",
+          "tags": [],
+          "when": "10 months ago"
+        }
+      ]
+    },
+    {
+      "args": [
+        "HEAD"
+      ],
+      "op": "gitShow",
+      "result": {
+        "author": "Fixture",
+        "authoredAt": "2026-01-02T03:04:05Z",
+        "email": "fixture@example.invalid",
+        "files": [
+          {
+            "additions": 2,
+            "deletions": 1,
+            "path": "a.txt",
+            "status": "M"
+          }
+        ],
+        "hash": "<H40>",
+        "parents": [
+          "<H40>"
+        ],
+        "shortHash": "<H>",
+        "subject": "second: edit a"
+      }
+    },
+    {
+      "args": [
+        "a.txt",
+        false
+      ],
+      "op": "gitDiff",
+      "result": "diff --git a/a.txt b/a.txt\nindex <H>..<H> 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+five\n"
+    },
+    {
+      "args": [
+        "src/b.mjs",
+        true
+      ],
+      "op": "gitDiff",
+      "result": "diff --git a/src/b.mjs b/src/b.mjs\nindex <H>..2021030 100644\n--- a/src/b.mjs\n+++ b/src/b.mjs\n@@ -1 +1 @@\n-export const b = 1;\n+export const b = 2;\n"
+    },
+    {
+      "args": [
+        "new.txt",
+        false,
+        false,
+        true
+      ],
+      "op": "gitDiff",
+      "result": "diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"
+    },
+    {
+      "args": [],
+      "op": "gitStashList",
+      "result": []
+    },
+    {
+      "args": [
+        [
+          "a.txt"
+        ]
+      ],
+      "op": "gitStage"
+    },
+    {
+      "args": [],
+      "op": "gitStatus(after stage)",
+      "result": {
+        "ahead": 0,
+        "behind": 0,
+        "branch": "main",
+        "detached": false,
+        "files": [
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 0,
+            "index": "M",
+            "path": "a.txt",
+            "stagedAdditions": 1,
+            "stagedDeletions": 0,
+            "unstagedAdditions": 0,
+            "unstagedDeletions": 0,
+            "untracked": false,
+            "worktree": " "
+          },
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 1,
+            "index": "M",
+            "path": "src/b.mjs",
+            "stagedAdditions": 1,
+            "stagedDeletions": 1,
+            "unstagedAdditions": 0,
+            "unstagedDeletions": 0,
+            "untracked": false,
+            "worktree": " "
+          },
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 0,
+            "index": "?",
+            "path": "new.txt",
+            "stagedAdditions": 0,
+            "stagedDeletions": 0,
+            "unstagedAdditions": 1,
+            "unstagedDeletions": 0,
+            "untracked": true,
+            "worktree": "?"
+          }
+        ],
+        "operation": "",
+        "remote": false,
+        "remoteUrl": "",
+        "repository": true,
+        "root": "<ROOT>",
+        "unborn": false,
+        "untrackedOmitted": 0,
+        "upstream": false,
+        "upstreamName": ""
+      }
+    },
+    {
+      "args": [
+        [
+          "a.txt"
+        ]
+      ],
+      "op": "gitUnstage"
+    },
+    {
+      "args": [
+        ""
+      ],
+      "error": "A commit message is required.",
+      "op": "gitCommit(empty message)"
+    },
+    {
+      "args": [
+        "v-fixture",
+        "<H40>"
+      ],
+      "op": "gitCreateTag",
+      "result": "Created tag v-fixture at <H>."
+    },
+    {
+      "args": [
+        "v-fixture",
+        "<H40>"
+      ],
+      "error": "fatal: tag 'v-fixture' already exists",
+      "op": "gitCreateTag(duplicate)"
+    },
+    {
+      "args": [
+        "a.txt",
+        false,
+        "worktree"
+      ],
+      "op": "gitRevertFile"
+    },
+    {
+      "args": [],
+      "op": "gitStatus(after revert)",
+      "result": {
+        "ahead": 0,
+        "behind": 0,
+        "branch": "main",
+        "detached": false,
+        "files": [
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 1,
+            "index": "M",
+            "path": "src/b.mjs",
+            "stagedAdditions": 1,
+            "stagedDeletions": 1,
+            "unstagedAdditions": 0,
+            "unstagedDeletions": 0,
+            "untracked": false,
+            "worktree": " "
+          },
+          {
+            "additions": 1,
+            "conflicted": false,
+            "deletions": 0,
+            "index": "?",
+            "path": "new.txt",
+            "stagedAdditions": 0,
+            "stagedDeletions": 0,
+            "unstagedAdditions": 1,
+            "unstagedDeletions": 0,
+            "untracked": true,
+            "worktree": "?"
+          }
+        ],
+        "operation": "",
+        "remote": false,
+        "remoteUrl": "",
+        "repository": true,
+        "root": "<ROOT>",
+        "unborn": false,
+        "untrackedOmitted": 0,
+        "upstream": false,
+        "upstreamName": ""
+      }
+    }
+  ],
+  "domain": "git"
+}

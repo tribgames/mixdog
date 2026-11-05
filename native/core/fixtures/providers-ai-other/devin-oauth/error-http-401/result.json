@@ -1,0 +1,18 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "code": "unauthenticated",
+    "connectCode": "unauthenticated",
+    "cursorCode": null,
+    "liveTextEmitted": null,
+    "message": "Devin rejected the sign-in (Devin GetChatMessage unauthenticated (HTTP 401): fixture). Open /providers in Mixdog to sign in again.",
+    "name": "DevinWireError",
+    "providerRecoveryExhausted": null,
+    "reauthRequired": true,
+    "retryAfterMs": null,
+    "retryable": false,
+    "status": 401,
+    "truncatedStream": null,
+    "unsafeToRetry": null
+  }
+}

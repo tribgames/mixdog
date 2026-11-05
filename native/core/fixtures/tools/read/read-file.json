@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "src/lib/math.mjs"
+  },
+  "isError": false,
+  "text": "[lines 1-7]\nexport function add(a, b) {\n  return a + b;\n}\n\nexport function sub(a, b) {\n  return a - b;\n}\n[lines 1-7 of 7]",
+  "tool": "read"
+}

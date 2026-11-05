@@ -1,0 +1,9 @@
+{
+  "input": {
+    "base_path": "<ROOT>",
+    "patch": "*** Begin Patch\n*** Update File: src/lib/notes.txt\n@@\n-plain\n+PLAIN\n*** End Patch\n"
+  },
+  "isError": false,
+  "text": "  OK Modify src/lib/notes.txt — +1/-1",
+  "tool": "apply_patch"
+}

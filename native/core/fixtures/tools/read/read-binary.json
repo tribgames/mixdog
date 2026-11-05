@@ -1,0 +1,8 @@
+{
+  "input": {
+    "path": "data/bin.dat"
+  },
+  "isError": false,
+  "text": "data/bin.dat\nbinary, 4 bytes\n41 00 42 43",
+  "tool": "read"
+}

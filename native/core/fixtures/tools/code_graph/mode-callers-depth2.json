@@ -1,0 +1,12 @@
+{
+  "input": {
+    "depth": 2,
+    "mode": "callers",
+    "symbols": [
+      "add"
+    ]
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\n# transitive callers of add (depth=2) — page 1, nodes 1-3 of 3; INDENTED children are ITS callers\nadd\n  twice\tsrc/lib/util.mjs:3\n  main\tsrc/main.mjs:4\n  other\tsrc/main.mjs:8\n# END — complete caller set delivered (page 1 of 1): named callers PLUS timer/event/module-level call sites (the «…» leaves), each with file:line. No further callers/grep/read is needed.",
+  "tool": "code_graph"
+}

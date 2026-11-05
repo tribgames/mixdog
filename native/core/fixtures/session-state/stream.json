@@ -1,0 +1,1649 @@
+{
+  "faults": [],
+  "frames": [
+    {
+      "decoded": {
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "answer",
+            "kind": "assistant",
+            "text": "seed"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        }
+      },
+      "ok": true,
+      "step": "initial",
+      "wire": {
+        "__itemsRevision": 1,
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "answer",
+            "kind": "assistant",
+            "text": "seed"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null
+      },
+      "ok": true,
+      "step": "idle",
+      "wire": {
+        "__itemsPatch": {
+          "append": [
+            {
+              "id": "u1",
+              "kind": "user",
+              "text": "hello"
+            },
+            {
+              "id": "a1",
+              "kind": "assistant",
+              "text": "hi there"
+            }
+          ],
+          "base": 1,
+          "prefix": 0,
+          "revision": 2
+        },
+        "__statePatch": {
+          "base": 1,
+          "changed": {},
+          "removed": [],
+          "revision": 2
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "write a haiku"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "spinner": {
+          "label": "Thinking",
+          "since": 1000
+        },
+        "streamingTail": null,
+        "thinking": {
+          "mode": "thinking",
+          "startedAt": 1000
+        }
+      },
+      "ok": true,
+      "step": "turn-start",
+      "wire": {
+        "__itemsPatch": {
+          "append": [
+            {
+              "id": "u2",
+              "kind": "user",
+              "text": "write a haiku"
+            }
+          ],
+          "base": 2,
+          "prefix": 2,
+          "revision": 3
+        },
+        "__statePatch": {
+          "base": 2,
+          "changed": {
+            "busy": true,
+            "spinner": {
+              "label": "Thinking",
+              "since": 1000
+            },
+            "thinking": {
+              "mode": "thinking",
+              "startedAt": 1000
+            }
+          },
+          "removed": [],
+          "revision": 3
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "write a haiku"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingPartial": {
+          "from": 12,
+          "id": "s1",
+          "text": "rising slow over"
+        },
+        "streamingTail": {
+          "id": "s1",
+          "kind": "assistant",
+          "streaming": true,
+          "text": "Autumn moon\n"
+        }
+      },
+      "ok": true,
+      "step": "streaming-tail",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 3,
+          "prefix": 3,
+          "revision": 4
+        },
+        "__statePatch": {
+          "base": 3,
+          "changed": {
+            "streamingPartial": {
+              "from": 12,
+              "id": "s1",
+              "text": "rising slow over"
+            }
+          },
+          "removed": [
+            "thinking",
+            "spinner"
+          ],
+          "revision": 4
+        },
+        "streamingTail": {
+          "id": "s1",
+          "kind": "assistant",
+          "streaming": true,
+          "text": "Autumn moon\n"
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "write a haiku"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingPartial": {
+          "from": 24,
+          "id": "s1",
+          "text": "over the hills"
+        },
+        "streamingTail": {
+          "id": "s1",
+          "kind": "assistant",
+          "streaming": true,
+          "text": "Autumn moon\nrising slow\n"
+        }
+      },
+      "ok": true,
+      "step": "streaming-grow",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 4,
+          "prefix": 3,
+          "revision": 5
+        },
+        "__statePatch": {
+          "base": 4,
+          "changed": {
+            "streamingPartial": {
+              "from": 24,
+              "id": "s1",
+              "text": "over the hills"
+            }
+          },
+          "removed": [],
+          "revision": 5
+        },
+        "__streamingTailPatch": {
+          "append": "rising slow\n",
+          "prefix": 12,
+          "tail": {
+            "id": "s1",
+            "kind": "assistant",
+            "streaming": true
+          }
+        }
+      }
+    },
+    {
+      "decoded": {
+        "activeTools": {
+          "shell": {
+            "active": true,
+            "count": 1
+          }
+        },
+        "busy": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null,
+        "toolApproval": {
+          "device": null,
+          "id": "ap1",
+          "target": "rm -rf build",
+          "tool": "shell"
+        },
+        "toolApprovalsWaiting": 2
+      },
+      "ok": true,
+      "step": "tool-approval",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 5,
+          "prefix": 2,
+          "revision": 6
+        },
+        "__statePatch": {
+          "base": 5,
+          "changed": {
+            "activeTools": {
+              "shell": {
+                "active": true,
+                "count": 1
+              }
+            },
+            "toolApproval": {
+              "device": null,
+              "id": "ap1",
+              "target": "rm -rf build",
+              "tool": "shell"
+            },
+            "toolApprovalsWaiting": 2
+          },
+          "removed": [
+            "streamingPartial"
+          ],
+          "revision": 6
+        },
+        "streamingTail": null
+      }
+    },
+    {
+      "decoded": {
+        "busy": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null,
+        "toolApprovalResult": {
+          "approved": true,
+          "at": 2000,
+          "device": "desktop-1",
+          "id": "ap1"
+        },
+        "toolApprovalsWaiting": 0
+      },
+      "ok": true,
+      "step": "approval-resolved",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 6,
+          "prefix": 2,
+          "revision": 7
+        },
+        "__statePatch": {
+          "base": 6,
+          "changed": {
+            "toolApprovalResult": {
+              "approved": true,
+              "at": 2000,
+              "device": "desktop-1",
+              "id": "ap1"
+            },
+            "toolApprovalsWaiting": 0
+          },
+          "removed": [
+            "toolApproval",
+            "activeTools"
+          ],
+          "revision": 7
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "commandBusy": true,
+        "commandStatus": {
+          "label": "Compacting",
+          "since": 3000
+        },
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "progressHint": {
+          "percent": 40,
+          "text": "Compacting context",
+          "tone": "info"
+        },
+        "queued": [
+          {
+            "id": "q1",
+            "text": "next prompt"
+          }
+        ],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null
+      },
+      "ok": true,
+      "step": "queued-and-commands",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 7,
+          "prefix": 2,
+          "revision": 8
+        },
+        "__statePatch": {
+          "base": 7,
+          "changed": {
+            "busy": false,
+            "commandBusy": true,
+            "commandStatus": {
+              "label": "Compacting",
+              "since": 3000
+            },
+            "progressHint": {
+              "percent": 40,
+              "text": "Compacting context",
+              "tone": "info"
+            },
+            "queued": [
+              {
+                "id": "q1",
+                "text": "next prompt"
+              }
+            ]
+          },
+          "removed": [
+            "toolApprovalResult",
+            "toolApprovalsWaiting"
+          ],
+          "revision": 8
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "goal": {
+          "id": "g1",
+          "objective": "ship it",
+          "status": "active",
+          "tasks": [
+            {
+              "id": "t1",
+              "status": "pending",
+              "text": "write tests"
+            }
+          ]
+        },
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "queued": [],
+        "quotaResume": {
+          "attempts": 1,
+          "model": "claude",
+          "provider": "anthropic",
+          "resetAt": 9000
+        },
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null,
+        "todo": {
+          "items": [
+            {
+              "id": "d1",
+              "status": "in_progress",
+              "text": "step 1"
+            }
+          ]
+        }
+      },
+      "ok": true,
+      "step": "goal-todo-quota",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 8,
+          "prefix": 2,
+          "revision": 9
+        },
+        "__statePatch": {
+          "base": 8,
+          "changed": {
+            "goal": {
+              "id": "g1",
+              "objective": "ship it",
+              "status": "active",
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "pending",
+                  "text": "write tests"
+                }
+              ]
+            },
+            "queued": [],
+            "quotaResume": {
+              "attempts": 1,
+              "model": "claude",
+              "provider": "anthropic",
+              "resetAt": 9000
+            },
+            "todo": {
+              "items": [
+                {
+                  "id": "d1",
+                  "status": "in_progress",
+                  "text": "step 1"
+                }
+              ]
+            }
+          },
+          "removed": [
+            "commandBusy",
+            "commandStatus",
+            "progressHint"
+          ],
+          "revision": 9
+        }
+      }
+    },
+    {
+      "decoded": {
+        "autoEffort": false,
+        "busy": false,
+        "contextDefaultPercent": 80,
+        "contextPercent": 37,
+        "contextTokens": 200000,
+        "desktopSessionTitle": "Fixture session",
+        "fast": true,
+        "fastCapable": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "modelParameters": {
+          "effort": "high"
+        },
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "selectedContextWindow": 200000,
+        "sessionId": "lead",
+        "sessionModel": "claude-sonnet-4-6",
+        "sessionProvider": "anthropic",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null
+      },
+      "ok": true,
+      "step": "route-and-context",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 9,
+          "prefix": 2,
+          "revision": 10
+        },
+        "__statePatch": {
+          "base": 9,
+          "changed": {
+            "autoEffort": false,
+            "contextDefaultPercent": 80,
+            "contextPercent": 37,
+            "contextTokens": 200000,
+            "desktopSessionTitle": "Fixture session",
+            "fast": true,
+            "fastCapable": true,
+            "modelParameters": {
+              "effort": "high"
+            },
+            "selectedContextWindow": 200000,
+            "sessionModel": "claude-sonnet-4-6",
+            "sessionProvider": "anthropic"
+          },
+          "removed": [
+            "goal",
+            "todo",
+            "quotaResume"
+          ],
+          "revision": 10
+        }
+      }
+    },
+    {
+      "decoded": {
+        "agentJobs": [
+          {
+            "id": "job1",
+            "state": "done"
+          }
+        ],
+        "agentWorkers": [
+          {
+            "id": "w1",
+            "state": "running",
+            "tag": "worker"
+          }
+        ],
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "orchestrationMode": "auto",
+        "pendingOrchestrationModeSwitch": false,
+        "pendingWorkflowSwitch": true,
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null,
+        "workflow": {
+          "id": "wf1",
+          "name": "default",
+          "step": 2
+        }
+      },
+      "ok": true,
+      "step": "agents-workflow",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 10,
+          "prefix": 2,
+          "revision": 11
+        },
+        "__statePatch": {
+          "base": 10,
+          "changed": {
+            "agentJobs": [
+              {
+                "id": "job1",
+                "state": "done"
+              }
+            ],
+            "agentWorkers": [
+              {
+                "id": "w1",
+                "state": "running",
+                "tag": "worker"
+              }
+            ],
+            "orchestrationMode": "auto",
+            "pendingOrchestrationModeSwitch": false,
+            "pendingWorkflowSwitch": true,
+            "workflow": {
+              "id": "wf1",
+              "name": "default",
+              "step": 2
+            }
+          },
+          "removed": [
+            "sessionProvider",
+            "sessionModel",
+            "fast",
+            "fastCapable",
+            "autoEffort",
+            "modelParameters",
+            "contextPercent",
+            "contextTokens",
+            "contextDefaultPercent",
+            "selectedContextWindow",
+            "desktopSessionTitle"
+          ],
+          "revision": 11
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "handoffQuestions": [
+          {
+            "id": "hq1",
+            "question": "Proceed?",
+            "sessionId": "agent-1"
+          }
+        ],
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          }
+        ],
+        "promptRestore": {
+          "at": 4000,
+          "device": "phone-1",
+          "id": "pr1",
+          "ids": [
+            "sub-9"
+          ],
+          "text": "cancelled prompt"
+        },
+        "providerAccountChange": {
+          "accountId": "acct-2",
+          "at": 4100,
+          "provider": "openai-oauth"
+        },
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null,
+        "transcriptHasOlder": true,
+        "workspace": {
+          "cwd": "<WS>",
+          "revision": 3,
+          "worktree": null
+        }
+      },
+      "ok": true,
+      "step": "handoff-restore-workspace",
+      "wire": {
+        "__itemsPatch": {
+          "append": [],
+          "base": 11,
+          "prefix": 2,
+          "revision": 12
+        },
+        "__statePatch": {
+          "base": 11,
+          "changed": {
+            "handoffQuestions": [
+              {
+                "id": "hq1",
+                "question": "Proceed?",
+                "sessionId": "agent-1"
+              }
+            ],
+            "promptRestore": {
+              "at": 4000,
+              "device": "phone-1",
+              "id": "pr1",
+              "ids": [
+                "sub-9"
+              ],
+              "text": "cancelled prompt"
+            },
+            "providerAccountChange": {
+              "accountId": "acct-2",
+              "at": 4100,
+              "provider": "openai-oauth"
+            },
+            "transcriptHasOlder": true,
+            "workspace": {
+              "cwd": "<WS>",
+              "revision": 3,
+              "worktree": null
+            }
+          },
+          "removed": [
+            "agentWorkers",
+            "agentJobs",
+            "workflow",
+            "orchestrationMode",
+            "pendingWorkflowSwitch",
+            "pendingOrchestrationModeSwitch"
+          ],
+          "revision": 12
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": true,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          },
+          {
+            "attachments": [
+              {
+                "id": "sha256-aa",
+                "kind": "image",
+                "mimeType": "image/png",
+                "name": "shot.png",
+                "size": 2048
+              },
+              {
+                "id": "sha256-bb",
+                "kind": "file",
+                "mimeType": "text/plain",
+                "name": "notes.txt",
+                "size": 90
+              }
+            ],
+            "device": "desktop-1",
+            "id": "u3",
+            "images": [
+              {
+                "attachmentRef": "sha256-aa",
+                "bytes": 2048,
+                "id": 1,
+                "mimeType": "image/png",
+                "name": "shot.png"
+              }
+            ],
+            "kind": "user",
+            "messageId": "m-u3",
+            "text": "look at this [Image #1]"
+          },
+          {
+            "id": "u4",
+            "kind": "user",
+            "messageId": "m-u4",
+            "text": "fix this [Pasted text #1 +40 lines]\nline 1 of a long paste\nline 2 of a long paste\nline 3 of a long paste\nline 4 of a long paste\nline 5 of a long paste\nline 6 of a long paste\nline 7 of a long paste\nline 8 of a long paste\nline 9 of a long paste\nline 10 of a long paste\nline 11 of a long paste\nline 12 of a long paste\nline 13 of a long paste\nline 14 of a long paste\nline 15 of a long paste\nline 16 of a long paste\nline 17 of a long paste\nline 18 of a long paste\nline 19 of a long paste\nline 20 of a long paste\nline 21 of a long paste\nline 22 of a long paste\nline 23 of a long paste\nline 24 of a long paste\nline 25 of a long paste\nline 26 of a long paste\nline 27 of a long paste\nline 28 of a long paste\nline 29 of a long paste\nline 30 of a long paste\nline 31 of a long paste\nline 32 of a long paste\nline 33 of a long paste\nline 34 of a long paste\nline 35 of a long paste\nline 36 of a long paste\nline 37 of a long paste\nline 38 of a long paste\nline 39 of a long paste\nline 40 of a long paste"
+          },
+          {
+            "args": {
+              "path": "src/app.ts"
+            },
+            "completedAt": 5040,
+            "completedCount": 1,
+            "count": 1,
+            "expanded": false,
+            "headerFinalized": true,
+            "id": "t1",
+            "isError": false,
+            "kind": "tool",
+            "name": "read",
+            "rawResult": "file body",
+            "result": "file body",
+            "startedAt": 5000,
+            "text": ""
+          },
+          {
+            "args": {
+              "command": "npm test"
+            },
+            "completedAt": 5900,
+            "completedCount": 1,
+            "count": 1,
+            "errorCount": 1,
+            "exitErrorCount": 1,
+            "id": "t2",
+            "isError": true,
+            "kind": "tool",
+            "name": "shell",
+            "result": "exit 1",
+            "startedAt": 5100,
+            "text": ""
+          },
+          {
+            "args": {
+              "pattern": "TODO"
+            },
+            "completedCount": 0,
+            "count": 1,
+            "id": "t3",
+            "isError": false,
+            "kind": "tool",
+            "name": "grep",
+            "result": null,
+            "startedAt": 6000,
+            "text": ""
+          },
+          {
+            "aggregate": true,
+            "categories": {
+              "read": 2,
+              "search": 1
+            },
+            "completedCount": 2,
+            "count": 3,
+            "id": "g1",
+            "kind": "tool",
+            "name": "__aggregate__",
+            "startedAt": 6100,
+            "text": "",
+            "toolMembers": [
+              {
+                "args": {
+                  "path": "a.ts"
+                },
+                "callId": "c1",
+                "category": "read",
+                "name": "read"
+              },
+              {
+                "args": {
+                  "path": "b.ts"
+                },
+                "callId": "c2",
+                "category": "read",
+                "name": "read"
+              },
+              {
+                "args": {
+                  "pattern": "x"
+                },
+                "callId": "c3",
+                "category": "search",
+                "name": "grep"
+              }
+            ]
+          },
+          {
+            "id": "u5",
+            "kind": "user",
+            "messageId": "m-u5",
+            "steered": true,
+            "text": "also handle the empty case"
+          },
+          {
+            "id": "u6",
+            "kind": "user",
+            "messageId": "m-u6",
+            "steer": "pending",
+            "text": "queue this"
+          },
+          {
+            "id": "r1",
+            "kind": "user",
+            "room": {
+              "id": "rm1",
+              "kind": "user",
+              "to": [
+                "alice",
+                "bob"
+              ],
+              "toName": [
+                "Alice",
+                "Bob"
+              ]
+            },
+            "text": "team, status?"
+          },
+          {
+            "id": "r2",
+            "kind": "assistant",
+            "room": {
+              "id": "rm2",
+              "kind": "speech",
+              "name": "Alice",
+              "speaker": "alice",
+              "to": [
+                "bob"
+              ],
+              "toName": [
+                "Bob"
+              ]
+            },
+            "text": "Done with the parser."
+          },
+          {
+            "id": "r3",
+            "kind": "assistant",
+            "room": {
+              "id": "rm3",
+              "kind": "pass",
+              "name": "Bob",
+              "speaker": "bob"
+            },
+            "text": ""
+          },
+          {
+            "at": 7000,
+            "detail": "120k -> 18k tokens",
+            "id": "c1",
+            "kind": "statusdone",
+            "label": "Conversation compacted",
+            "status": "compacted",
+            "text": ""
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null
+      },
+      "ok": true,
+      "step": "row-kinds",
+      "wire": {
+        "__itemsPatch": {
+          "append": [
+            {
+              "attachments": [
+                {
+                  "id": "sha256-aa",
+                  "kind": "image",
+                  "mimeType": "image/png",
+                  "name": "shot.png",
+                  "size": 2048
+                },
+                {
+                  "id": "sha256-bb",
+                  "kind": "file",
+                  "mimeType": "text/plain",
+                  "name": "notes.txt",
+                  "size": 90
+                }
+              ],
+              "device": "desktop-1",
+              "id": "u3",
+              "images": [
+                {
+                  "attachmentRef": "sha256-aa",
+                  "bytes": 2048,
+                  "id": 1,
+                  "mimeType": "image/png",
+                  "name": "shot.png"
+                }
+              ],
+              "kind": "user",
+              "messageId": "m-u3",
+              "text": "look at this [Image #1]"
+            },
+            {
+              "id": "u4",
+              "kind": "user",
+              "messageId": "m-u4",
+              "text": "fix this [Pasted text #1 +40 lines]\nline 1 of a long paste\nline 2 of a long paste\nline 3 of a long paste\nline 4 of a long paste\nline 5 of a long paste\nline 6 of a long paste\nline 7 of a long paste\nline 8 of a long paste\nline 9 of a long paste\nline 10 of a long paste\nline 11 of a long paste\nline 12 of a long paste\nline 13 of a long paste\nline 14 of a long paste\nline 15 of a long paste\nline 16 of a long paste\nline 17 of a long paste\nline 18 of a long paste\nline 19 of a long paste\nline 20 of a long paste\nline 21 of a long paste\nline 22 of a long paste\nline 23 of a long paste\nline 24 of a long paste\nline 25 of a long paste\nline 26 of a long paste\nline 27 of a long paste\nline 28 of a long paste\nline 29 of a long paste\nline 30 of a long paste\nline 31 of a long paste\nline 32 of a long paste\nline 33 of a long paste\nline 34 of a long paste\nline 35 of a long paste\nline 36 of a long paste\nline 37 of a long paste\nline 38 of a long paste\nline 39 of a long paste\nline 40 of a long paste"
+            },
+            {
+              "args": {
+                "path": "src/app.ts"
+              },
+              "completedAt": 5040,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "headerFinalized": true,
+              "id": "t1",
+              "isError": false,
+              "kind": "tool",
+              "name": "read",
+              "rawResult": "file body",
+              "result": "file body",
+              "startedAt": 5000,
+              "text": ""
+            },
+            {
+              "args": {
+                "command": "npm test"
+              },
+              "completedAt": 5900,
+              "completedCount": 1,
+              "count": 1,
+              "errorCount": 1,
+              "exitErrorCount": 1,
+              "id": "t2",
+              "isError": true,
+              "kind": "tool",
+              "name": "shell",
+              "result": "exit 1",
+              "startedAt": 5100,
+              "text": ""
+            },
+            {
+              "args": {
+                "pattern": "TODO"
+              },
+              "completedCount": 0,
+              "count": 1,
+              "id": "t3",
+              "isError": false,
+              "kind": "tool",
+              "name": "grep",
+              "result": null,
+              "startedAt": 6000,
+              "text": ""
+            },
+            {
+              "aggregate": true,
+              "categories": {
+                "read": 2,
+                "search": 1
+              },
+              "completedCount": 2,
+              "count": 3,
+              "id": "g1",
+              "kind": "tool",
+              "name": "__aggregate__",
+              "startedAt": 6100,
+              "text": "",
+              "toolMembers": [
+                {
+                  "args": {
+                    "path": "a.ts"
+                  },
+                  "callId": "c1",
+                  "category": "read",
+                  "name": "read"
+                },
+                {
+                  "args": {
+                    "path": "b.ts"
+                  },
+                  "callId": "c2",
+                  "category": "read",
+                  "name": "read"
+                },
+                {
+                  "args": {
+                    "pattern": "x"
+                  },
+                  "callId": "c3",
+                  "category": "search",
+                  "name": "grep"
+                }
+              ]
+            },
+            {
+              "id": "u5",
+              "kind": "user",
+              "messageId": "m-u5",
+              "steered": true,
+              "text": "also handle the empty case"
+            },
+            {
+              "id": "u6",
+              "kind": "user",
+              "messageId": "m-u6",
+              "steer": "pending",
+              "text": "queue this"
+            },
+            {
+              "id": "r1",
+              "kind": "user",
+              "room": {
+                "id": "rm1",
+                "kind": "user",
+                "to": [
+                  "alice",
+                  "bob"
+                ],
+                "toName": [
+                  "Alice",
+                  "Bob"
+                ]
+              },
+              "text": "team, status?"
+            },
+            {
+              "id": "r2",
+              "kind": "assistant",
+              "room": {
+                "id": "rm2",
+                "kind": "speech",
+                "name": "Alice",
+                "speaker": "alice",
+                "to": [
+                  "bob"
+                ],
+                "toName": [
+                  "Bob"
+                ]
+              },
+              "text": "Done with the parser."
+            },
+            {
+              "id": "r3",
+              "kind": "assistant",
+              "room": {
+                "id": "rm3",
+                "kind": "pass",
+                "name": "Bob",
+                "speaker": "bob"
+              },
+              "text": ""
+            },
+            {
+              "at": 7000,
+              "detail": "120k -> 18k tokens",
+              "id": "c1",
+              "kind": "statusdone",
+              "label": "Conversation compacted",
+              "status": "compacted",
+              "text": ""
+            }
+          ],
+          "base": 12,
+          "prefix": 2,
+          "revision": 13
+        },
+        "__statePatch": {
+          "base": 12,
+          "changed": {
+            "busy": true
+          },
+          "removed": [
+            "handoffQuestions",
+            "promptRestore",
+            "providerAccountChange",
+            "workspace",
+            "transcriptHasOlder"
+          ],
+          "revision": 13
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "hello"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "hi there"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "write a haiku"
+          },
+          {
+            "id": "a2",
+            "kind": "assistant",
+            "text": "Autumn moon\nrising slow\nover the hills"
+          },
+          {
+            "elapsedMs": 1200,
+            "id": "d1",
+            "kind": "turndone",
+            "outcome": "ok",
+            "text": ""
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null
+      },
+      "ok": true,
+      "step": "turn-done",
+      "wire": {
+        "__itemsPatch": {
+          "append": [
+            {
+              "id": "u2",
+              "kind": "user",
+              "text": "write a haiku"
+            },
+            {
+              "id": "a2",
+              "kind": "assistant",
+              "text": "Autumn moon\nrising slow\nover the hills"
+            },
+            {
+              "elapsedMs": 1200,
+              "id": "d1",
+              "kind": "turndone",
+              "outcome": "ok",
+              "text": ""
+            }
+          ],
+          "base": 13,
+          "prefix": 2,
+          "revision": 14
+        },
+        "__statePatch": {
+          "base": 13,
+          "changed": {
+            "busy": false
+          },
+          "removed": [],
+          "revision": 14
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "a2",
+            "kind": "assistant",
+            "text": "Autumn moon"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "streamingTail": null
+      },
+      "ok": true,
+      "step": "cleared-fields",
+      "wire": {
+        "__itemsPatch": {
+          "append": [
+            {
+              "id": "a2",
+              "kind": "assistant",
+              "text": "Autumn moon"
+            }
+          ],
+          "base": 14,
+          "prefix": 0,
+          "revision": 15
+        },
+        "__statePatch": {
+          "base": 14,
+          "changed": {},
+          "removed": [],
+          "revision": 15
+        }
+      }
+    },
+    {
+      "decoded": {
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "a2",
+            "kind": "assistant",
+            "text": "Autumn moon"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        }
+      },
+      "ok": true,
+      "step": "resync",
+      "wire": {
+        "__itemsRevision": 1,
+        "busy": false,
+        "hostShellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        },
+        "items": [
+          {
+            "id": "a2",
+            "kind": "assistant",
+            "text": "Autumn moon"
+          }
+        ],
+        "queued": [],
+        "remoteEnabled": false,
+        "remoteSessionId": null,
+        "sessionId": "lead",
+        "shellJobs": {
+          "count": 0,
+          "elapsedLabel": "",
+          "finished": [],
+          "jobs": []
+        }
+      }
+    }
+  ],
+  "sessionId": "lead"
+}

@@ -1,0 +1,28 @@
+{
+  "dispatchedToolCalls": [
+    {
+      "arguments": {
+        "key": "answer"
+      },
+      "id": "gemini_366b187da650ce24",
+      "name": "lookup"
+    }
+  ],
+  "ok": {
+    "content": "",
+    "stopReason": null,
+    "toolCalls": [
+      {
+        "arguments": {
+          "key": "answer"
+        },
+        "id": "gemini_366b187da650ce24",
+        "name": "lookup"
+      }
+    ],
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 6
+    }
+  }
+}

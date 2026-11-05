@@ -1,0 +1,364 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "bytes": 16,
+          "hex": "1953425c074a0d56dd3d3419e4bdd261",
+          "kind": "randomBytes",
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_buildHandshakeHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "5997df64cc243b6708ec724fdc8e0a9e",
+          "kind": "randomBytes",
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_buildHandshakeHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "006567c145481fc6b7af6be9c1a28554",
+          "kind": "randomBytes",
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_buildHandshakeHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "10ff5610e4acc981f96ecdb1b74db6e9",
+          "kind": "randomBytes",
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_buildHandshakeHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "5b30fbfbc4081e81dbb9953ccbb4b17b",
+          "kind": "randomBytes",
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_buildHandshakeHeaders"
+        },
+        {
+          "bytes": 16,
+          "hex": "cd84a6d6d856608defc0efbaeefabf97",
+          "kind": "randomBytes",
+          "n": 6,
+          "site": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_buildHandshakeHeaders"
+        }
+      ],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/lib/first-output-window.mjs#Object.arm",
+      "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs#scheduleHedge",
+      "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#<anonymous>",
+      "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs#_scheduleForcedTerminate",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#Object.armFirstMeaningful",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#Object.armPreStream",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#resetInterChunk",
+      "src/runtime/agent/orchestrator/providers/openai-ws-watchdogs.mjs#resetSemanticIdle"
+    ],
+    "retrySleeps": [
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 195,
+        "precedesAttempt": 2,
+        "seq": 1,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 381,
+        "precedesAttempt": 3,
+        "seq": 2,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 842,
+        "precedesAttempt": 4,
+        "seq": 3,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 1475,
+        "precedesAttempt": 5,
+        "seq": 4,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      },
+      {
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#_defaultSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
+        ],
+        "delayMs": 3250,
+        "precedesAttempt": 6,
+        "seq": 5,
+        "site": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts/policy.mjs#<anonymous>"
+      }
+    ],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [
+        {
+          "n": 1,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.3754837804008275
+        },
+        {
+          "n": 2,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.2565019535832107
+        },
+        {
+          "n": 3,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.761579304933548
+        },
+        {
+          "n": 4,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.10971372295171022
+        },
+        {
+          "n": 5,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
+          "value": 0.5787917179986835
+        }
+      ],
+      "scenarioId": "openai-responses-ws/truncated",
+      "seed": 2401572250,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "connection": "Upgrade",
+        "host": "api.openai.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "origin": "wss://api.openai.com",
+      "path": "/v1/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "connection": "Upgrade",
+        "host": "api.openai.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "origin": "wss://api.openai.com",
+      "path": "/v1/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "connection": "Upgrade",
+        "host": "api.openai.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "origin": "wss://api.openai.com",
+      "path": "/v1/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "connection": "Upgrade",
+        "host": "api.openai.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "origin": "wss://api.openai.com",
+      "path": "/v1/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "connection": "Upgrade",
+        "host": "api.openai.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "origin": "wss://api.openai.com",
+      "path": "/v1/responses",
+      "transport": "ws"
+    },
+    {
+      "frames": [
+        {
+          "dir": "in",
+          "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"store\":true,\"prompt_cache_key\":\"mixdog-openai-bfae237b383c08c47b\"}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}"
+        },
+        {
+          "dir": "out",
+          "text": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}"
+        }
+      ],
+      "headers": {
+        "authorization": "Bearer <redacted>",
+        "connection": "Upgrade",
+        "host": "api.openai.com",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-key": "<handshake-nonce>",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket",
+        "x-client-request-id": "<random:hex32>"
+      },
+      "origin": "wss://api.openai.com",
+      "path": "/v1/responses",
+      "transport": "ws"
+    }
+  ],
+  "transports": [
+    "ws"
+  ]
+}

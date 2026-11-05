@@ -1,0 +1,210 @@
+{
+  "before": [
+    {
+      "role": "user",
+      "content": "start",
+      "meta": {
+        "transcript": {
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "reading",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "read",
+          "arguments": {
+            "p": 1
+          }
+        },
+        {
+          "id": "c2",
+          "name": "read",
+          "arguments": {
+            "p": 2
+          }
+        }
+      ],
+      "meta": {
+        "transcript": {
+          "messageId": "m2"
+        }
+      }
+    },
+    {
+      "role": "tool",
+      "content": "one",
+      "toolCallId": "c1",
+      "meta": {
+        "transcript": {
+          "messageId": "m3"
+        }
+      }
+    },
+    {
+      "role": "tool",
+      "content": "two",
+      "toolCallId": "c2",
+      "meta": {
+        "transcript": {
+          "messageId": "m4"
+        }
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "c3",
+          "name": "bash",
+          "arguments": {}
+        }
+      ],
+      "meta": {
+        "transcript": {
+          "messageId": "m5"
+        }
+      }
+    },
+    {
+      "role": "tool",
+      "content": "three",
+      "toolCallId": "c3",
+      "meta": {
+        "transcript": {
+          "messageId": "m6"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "latest",
+      "meta": {
+        "transcript": {
+          "messageId": "m7"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "no id"
+    }
+  ],
+  "after": [
+    {
+      "role": "user",
+      "content": "start",
+      "meta": {
+        "transcript": {
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "reading",
+      "meta": {
+        "source": "compact-execution-text",
+        "transcript": {
+          "messageId": "m2"
+        }
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "c3",
+          "name": "bash",
+          "arguments": {}
+        }
+      ],
+      "meta": {
+        "transcript": {
+          "messageId": "m5"
+        }
+      }
+    },
+    {
+      "role": "tool",
+      "content": "three",
+      "toolCallId": "c3",
+      "meta": {
+        "transcript": {
+          "messageId": "m6"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "latest",
+      "meta": {
+        "transcript": {
+          "messageId": "m7"
+        }
+      }
+    }
+  ],
+  "dropped": [
+    "m3",
+    "m4"
+  ],
+  "projection": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "",
+        "meta": {
+          "transcript": {
+            "messageId": "m2"
+          }
+        },
+        "toolCalls": [
+          {
+            "id": "c1",
+            "name": "read",
+            "arguments": {
+              "p": 1
+            }
+          },
+          {
+            "id": "c2",
+            "name": "read",
+            "arguments": {
+              "p": 2
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "one",
+        "toolCallId": "c1",
+        "meta": {
+          "transcript": {
+            "messageId": "m3"
+          }
+        }
+      },
+      {
+        "role": "tool",
+        "content": "two",
+        "toolCallId": "c2",
+        "meta": {
+          "transcript": {
+            "messageId": "m4"
+          }
+        }
+      }
+    ],
+    "textIds": [
+      "m3",
+      "m4"
+    ]
+  }
+}

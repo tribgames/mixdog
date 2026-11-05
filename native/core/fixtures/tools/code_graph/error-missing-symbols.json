@@ -1,0 +1,8 @@
+{
+  "input": {
+    "mode": "find_symbol"
+  },
+  "isError": false,
+  "text": "# project ws [<ROOT>]\nError: find_symbol: provide \"symbol\" (to locate) or \"file\" (to list its symbols).",
+  "tool": "code_graph"
+}

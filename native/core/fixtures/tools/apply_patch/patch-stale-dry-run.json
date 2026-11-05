@@ -1,0 +1,11 @@
+{
+  "input": {
+    "base_path": "<ROOT>",
+    "dry_run": true,
+    "fuzzy": false,
+    "patch": "*** Begin Patch\n*** Update File: src/lib/notes.txt\n@@\n-absent line\n+x\n*** End Patch\n"
+  },
+  "isError": true,
+  "text": "Error: apply_patch: V4A parse failed — V4A hunk src/lib/notes.txt: context not found: (no anchor); expected first old line: \"absent line\"; nearest line 3: \"TODO: second\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-3 (verbatim — build the retry from these):\n    1| TODO: first\n    2| PLAIN\n    3| TODO: second",
+  "tool": "apply_patch"
+}

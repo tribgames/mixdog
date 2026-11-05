@@ -1,0 +1,222 @@
+{
+  "host": {
+    "script": {
+      "enter": {
+        "error": {
+          "code": "WORKTREE_LARGE_REPO_CONFIRM",
+          "details": {
+            "estimateBytes": 5368709120
+          },
+          "message": "WORKTREE_LARGE_REPO_CONFIRM: big"
+        }
+      },
+      "list": [
+        {
+          "branch": "feat",
+          "id": "wt1",
+          "kind": "worktree",
+          "mergeTarget": "main",
+          "ownerLive": true,
+          "ownerSessionId": "lead",
+          "path": "<ROOT>/.mixdog-wt/feat",
+          "removable": false,
+          "repoCommonDir": "<ROOT>/.git",
+          "state": "ready"
+        },
+        {
+          "baseCommit": "abc",
+          "branch": null,
+          "holderSessionId": "lead",
+          "id": "snap1",
+          "kind": "snapshot",
+          "path": "<ROOT>/.mixdog-wt/snap",
+          "removable": true,
+          "repoCommonDir": "<ROOT>/.git",
+          "state": "ready"
+        }
+      ],
+      "merge": {
+        "error": {
+          "code": "MERGE_CONFLICT",
+          "details": {
+            "files": [
+              "a",
+              "b",
+              "c",
+              "d",
+              "e",
+              "f"
+            ]
+          },
+          "message": "MERGE_CONFLICT: c"
+        }
+      },
+      "prune": {
+        "error": {
+          "code": "WORKTREE_DISK_INSUFFICIENT",
+          "details": {
+            "freeBytes": 1048576,
+            "requiredBytes": 2147483648
+          },
+          "message": "disk"
+        }
+      },
+      "remove": {
+        "error": {
+          "code": "WORKTREE_BUSY_JOBS",
+          "details": {
+            "reason": "folder-shell-jobs"
+          },
+          "message": "busy"
+        }
+      },
+      "return": {
+        "error": {
+          "code": "WORKTREE_DIRTY",
+          "details": {
+            "reason": "project-dirty"
+          },
+          "message": "WORKTREE_DIRTY: x"
+        }
+      }
+    },
+    "sessionId": "lead",
+    "toolCallId": "call1"
+  },
+  "setup": [
+    {
+      "git": [
+        "init",
+        "-q",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "git": [
+        "config",
+        "core.autocrlf",
+        "false"
+      ]
+    },
+    {
+      "write": [
+        "f.txt",
+        "a\nb\nc\n"
+      ]
+    },
+    {
+      "write": [
+        "g.txt",
+        "x\ny\n"
+      ]
+    },
+    {
+      "git": [
+        "add",
+        "."
+      ]
+    },
+    {
+      "git": [
+        "commit",
+        "-q",
+        "-m",
+        "init"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "input": {
+        "action": "worktree",
+        "name": "x",
+        "worktree_action": "enter"
+      },
+      "requests": [
+        {
+          "branch": null,
+          "confirmLarge": false,
+          "create": false,
+          "name": "x",
+          "op": "enter",
+          "txId": "call1:enter"
+        }
+      ],
+      "text": "{\"ok\":false,\"code\":\"WORKTREE_LARGE_REPO_CONFIRM\",\"error\":\"WORKTREE_LARGE_REPO_CONFIRM: big\",\"details\":{\"estimateBytes\":5368709120},\"next\":\"Tell the user the worktree needs about 5.0 GB and ask to confirm; only on yes call again with confirm_large:true.\"}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "return"
+      },
+      "requests": [
+        {
+          "op": "return",
+          "txId": "call1:return"
+        }
+      ],
+      "text": "{\"ok\":false,\"code\":\"WORKTREE_DIRTY\",\"error\":\"The project folder has uncommitted changes. Commit or stash them before switching branches.\",\"details\":{\"reason\":\"project-dirty\"},\"next\":\"Nothing was removed. Commit or merge the work first; force only when the user explicitly asks to discard it.\"}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "merge"
+      },
+      "requests": [
+        {
+          "op": "merge",
+          "txId": "call1:merge"
+        }
+      ],
+      "text": "{\"ok\":false,\"code\":\"MERGE_CONFLICT\",\"error\":\"Nothing was merged. Conflicting files: a, b, c, d, e, …\",\"details\":{\"files\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\"]},\"next\":\"Nothing was merged or forced. Resolve the conflict in the worktree (merge the target branch into it there), or ask the user.\"}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "remove"
+      },
+      "requests": [
+        {
+          "force": false,
+          "op": "remove",
+          "txId": "call1:remove"
+        }
+      ],
+      "text": "{\"ok\":false,\"code\":\"WORKTREE_BUSY_JOBS\",\"error\":\"Background commands still use an affected folder. Wait for them or stop them first.\",\"details\":{\"reason\":\"folder-shell-jobs\"},\"next\":\"Nothing was changed; try again once the session and its workers are idle.\"}"
+    },
+    {
+      "input": {
+        "action": "worktree",
+        "worktree_action": "prune"
+      },
+      "requests": [
+        {
+          "op": "prune",
+          "repoCommonDir": "<ROOT>/.git",
+          "txId": "call1:prune"
+        }
+      ],
+      "text": "{\"ok\":false,\"code\":\"WORKTREE_DISK_INSUFFICIENT\",\"error\":\"Not enough free disk space to create the worktree (2.0 GB needed, 1.0 MB free).\",\"details\":{\"freeBytes\":1048576,\"requiredBytes\":2147483648}}"
+    },
+    {
+      "input": {
+        "command": "git worktree add -b feat2 ../w2",
+        "confirm_large": true
+      },
+      "requests": [
+        {
+          "branch": "feat2",
+          "confirmLarge": true,
+          "create": true,
+          "op": "add",
+          "repoCommonDir": "<ROOT>/.git",
+          "startPoint": "<SHA>",
+          "txId": "call1:git worktree add -b feat2 ../w2"
+        }
+      ],
+      "text": "{\"ok\":true,\"mapped\":\"git worktree add -b feat2 ../w2\",\"requestedPath\":\"<WORK>/w2\",\"note\":\"Managed worktree at the path above (not the one requested), retained by this session. The session did not move; worktree_action:\\\"enter\\\" with branch:\\\"feat2\\\" moves it there.\"}"
+    }
+  ],
+  "tool": "git"
+}

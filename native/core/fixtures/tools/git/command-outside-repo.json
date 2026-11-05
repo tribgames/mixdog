@@ -1,0 +1,20 @@
+{
+  "setup": [
+    {
+      "write": [
+        "plain/x.txt",
+        "x\n"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "cwd": "plain",
+      "input": {
+        "command": "git status"
+      },
+      "text": "exit 128\nfatal: not a git repository (or any of the parent directories): .git\n"
+    }
+  ],
+  "tool": "git"
+}

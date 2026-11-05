@@ -1,0 +1,89 @@
+{
+  "determinism": {
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [],
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+    },
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "otherProductTimerSites": [],
+    "retrySleeps": [],
+    "rng": {
+      "algorithm": "mulberry32",
+      "samples": [],
+      "scenarioId": "devin-oauth/error-400",
+      "seed": 576842757,
+      "seedDerivation": "fnv1a32(scenarioId)"
+    }
+  },
+  "records": [
+    {
+      "bodyText": "\ne\n\u0006chisel\u0012\t0.0.0-dev\u001a(devin-session-token$fixture-access-token\"\u0002en*\u0007windows:\t0.0.0-devb\u0006chisel�\u0001\u0005\u0003\u0004\u0006\u0007\b",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "103",
+        "content-type": "application/proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "connect-protocol-version",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"400\"}}",
+      "transport": "http"
+    },
+    {
+      "bodyText": "\n>\n\bwindsurf\u0012\u00061.48.2\u001a\u0014fixture-access-token\"\u0002en:\u00063.2.23b\bwindsurf",
+      "headers": {
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate",
+        "accept-language": "*",
+        "connect-protocol-version": "1",
+        "connection": "keep-alive",
+        "content-length": "64",
+        "content-type": "application/proto",
+        "host": "server.codeium.com",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node"
+      },
+      "method": "POST",
+      "origin": "https://server.codeium.com",
+      "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "connect-protocol-version",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "served": "{\"error\":{\"message\":\"fixture upstream error\",\"type\":\"fixture_error\",\"code\":\"400\"}}",
+      "transport": "http"
+    }
+  ],
+  "transports": [
+    "http"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "dispatchedToolCalls": [],
+  "error": {
+    "message": "[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: 401 fixture upstream error",
+    "name": "Error",
+    "status": 401
+  }
+}

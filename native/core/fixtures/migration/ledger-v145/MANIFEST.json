@@ -1,0 +1,65 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-ledger-v145.mjs --tree <tree w/ node_modules> [--corpus <migration-corpus>]",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 2326528,
+      "path": "ledger.sqlite",
+      "sha256": "fbc16f71e1b0d44b66be35f41ef6eb7232c0e8cff4648b1282e893362155fcc8"
+    },
+    {
+      "bytes": 15067,
+      "path": "schema.json",
+      "sha256": "a092844a2c610af665adaf8e40a62b053d906b798c75c8838afd118f2d11eda5"
+    },
+    {
+      "bytes": 4193,
+      "path": "tables.json",
+      "sha256": "022120d7be576e5fd9632b1d0814e92be6fbca1da5a0161fdd534edfbe7b186b"
+    }
+  ],
+  "note": "ledger.sqlite bytes may differ between runs (page/meta timestamps); compare schema.json and tables.json (ordered-row sha256) for reproducibility.",
+  "product": {
+    "appsSha256": "da3eecde1f4d3d2cc8c68ade127b95b653f110c5a3b655a94487dc9824205e19",
+    "commit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "comparedAgainst": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "files": 8951,
+    "refComparison": {
+      "closestCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "4043ea0e9f5e2f1a05d840b2f6b056251ab060287a2345bda5b69a60da8e7660",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-ledger-v145.mjs",
+  "rowCounts": {
+    "daily": 31,
+    "day_revisions": 5,
+    "day_sessions": 1080,
+    "legacy_days": 0,
+    "metadata": 1,
+    "quota_samples": 0,
+    "usage_events": 5781,
+    "usage_request_first_output": 0,
+    "usage_request_requested_provider": 0,
+    "usage_requests": 0,
+    "usage_routes": 14,
+    "usage_session_owners": 0,
+    "usage_sessions": 1408
+  },
+  "schemaCounts": {
+    "indexes": 7,
+    "tables": 13,
+    "triggers": 16,
+    "views": 1
+  },
+  "set": "migration/ledger-v145",
+  "tag": "v1.4.5",
+  "tagCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+  "totalBytes": 2345788,
+  "writer": "src/runtime/shared/llm/usage-ledger.mjs of the tag (UsageLedger.record)"
+}

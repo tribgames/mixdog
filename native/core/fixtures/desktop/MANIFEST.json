@@ -1,0 +1,109 @@
+{
+  "command": "see benchmarks/rust-core/README.md",
+  "fileCount": 15,
+  "files": [
+    {
+      "bytes": 3900,
+      "path": "files/corpus.json",
+      "sha256": "c2e2949f754e36ab8e8ebfbae726d5397e365243c892213c871c95a10409631d"
+    },
+    {
+      "bytes": 8750,
+      "path": "git/corpus.json",
+      "sha256": "49a341fe2f63c9e5eb2d60f68c24a112a9e0ee37328c40f677e6bbd07a2da1d5"
+    },
+    {
+      "bytes": 9323,
+      "path": "github/corpus.json",
+      "sha256": "4fef8e5fa252b53011417f9c7f15e8cbf5d0e2f64b08cde8cc5297ff7043c985"
+    },
+    {
+      "bytes": 5033,
+      "path": "lsp/corpus.json",
+      "sha256": "304600829148c2270e0035b6d099dc22382ca22dc6af756c1955281843efc907"
+    },
+    {
+      "bytes": 27301,
+      "path": "lsp/typescript-real.json",
+      "sha256": "9ef447c673aac3f541ac754c75d6ac6208e9d6ad57f34288142a6350a0712047"
+    },
+    {
+      "bytes": 9171,
+      "path": "notifications/corpus.json",
+      "sha256": "4dd264db562e223b66d3b466c69358a3f908b0cb3d93c311e1050ca9fd51a6cf"
+    },
+    {
+      "bytes": 1399,
+      "path": "ports/corpus.json",
+      "sha256": "eb34d2f00c7767c44566ed40d85cff4c09bef7196337138955c3a64a6dfd70c1"
+    },
+    {
+      "bytes": 2261,
+      "path": "remote-relay/corpus.json",
+      "sha256": "a68d7fba42985800d3fe236f935089561e5bc9f06d599394f9ea6bd919c8acb2"
+    },
+    {
+      "bytes": 10029,
+      "path": "search/corpus.json",
+      "sha256": "e6050784c7a0b8a948652333e52e65c14f9e0b787564c71410ce439bb9889033"
+    },
+    {
+      "bytes": 591803,
+      "path": "search/regex-errors.json",
+      "sha256": "fd7aab315c746866a19c759b87c246d439becc176e710c908b29ae966d875889"
+    },
+    {
+      "bytes": 914396,
+      "path": "settings/config-twin.json",
+      "sha256": "93edcf30e737bd0ebb25b2967dbdd2d3713d323434c2b077abdcc0ad079a9aa3"
+    },
+    {
+      "bytes": 7394,
+      "path": "settings/corpus.json",
+      "sha256": "c790168ec0cac00c3c93a8c25c7acad0860e9e5a62a2ae362165bfb7c92ff67a"
+    },
+    {
+      "bytes": 15175,
+      "path": "settings/notification-store-twin.json",
+      "sha256": "063713201b0e6c9cff74acc7f07da84e2ce0d8ffb9e413cc77e6804695764846"
+    },
+    {
+      "bytes": 2683,
+      "path": "terminal/corpus.json",
+      "sha256": "c371b23077b602369daf66a2a35983fc050e0bb6a0cf5112a1fb54ceaa71166f"
+    },
+    {
+      "bytes": 3799,
+      "path": "transfer/corpus.json",
+      "sha256": "95cc2df9b69045043a881af457f650965fd6e92e1bb3ee7e91d249320d147b86"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "6ce874f1e0a5d09b29a9fd84407b1b1eb46fedbb",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs + record-desktop-services.mjs",
+  "serviceDomains": [
+    "settings:16",
+    "github:11",
+    "terminal:15",
+    "lsp:8",
+    "notifications:12",
+    "transfer:14",
+    "remote-relay:10"
+  ],
+  "set": "desktop",
+  "totalBytes": 1612417
+}

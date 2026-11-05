@@ -1,0 +1,15 @@
+{
+  "method": "pdf.ocr",
+  "input": {
+    "path": "<ROOT>/ocr.pdf",
+    "pages": [
+      1
+    ]
+  },
+  "result": [
+    {
+      "page": 1,
+      "text": "Hello exthost page one"
+    }
+  ]
+}
